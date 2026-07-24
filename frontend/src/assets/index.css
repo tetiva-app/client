@@ -1,0 +1,186 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ===== Light Theme — "Clean Print" ===== */
+:root {
+  --radius: 0.625rem;
+  --background: #FFFFFF;
+  --foreground: #1F2328;
+  --card: #F6F8FA;
+  --card-foreground: #1F2328;
+  --popover: #FFFFFF;
+  --popover-foreground: #1F2328;
+  --primary: #5B4BD5;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F2F5;
+  --secondary-foreground: #1F2328;
+  --muted: #F0F2F5;
+  --muted-foreground: #656D76;
+  --accent: #F0F2F5;
+  --accent-foreground: #1F2328;
+  --destructive: #D92D20;
+  --border: #D0D7DE;
+  --input: #D0D7DE;
+  --ring: #5B4BD5;
+  --chart-1: #2563EB;
+  --chart-2: #16A34A;
+  --chart-3: #D97706;
+  --chart-4: #DC2626;
+  --chart-5: #7C3AED;
+  --sidebar: #F6F8FA;
+  --sidebar-foreground: #1F2328;
+  --sidebar-primary: #5B4BD5;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F0F2F5;
+  --sidebar-accent-foreground: #1F2328;
+  --sidebar-border: #D0D7DE;
+  --sidebar-ring: #A8B1BA;
+
+  /* Tetiva semantic tokens */
+  --gc-accent: #5B4BD5;
+  --gc-accent-hover: #4B3BC5;
+  --gc-success: #1A8A6A;
+  --gc-error: #D92D20;
+  --gc-warning: #DC6803;
+  --gc-info: #0B76B7;
+  --gc-surface: #F0F2F5;
+  --gc-surface-hover: #E8EBF0;
+  --gc-text-muted: #A0A8B2;
+  --gc-border-active: #A8B1BA;
+}
+
+/* ===== Dark Theme — "Midnight Gopher" ===== */
+.dark {
+  --background: #0F1117;
+  --foreground: #E1E4E8;
+  --card: #1E2028;
+  --card-foreground: #E1E4E8;
+  --popover: #1E2028;
+  --popover-foreground: #E1E4E8;
+  --primary: #6C5CE7;
+  --primary-foreground: #FFFFFF;
+  --secondary: #1E2028;
+  --secondary-foreground: #E1E4E8;
+  --muted: #1E2028;
+  --muted-foreground: #8B949E;
+  --accent: #1E2028;
+  --accent-foreground: #E1E4E8;
+  --destructive: #F04438;
+  --border: #2E3038;
+  --input: #2E3038;
+  --ring: #6C5CE7;
+  --chart-1: #61AFFE;
+  --chart-2: #49CC90;
+  --chart-3: #FCA130;
+  --chart-4: #F93E3E;
+  --chart-5: #A78BFA;
+  --sidebar: #161922;
+  --sidebar-foreground: #E1E4E8;
+  --sidebar-primary: #6C5CE7;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E2028;
+  --sidebar-accent-foreground: #E1E4E8;
+  --sidebar-border: #2E3038;
+  --sidebar-ring: #3E4048;
+
+  /* Tetiva semantic tokens */
+  --gc-accent: #6C5CE7;
+  --gc-accent-hover: #7C6CF7;
+  --gc-success: #2DD4A0;
+  --gc-error: #F04438;
+  --gc-warning: #F79009;
+  --gc-info: #36BFFA;
+  --gc-surface: #1E2028;
+  --gc-surface-hover: #262830;
+  --gc-text-muted: #545D68;
+  --gc-border-active: #3E4048;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+  }
+}
+
+/* Dark scrollbar for dark theme */
+.dark {
+  color-scheme: dark;
+}
+
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.dark ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Sidebar search highlight */
+mark {
+  background-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}

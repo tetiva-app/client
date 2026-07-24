@@ -1,0 +1,19 @@
+.task
+bin
+.DS_Store
+*.log
+
+# Frontend
+frontend/dist
+frontend/bindings
+frontend/node_modules
+frontend/playwright-report
+frontend/test-results
+
+# Build
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+/client
+
+# IDE
+.idea/

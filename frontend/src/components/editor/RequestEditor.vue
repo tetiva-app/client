@@ -1,0 +1,336 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, defineAsyncComponent } from 'vue'
+import { useRequestStore } from '@/stores/tabs'
+import { useResponseStore } from '@/stores/responses'
+import { useEnvironmentStore } from '@/stores/environments'
+import { useHistoryStore } from '@/stores/history'
+import UrlBar from './UrlBar.vue'
+import PromoteDraftDialog from '@/components/PromoteDraftDialog.vue'
+import { useCollectionStore } from '@/stores/collections'
+import ParamsEditor from './ParamsEditor.vue'
+import AuthEditor from './AuthEditor.vue'
+import HeadersEditor from './HeadersEditor.vue'
+import BodyEditor from './BodyEditor.vue'
+import ScriptEditor from './ScriptEditor.vue'
+import ResponseViewer from './ResponseViewer.vue'
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable'
+import type { BodyType } from '@/types/request'
+import { getRequestService } from '@/services'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { isInsideOverlay } from '@/lib/shortcut-guards'
+
+const GRPCRequestEditor = defineAsyncComponent(() => import('./grpc/GRPCRequestEditor.vue'))
+const GraphQLRequestEditor = defineAsyncComponent(() => import('./graphql/GraphQLRequestEditor.vue'))
+const WebSocketEditor = defineAsyncComponent(() => import('./ws/WebSocketEditor.vue'))
+
+const bodyTypeContentType: Partial<Record<BodyType, string>> = {
+  json: 'application/json',
+  xml: 'application/xml',
+  form: 'application/x-www-form-urlencoded',
+  binary: 'application/octet-stream',
+}
+
+const props = defineProps<{
+  requestId: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'manage-environments'): void
+  (e: 'switch-section', section: string): void
+}>()
+
+const store = useRequestStore()
+const responseStore = useResponseStore()
+const envStore = useEnvironmentStore()
+const historyStore = useHistoryStore()
+
+const secretKeys = computed(() => {
+  const active = envStore.activeEnvironment
+  if (!active) return new Set<string>()
+  const vars = envStore.getVariables(active.id)
+  return new Set(vars.filter(v => v.isSecret).map(v => v.key))
+})
+
+const request = computed(() => store.getById(props.requestId))
+const dirty = computed(() => store.isDirty(`request:${props.requestId}`))
+const responseState = computed(() => responseStore.getResponseState(props.requestId))
+
+const isActiveTab = computed(
+  () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.requestId,
+)
+
+const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts'>('params')
+const promoteOpen = ref(false)
+const collectionsStore = useCollectionStore()
+
+async function onPromoted() {
+  // Refresh collection tree so the newly-promoted request shows up in the sidebar.
+  const wsId = useWorkspaceStore().activeWorkspace?.id
+  if (wsId) {
+    await collectionsStore.fetchAll(wsId)
+  }
+}
+
+const paramCount = computed(() => {
+  if (!request.value?.url) return 0
+  try {
+    const raw = request.value.url
+    const url = new URL(raw.includes('://') ? raw : 'http://' + raw)
+    let count = 0
+    url.searchParams.forEach(() => count++)
+    return count
+  } catch {
+    return 0
+  }
+})
+
+const headerCount = computed(() => {
+  if (!request.value?.headers) return 0
+  return request.value.headers.length
+})
+
+const authLabel: Record<string, string> = {
+  basic: 'Basic',
+  bearer: 'Bearer',
+  api_key: 'API Key',
+}
+
+const bodyLabel: Record<string, string> = {
+  json: 'JSON',
+  xml: 'XML',
+  raw: 'Raw',
+  form: 'Form',
+  binary: 'Binary',
+}
+
+const authBadge = computed(() => {
+  const t = request.value?.authType
+  return t && t !== 'none' ? authLabel[t] ?? '' : ''
+})
+
+const bodyBadge = computed(() => {
+  const t = request.value?.bodyType
+  return t && t !== 'none' ? bodyLabel[t] ?? '' : ''
+})
+
+const tabs = computed(() => [
+  { id: 'params' as const, label: 'Params', badge: paramCount.value > 0 ? String(paramCount.value) : '' },
+  { id: 'auth' as const, label: 'Auth', badge: authBadge.value },
+  { id: 'headers' as const, label: 'Headers', badge: headerCount.value > 0 ? String(headerCount.value) : '' },
+  { id: 'body' as const, label: 'Body', badge: bodyBadge.value },
+  { id: 'scripts' as const, label: 'Scripts', badge: (() => { const count = (request.value?.preScript ? 1 : 0) + (request.value?.postScript ? 1 : 0); return count > 0 ? String(count) : '' })() },
+])
+
+function handleKeydown(event: KeyboardEvent) {
+  if (!isActiveTab.value) return
+  if (isInsideOverlay(event)) return
+  // gRPC/GraphQL editors register their own handler — avoid double save/send
+  const proto = request.value?.protocol
+  if (proto === 'grpc' || proto === 'graphql') return
+  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+    event.preventDefault()
+    store.saveToBackend(props.requestId)
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    event.preventDefault()
+    // WS tabs use their own Connect/Send UI — Cmd+Enter must not call executeRequest
+    // (the backend rejects WS protocol in Execute with a ValidationError).
+    if (request.value?.protocol === 'websocket') return
+    store.executeRequest(props.requestId)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
+function onShowHistory() {
+  if (!request.value) return
+  historyStore.setRequestIdFilter(request.value.id)
+  emit('switch-section', 'history')
+}
+
+async function handleCopyCurl() {
+  if (!request.value) return
+  const wsId = useWorkspaceStore().activeWorkspace?.id
+  if (!wsId) return
+  const service = await getRequestService()
+  const result = await service.generateCurl({ requestId: props.requestId, workspaceId: wsId })
+  if (result.error) {
+    console.error('generateCurl failed:', result.error)
+    return
+  }
+  // Use Wails native clipboard: navigator.clipboard.writeText fails in WebView
+  // after an awaited backend call (user-activation gesture is consumed).
+  try {
+    const { Clipboard } = await import('@wailsio/runtime')
+    await Clipboard.SetText(result.data.command)
+  } catch {
+    // Browser-mode fallback (vite dev without Wails).
+    await navigator.clipboard.writeText(result.data.command)
+  }
+}
+
+function updateField(field: string, value: any) {
+  store.updateLocal(props.requestId, { [field]: value })
+  if (field === 'method' || field === 'name') {
+    store.syncTabMeta(props.requestId)
+  }
+
+  if (field === 'bodyType' && request.value) {
+    const newBodyType = value as BodyType
+    const newCt = bodyTypeContentType[newBodyType]
+    const headers = [...request.value.headers]
+    const ctIndex = headers.findIndex(h => h.key.toLowerCase() === 'content-type')
+
+    if (newCt) {
+      if (ctIndex >= 0) {
+        headers[ctIndex] = { ...headers[ctIndex], value: newCt }
+      } else {
+        headers.push({ key: 'Content-Type', value: newCt, enabled: true })
+      }
+    } else if (ctIndex >= 0) {
+      headers.splice(ctIndex, 1)
+    }
+
+    store.updateLocal(props.requestId, { headers })
+  }
+}
+</script>
+
+<template>
+  <GRPCRequestEditor v-if="request && request.protocol === 'grpc'" :request="request" />
+
+  <GraphQLRequestEditor v-else-if="request && request.protocol === 'graphql'" :request="request" />
+
+  <WebSocketEditor v-else-if="request && request.protocol === 'websocket'" :request="request" @manage-environments="$emit('manage-environments')" />
+
+  <div v-else-if="request" class="flex flex-col h-full">
+    <div
+      v-if="request.isDraft"
+      class="mt-3 mx-3 flex items-center justify-between gap-3 px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 text-xs"
+    >
+      <span class="text-muted-foreground">
+        This is a draft replayed from history. Save it as a request to keep it permanently.
+      </span>
+      <button
+        type="button"
+        class="px-2.5 py-1 text-xs font-medium rounded border border-border bg-background hover:bg-accent transition-colors cursor-pointer"
+        @click="promoteOpen = true"
+      >
+        Save as request →
+      </button>
+    </div>
+
+    <PromoteDraftDialog
+      v-if="request.isDraft"
+      v-model:open="promoteOpen"
+      :draft-id="request.id"
+      @promoted="onPromoted"
+    />
+
+    <div class="pt-3">
+      <UrlBar
+        :method="request.method"
+        :url="request.url"
+        :loading="responseState.status === 'loading'"
+        @update:method="(v) => updateField('method', v)"
+        @update:url="(v) => updateField('url', v)"
+        @send="store.executeRequest(props.requestId)"
+        @cancel="responseStore.cancelRequest(props.requestId)"
+        @manage-environments="$emit('manage-environments')"
+        @copy-curl="handleCopyCurl"
+        @show-history="onShowHistory"
+      />
+    </div>
+
+    <ResizablePanelGroup
+      direction="vertical"
+      auto-save-id="request-response-split"
+      class="flex-1 mt-3"
+    >
+      <ResizablePanel :default-size="40" :min-size="15">
+        <div class="flex flex-col h-full">
+          <div class="flex border-b border-border px-3">
+            <button
+              v-for="tab in tabs"
+              :key="tab.id"
+              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
+              :class="activeTab === tab.id
+                ? 'border-b-[3px] border-primary text-foreground'
+                : 'text-muted-foreground hover:text-foreground'"
+              @click="activeTab = tab.id"
+            >
+              {{ tab.label }}
+              <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
+                ({{ tab.badge }})
+              </span>
+            </button>
+
+            <div v-if="dirty" class="ml-auto flex items-center pr-3">
+              <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+            </div>
+          </div>
+
+          <div class="flex-1 min-h-0 overflow-auto">
+            <ParamsEditor
+              v-if="activeTab === 'params'"
+              :url="request.url"
+              @update:url="(v) => updateField('url', v)"
+            />
+            <AuthEditor
+              v-else-if="activeTab === 'auth'"
+              :auth-type="request.authType"
+              :auth-data="request.authData"
+              @update:auth-type="(v) => updateField('authType', v)"
+              @update:auth-data="(v) => updateField('authData', v)"
+            />
+            <HeadersEditor
+              v-else-if="activeTab === 'headers'"
+              :headers="request.headers"
+              @update:headers="(v) => updateField('headers', v)"
+            />
+            <BodyEditor
+              v-else-if="activeTab === 'body'"
+              :request-id="requestId"
+              :body="request.body"
+              :body-type="request.bodyType"
+              :method="request.method"
+              :resolved-variables="envStore.resolvedVariables"
+              :secret-keys="secretKeys"
+              @update:body="(v) => updateField('body', v)"
+              @update:body-type="(v) => updateField('bodyType', v)"
+            />
+            <ScriptEditor
+              v-else-if="activeTab === 'scripts'"
+              :entity-id="requestId"
+              :pre-script="request.preScript"
+              :post-script="request.postScript"
+              :resolved-variables="envStore.resolvedVariables"
+              :secret-keys="secretKeys"
+              @update:pre-script="(v) => updateField('preScript', v)"
+              @update:post-script="(v) => updateField('postScript', v)"
+            />
+          </div>
+        </div>
+      </ResizablePanel>
+
+      <ResizableHandle with-handle />
+
+      <ResizablePanel :default-size="60" :min-size="20">
+        <ResponseViewer
+          :state="responseState"
+          @cancel="responseStore.cancelRequest(props.requestId)"
+        />
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  </div>
+</template>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tetiva</title>
+    <script>
+      // Apply the theme class before first paint to avoid a flash.
+      // Must stay in sync with stores/settings.ts (key + 'system' resolution).
+      (function () {
+        try {
+          var raw = localStorage.getItem('gophercourier.settings');
+          var theme = raw ? (JSON.parse(raw).theme || 'system') : 'system';
+          var dark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          try {
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              document.documentElement.classList.add('dark');
+            }
+          } catch (e2) {
+            /* storage and matchMedia both unavailable — fall back to light */
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+import { test } from '@playwright/test';
+test('debug', async ({ page }) => {
+  page.on('pageerror', error => console.log('PAGE ERROR:', error.message));
+  page.on('console', msg => console.log('CONSOLE:', msg.text()));
+  await page.goto('/');
+  await page.getByTitle('New Collection').click();
+  let dialog = page.getByRole('dialog');
+  let input = dialog.getByPlaceholder('Collection name');
+  await input.fill('Debug Tests');
+  await input.press('Enter');
+  const sidebar = page.locator('aside');
+  const collectionItem = sidebar.getByText('Debug Tests');
+  await collectionItem.click();
+  await collectionItem.click({ button: 'right' });
+  await page.getByRole('menu').getByText('New Request').click();
+  dialog = page.getByRole('dialog');
+  input = dialog.getByPlaceholder('Request name');
+  await input.fill('Debug Request');
+  await input.press('Enter');
+  const scriptsTab = page.locator('button', { hasText: 'Scripts' });
+  await scriptsTab.click();
+  await page.waitForTimeout(2000);
+});

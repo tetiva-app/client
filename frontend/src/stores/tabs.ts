@@ -1,0 +1,581 @@
+import { ref, computed } from 'vue'
+import { defineStore } from 'pinia'
+import type { Request, Protocol } from '@/types/request'
+import { getRequestService } from '@/services'
+import { DEFAULT_PROTOCOL, DEFAULT_METHOD, DEFAULT_BODY_TYPE, DEFAULT_AUTH_TYPE, DEFAULT_AUTH_DATA } from '@/constants/defaults'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { clearDrafts } from '@/composables/useBodyDrafts'
+import { useResponseStore } from '@/stores/responses'
+import { runMutation } from '@/stores/runMutation'
+import { useToast } from '@/composables/useToast'
+
+export type Tab =
+  | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
+  | { id: string; type: 'collection'; collectionId: string; name: string }
+
+export const useRequestStore = defineStore('requests', () => {
+  const requestsMap = ref<Map<string, Request>>(new Map())
+  const loading = ref(false)
+
+  const savedSnapshots = ref<Map<string, Request>>(new Map())
+
+  const openTabs = ref<Tab[]>([])
+  const activeTabId = ref<string | null>(null)
+
+  const activeTab = computed(() => {
+    if (!activeTabId.value) return null
+    return openTabs.value.find(t => t.id === activeTabId.value) ?? null
+  })
+
+  const collectionInitialSections = ref(new Map<string, string>())
+
+  const collectionEditorRefs = ref(new Map<string, { saveScripts: () => Promise<void>; scriptsDirty: boolean }>())
+
+  function registerCollectionEditor(collectionId: string, editorRef: { saveScripts: () => Promise<void>; scriptsDirty: boolean }) {
+    collectionEditorRefs.value.set(collectionId, editorRef)
+  }
+
+  function unregisterCollectionEditor(collectionId: string) {
+    collectionEditorRefs.value.delete(collectionId)
+  }
+
+  function byCollection(collectionId: string): Request[] {
+    return Array.from(requestsMap.value.values())
+      .filter(r => r.collectionId === collectionId)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }
+
+  function isDirty(tabId: string): boolean {
+    const tab = openTabs.value.find(t => t.id === tabId)
+    if (!tab) return false
+    if (tab.type === 'request') {
+      return isRequestDirty(tab.requestId)
+    }
+    if (tab.type === 'collection') {
+      const editorRef = collectionEditorRefs.value.get(tab.collectionId)
+      return editorRef?.scriptsDirty ?? false
+    }
+    return false
+  }
+
+  function getById(id: string): Request | undefined {
+    return requestsMap.value.get(id)
+  }
+
+  async function fetchByCollection(collectionId: string) {
+    loading.value = true
+    try {
+      const service = await getRequestService()
+      const result = await service.list(collectionId)
+      if (result.error) {
+        console.error('Failed to fetch requests:', result.error.message)
+        return
+      }
+      for (const [id, req] of requestsMap.value) {
+        if (req.collectionId === collectionId) {
+          requestsMap.value.delete(id)
+          savedSnapshots.value.delete(id)
+        }
+      }
+      for (const item of result.data) {
+        requestsMap.value.set(item.id, item)
+        savedSnapshots.value.set(item.id, { ...item })
+      }
+      requestsMap.value = new Map(requestsMap.value)
+      savedSnapshots.value = new Map(savedSnapshots.value)
+    } catch (err) {
+      console.error('Failed to fetch requests:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function create(collectionId: string, name: string, options?: { protocol?: Protocol }): Promise<Request | null> {
+    const protocol = options?.protocol ?? DEFAULT_PROTOCOL
+    const method = (protocol === 'grpc' || protocol === 'graphql') ? 'POST' as const : DEFAULT_METHOD
+    const bodyType = protocol === 'grpc' ? 'json' as const : protocol === 'graphql' ? 'none' as const : DEFAULT_BODY_TYPE
+    const data = await runMutation('Failed to create request', () =>
+      getRequestService().then(s => s.create({
+        collectionId,
+        name,
+        protocol,
+        method,
+        url: '',
+        headers: [],
+        body: '',
+        bodyType,
+        authType: DEFAULT_AUTH_TYPE,
+        authData: DEFAULT_AUTH_DATA,
+        preScript: '',
+        postScript: '',
+      }))
+    )
+    if (!data) return null
+    requestsMap.value.set(data.id, data)
+    savedSnapshots.value.set(data.id, { ...data })
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+    return data
+  }
+
+  function loadRequest(request: Request) {
+    requestsMap.value.set(request.id, request)
+    savedSnapshots.value.set(request.id, { ...request })
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+  }
+
+  // In-memory only; persisted later via saveToBackend (hybrid save).
+  function updateLocal(id: string, partial: Partial<Request>) {
+    const existing = requestsMap.value.get(id)
+    if (!existing) return
+    const updated = { ...existing, ...partial }
+    requestsMap.value.set(id, updated)
+    requestsMap.value = new Map(requestsMap.value)
+  }
+
+  function isRequestDirty(requestId: string): boolean {
+    const saved = savedSnapshots.value.get(requestId)
+    const current = requestsMap.value.get(requestId)
+    if (!saved || !current) return false
+    return JSON.stringify(saved) !== JSON.stringify(current)
+  }
+
+  // Dedupe concurrent saves — a parallel edit would lose the version race
+  const savesInFlight = new Map<string, Promise<boolean>>()
+
+  function saveToBackend(id: string): Promise<boolean> {
+    const inFlight = savesInFlight.get(id)
+    if (inFlight) return inFlight
+    const promise = doSave(id).finally(() => savesInFlight.delete(id))
+    savesInFlight.set(id, promise)
+    return promise
+  }
+
+  async function doSave(id: string): Promise<boolean> {
+    const current = requestsMap.value.get(id)
+    if (!current) return true
+    if (!isRequestDirty(id)) return true
+
+    try {
+      const service = await getRequestService()
+      const result = await service.edit({
+        id: current.id,
+        name: current.name,
+        method: current.method,
+        url: current.url,
+        headers: current.headers,
+        body: current.body,
+        bodyType: current.bodyType,
+        authType: current.authType,
+        authData: current.authData,
+        preScript: current.preScript,
+        postScript: current.postScript,
+        version: current.version,
+        grpcService: current.grpcService,
+        grpcMethod: current.grpcMethod,
+        grpcProtoPath: current.grpcProtoPath,
+        grpcMetadata: current.grpcMetadata,
+        graphqlQuery: current.graphqlQuery,
+        graphqlVariables: current.graphqlVariables,
+        graphqlSchemaPath: current.graphqlSchemaPath,
+        graphqlOperation: current.graphqlOperation,
+      })
+      if (result.error) {
+        console.error('Failed to save request:', result.error.message)
+        useToast().error(`Failed to save request: ${result.error.message}`)
+        return false
+      }
+      const latest = requestsMap.value.get(id)
+      if (latest && latest !== current) {
+        // User typed during the save: keep local edits, adopt only the server version
+        requestsMap.value.set(id, { ...latest, version: result.data.version, updatedAt: result.data.updatedAt })
+      } else {
+        requestsMap.value.set(result.data.id, result.data)
+      }
+      savedSnapshots.value.set(result.data.id, { ...result.data })
+      requestsMap.value = new Map(requestsMap.value)
+      savedSnapshots.value = new Map(savedSnapshots.value)
+      return true
+    } catch (err) {
+      console.error('Failed to save request:', err)
+      useToast().error('Failed to save request')
+      return false
+    }
+  }
+
+  async function rename(id: string, newName: string, version: number): Promise<boolean> {
+    const current = requestsMap.value.get(id)
+    if (!current) return false
+
+    try {
+      const service = await getRequestService()
+      const result = await service.edit({
+        id: current.id,
+        name: newName,
+        method: current.method,
+        url: current.url,
+        headers: current.headers,
+        body: current.body,
+        bodyType: current.bodyType,
+        authType: current.authType,
+        authData: current.authData,
+        preScript: current.preScript,
+        postScript: current.postScript,
+        version,
+        grpcService: current.grpcService,
+        grpcMethod: current.grpcMethod,
+        grpcProtoPath: current.grpcProtoPath,
+        grpcMetadata: current.grpcMetadata,
+        graphqlQuery: current.graphqlQuery,
+        graphqlVariables: current.graphqlVariables,
+        graphqlSchemaPath: current.graphqlSchemaPath,
+        graphqlOperation: current.graphqlOperation,
+      })
+      if (result.error) {
+        console.error('Failed to rename request:', result.error.message)
+        return false
+      }
+      requestsMap.value.set(result.data.id, result.data)
+      savedSnapshots.value.set(result.data.id, { ...result.data })
+      requestsMap.value = new Map(requestsMap.value)
+      savedSnapshots.value = new Map(savedSnapshots.value)
+      const tabId = `request:${id}`
+      const tab = openTabs.value.find(t => t.id === tabId)
+      if (tab && tab.type === 'request') {
+        tab.name = newName
+        openTabs.value = [...openTabs.value]
+      }
+      return true
+    } catch (err) {
+      console.error('Failed to rename request:', err)
+      return false
+    }
+  }
+
+  async function remove(id: string, version: number) {
+    const data = await runMutation('Failed to delete request', () =>
+      getRequestService().then(s => s.delete({ id, version }))
+    )
+    if (!data) return
+    // Close tab before removing data (closeTab calls saveToBackend, but the request is already deleted)
+    const tabId = `request:${id}`
+    if (openTabs.value.some(t => t.id === tabId)) {
+      const idx = openTabs.value.findIndex(t => t.id === tabId)
+      openTabs.value = openTabs.value.filter(t => t.id !== tabId)
+      if (activeTabId.value === tabId) {
+        if (openTabs.value.length === 0) {
+          activeTabId.value = null
+        } else {
+          const newIdx = Math.min(idx, openTabs.value.length - 1)
+          activeTabId.value = openTabs.value[newIdx].id
+        }
+      }
+    }
+    requestsMap.value.delete(id)
+    savedSnapshots.value.delete(id)
+    useResponseStore().deleteResponse(id)
+    clearDrafts(id)
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+  }
+
+  async function openTab(requestId: string) {
+    const existing = openTabs.value.find(t => t.id === `request:${requestId}`)
+    if (existing) {
+      activeTabId.value = existing.id
+      return
+    }
+
+    // Always re-fetch from backend to get fresh data (handles detach/reattach scenarios)
+    try {
+      const service = await getRequestService()
+      const result = await service.getById(requestId)
+      if (!result.error) {
+        loadRequest(result.data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch request for tab:', err)
+    }
+
+    const req = requestsMap.value.get(requestId)
+    openTabs.value.push({
+      id: `request:${requestId}`,
+      type: 'request',
+      requestId,
+      name: req?.name ?? 'Untitled',
+      method: req?.method ?? 'GET',
+      protocol: req?.protocol ?? 'http',
+    })
+    activeTabId.value = `request:${requestId}`
+  }
+
+  async function closeTab(tabId: string) {
+    const tab = openTabs.value.find(t => t.id === tabId)
+    if (!tab) return
+    // WebSocket tabs are ephemeral: close the connection and drop the log before
+    // the tab goes. Dynamic import avoids a static store cycle at module load.
+    if (tab.type === 'request' && tab.protocol === 'websocket') {
+      const { useWebSocketStore } = await import('./websocket')
+      await useWebSocketStore().teardown(tab.requestId)
+    }
+    // Keep the tab open if the save failed
+    if (!(await saveTabBeforeClose(tab))) return
+    const idx = openTabs.value.findIndex(t => t.id === tabId)
+    openTabs.value.splice(idx, 1)
+    if (activeTabId.value === tabId) {
+      const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
+      activeTabId.value = next?.id ?? null
+    }
+  }
+
+  async function saveTabBeforeClose(tab: Tab): Promise<boolean> {
+    if (tab.type === 'request') {
+      const req = requestsMap.value.get(tab.requestId)
+      // Drafts (created via History → Replay) are hard-deleted on close to avoid
+      // accumulating soft-deleted rows. Skip the saveToBackend path entirely.
+      if (req?.isDraft) {
+        try {
+          const service = await getRequestService()
+          await service.deleteDraft(tab.requestId)
+        } catch (err) {
+          console.error('Failed to delete draft request:', err)
+        }
+        requestsMap.value.delete(tab.requestId)
+        savedSnapshots.value.delete(tab.requestId)
+        useResponseStore().deleteResponse(tab.requestId)
+        clearDrafts(tab.requestId)
+        requestsMap.value = new Map(requestsMap.value)
+        savedSnapshots.value = new Map(savedSnapshots.value)
+        return true
+      }
+      return saveToBackend(tab.requestId)
+    }
+    if (tab.type === 'collection') {
+      const editorRef = collectionEditorRefs.value.get(tab.collectionId)
+      if (editorRef?.scriptsDirty) {
+        try {
+          await editorRef.saveScripts()
+        } catch (err) {
+          console.error('Failed to save collection scripts:', err)
+          useToast().error('Failed to save collection scripts')
+          return false
+        }
+      }
+      return true
+    }
+    return true
+  }
+
+  async function closeAllTabs() {
+    const kept: Tab[] = []
+    for (const tab of [...openTabs.value]) {
+      if (!(await saveTabBeforeClose(tab))) kept.push(tab)
+    }
+    openTabs.value = kept
+    activeTabId.value = kept[0]?.id ?? null
+  }
+
+  async function closeOtherTabs(tabId: string) {
+    const keep = openTabs.value.find(t => t.id === tabId)
+    if (!keep) return
+    const kept: Tab[] = [keep]
+    for (const tab of openTabs.value.filter(t => t.id !== tabId)) {
+      if (!(await saveTabBeforeClose(tab))) kept.push(tab)
+    }
+    openTabs.value = kept
+    activeTabId.value = tabId
+  }
+
+  function syncTabMeta(requestId: string) {
+    const tab = openTabs.value.find(t => t.id === `request:${requestId}`)
+    if (tab && tab.type === 'request') {
+      const req = requestsMap.value.get(requestId)
+      if (req) {
+        tab.name = req.name
+        tab.method = req.method
+        tab.protocol = req.protocol
+      }
+    }
+  }
+
+  async function executeRequest(id: string) {
+    const req = requestsMap.value.get(id)
+    if (!req) return
+
+    const responses = useResponseStore()
+
+    if (responses.getResponseState(id).status === 'loading') return
+
+    if (isRequestDirty(id)) {
+      // Don't execute a stale version after a failed save
+      if (!(await saveToBackend(id))) return
+    }
+
+    responses.setResponse(id, { status: 'loading', startedAt: Date.now() })
+
+    try {
+      const service = await getRequestService()
+      const wsId = useWorkspaceStore().activeWorkspace?.id
+      if (!wsId) return
+      const result = await service.execute({ requestId: id, workspaceId: wsId })
+
+      // Check if request still exists (may have been deleted during execution)
+      if (!requestsMap.value.has(id)) return
+
+      if (result.error) {
+        responses.setResponse(id, {
+          status: 'error',
+          error: {
+            title: result.error.code === 'request_error' ? 'Request Failed' : 'Error',
+            detail: result.error.message,
+            suggestions: getSuggestions(result.error.message),
+          },
+        })
+      } else {
+        responses.setResponse(id, { status: 'success', data: result.data })
+      }
+    } catch (err) {
+      responses.setResponse(id, {
+        status: 'error',
+        error: {
+          title: 'Unexpected Error',
+          detail: String(err),
+          suggestions: [],
+        },
+      })
+    }
+  }
+
+  function getSuggestions(message: string): string[] {
+    const lower = message.toLowerCase()
+    if (lower.includes('connection refused')) {
+      return ['Check that the server is running', 'Verify the host and port']
+    }
+    if (lower.includes('dns')) {
+      return ['Check the URL for typos', 'Verify network connection']
+    }
+    if (lower.includes('timeout') || lower.includes('timed out')) {
+      return ['The server took too long to respond', 'Try increasing the timeout or check server health']
+    }
+    return []
+  }
+
+  async function move(id: string, targetCollectionId: string, version: number): Promise<boolean> {
+    const data = await runMutation('Failed to move request', () =>
+      getRequestService().then(s => s.move({ id, targetCollectionId, version }))
+    )
+    if (!data) return false
+    requestsMap.value.set(data.id, data)
+    savedSnapshots.value.set(data.id, { ...data })
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+    return true
+  }
+
+  function openCollectionTab(
+    collectionId: string,
+    name: string,
+    options?: { initialSection?: 'overview' | 'authorization' | 'scripts' }
+  ) {
+    const tabId = `collection:${collectionId}`
+    const existing = openTabs.value.find(t => t.id === tabId)
+    if (existing) {
+      activeTabId.value = tabId
+      if (options?.initialSection) {
+        collectionInitialSections.value.set(collectionId, options.initialSection)
+      }
+      return
+    }
+    if (options?.initialSection) {
+      collectionInitialSections.value.set(collectionId, options.initialSection)
+    }
+    openTabs.value.push({ id: tabId, type: 'collection', collectionId, name })
+    activeTabId.value = tabId
+  }
+
+  function syncCollectionTabName(collectionId: string, newName: string) {
+    const tab = openTabs.value.find(
+      t => t.type === 'collection' && t.collectionId === collectionId,
+    )
+    if (tab && tab.type === 'collection') {
+      tab.name = newName
+    }
+  }
+
+  function closeCollectionTab(collectionId: string) {
+    const tabId = `collection:${collectionId}`
+    const idx = openTabs.value.findIndex(t => t.id === tabId)
+    if (idx === -1) return
+    openTabs.value.splice(idx, 1)
+    if (activeTabId.value === tabId) {
+      const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
+      activeTabId.value = next?.id ?? null
+    }
+  }
+
+  // Close tabs and drop cached data for backend-deleted collections. Never saves.
+  async function purgeCollectionSubtree(collectionIds: string[]) {
+    const idSet = new Set(collectionIds)
+    const doomed = Array.from(requestsMap.value.values()).filter(r => idSet.has(r.collectionId))
+    for (const req of doomed) {
+      if (req.protocol === 'websocket') {
+        const { useWebSocketStore } = await import('./websocket')
+        await useWebSocketStore().teardown(req.id)
+      }
+      requestsMap.value.delete(req.id)
+      savedSnapshots.value.delete(req.id)
+      useResponseStore().deleteResponse(req.id)
+      clearDrafts(req.id)
+    }
+    const doomedRequestIds = new Set(doomed.map(r => r.id))
+    openTabs.value = openTabs.value.filter(t => {
+      if (t.type === 'request') return !doomedRequestIds.has(t.requestId)
+      return !idSet.has(t.collectionId)
+    })
+    if (activeTabId.value && !openTabs.value.some(t => t.id === activeTabId.value)) {
+      activeTabId.value = openTabs.value[0]?.id ?? null
+    }
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+  }
+
+  function consumeInitialSection(collectionId: string): string | undefined {
+    const section = collectionInitialSections.value.get(collectionId)
+    if (section) collectionInitialSections.value.delete(collectionId)
+    return section
+  }
+
+  return {
+    requestsMap,
+    loading,
+    openTabs,
+    activeTabId,
+    activeTab,
+    byCollection,
+    isDirty,
+    getById,
+    fetchByCollection,
+    create,
+    loadRequest,
+    updateLocal,
+    isRequestDirty,
+    saveToBackend,
+    remove,
+    rename,
+    move,
+    openTab,
+    openCollectionTab,
+    consumeInitialSection,
+    closeTab,
+    closeAllTabs,
+    closeOtherTabs,
+    syncTabMeta,
+    executeRequest,
+    registerCollectionEditor,
+    unregisterCollectionEditor,
+    syncCollectionTabName,
+    closeCollectionTab,
+    purgeCollectionSubtree,
+  }
+})

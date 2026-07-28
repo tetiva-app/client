@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
+  hasStoredOnboardingFlag,
   loadSettings,
   saveSettings,
   DEFAULT_SETTINGS,
@@ -59,6 +60,7 @@ describe('settings-storage', () => {
     expect(s.lastUpdateCheckAt).toBeNull()
     expect(s.availableUpdate).toBeNull()
     expect(s.lastSeenWhatsNewVersion).toBeNull()
+    expect(s.onboardingCompletedAt).toBeNull()
   })
 
   it('round-trips the update fields through save and load', () => {
@@ -68,9 +70,30 @@ describe('settings-storage', () => {
       lastUpdateCheckAt: '2026-07-12T10:00:00.000Z',
       availableUpdate: { version: '0.16.0', url: 'https://example.com/releases' },
       lastSeenWhatsNewVersion: '0.15.0',
+      onboardingCompletedAt: '2026-07-27T09:30:00.000Z',
     }
     saveSettings(settings)
     expect(loadSettings()).toEqual(settings)
+  })
+
+  it('loads a payload written before onboardingCompletedAt existed', () => {
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({
+      theme: 'dark',
+      editorFontSize: 14,
+      editorWordWrap: true,
+      checkUpdatesAutomatically: true,
+      lastUpdateCheckAt: '2026-07-12T10:00:00.000Z',
+      availableUpdate: null,
+      lastSeenWhatsNewVersion: '0.15.3',
+    }))
+    const s = loadSettings()
+    expect(s.onboardingCompletedAt).toBeNull()
+    expect(s.lastSeenWhatsNewVersion).toBe('0.15.3')
+  })
+
+  it('drops a non-string onboardingCompletedAt', () => {
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ onboardingCompletedAt: 1753600000000 }))
+    expect(loadSettings().onboardingCompletedAt).toBeNull()
   })
 
   it('drops a malformed availableUpdate to null', () => {
@@ -88,6 +111,27 @@ describe('settings-storage', () => {
     expect(JSON.parse(store.get(SETTINGS_STORAGE_KEY)!)).toEqual({
       ...DEFAULT_SETTINGS, theme: 'dark', editorFontSize: 14, editorWordWrap: true,
     })
+  })
+
+  it('tells an absent onboarding flag from a stored null', () => {
+    expect(hasStoredOnboardingFlag()).toBe(false)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ lastSeenWhatsNewVersion: '0.15.3' }))
+    expect(hasStoredOnboardingFlag()).toBe(false)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ onboardingCompletedAt: null }))
+    expect(hasStoredOnboardingFlag()).toBe(true)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ onboardingCompletedAt: '2026-07-27T09:30:00.000Z' }))
+    expect(hasStoredOnboardingFlag()).toBe(true)
+  })
+
+  it('reports no stored onboarding flag on corrupt or non-object JSON', () => {
+    store.set(SETTINGS_STORAGE_KEY, '{not json')
+    expect(hasStoredOnboardingFlag()).toBe(false)
+
+    store.set(SETTINGS_STORAGE_KEY, '"nope"')
+    expect(hasStoredOnboardingFlag()).toBe(false)
   })
 
   it('saveSettings swallows storage errors', () => {

@@ -54,8 +54,6 @@ func setupSyncTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// TODO: happy paths need SyncService deps behind interfaces; only the nil-client early exits are testable here.
-
 func TestSyncService_CreateRemoteWorkspace_Error_NotConnected(t *testing.T) {
 	svc := &SyncService{}
 

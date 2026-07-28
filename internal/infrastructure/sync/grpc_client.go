@@ -58,6 +58,11 @@ func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 	}, nil
 }
 
+// NewGRPCClientWithStubs builds a client around ready-made stubs, for tests without a live server.
+func NewGRPCClientWithStubs(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient) *GRPCClient {
+	return &GRPCClient{auth: auth, workspace: ws}
+}
+
 // Close closes the gRPC connection.
 func (c *GRPCClient) Close() error {
 	if c.conn != nil {

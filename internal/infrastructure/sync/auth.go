@@ -48,6 +48,12 @@ func keyringKeyFor(clientID string) string {
 	return keyringKeyPrefix + clientID
 }
 
+// AuthResult carries the account facts the UI needs right after Login/Register.
+type AuthResult struct {
+	Email                     string
+	RequiresEmailVerification bool
+}
+
 // SyncAuthManager manages authentication with the sync server.
 // Access token is kept in memory; refresh token in OS keychain (fallback: sync_config table).
 type SyncAuthManager struct {
@@ -90,12 +96,12 @@ func (a *SyncAuthManager) GetActiveOrgID() string {
 }
 
 // Login authenticates with the sync server and stores tokens.
-func (a *SyncAuthManager) Login(ctx context.Context, client *GRPCClient, email, password string) error {
+func (a *SyncAuthManager) Login(ctx context.Context, client *GRPCClient, email, password string) (*AuthResult, error) {
 	const funcName = "SyncAuthManager.Login"
 
 	cfg, err := a.configRepo.GetOrCreate(ctx)
 	if err != nil {
-		return fmt.Errorf("%s: get config: %w", funcName, err)
+		return nil, fmt.Errorf("%s: get config: %w", funcName, err)
 	}
 
 	clientID := cfg.ClientID
@@ -111,29 +117,30 @@ func (a *SyncAuthManager) Login(ctx context.Context, client *GRPCClient, email, 
 
 	resp, err := client.Auth().Login(ctx, req)
 	if err != nil {
-		return fmt.Errorf("%s: login rpc: %w", funcName, err)
+		return nil, fmt.Errorf("%s: login rpc: %w", funcName, err)
 	}
 
 	slog.Info("sync: login rpc ok", "email", email, "active_org_id", resp.GetActiveOrgId())
 
 	a.storeTokens(resp.GetAccessToken(), resp.GetRefreshToken(), resp.GetActiveOrgId())
 
-	cfg.UserEmail = email
-	cfg.Enabled = true
-	if err := a.configRepo.Update(ctx, cfg); err != nil {
-		return fmt.Errorf("%s: update config: %w", funcName, err)
+	if err := a.persistSession(ctx, cfg, email, resp.GetRefreshToken()); err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	return nil
+	return &AuthResult{
+		Email:                     email,
+		RequiresEmailVerification: resp.GetRequiresEmailVerification(),
+	}, nil
 }
 
 // Register creates a new account on the sync server and stores tokens.
-func (a *SyncAuthManager) Register(ctx context.Context, client *GRPCClient, email, password, name, locale string) error {
+func (a *SyncAuthManager) Register(ctx context.Context, client *GRPCClient, email, password, name, locale string) (*AuthResult, error) {
 	const funcName = "SyncAuthManager.Register"
 
 	cfg, err := a.configRepo.GetOrCreate(ctx)
 	if err != nil {
-		return fmt.Errorf("%s: get config: %w", funcName, err)
+		return nil, fmt.Errorf("%s: get config: %w", funcName, err)
 	}
 
 	clientID := cfg.ClientID
@@ -151,15 +158,68 @@ func (a *SyncAuthManager) Register(ctx context.Context, client *GRPCClient, emai
 
 	resp, err := client.Auth().Register(ctx, req)
 	if err != nil {
-		return fmt.Errorf("%s: register rpc: %w", funcName, err)
+		return nil, fmt.Errorf("%s: register rpc: %w", funcName, err)
 	}
 
 	a.storeTokens(resp.GetAccessToken(), resp.GetRefreshToken(), resp.GetActiveOrgId())
 
+	if err := a.persistSession(ctx, cfg, email, resp.GetRefreshToken()); err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return &AuthResult{
+		Email:                     email,
+		RequiresEmailVerification: resp.GetRequiresEmailVerification(),
+	}, nil
+}
+
+// persistSession marks the account as connected. refreshToken is carried into
+// cfg because storeTokens already mirrored the rotated token into sync_config,
+// and cfg was read before that — writing it back would restore the old token.
+func (a *SyncAuthManager) persistSession(ctx context.Context, cfg *sqlite.SyncConfig, email, refreshToken string) error {
 	cfg.UserEmail = email
 	cfg.Enabled = true
+	if refreshToken != "" {
+		cfg.RefreshToken = refreshToken
+	}
 	if err := a.configRepo.Update(ctx, cfg); err != nil {
-		return fmt.Errorf("%s: update config: %w", funcName, err)
+		return fmt.Errorf("update config: %w", err)
+	}
+	return nil
+}
+
+// GetMe reports the account behind the stored credentials, including whether
+// its email has been confirmed.
+func (a *SyncAuthManager) GetMe(ctx context.Context, client *GRPCClient) (email string, verified bool, err error) {
+	const funcName = "SyncAuthManager.GetMe"
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		return "", false, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	resp, err := client.Auth().GetMe(ContextWithAuth(ctx, token), authv1.GetMeRequest_builder{}.Build())
+	if err != nil {
+		return "", false, fmt.Errorf("%s: get me rpc: %w", funcName, err)
+	}
+
+	user := resp.GetUser()
+	return user.GetEmail(), user.GetEmailVerified(), nil
+}
+
+// ResendVerification asks the server to send the confirmation email again.
+// The server rate-limits this; the codes.ResourceExhausted status survives the wrap.
+func (a *SyncAuthManager) ResendVerification(ctx context.Context, client *GRPCClient) error {
+	const funcName = "SyncAuthManager.ResendVerification"
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	_, err = client.Auth().ResendVerification(ContextWithAuth(ctx, token), authv1.ResendVerificationRequest_builder{}.Build())
+	if err != nil {
+		return fmt.Errorf("%s: resend verification rpc: %w", funcName, err)
 	}
 
 	return nil

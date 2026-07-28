@@ -16,13 +16,26 @@ type RegisterRequest struct {
 	Locale    string `json:"locale"`
 }
 
+// AuthStateResult reports the account state right after connect or register.
+type AuthStateResult struct {
+	Email                     string `json:"email"`
+	RequiresEmailVerification bool   `json:"requiresEmailVerification"`
+}
+
+// MeResult reports the account behind the stored credentials.
+type MeResult struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"emailVerified"`
+}
+
 // SyncStatusResponse reports overall sync status.
 type SyncStatusResponse struct {
-	Enabled   bool   `json:"enabled"`
-	State     string `json:"state"`
-	ServerURL string `json:"serverUrl"`
-	UserEmail string `json:"userEmail"`
-	Pending   int    `json:"pending"`
+	Enabled              bool   `json:"enabled"`
+	State                string `json:"state"`
+	ServerURL            string `json:"serverUrl"`
+	UserEmail            string `json:"userEmail"`
+	Pending              int    `json:"pending"`
+	AwaitingVerification bool   `json:"awaitingVerification"`
 }
 
 // WorkspaceMapping maps a local workspace to a remote one.

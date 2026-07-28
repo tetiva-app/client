@@ -14,12 +14,23 @@ export interface RegisterRequest {
   locale?: string
 }
 
+export interface AuthState {
+  email: string
+  requiresEmailVerification: boolean
+}
+
+export interface MeState {
+  email: string
+  emailVerified: boolean
+}
+
 export interface SyncStatus {
   enabled: boolean
   state: string
   serverUrl: string
   userEmail: string
   pending: number
+  awaitingVerification: boolean
 }
 
 export interface RemoteWorkspace {
@@ -41,10 +52,12 @@ export interface CreateRemoteWorkspaceRequest {
 }
 
 export interface SyncServiceAPI {
-  connect(req: ConnectRequest): Promise<Result<boolean>>
-  register(req: RegisterRequest): Promise<Result<boolean>>
+  connect(req: ConnectRequest): Promise<Result<AuthState>>
+  register(req: RegisterRequest): Promise<Result<AuthState>>
   disconnect(): Promise<Result<boolean>>
   logout(): Promise<Result<boolean>>
+  getMe(): Promise<Result<MeState>>
+  resendVerification(): Promise<Result<boolean>>
   getStatus(): Promise<Result<SyncStatus>>
   linkWorkspace(req: LinkWorkspaceRequest): Promise<Result<boolean>>
   unlinkWorkspace(req: UnlinkWorkspaceRequest): Promise<Result<boolean>>

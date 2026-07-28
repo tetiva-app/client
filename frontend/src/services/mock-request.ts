@@ -281,7 +281,7 @@ export class MockRequestService implements RequestServiceAPI {
     return { data: { command: cmd, scriptResult: null } }
   }
 
-  async grpcListServices(_req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {
+  async grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {
     return {
       data: {
         services: [
@@ -301,7 +301,9 @@ export class MockRequestService implements RequestServiceAPI {
             ],
           },
         ],
-        source: 'reflection',
+        // Claiming reflection while a .proto is loaded contradicts the UI,
+        // which shows the file's name right next to it.
+        source: req.protoPath ? 'proto_file' : 'reflection',
       },
     }
   }

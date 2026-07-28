@@ -12,15 +12,18 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
     colorScheme: 'dark',
-    // Seed the seen-version so the What's New modal (it doubles as onboarding on
-    // fresh profiles) doesn't block specs; whats-new specs opt out with a clean storageState.
+    // Seed the seen-version and the welcome flag so neither first-launch modal
+    // blocks specs; the first-launch specs opt out with a clean storageState.
     storageState: {
       cookies: [],
       origins: [{
         origin: 'http://localhost:5173',
         localStorage: [{
           name: 'gophercourier.settings',
-          value: JSON.stringify({ lastSeenWhatsNewVersion: pkg.version }),
+          value: JSON.stringify({
+            lastSeenWhatsNewVersion: pkg.version,
+            onboardingCompletedAt: '2026-01-01T00:00:00.000Z',
+          }),
         }],
       }],
     },

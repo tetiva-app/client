@@ -2,6 +2,8 @@ import type { Result } from '@/types/common'
 import type { Workspace } from '@/types/workspace'
 import type {
   SyncServiceAPI,
+  AuthState,
+  MeState,
   ConnectRequest,
   RegisterRequest,
   CreateRemoteWorkspaceRequest,
@@ -23,12 +25,12 @@ async function svc() {
 }
 
 export class WailsSyncService implements SyncServiceAPI {
-  async connect(req: ConnectRequest): Promise<Result<boolean>> {
-    return unwrap<boolean>(await (await svc()).Connect(req))
+  async connect(req: ConnectRequest): Promise<Result<AuthState>> {
+    return unwrap<AuthState>(await (await svc()).Connect(req))
   }
 
-  async register(req: RegisterRequest): Promise<Result<boolean>> {
-    return unwrap<boolean>(await (await svc()).Register(req))
+  async register(req: RegisterRequest): Promise<Result<AuthState>> {
+    return unwrap<AuthState>(await (await svc()).Register(req))
   }
 
   async disconnect(): Promise<Result<boolean>> {
@@ -37,6 +39,14 @@ export class WailsSyncService implements SyncServiceAPI {
 
   async logout(): Promise<Result<boolean>> {
     return unwrap<boolean>(await (await svc()).Logout())
+  }
+
+  async getMe(): Promise<Result<MeState>> {
+    return unwrap<MeState>(await (await svc()).GetMe())
+  }
+
+  async resendVerification(): Promise<Result<boolean>> {
+    return unwrap<boolean>(await (await svc()).ResendVerification())
   }
 
   async getStatus(): Promise<Result<SyncStatus>> {

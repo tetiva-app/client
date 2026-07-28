@@ -3,6 +3,9 @@ package wails
 import (
 	"errors"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/tetiva-app/client/internal/domain"
 )
 
@@ -24,10 +27,11 @@ type ResultError struct {
 }
 
 const (
-	ErrCodeValidation = "validation"
-	ErrCodeNotFound   = "not_found"
-	ErrCodeConflict   = "conflict"
-	ErrCodeInternal   = "internal"
+	ErrCodeValidation  = "validation"
+	ErrCodeNotFound    = "not_found"
+	ErrCodeConflict    = "conflict"
+	ErrCodeRateLimited = "rate_limited"
+	ErrCodeInternal    = "internal"
 )
 
 // OK creates a successful Result with the given data.
@@ -59,6 +63,11 @@ func Err[T any](err error) Result[T] {
 		return Result[T]{Data: zero, Error: &ResultError{
 			Code:    ErrCodeConflict,
 			Message: conflictErr.Error(),
+		}}
+	case status.Code(err) == codes.ResourceExhausted:
+		return Result[T]{Data: zero, Error: &ResultError{
+			Code:    ErrCodeRateLimited,
+			Message: err.Error(),
 		}}
 	default:
 		return Result[T]{Data: zero, Error: &ResultError{

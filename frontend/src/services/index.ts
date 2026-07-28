@@ -58,6 +58,8 @@ export type { SchemaContent } from './window-api'
 
 export type { SyncServiceAPI }
 export type {
+  AuthState,
+  MeState,
   ConnectRequest,
   RegisterRequest,
   SyncStatus,
@@ -195,17 +197,20 @@ export async function getWindowService(): Promise<WindowServiceAPI | null> {
   return windowService
 }
 
-let syncService: SyncServiceAPI | null = null
+let syncService: Promise<SyncServiceAPI | null> | null = null
 
+// Memoize the promise, not the instance: concurrent callers would otherwise each
+// build their own service and fork the mock's in-memory session.
 export async function getSyncService(): Promise<SyncServiceAPI | null> {
   if (!syncService) {
-    if (isWailsEnvironment()) {
-      const { WailsSyncService } = await import('./wails-sync')
-      syncService = new WailsSyncService()
-    } else {
+    syncService = (async () => {
+      if (isWailsEnvironment()) {
+        const { WailsSyncService } = await import('./wails-sync')
+        return new WailsSyncService()
+      }
       const { MockSyncService } = await import('./mock-sync')
-      syncService = new MockSyncService()
-    }
+      return new MockSyncService()
+    })()
   }
   return syncService
 }

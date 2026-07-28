@@ -8,13 +8,24 @@ const KEY = 'gophercourier.settings';
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe("What's New & update badge", () => {
-  test('fresh profile: modal shows and records the version', async ({ page }) => {
+  test('fresh profile: the welcome takes over and both flags land on dismissal', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByTestId('whats-new-modal')).toBeVisible();
-    await page.getByRole('button', { name: /Got it|Понятно/ }).click();
+    await expect(page.getByTestId('onboarding-modal')).toBeVisible();
     await expect(page.getByTestId('whats-new-modal')).toHaveCount(0);
+
+    // Quitting before the choice is made must not consume the welcome.
+    await page.reload();
+    await expect(page.getByTestId('onboarding-modal')).toBeVisible();
+
+    await page.getByTestId('onboarding-choice-local').click();
+    await expect(page.getByTestId('onboarding-modal')).toHaveCount(0);
     const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '{}'), KEY);
     expect(stored.lastSeenWhatsNewVersion).toBe(pkg.version);
+    expect(stored.onboardingCompletedAt).toBeTruthy();
+
+    await page.reload();
+    await expect(page.getByTestId('onboarding-modal')).toHaveCount(0);
+    await expect(page.getByTestId('whats-new-modal')).toHaveCount(0);
   });
 
   test('upgrade: modal shows once and records the version', async ({ page }) => {
@@ -26,6 +37,8 @@ test.describe("What's New & update badge", () => {
     }, [KEY]);
     await page.goto('/');
     await expect(page.getByTestId('whats-new-modal')).toBeVisible();
+    // A seen version means the install is not new — the welcome stays away.
+    await expect(page.getByTestId('onboarding-modal')).toHaveCount(0);
     await page.getByRole('button', { name: /Got it|Понятно/ }).click();
     await expect(page.getByTestId('whats-new-modal')).toHaveCount(0);
     const stored = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '{}'), KEY);

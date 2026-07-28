@@ -7,9 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/zalando/go-keyring"
 	_ "modernc.org/sqlite"
 
+	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
@@ -248,5 +252,171 @@ func TestLogout_ClearsConfigEnabled(t *testing.T) {
 	}
 	if got.Enabled {
 		t.Error("expected config.Enabled == false after Logout")
+	}
+}
+
+// Regression: Register read cfg before storeTokens, so its Update wrote the
+// pre-login refresh token back over the rotated one.
+func TestRegister_KeepsRotatedRefreshTokenInDB(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	stub := &stubAuthClient{registerResp: authv1.RegisterResponse_builder{
+		AccessToken:  "access-1",
+		RefreshToken: "refresh-1",
+		ActiveOrgId:  "org-1",
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	if _, err := mgr.Register(ctx, NewGRPCClientWithStubs(stub, nil), "a@b.c", "pw", "A", "ru"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	cfg, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if cfg.RefreshToken != "refresh-1" {
+		t.Errorf("cfg.RefreshToken = %q, want %q", cfg.RefreshToken, "refresh-1")
+	}
+}
+
+func TestRegister_ReportsRequiresEmailVerification(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	stub := &stubAuthClient{registerResp: authv1.RegisterResponse_builder{
+		AccessToken:               "access-1",
+		RefreshToken:              "refresh-1",
+		ActiveOrgId:               "org-1",
+		RequiresEmailVerification: true,
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	res, err := mgr.Register(ctx, NewGRPCClientWithStubs(stub, nil), "a@b.c", "pw", "A", "ru")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if !res.RequiresEmailVerification {
+		t.Error("expected RequiresEmailVerification == true")
+	}
+	if res.Email != "a@b.c" {
+		t.Errorf("res.Email = %q, want %q", res.Email, "a@b.c")
+	}
+}
+
+func TestLogin_ReportsRequiresEmailVerification(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	stub := &stubAuthClient{loginResp: authv1.LoginResponse_builder{
+		AccessToken:               "access-1",
+		RefreshToken:              "refresh-1",
+		ActiveOrgId:               "org-1",
+		RequiresEmailVerification: true,
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	res, err := mgr.Login(ctx, NewGRPCClientWithStubs(stub, nil), "a@b.c", "pw")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if !res.RequiresEmailVerification {
+		t.Error("expected RequiresEmailVerification == true")
+	}
+
+	cfg, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if cfg.RefreshToken != "refresh-1" {
+		t.Errorf("cfg.RefreshToken = %q, want %q", cfg.RefreshToken, "refresh-1")
+	}
+}
+
+func TestGetMe_ReturnsEmailVerifiedAndSendsBearer(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{getMeResp: authv1.GetMeResponse_builder{
+		User: authv1.User_builder{Email: "a@b.c", EmailVerified: true}.Build(),
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	email, verified, err := mgr.GetMe(context.Background(), NewGRPCClientWithStubs(stub, nil))
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if email != "a@b.c" || !verified {
+		t.Errorf("GetMe() = (%q, %v), want (%q, true)", email, verified, "a@b.c")
+	}
+	if len(stub.authHeaders) != 1 || stub.authHeaders[0] != "Bearer access-1" {
+		t.Errorf("authHeaders = %v, want [\"Bearer access-1\"]", stub.authHeaders)
+	}
+}
+
+func TestGetMe_UnverifiedAccount(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{getMeResp: authv1.GetMeResponse_builder{
+		User: authv1.User_builder{Email: "a@b.c", EmailVerified: false}.Build(),
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	_, verified, err := mgr.GetMe(context.Background(), NewGRPCClientWithStubs(stub, nil))
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	if verified {
+		t.Error("expected verified == false")
+	}
+}
+
+func TestResendVerification_RateLimitedStatusSurvivesWrapping(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{resendErr: status.Error(codes.ResourceExhausted, "too many requests")}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	err := mgr.ResendVerification(context.Background(), NewGRPCClientWithStubs(stub, nil))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := status.Code(err); got != codes.ResourceExhausted {
+		t.Errorf("status.Code(err) = %v, want %v", got, codes.ResourceExhausted)
+	}
+}
+
+func TestResendVerification_SendsBearer(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	if err := mgr.ResendVerification(context.Background(), NewGRPCClientWithStubs(stub, nil)); err != nil {
+		t.Fatalf("ResendVerification: %v", err)
+	}
+	if stub.resendCalls != 1 {
+		t.Errorf("resendCalls = %d, want 1", stub.resendCalls)
+	}
+	if len(stub.authHeaders) != 1 || stub.authHeaders[0] != "Bearer access-1" {
+		t.Errorf("authHeaders = %v, want [\"Bearer access-1\"]", stub.authHeaders)
 	}
 }

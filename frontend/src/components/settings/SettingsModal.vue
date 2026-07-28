@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Switch } from '@/components/ui/switch'
 import { useSettingsStore } from '@/stores/settings'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
+import { useOnboardingUi } from '@/stores/onboardingUi'
 import { FONT_SIZE_OPTIONS, type ThemePreference } from '@/lib/settings-storage'
 import { checkForUpdates, type UpdateCheckResult } from '@/lib/updates'
 import { openExternal } from '@/lib/open-external'
@@ -16,7 +17,16 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
 
 const settings = useSettingsStore()
 const whatsNewUi = useWhatsNewUi()
+const onboardingUi = useOnboardingUi()
 const appVersion = __APP_VERSION__
+
+// Clearing the flag replays a genuine first launch; the welcome screen writes it
+// back when dismissed. Settings closes so the two dialogs don't stack.
+function showWelcome() {
+  settings.setOnboardingCompletedAt(null)
+  onboardingUi.show()
+  emit('update:open', false)
+}
 
 const themeOptions: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -257,13 +267,23 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
               {{ checking ? 'Checking…' : 'Check now' }}
             </button>
           </div>
-          <button
-            type="button"
-            class="cursor-pointer self-start text-[13px] text-primary hover:underline"
-            @click="whatsNewUi.show()"
-          >
-            What's New
-          </button>
+          <div class="flex items-center gap-4">
+            <button
+              type="button"
+              class="cursor-pointer text-[13px] text-primary hover:underline"
+              @click="whatsNewUi.show()"
+            >
+              What's New
+            </button>
+            <button
+              type="button"
+              data-testid="show-welcome"
+              class="cursor-pointer text-[13px] text-primary hover:underline"
+              @click="showWelcome"
+            >
+              Show welcome
+            </button>
+          </div>
         </section>
 
         <section class="flex flex-col gap-3 border-t border-border pt-4">

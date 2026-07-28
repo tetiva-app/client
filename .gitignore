@@ -9,6 +9,7 @@ frontend/bindings
 frontend/node_modules
 frontend/playwright-report
 frontend/test-results
+.tour-capture
 
 # Build
 build/linux/appimage/build

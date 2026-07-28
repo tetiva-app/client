@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +28,13 @@ type SyncService struct {
 	db         *sql.DB
 	grpcClient *syncsvc.GRPCClient
 	wsUC       workspace.Usecase
+
+	// newClient is swapped in tests for a client built on stubs.
+	newClient func(serverURL string) (*syncsvc.GRPCClient, error)
+
+	awaitingMu sync.Mutex
+	// Atomic so the 5-second status poll never waits behind enableSync's RPCs.
+	awaitingVerification atomic.Bool
 }
 
 // NewSyncService creates a new SyncService.
@@ -44,7 +53,12 @@ func NewSyncService(
 		queueRepo:  queueRepo,
 		db:         db,
 		wsUC:       wsUC,
+		newClient:  syncsvc.NewGRPCClient,
 	}
+}
+
+func (s *SyncService) dial(serverURL string) (*syncsvc.GRPCClient, error) {
+	return s.newClient(serverURL)
 }
 
 // SetEventEmitter wires the Wails event system to the sync engine.
@@ -71,7 +85,7 @@ func (s *SyncService) ResumeOnStartup(ctx context.Context) error {
 
 	s.migrateLegacyServerURL(ctx, cfg)
 
-	client, err := syncsvc.NewGRPCClient(cfg.ServerURL)
+	client, err := s.dial(cfg.ServerURL)
 	if err != nil {
 		return fmt.Errorf("reconnect grpc: %w", err)
 	}
@@ -79,19 +93,28 @@ func (s *SyncService) ResumeOnStartup(ctx context.Context) error {
 	// Set clientID so GetAccessToken can refresh via keyring token.
 	s.auth.SetClientID(cfg.ClientID)
 
-	s.grpcClient = client
-	s.engine.SetGRPCClient(client)
-
 	if _, err := s.auth.GetAccessToken(ctx, client); err != nil {
 		_ = client.Close()
-		s.grpcClient = nil
 		return fmt.Errorf("restore auth: %w", err)
 	}
 
-	if err := s.syncRemoteWorkspaces(ctx); err != nil {
+	// Keep the client either way: the waiting screen polls and resends through it.
+	s.grpcClient = client
+
+	_, verified, err := s.auth.GetMe(ctx, client)
+	switch {
+	case err != nil:
+		// Fail-open: the gate exists to walk a fresh signup to confirmation,
+		// not to break offline startup for accounts that are already confirmed.
+		slog.Warn("sync: verification check failed on startup; starting sync anyway", "err", err)
+	case !verified:
+		s.awaitingVerification.Store(true)
+		return nil
+	}
+
+	if err := s.enableSync(ctx, client); err != nil {
 		slog.Warn("sync: failed to sync remote workspaces on startup", "err", err)
 	}
-	s.linkActiveWorkspace(ctx)
 
 	return nil
 }
@@ -115,77 +138,140 @@ func (s *SyncService) migrateLegacyServerURL(ctx context.Context, cfg *sqlite.Sy
 }
 
 // Connect authenticates with the sync server and enables sync.
-func (s *SyncService) Connect(req dto.ConnectRequest) Result[Empty] {
+func (s *SyncService) Connect(req dto.ConnectRequest) Result[dto.AuthStateResult] {
 	ctx := context.Background()
 
 	slog.Info("sync: Connect called", "serverURL", req.ServerURL, "email", req.Email)
 
-	client, err := syncsvc.NewGRPCClient(req.ServerURL)
+	client, err := s.dial(req.ServerURL)
 	if err != nil {
-		return Err[Empty](fmt.Errorf("connect: %w", err))
+		return Err[dto.AuthStateResult](fmt.Errorf("connect: %w", err))
 	}
 
-	if err := s.auth.Login(ctx, client, req.Email, req.Password); err != nil {
-		_ = client.Close()
-		return Err[Empty](fmt.Errorf("login: %w", err))
-	}
-
-	cfg, err := s.configRepo.GetOrCreate(ctx)
+	auth, err := s.auth.Login(ctx, client, req.Email, req.Password)
 	if err != nil {
 		_ = client.Close()
-		return Err[Empty](err)
+		return Err[dto.AuthStateResult](fmt.Errorf("login: %w", err))
 	}
-	cfg.ServerURL = req.ServerURL
-	cfg.Enabled = true
-	if err := s.configRepo.Update(ctx, cfg); err != nil {
+
+	state, err := s.completeAuth(ctx, client, req.ServerURL, auth)
+	if err != nil {
 		_ = client.Close()
-		return Err[Empty](err)
+		return Err[dto.AuthStateResult](err)
 	}
-
-	s.grpcClient = client
-	s.engine.SetGRPCClient(client)
-
-	if err := s.syncRemoteWorkspaces(ctx); err != nil {
-		slog.Warn("sync: failed to sync remote workspaces", "err", err)
-	}
-	s.linkActiveWorkspace(ctx)
-
-	return OK(Empty{})
+	return OK(state)
 }
 
 // Register creates a new account on the sync server and enables sync.
-func (s *SyncService) Register(req dto.RegisterRequest) Result[Empty] {
+func (s *SyncService) Register(req dto.RegisterRequest) Result[dto.AuthStateResult] {
 	ctx := context.Background()
 
-	client, err := syncsvc.NewGRPCClient(req.ServerURL)
+	client, err := s.dial(req.ServerURL)
 	if err != nil {
-		return Err[Empty](fmt.Errorf("connect: %w", err))
+		return Err[dto.AuthStateResult](fmt.Errorf("connect: %w", err))
 	}
 
-	if err := s.auth.Register(ctx, client, req.Email, req.Password, req.Name, req.Locale); err != nil {
+	auth, err := s.auth.Register(ctx, client, req.Email, req.Password, req.Name, req.Locale)
+	if err != nil {
 		_ = client.Close()
-		return Err[Empty](fmt.Errorf("register: %w", err))
+		return Err[dto.AuthStateResult](fmt.Errorf("register: %w", err))
 	}
 
+	state, err := s.completeAuth(ctx, client, req.ServerURL, auth)
+	if err != nil {
+		_ = client.Close()
+		return Err[dto.AuthStateResult](err)
+	}
+	return OK(state)
+}
+
+// completeAuth records the connected account — Enabled means connected, not syncing.
+func (s *SyncService) completeAuth(
+	ctx context.Context,
+	client *syncsvc.GRPCClient,
+	serverURL string,
+	auth *syncsvc.AuthResult,
+) (dto.AuthStateResult, error) {
 	cfg, err := s.configRepo.GetOrCreate(ctx)
 	if err != nil {
-		_ = client.Close()
-		return Err[Empty](err)
+		return dto.AuthStateResult{}, err
 	}
-	cfg.ServerURL = req.ServerURL
+	cfg.ServerURL = serverURL
 	cfg.Enabled = true
 	if err := s.configRepo.Update(ctx, cfg); err != nil {
-		_ = client.Close()
-		return Err[Empty](err)
+		return dto.AuthStateResult{}, err
+	}
+
+	state := dto.AuthStateResult{
+		Email:                     auth.Email,
+		RequiresEmailVerification: auth.RequiresEmailVerification,
 	}
 
 	s.grpcClient = client
-	s.engine.SetGRPCClient(client)
 
-	if err := s.syncRemoteWorkspaces(ctx); err != nil {
+	if auth.RequiresEmailVerification {
+		s.awaitingVerification.Store(true)
+		return state, nil
+	}
+
+	if err := s.enableSync(ctx, client); err != nil {
 		slog.Warn("sync: failed to sync remote workspaces", "err", err)
 	}
+	return state, nil
+}
+
+// enableSync wires the authenticated client into the engine and links workspaces.
+// awaitingMu serialises the verification poll and the manual "I confirmed" button.
+func (s *SyncService) enableSync(ctx context.Context, client *syncsvc.GRPCClient) error {
+	s.awaitingMu.Lock()
+	defer s.awaitingMu.Unlock()
+
+	s.awaitingVerification.Store(false)
+	s.engine.SetGRPCClient(client)
+
+	err := s.syncRemoteWorkspaces(ctx)
 	s.linkActiveWorkspace(ctx)
+	return err
+}
+
+// GetMe reports the connected account. Crossing into verified is the moment
+// sync may finally start, so the engine is wired here.
+func (s *SyncService) GetMe() Result[dto.MeResult] {
+	ctx := context.Background()
+
+	client := s.grpcClient
+	if client == nil {
+		return Err[dto.MeResult](fmt.Errorf("getMe: not connected to sync server"))
+	}
+
+	email, verified, err := s.auth.GetMe(ctx, client)
+	if err != nil {
+		return Err[dto.MeResult](fmt.Errorf("getMe: %w", err))
+	}
+
+	// Only the caller that wins the swap enables sync — the poll and the
+	// manual button can observe the transition at the same time.
+	if verified && s.awaitingVerification.CompareAndSwap(true, false) {
+		if err := s.enableSync(ctx, client); err != nil {
+			slog.Warn("sync: failed to sync remote workspaces after verification", "err", err)
+		}
+	}
+
+	return OK(dto.MeResult{Email: email, EmailVerified: verified})
+}
+
+// ResendVerification asks the server to send the confirmation email again.
+func (s *SyncService) ResendVerification() Result[Empty] {
+	ctx := context.Background()
+
+	client := s.grpcClient
+	if client == nil {
+		return Err[Empty](fmt.Errorf("resendVerification: not connected to sync server"))
+	}
+
+	if err := s.auth.ResendVerification(ctx, client); err != nil {
+		return Err[Empty](fmt.Errorf("resendVerification: %w", err))
+	}
 
 	return OK(Empty{})
 }
@@ -273,6 +359,7 @@ func (s *SyncService) Logout() Result[Empty] {
 	ctx := context.Background()
 
 	s.engine.StopAll()
+	s.awaitingVerification.Store(false)
 
 	if err := s.auth.Logout(ctx); err != nil {
 		return Err[Empty](fmt.Errorf("logout: %w", err))
@@ -290,7 +377,7 @@ func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 		return Err[dto.SyncStatusResponse](err)
 	}
 
-	resp := dto.SyncStatusResponse{}
+	resp := dto.SyncStatusResponse{AwaitingVerification: s.awaitingVerification.Load()}
 	if cfg != nil {
 		resp.Enabled = cfg.Enabled
 		resp.ServerURL = cfg.ServerURL
@@ -387,6 +474,7 @@ func (s *SyncService) syncRemoteWorkspaces(ctx context.Context) error {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
 	slog.Info("sync: fetched remote workspaces", "count", len(remotes))
+	s.dropForeignWorkspaceMappings(ctx, remotes)
 
 	started := 0
 	for _, w := range remotes {
@@ -404,6 +492,51 @@ func (s *SyncService) syncRemoteWorkspaces(ctx context.Context) error {
 	}
 	slog.Info("sync: syncRemoteWorkspaces done", "started", started)
 	return nil
+}
+
+// dropForeignWorkspaceMappings clears remote IDs the current org does not own;
+// remotes must come from a successful listing or everything gets unlinked.
+func (s *SyncService) dropForeignWorkspaceMappings(ctx context.Context, remotes []*workspacev1.Workspace) {
+	owned := make(map[string]struct{}, len(remotes))
+	for _, w := range remotes {
+		owned[w.GetId()] = struct{}{}
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, remote_workspace_id FROM workspaces
+		 WHERE is_delete = 0 AND remote_workspace_id IS NOT NULL AND remote_workspace_id != ''`)
+	if err != nil {
+		slog.Warn("sync: reading workspace mappings failed", "err", err)
+		return
+	}
+
+	var stale []string
+	for rows.Next() {
+		var localID, remoteID string
+		if err := rows.Scan(&localID, &remoteID); err != nil {
+			slog.Warn("sync: reading workspace mapping failed", "err", err)
+			break
+		}
+		if _, ok := owned[remoteID]; !ok {
+			stale = append(stale, localID)
+		}
+	}
+	rowsErr := rows.Err()
+	_ = rows.Close()
+	if rowsErr != nil {
+		slog.Warn("sync: reading workspace mappings failed", "err", rowsErr)
+		return
+	}
+
+	for _, localID := range stale {
+		s.engine.StopWorkspace(localID)
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`, localID); err != nil {
+			slog.Warn("sync: unlinking foreign workspace failed", "local_id", localID, "err", err)
+			continue
+		}
+		slog.Info("sync: unlinked workspace owned by another account", "local_id", localID)
+	}
 }
 
 // fetchRemoteWorkspaces paginates ListByOrg under the active org captured by

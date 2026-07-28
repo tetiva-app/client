@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Cloud, CloudOff, CloudAlert, Loader2 } from 'lucide-vue-next'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { onboardingCopy } from '@/onboarding/copy'
 import {
   Tooltip,
   TooltipContent,
@@ -12,8 +13,11 @@ const emit = defineEmits<{
   (e: 'click'): void
 }>()
 
+const verify = onboardingCopy(navigator.language).verify
+
 const state = ref('disconnected')
 const pending = ref(0)
+const awaitingVerification = ref(false)
 
 // State is driven by the Go engine's `sync:status` events; polling stays only
 // for the pending-queue counter, which the event payload doesn't carry.
@@ -29,6 +33,7 @@ async function fetchStatus() {
     if (result.data) {
       state.value = result.data.state
       pending.value = result.data.pending
+      awaitingVerification.value = result.data.awaitingVerification
     }
   } catch {
     // Ignore — sync service may not be available
@@ -87,7 +92,15 @@ const stateLabels: Record<string, string> = {
         @click="emit('click')"
       >
         <div class="relative">
-          <Cloud v-if="state === 'connected'" class="size-5 text-green-500" />
+          <!-- Sync is off until the address is confirmed, so this wins over the engine state. -->
+          <template v-if="awaitingVerification">
+            <Cloud class="size-5 text-amber-500" />
+            <span
+              class="absolute -top-0.5 -right-1 size-2 rounded-full bg-amber-500 ring-2 ring-background"
+              data-testid="sync-verify-badge"
+            />
+          </template>
+          <Cloud v-else-if="state === 'connected'" class="size-5 text-green-500" />
           <CloudAlert v-else-if="state === 'auth_expired'" class="size-5 text-red-400" />
           <Loader2
             v-else-if="['pushing', 'pulling', 'subscribing', 'resyncing'].includes(state)"
@@ -104,7 +117,7 @@ const stateLabels: Record<string, string> = {
       </button>
     </TooltipTrigger>
     <TooltipContent side="right" :side-offset="4">
-      {{ stateLabels[state] || 'Sync' }}
+      {{ awaitingVerification ? verify.indicatorTooltip : (stateLabels[state] || 'Sync') }}
     </TooltipContent>
   </Tooltip>
 </template>

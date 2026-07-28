@@ -13,6 +13,7 @@ export interface AppSettings {
   lastUpdateCheckAt: string | null
   availableUpdate: AvailableUpdate | null
   lastSeenWhatsNewVersion: string | null
+  onboardingCompletedAt: string | null
 }
 
 // Legacy pre-rebrand key — existing installs already store settings under it.
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastUpdateCheckAt: null,
   availableUpdate: null,
   lastSeenWhatsNewVersion: null,
+  onboardingCompletedAt: null,
 }
 
 function normalizeTheme(value: unknown): ThemePreference {
@@ -79,9 +81,23 @@ export function loadSettings(): AppSettings {
       lastUpdateCheckAt: normalizeNullableString(parsed.lastUpdateCheckAt),
       availableUpdate: normalizeAvailableUpdate(parsed.availableUpdate),
       lastSeenWhatsNewVersion: normalizeNullableString(parsed.lastSeenWhatsNewVersion),
+      onboardingCompletedAt: normalizeNullableString(parsed.onboardingCompletedAt),
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
+  }
+}
+
+// A stored `null` came from a build that knows the flag and cleared it on
+// purpose; `loadSettings` cannot tell that apart from a key that was never written.
+export function hasStoredOnboardingFlag(): boolean {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!raw) return false
+    const parsed: unknown = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null && 'onboardingCompletedAt' in parsed
+  } catch {
+    return false
   }
 }
 

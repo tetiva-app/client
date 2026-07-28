@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import {
+  hasStoredOnboardingFlag,
   loadSettings,
   saveSettings,
   SETTINGS_STORAGE_KEY,
@@ -8,6 +9,7 @@ import {
   type AvailableUpdate,
   type ThemePreference,
 } from '@/lib/settings-storage'
+import { shouldBackfillOnboarding } from '@/lib/onboarding-decisions'
 
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 
@@ -28,6 +30,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastUpdateCheckAt = ref<string | null>(initial.lastUpdateCheckAt)
   const availableUpdate = ref<AvailableUpdate | null>(initial.availableUpdate)
   const lastSeenWhatsNewVersion = ref<string | null>(initial.lastSeenWhatsNewVersion)
+  const onboardingCompletedAt = ref<string | null>(initial.onboardingCompletedAt)
 
   // Track the OS color scheme so `system` resolves reactively.
   const systemPrefersDark = ref<boolean>(prefersDark())
@@ -57,6 +60,7 @@ export const useSettingsStore = defineStore('settings', () => {
       lastUpdateCheckAt: lastUpdateCheckAt.value,
       availableUpdate: availableUpdate.value,
       lastSeenWhatsNewVersion: lastSeenWhatsNewVersion.value,
+      onboardingCompletedAt: onboardingCompletedAt.value,
     }
   }
 
@@ -74,6 +78,7 @@ export const useSettingsStore = defineStore('settings', () => {
     lastUpdateCheckAt,
     availableUpdate,
     lastSeenWhatsNewVersion,
+    onboardingCompletedAt,
   ], () => {
     if (applyingRemote) return
     saveSettings(snapshot())
@@ -91,6 +96,7 @@ export const useSettingsStore = defineStore('settings', () => {
       lastUpdateCheckAt.value = next.lastUpdateCheckAt
       availableUpdate.value = next.availableUpdate
       lastSeenWhatsNewVersion.value = next.lastSeenWhatsNewVersion
+      onboardingCompletedAt.value = next.onboardingCompletedAt
       applyingRemote = false
     })
   }
@@ -107,6 +113,20 @@ export const useSettingsStore = defineStore('settings', () => {
   function setLastSeenWhatsNewVersion(v: string | null) {
     lastSeenWhatsNewVersion.value = v
   }
+  function setOnboardingCompletedAt(v: string | null) {
+    onboardingCompletedAt.value = v
+  }
+
+  // Backfill for installs upgraded from a build without the flag. Runs here and
+  // not in loadSettings, which also serves every cross-window `storage` event.
+  const backfill = shouldBackfillOnboarding(
+    onboardingCompletedAt.value,
+    lastSeenWhatsNewVersion.value,
+    hasStoredOnboardingFlag(),
+  )
+  if (backfill) {
+    onboardingCompletedAt.value = new Date().toISOString()
+  }
 
   // Apply once on creation so effects are live in every window mode.
   applyThemeClass()
@@ -121,9 +141,11 @@ export const useSettingsStore = defineStore('settings', () => {
     lastUpdateCheckAt,
     availableUpdate,
     lastSeenWhatsNewVersion,
+    onboardingCompletedAt,
     setCheckUpdatesAutomatically,
     setLastUpdateCheckAt,
     setAvailableUpdate,
     setLastSeenWhatsNewVersion,
+    setOnboardingCompletedAt,
   }
 })

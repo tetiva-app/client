@@ -14,6 +14,13 @@ import {
 const store = useRequestStore()
 const isWails = isWailsEnvironment()
 
+// Hues must match MethodBadge; without this a GraphQL tab shows its POST colour.
+const PROTOCOL_DOT: Record<string, string> = {
+  grpc: '#A78BFA',
+  websocket: '#10B981',
+  graphql: '#E535AB',
+}
+
 function handleMousedown(e: MouseEvent, tabId: string) {
   // Middle-click closes the tab
   if (e.button === 1) {
@@ -66,7 +73,7 @@ async function detachTab(tab: Tab) {
           <template v-if="tab.type === 'request'">
             <span
               class="size-2 rounded-full shrink-0"
-              :style="{ backgroundColor: tab.protocol === 'grpc' ? '#A78BFA' : tab.protocol === 'websocket' ? '#10B981' : (methodColors[tab.method] || METHOD_COLOR_FALLBACK) }"
+              :style="{ backgroundColor: PROTOCOL_DOT[tab.protocol] ?? (methodColors[tab.method] || METHOD_COLOR_FALLBACK) }"
             />
             <span
               v-if="store.getById(tab.requestId)?.isDraft"

@@ -9,6 +9,30 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '0.16.0',
+    date: '2026-07-27',
+    en: {
+      added: [
+        'A welcome screen on first launch: work locally or connect an account — switchable any time.',
+        'An optional four-slide tour of what Tetiva does. Reopen it from Settings.',
+        'After you sign up, the app says the confirmation email was sent and can resend it.',
+      ],
+      fixed: [
+        'Your session survives a restart even when the system keychain is unavailable.',
+      ],
+    },
+    ru: {
+      added: [
+        'Экран приветствия при первом запуске: работать локально или подключить аккаунт — выбор можно изменить в любой момент.',
+        'Необязательный тур из четырёх экранов о возможностях Tetiva. Открыть заново можно в настройках.',
+        'После регистрации приложение сообщает об отправленном письме и может отправить его повторно.',
+      ],
+      fixed: [
+        'Сессия переживает перезапуск даже при недоступной связке ключей.',
+      ],
+    },
+  },
+  {
     version: '0.15.3',
     date: '2026-07-16',
     en: {

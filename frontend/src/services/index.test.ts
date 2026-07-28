@@ -40,3 +40,13 @@ describe('isWailsEnvironment', () => {
     expect(await detectWith({ chrome: {} })).toBe(false)
   })
 })
+
+describe('getSyncService', () => {
+  it('hands every concurrent caller the same instance', async () => {
+    vi.resetModules()
+    const { getSyncService } = await import('./index')
+    const [a, b, c] = await Promise.all([getSyncService(), getSyncService(), getSyncService()])
+    expect(a).toBe(b)
+    expect(b).toBe(c)
+  })
+})

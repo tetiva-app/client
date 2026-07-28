@@ -8,8 +8,12 @@ import { useEnvironmentStore } from '@/stores/environments'
 import { useEnvModalUi } from '@/stores/envModalUi'
 import { useSettingsStore } from '@/stores/settings'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
+import { useOnboardingUi } from '@/stores/onboardingUi'
+import { useSyncModalUi } from '@/stores/syncModalUi'
 import { checkForUpdates } from '@/lib/updates'
 import { shouldCheckForUpdates, shouldShowWhatsNew } from '@/lib/update-decisions'
+import { shouldShowOnboarding } from '@/lib/onboarding-decisions'
+import { OnboardingModal, OnboardingTour } from '@/components/onboarding'
 import { notesFor } from '@/whats-new/notes'
 import { isNewerVersion } from '@/lib/semver'
 import { isWailsEnvironment } from '@/services'
@@ -57,6 +61,8 @@ const cookieModalUi = useCookieModalUi()
 const settingsModalUi = useSettingsModalUi()
 const settingsStore = useSettingsStore()
 const whatsNewUi = useWhatsNewUi()
+const onboardingUi = useOnboardingUi()
+const syncModalUi = useSyncModalUi()
 const historyStore = useHistoryStore()
 const toast = useToast()
 
@@ -166,17 +172,28 @@ async function setupSyncEvents() {
   syncUnsubscribers.push(Events.On('workspace:switched', refresh))
 }
 
-// Show-on-upgrade and the throttled auto-check. Fire-and-forget: any failure
-// stays silent (privacy invariant — the update check never surfaces errors).
-async function runStartupUpdateFlow() {
+// The welcome screen and What's New are mutually exclusive: a fresh profile gets
+// the welcome, an upgraded one (backfilled by the settings store) gets the notes.
+function runStartupWelcomeFlow() {
   if (windowMode) return
   const current = __APP_VERSION__
+  if (shouldShowOnboarding(settingsStore.onboardingCompletedAt, windowMode)) {
+    onboardingUi.show()
+    return
+  }
   if (shouldShowWhatsNew(settingsStore.lastSeenWhatsNewVersion, current, notesFor(current) !== undefined)) {
     whatsNewUi.show()
   } else if (settingsStore.lastSeenWhatsNewVersion !== current) {
     // No notes for this version: advance silently so we don't re-check forever.
     settingsStore.setLastSeenWhatsNewVersion(current)
   }
+}
+
+// The throttled auto-check. Fire-and-forget: any failure stays silent (privacy
+// invariant — the update check never surfaces errors).
+async function runStartupUpdateFlow() {
+  if (windowMode) return
+  const current = __APP_VERSION__
   if (settingsStore.availableUpdate && !isNewerVersion(settingsStore.availableUpdate.version, current)) {
     settingsStore.setAvailableUpdate(null)
   }
@@ -201,10 +218,18 @@ function onWhatsNewClose() {
   whatsNewUi.open = false
 }
 
+// The welcome stands in for this version's notes, so it records both flags.
+function onOnboardingClose() {
+  settingsStore.setOnboardingCompletedAt(new Date().toISOString())
+  settingsStore.setLastSeenWhatsNewVersion(__APP_VERSION__)
+  onboardingUi.hide()
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('contextmenu', blockNativeContextMenu)
   setupSyncEvents()
+  runStartupWelcomeFlow()
   void runStartupUpdateFlow()
 })
 onUnmounted(() => {
@@ -296,6 +321,13 @@ onUnmounted(() => {
       @update:open="val => val ? settingsModalUi.show() : settingsModalUi.hide()"
     />
     <WhatsNewModal v-if="whatsNewUi.open" @close="onWhatsNewClose" />
+    <OnboardingModal
+      v-if="onboardingUi.open"
+      @select-account="syncModalUi.show('register')"
+      @open-tour="onboardingUi.openTour()"
+      @close="onOnboardingClose"
+    />
+    <OnboardingTour v-if="onboardingUi.tourOpen" @done="onboardingUi.closeTour()" />
     <ToastContainer />
   </div>
 </template>

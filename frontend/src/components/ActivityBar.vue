@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { FolderOpen, Globe, History, Settings } from 'lucide-vue-next'
 import {
   Tooltip,
@@ -10,6 +10,7 @@ import {
 import SyncStatusIndicator from '@/components/sync/SyncStatusIndicator.vue'
 import SyncConnectModal from '@/components/sync/SyncConnectModal.vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useSyncModalUi } from '@/stores/syncModalUi'
 import { isNewerVersion } from '@/lib/semver'
 
 interface ActivityItem {
@@ -39,7 +40,7 @@ const bottomItems: ActivityItem[] = [
   { id: 'settings', icon: Settings, label: 'Settings' },
 ]
 
-const syncModalOpen = ref(false)
+const syncModalUi = useSyncModalUi()
 
 const settingsStore = useSettingsStore()
 const updateAvailable = computed(() =>
@@ -79,7 +80,7 @@ const updateAvailable = computed(() =>
       </div>
 
       <div class="flex flex-col items-center w-full mt-auto pb-2">
-        <SyncStatusIndicator @click="syncModalOpen = true" />
+        <SyncStatusIndicator @click="syncModalUi.show()" />
         <Tooltip v-for="item in bottomItems" :key="item.id">
           <TooltipTrigger as-child>
             <button
@@ -113,5 +114,9 @@ const updateAvailable = computed(() =>
       </div>
     </TooltipProvider>
   </div>
-  <SyncConnectModal v-model:open="syncModalOpen" />
+  <SyncConnectModal
+    :open="syncModalUi.open"
+    :initial-tab="syncModalUi.initialTab"
+    @update:open="(v: boolean) => { if (!v) syncModalUi.hide() }"
+  />
 </template>

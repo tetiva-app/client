@@ -65,7 +65,7 @@ func (s *Server) handleListVariables(ctx context.Context, req mcplib.CallToolReq
 		items = append(items, map[string]any{
 			"id":        v.ID.String(),
 			"key":       v.Key,
-			"value":     v.Value,
+			"value":     maskVariableValue(v.Value, v.IsSecret),
 			"is_secret": v.IsSecret,
 			"enabled":   v.Enabled,
 			"version":   v.Version,
@@ -104,11 +104,12 @@ func (s *Server) handleCreateVariable(ctx context.Context, req mcplib.CallToolRe
 	}
 
 	return jsonResult(map[string]any{
-		"id":      v.ID.String(),
-		"key":     v.Key,
-		"value":   v.Value,
-		"version": v.Version,
-		"message": "variable created",
+		"id":        v.ID.String(),
+		"key":       v.Key,
+		"value":     maskVariableValue(v.Value, v.IsSecret),
+		"is_secret": v.IsSecret,
+		"version":   v.Version,
+		"message":   "variable created",
 	})
 }
 

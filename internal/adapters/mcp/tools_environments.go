@@ -98,7 +98,7 @@ func (s *Server) handleGetEnvironment(ctx context.Context, req mcplib.CallToolRe
 		varItems = append(varItems, map[string]any{
 			"id":        v.ID.String(),
 			"key":       v.Key,
-			"value":     v.Value,
+			"value":     maskVariableValue(v.Value, v.IsSecret),
 			"is_secret": v.IsSecret,
 			"enabled":   v.Enabled,
 		})

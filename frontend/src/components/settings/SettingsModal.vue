@@ -10,7 +10,7 @@ import { FONT_SIZE_OPTIONS, type ThemePreference } from '@/lib/settings-storage'
 import { checkForUpdates, type UpdateCheckResult } from '@/lib/updates'
 import { openExternal } from '@/lib/open-external'
 import { getSettingsService, type MCPSettings } from '@/services'
-import { buildMcpPreset, MCP_CLIENTS, type McpClient } from '@/lib/mcp-config-presets'
+import { buildMcpPreset, isNetworkExposedAddr, MCP_CLIENTS, type McpClient } from '@/lib/mcp-config-presets'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
@@ -83,10 +83,11 @@ function onStatusClick() {
 }
 
 const mcp = ref<MCPSettings | null>(null)
-const mcpDraft = ref<{ enabled: boolean; addr: string }>({ enabled: false, addr: ':9300' })
+const mcpDraft = ref<{ enabled: boolean; addr: string }>({ enabled: false, addr: '127.0.0.1:9300' })
 const mcpError = ref('')
 const mcpClient = ref<McpClient>('claude')
 const mcpCopied = ref(false)
+const mcpAddrExposed = computed(() => isNetworkExposedAddr(mcpDraft.value.addr))
 
 async function loadMcp() {
   mcpError.value = ''
@@ -220,11 +221,18 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
               <input
                 v-model="mcpDraft.addr"
                 :disabled="mcp.envManaged"
-                class="h-8 w-28 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                placeholder=":9300"
+                class="h-8 w-36 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                :class="mcpAddrExposed ? 'border-[var(--gc-warning)]' : ''"
+                placeholder="127.0.0.1:9300"
                 @change="saveMcp"
               />
             </div>
+            <p
+              v-if="mcpAddrExposed"
+              class="rounded-md border border-[var(--gc-warning)]/30 bg-[var(--gc-warning)]/5 px-2 py-1 text-[11px] text-[var(--gc-warning)]"
+            >
+              Reachable from your network — MCP has no authentication. Use 127.0.0.1 unless you need remote access.
+            </p>
 
             <p v-if="mcpError" class="text-[11px] text-destructive">{{ mcpError }}</p>
             <p v-else-if="mcp.envManaged" class="text-[11px] text-muted-foreground">Managed by environment variables.</p>

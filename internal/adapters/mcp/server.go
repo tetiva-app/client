@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -72,6 +73,12 @@ func NewServer(
 
 // Start starts the SSE server on the configured address.
 func (s *Server) Start(_ context.Context) error {
+	if !isLoopbackAddr(s.addr) {
+		slog.Warn("MCP DevTools is reachable from the network and has no authentication: "+
+			"anyone who can reach this address can read collections, environment variables and send requests",
+			"addr", s.addr)
+	}
+
 	s.sse = mcpserver.NewSSEServer(s.mcp,
 		mcpserver.WithSSEEndpoint("/sse"),
 		mcpserver.WithMessageEndpoint("/message"),
@@ -99,6 +106,20 @@ func (s *Server) Stop(_ context.Context) error {
 		return s.sse.Shutdown(context.Background())
 	}
 	return nil
+}
+
+// isLoopbackAddr reports whether the listen address is reachable only from this
+// machine. A host-less address (":9300") binds every interface.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func errResult(err error) *mcplib.CallToolResult {

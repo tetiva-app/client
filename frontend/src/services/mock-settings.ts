@@ -5,10 +5,10 @@ import type { MCPSettings, SetMCPSettingsRequest, SettingsServiceAPI } from './s
 // the UI renders and round-trips set/get without a backend.
 let state: MCPSettings = {
   enabled: false,
-  addr: ':9300',
+  addr: '127.0.0.1:9300',
   envManaged: false,
   running: false,
-  sseUrl: 'http://localhost:9300/sse',
+  sseUrl: 'http://127.0.0.1:9300/sse',
   restartRequired: false,
 }
 

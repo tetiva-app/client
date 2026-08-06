@@ -20,15 +20,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
+	"github.com/tetiva-app/client/internal/domain/usecase/settings"
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
 func main() {
-	addr := ":9300"
+	addr := settings.DefaultMCPAddr
 	if a := os.Getenv("MCP_ADDR"); a != "" {
-		addr = a
+		addr = settings.NormalizeMCPAddr(a)
 	}
 
 	db := openDB()

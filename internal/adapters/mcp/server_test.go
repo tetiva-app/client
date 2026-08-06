@@ -328,7 +328,7 @@ func TestServer_CreateRequestWithAllFields(t *testing.T) {
 	assert.Equal(t, "POST", created["method"])
 	assert.Equal(t, "json", created["body_type"])
 	assert.Equal(t, "bearer", created["auth_type"])
-	assert.Equal(t, `{"token":"xyz"}`, created["auth_data"])
+	assert.Equal(t, redactedValue, created["auth_data"])
 	assert.Contains(t, created["pre_script"], "X-Trace")
 	assert.Contains(t, created["post_script"], "pm.test")
 
@@ -507,6 +507,126 @@ func TestServer_SyncDisconnectStream_NoActiveStream_ReturnsError(t *testing.T) {
 		"workspace_id": wsID,
 	})
 	assert.Contains(t, result, "error:")
+}
+
+func TestServer_ListVariables_RedactsSecretValue(t *testing.T) {
+	srv := setupTestServer(t)
+
+	envRes := callTool(t, srv, "create_environment", map[string]any{"name": "Secrets"})
+	var env map[string]any
+	require.NoError(t, json.Unmarshal([]byte(envRes), &env))
+	envID := env["id"].(string)
+
+	callTool(t, srv, "create_variable", map[string]any{
+		"environment_id": envID, "key": "TOKEN", "value": "super-secret", "is_secret": true,
+	})
+	callTool(t, srv, "create_variable", map[string]any{
+		"environment_id": envID, "key": "BASE_URL", "value": "https://api.example.com",
+	})
+
+	listRes := callTool(t, srv, "list_variables", map[string]any{"environment_id": envID})
+	assert.NotContains(t, listRes, "super-secret")
+
+	var listed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(listRes), &listed))
+	byKey := map[string]map[string]any{}
+	for _, raw := range listed["variables"].([]any) {
+		v := raw.(map[string]any)
+		byKey[v["key"].(string)] = v
+	}
+	assert.Equal(t, redactedValue, byKey["TOKEN"]["value"])
+	assert.Equal(t, "https://api.example.com", byKey["BASE_URL"]["value"])
+
+	envGetRes := callTool(t, srv, "get_environment", map[string]any{"id": envID})
+	assert.NotContains(t, envGetRes, "super-secret")
+}
+
+func TestServer_CreateVariable_SecretValueNotEchoed(t *testing.T) {
+	srv := setupTestServer(t)
+
+	envRes := callTool(t, srv, "create_environment", map[string]any{"name": "Secrets"})
+	var env map[string]any
+	require.NoError(t, json.Unmarshal([]byte(envRes), &env))
+
+	createRes := callTool(t, srv, "create_variable", map[string]any{
+		"environment_id": env["id"].(string),
+		"key":            "TOKEN",
+		"value":          "super-secret",
+		"is_secret":      true,
+	})
+	assert.NotContains(t, createRes, "super-secret")
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(createRes), &created))
+	assert.Equal(t, redactedValue, created["value"])
+}
+
+func TestServer_GetRequest_RedactsAuthData(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "API"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	reqRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Authed",
+		"method":        "GET",
+		"url":           "https://api.example.com",
+		"auth_type":     "bearer",
+		"auth_data":     `{"token":"bearer-token-value"}`,
+	})
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(reqRes), &created))
+
+	getRes := callTool(t, srv, "get_request", map[string]any{"id": created["id"].(string)})
+	assert.NotContains(t, getRes, "bearer-token-value")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(getRes), &got))
+	assert.Equal(t, "bearer", got["auth_type"], "auth type stays visible")
+	assert.Equal(t, redactedValue, got["auth_data"])
+}
+
+func TestServer_GetCollection_RedactsAuthData(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{
+		"name":      "Authed",
+		"auth_type": "basic",
+		"auth_data": `{"username":"admin","password":"hunter2"}`,
+	})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	getRes := callTool(t, srv, "get_collection", map[string]any{"id": col["id"].(string)})
+	assert.NotContains(t, getRes, "hunter2")
+	assert.NotContains(t, getRes, "admin")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(getRes), &got))
+	assert.Equal(t, "basic", got["auth_type"])
+	assert.Equal(t, redactedValue, got["auth_data"])
+}
+
+func TestServer_SerializeAuthData_EmptyWhenUnset(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "No auth"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+	assert.Equal(t, "", col["auth_data"])
+}
+
+func TestIsLoopbackAddr(t *testing.T) {
+	loopback := []string{"127.0.0.1:9300", "localhost:9300", "[::1]:9300", "127.0.0.2:9300"}
+	for _, addr := range loopback {
+		assert.True(t, isLoopbackAddr(addr), "%q should be loopback", addr)
+	}
+	exposed := []string{":9300", "0.0.0.0:9300", "192.168.1.5:9300", "[::]:9300", ""}
+	for _, addr := range exposed {
+		assert.False(t, isLoopbackAddr(addr), "%q should not be loopback", addr)
+	}
 }
 
 func callTool(t *testing.T, srv *Server, toolName string, args map[string]any) string {

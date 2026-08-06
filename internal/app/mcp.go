@@ -43,6 +43,9 @@ func resolveMCPConfig(uc settings.Usecase) (*mcpadapter.RuntimeStatus, error) {
 	if st.Addr == "" {
 		st.Addr = settings.DefaultMCPAddr
 	}
+	// Single choke point for every source (persisted, env, default) — configs
+	// written before the loopback default would otherwise still bind 0.0.0.0.
+	st.Addr = settings.NormalizeMCPAddr(st.Addr)
 	return st, nil
 }
 

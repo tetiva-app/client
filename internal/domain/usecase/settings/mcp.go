@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 )
 
@@ -11,8 +12,19 @@ const (
 	keyMCPAddr    = "mcp.addr"
 
 	// DefaultMCPAddr is used when no address is persisted.
-	DefaultMCPAddr = ":9300"
+	DefaultMCPAddr = "127.0.0.1:9300"
 )
+
+// NormalizeMCPAddr binds host-less addresses (":9300") to loopback: a bare port
+// means 0.0.0.0, and the MCP server has no authentication. An explicit host is
+// returned untouched — exposing the server is then a deliberate choice.
+func NormalizeMCPAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host != "" {
+		return addr
+	}
+	return net.JoinHostPort("127.0.0.1", port)
+}
 
 // MCPConfig is the persisted MCP server configuration.
 type MCPConfig struct {

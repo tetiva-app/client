@@ -36,7 +36,9 @@ func (s *SettingsService) GetMCPSettings() Result[dto.MCPSettingsResponse] {
 			return Err[dto.MCPSettingsResponse](err)
 		}
 		desiredEnabled = cfg.Enabled
-		desiredAddr = cfg.Addr
+		// Report the address the server will actually bind, otherwise a persisted
+		// ":9300" reads as differing from the resolved one and RestartRequired sticks.
+		desiredAddr = settings.NormalizeMCPAddr(cfg.Addr)
 	}
 	// SSE URL points at the live endpoint when running; otherwise it previews
 	// the desired addr.

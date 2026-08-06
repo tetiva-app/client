@@ -27,11 +27,27 @@ func TestGetMCPSettings_DefaultsAndSSEURL(t *testing.T) {
 	if res.Error != nil {
 		t.Fatal(res.Error.Message)
 	}
-	if res.Data.SSEURL != "http://localhost:9300/sse" {
+	if res.Data.SSEURL != "http://127.0.0.1:9300/sse" {
 		t.Errorf("got sseUrl %q", res.Data.SSEURL)
 	}
 	if res.Data.Enabled || res.Data.EnvManaged {
 		t.Errorf("expected disabled, not env-managed")
+	}
+}
+
+// Settings must surface the address that will actually bind, not the legacy
+// host-less one, otherwise RestartRequired never clears.
+func TestGetMCPSettings_ReportsNormalizedAddr(t *testing.T) {
+	repo := &fakeRepo{data: map[string]string{"mcp.enabled": "true", "mcp.addr": ":9300"}}
+	svc := NewSettingsService(settings.NewUsecase(repo),
+		&mcpadapter.RuntimeStatus{Addr: "127.0.0.1:9300", Enabled: true, Running: true})
+
+	res := svc.GetMCPSettings()
+	if res.Data.Addr != "127.0.0.1:9300" {
+		t.Errorf("got addr %q", res.Data.Addr)
+	}
+	if res.Data.RestartRequired {
+		t.Errorf("normalized addr matches the running server, no restart expected")
 	}
 }
 
@@ -41,14 +57,14 @@ func TestSetMCPSettings_PersistsAndReturns(t *testing.T) {
 	if res.Error != nil {
 		t.Fatal(res.Error.Message)
 	}
-	if !res.Data.Enabled || res.Data.Addr != ":9400" {
+	if !res.Data.Enabled || res.Data.Addr != "127.0.0.1:9400" {
 		t.Errorf("got %+v", res.Data)
 	}
 	if !res.Data.RestartRequired {
 		t.Errorf("expected restart required after enabling a stopped server")
 	}
 	res2 := svc.GetMCPSettings()
-	if !res2.Data.Enabled || res2.Data.Addr != ":9400" {
+	if !res2.Data.Enabled || res2.Data.Addr != "127.0.0.1:9400" {
 		t.Errorf("persisted state wrong: %+v", res2.Data)
 	}
 }

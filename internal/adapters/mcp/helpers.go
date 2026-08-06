@@ -1,11 +1,34 @@
 package mcp
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
+
+// redactedValue stands in for stored credentials in tool output. Tool results
+// reach the MCP client verbatim, so secrets must never be part of them.
+const redactedValue = "[redacted]"
+
+// maskAuthData keeps the "auth is configured" signal without the credentials.
+func maskAuthData(data string) string {
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" || trimmed == "{}" {
+		return ""
+	}
+	return redactedValue
+}
+
+// maskVariableValue redacts variables the user flagged as secret.
+func maskVariableValue(value string, isSecret bool) string {
+	if !isSecret || value == "" {
+		return value
+	}
+	return redactedValue
+}
 
 // uuidPtrArg parses a UUID argument that may be empty. Returns nil if absent/empty.
 func uuidPtrArg(req mcplib.CallToolRequest, name string) (*uuid.UUID, error) {
@@ -99,7 +122,7 @@ func serializeCollection(c *entities.Collection) map[string]any {
 		"name":         c.Name,
 		"description":  c.Description,
 		"auth_type":    string(c.AuthType),
-		"auth_data":    c.AuthData,
+		"auth_data":    maskAuthData(c.AuthData),
 		"pre_script":   c.PreScript,
 		"post_script":  c.PostScript,
 		"sort_order":   c.SortOrder,
@@ -122,7 +145,7 @@ func serializeRequest(r *entities.Request) map[string]any {
 		"body":                r.Body,
 		"body_type":           string(r.BodyType),
 		"auth_type":           string(r.AuthType),
-		"auth_data":           r.AuthData,
+		"auth_data":           maskAuthData(r.AuthData),
 		"pre_script":          r.PreScript,
 		"post_script":         r.PostScript,
 		"grpc_service":        r.GRPCService,

@@ -26,6 +26,7 @@ type ScriptContext struct {
 // PreScriptResult holds the output of a pre-request script.
 type PreScriptResult struct {
 	Headers       map[string][]string
+	Metadata      map[string][]string // gRPC metadata after the script; never the caller's map
 	Variables     map[string]string
 	ConsoleOutput []string
 }

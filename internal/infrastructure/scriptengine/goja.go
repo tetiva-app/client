@@ -3,7 +3,9 @@ package scriptengine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
@@ -11,7 +13,17 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-const scriptTimeout = 5 * time.Second
+const (
+	scriptTimeout = 5 * time.Second
+	// Interrupt is checked between bytecode instructions, so it never lands inside Go code —
+	// a regexp with backtracking is the known case. After this grace period we stop waiting.
+	interruptGrace = 250 * time.Millisecond
+)
+
+var abandonedScripts atomic.Int64
+
+// AbandonedScripts returns how many script runs ignored the interrupt and were left running.
+func AbandonedScripts() int64 { return abandonedScripts.Load() }
 
 // GojaEngine implements request.ScriptEngine using the Goja JS runtime.
 type GojaEngine struct{}
@@ -27,6 +39,7 @@ func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx reque
 
 	vars := copyMap(sctx.Variables)
 	headers := copyHeaders(sctx.RequestHeaders)
+	sctx.Metadata = copyHeaders(sctx.Metadata)
 
 	var consoleOutput []string
 
@@ -40,6 +53,7 @@ func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx reque
 
 	return &request.PreScriptResult{
 		Headers:       headers,
+		Metadata:      sctx.Metadata,
 		Variables:     vars,
 		ConsoleOutput: consoleOutput,
 	}, nil
@@ -51,6 +65,7 @@ func (e *GojaEngine) RunPostScript(ctx context.Context, script string, sctx requ
 
 	vars := copyMap(sctx.Variables)
 	headers := copyHeaders(sctx.RequestHeaders)
+	sctx.Metadata = copyHeaders(sctx.Metadata)
 
 	var consoleOutput []string
 	var testResults []request.TestResult
@@ -255,25 +270,24 @@ func getPmObject(vm *goja.Runtime) *goja.Object {
 	return pm
 }
 
+// runWithTimeout runs the script on its own goroutine so that a run which ignores the interrupt
+// cannot hold the caller. The caller must not read anything the script wrote once this returns
+// an error: an abandoned run keeps writing to those maps and slices.
 func runWithTimeout(ctx context.Context, vm *goja.Runtime, script string, timeout time.Duration) error {
-	timer := time.AfterFunc(timeout, func() {
-		vm.Interrupt("script timeout exceeded")
-	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := vm.RunString(script)
+		done <- err
+	}()
+
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
-	// Cancel script if context is done (e.g. user cancellation)
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			vm.Interrupt("context cancelled")
-		case <-done:
+	select {
+	case err := <-done:
+		if err == nil {
+			return nil
 		}
-	}()
-	defer close(done)
-
-	_, err := vm.RunString(script)
-	if err != nil {
 		if interrupted, ok := err.(*goja.InterruptedError); ok {
 			if ctx.Err() != nil {
 				return fmt.Errorf("cancelled: %w", ctx.Err())
@@ -281,8 +295,28 @@ func runWithTimeout(ctx context.Context, vm *goja.Runtime, script string, timeou
 			return fmt.Errorf("timeout: %s", interrupted.Value())
 		}
 		return fmt.Errorf("script error: %w", err)
+	case <-timer.C:
+		stopScript(vm, done, "script timeout exceeded")
+		return fmt.Errorf("timeout: script timeout exceeded")
+	case <-ctx.Done():
+		stopScript(vm, done, "context cancelled")
+		return fmt.Errorf("cancelled: %w", ctx.Err())
 	}
-	return nil
+}
+
+func stopScript(vm *goja.Runtime, done <-chan error, reason string) {
+	vm.Interrupt(reason)
+
+	grace := time.NewTimer(interruptGrace)
+	defer grace.Stop()
+
+	select {
+	case <-done:
+	case <-grace.C:
+		abandonedScripts.Add(1)
+		slog.Warn("script did not stop on interrupt, left running",
+			"reason", reason, "abandoned_total", abandonedScripts.Load())
+	}
 }
 
 func copyMap(m map[string]string) map[string]string {
@@ -293,6 +327,7 @@ func copyMap(m map[string]string) map[string]string {
 	return cp
 }
 
+// Always returns a usable map: pm.request.headers.upsert and metadata.set write into it.
 func copyHeaders(h map[string][]string) map[string][]string {
 	cp := make(map[string][]string, len(h))
 	for k, v := range h {

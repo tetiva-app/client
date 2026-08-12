@@ -235,32 +235,33 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	var execURL string
 	var historyHeaders map[string][]string
 	var historyBody string
+	var grpcRequestMetadata map[string][]string
 
 	switch req.Protocol {
 	case entities.ProtocolWebSocket:
 		return nil, &domain.ValidationError{Fields: map[string]string{"protocol": "use Connect for websocket, not Execute"}}
 
 	case entities.ProtocolGRPC:
-		var headers map[string][]string
-		var body string
-		scriptResult, vars, execURL, body, headers = u.runPreScriptForNonHTTP(ctx, req, vars)
-		grpcMetadata := substituteMetadata(req.GRPCMetadata, vars)
+		pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
+		grpcMetadata := substituteMetadata(pre.Metadata, vars)
 		grpcReq := GRPCExecuteRequest{
 			Host:      execURL,
 			Service:   req.GRPCService,
 			Method:    req.GRPCMethod,
-			Message:   body,
+			Message:   pre.Body,
 			Metadata:  grpcMetadata,
 			ProtoPath: req.GRPCProtoPath,
 		}
 		resp, execErr = u.grpcRequester.Execute(ctx, grpcReq)
-		historyHeaders = headers
-		historyBody = body
+		historyHeaders = pre.Headers
+		historyBody = pre.Body
+		grpcRequestMetadata = grpcMetadata
 
 	case entities.ProtocolGraphQL:
-		var headers map[string][]string
-		var body string
-		scriptResult, vars, execURL, body, headers = u.runPreScriptForNonHTTP(ctx, req, vars)
+		pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
+		headers, body := pre.Headers, pre.Body
 		resolvedAuthType, resolvedAuthData, authErr := u.authResolver.ResolveAuth(ctx, req)
 		if authErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, authErr)
@@ -341,7 +342,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			Protocol:           string(req.Protocol),
 		}
 		if req.Protocol == entities.ProtocolGRPC {
-			postCtx.Metadata = req.GRPCMetadata
+			postCtx.Metadata = grpcRequestMetadata
 			postCtx.Service = req.GRPCService
 			postCtx.GRPCMethod = req.GRPCMethod
 		}
@@ -444,28 +445,41 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
+// preScriptOutcome carries what a pre-script may have changed on the gRPC/GraphQL paths.
+type preScriptOutcome struct {
+	ScriptResult *entities.ScriptResult
+	Vars         map[string]string
+	URL          string
+	Body         string
+	Headers      map[string][]string
+	Metadata     map[string][]string // gRPC only; never the request's own map
+}
+
 // runPreScriptForNonHTTP runs pre-script for gRPC/GraphQL paths (HTTP uses prepareHTTP).
-// Returns updated scriptResult, vars, execURL, body, headers.
 func (u *usecase) runPreScriptForNonHTTP(
 	ctx context.Context,
 	req *entities.Request,
 	vars map[string]string,
-) (*entities.ScriptResult, map[string]string, string, string, map[string][]string) {
+) preScriptOutcome {
 	headers := entities.EnabledHeadersToMap(req.Headers)
 	execURL := substituteVariables(req.URL, vars)
 	body := substituteVariables(req.Body, vars)
 	headers = substituteHeaders(headers, vars)
 
-	var scriptResult *entities.ScriptResult
+	out := preScriptOutcome{Vars: vars, URL: execURL, Body: body, Headers: headers, Metadata: req.GRPCMetadata}
+
 	preScript, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
 	if preResolveErr != nil {
-		scriptResult = &entities.ScriptResult{Errors: []entities.ScriptError{{Phase: "pre-script", Message: preResolveErr.Error()}}}
-		return scriptResult, vars, execURL, body, headers
+		out.ScriptResult = &entities.ScriptResult{
+			Errors: []entities.ScriptError{{Phase: "pre-script", Message: preResolveErr.Error()}},
+		}
+		return out
 	}
 	if preScript == "" || u.scriptEngine == nil {
-		return nil, vars, execURL, body, headers
+		return out
 	}
-	scriptResult = &entities.ScriptResult{}
+	scriptResult := &entities.ScriptResult{}
+	out.ScriptResult = scriptResult
 	preCtx := ScriptContext{
 		Variables:      vars,
 		RequestMethod:  string(req.Method),
@@ -488,15 +502,18 @@ func (u *usecase) runPreScriptForNonHTTP(
 		scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
 			Phase: "pre-script", Message: preErr.Error(),
 		})
-		return scriptResult, vars, execURL, body, headers
+		return out
 	}
 	scriptResult.PreConsole = preResult.ConsoleOutput
-	headers = preResult.Headers
-	if !mapsEqual(vars, preResult.Variables) {
-		vars = preResult.Variables
-		execURL = substituteVariables(req.URL, vars)
-		body = substituteVariables(req.Body, vars)
-		headers = substituteHeaders(headers, vars)
+	out.Headers = preResult.Headers
+	if req.Protocol == entities.ProtocolGRPC {
+		out.Metadata = preResult.Metadata
 	}
-	return scriptResult, vars, execURL, body, headers
+	if !mapsEqual(vars, preResult.Variables) {
+		out.Vars = preResult.Variables
+		out.URL = substituteVariables(req.URL, out.Vars)
+		out.Body = substituteVariables(req.Body, out.Vars)
+		out.Headers = substituteHeaders(out.Headers, out.Vars)
+	}
+	return out
 }

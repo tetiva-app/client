@@ -10,5 +10,6 @@ export function buildDocsUrl(slug?: string): string {
 }
 
 export function openDocs(slug?: string): Promise<void> {
-  return openExternal(buildDocsUrl(slug))
+  // Swallow rejections here so call sites can stay fire-and-forget.
+  return openExternal(buildDocsUrl(slug)).catch(() => {})
 }

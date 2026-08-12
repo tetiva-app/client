@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import HelpLink from '@/components/ui/HelpLink.vue'
 import {
   Tabs,
   TabsContent,
@@ -249,7 +250,10 @@ async function handleDisconnect() {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent class="sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>Sync</DialogTitle>
+        <div class="flex items-center gap-1">
+          <DialogTitle>Sync</DialogTitle>
+          <HelpLink slug="sync" />
+        </div>
         <DialogDescription>
           Connect to sync your workspaces across devices.
         </DialogDescription>

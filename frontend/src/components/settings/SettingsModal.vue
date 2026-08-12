@@ -9,6 +9,8 @@ import { useOnboardingUi } from '@/stores/onboardingUi'
 import { FONT_SIZE_OPTIONS, type ThemePreference } from '@/lib/settings-storage'
 import { checkForUpdates, type UpdateCheckResult } from '@/lib/updates'
 import { openExternal } from '@/lib/open-external'
+import { openDocs } from '@/constants/docs'
+import HelpLink from '@/components/ui/HelpLink.vue'
 import { getSettingsService, type MCPSettings } from '@/services'
 import { buildMcpPreset, isNetworkExposedAddr, MCP_CLIENTS, type McpClient } from '@/lib/mcp-config-presets'
 
@@ -178,7 +180,10 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
         </section>
 
         <section class="flex flex-col gap-3 border-t border-border pt-4">
-          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MCP / DevTools</h3>
+          <div class="flex items-center gap-1">
+            <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MCP / DevTools</h3>
+            <HelpLink slug="mcp-server" />
+          </div>
 
           <template v-if="mcp">
             <div class="flex items-center justify-between">
@@ -290,6 +295,13 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
               @click="showWelcome"
             >
               Show welcome
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer text-[13px] text-primary hover:underline"
+              @click="openDocs()"
+            >
+              Documentation
             </button>
           </div>
         </section>

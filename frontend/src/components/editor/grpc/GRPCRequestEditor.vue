@@ -10,6 +10,7 @@ import type { GRPCSchema, GRPCConnectRequest } from '@/types/grpc'
 import GRPCUrlBar from './GRPCUrlBar.vue'
 import ServiceMethodSelect from './ServiceMethodSelect.vue'
 import GRPCResponseViewer from './GRPCResponseViewer.vue'
+import HelpLink from '@/components/ui/HelpLink.vue'
 import { isInsideOverlay } from '@/lib/shortcut-guards'
 import {
   ResizablePanelGroup,
@@ -407,6 +408,8 @@ const tabs = computed(() => [
       <div v-if="schemaError" class="text-xs text-destructive truncate max-w-[300px]" :title="schemaError">
         {{ schemaError }}
       </div>
+
+      <HelpLink slug="grpc" class="ml-auto" />
     </div>
 
     <ResizablePanelGroup

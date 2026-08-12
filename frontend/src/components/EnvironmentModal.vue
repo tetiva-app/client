@@ -21,6 +21,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { Button } from '@/components/ui/button'
+import HelpLink from '@/components/ui/HelpLink.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const props = defineProps<{
@@ -344,7 +345,10 @@ watch(selectedEnvId, () => {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent class="w-[90vw] sm:max-w-[780px] p-0 gap-0 border-border/50 bg-background">
       <DialogHeader class="px-4 py-3 border-b border-border">
-        <DialogTitle class="text-sm font-medium">Manage Environments</DialogTitle>
+        <div class="flex items-center gap-1">
+          <DialogTitle class="text-sm font-medium">Manage Environments</DialogTitle>
+          <HelpLink slug="environments-and-variables" />
+        </div>
       </DialogHeader>
 
       <div class="flex h-[min(420px,70vh)]">

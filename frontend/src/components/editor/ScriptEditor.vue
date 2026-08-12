@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, defineAsyncComponent } from 'vue'
+import HelpLink from '@/components/ui/HelpLink.vue'
 
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 
@@ -49,6 +50,7 @@ watch(() => props.postScript, (val) => { postContent.value = val })
       <span class="ml-auto text-[11px] text-muted-foreground/40">
         {{ activePhase === 'pre' ? 'Runs before each request' : 'Runs after each response' }}
       </span>
+      <HelpLink slug="scripting" />
     </div>
 
     <!-- Editors — both mounted, toggled via v-show to preserve undo history -->

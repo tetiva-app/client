@@ -9,6 +9,26 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '0.16.1',
+    date: '2026-08-12',
+    en: {
+      added: [],
+      fixed: [
+        'The MCP server now listens on localhost only, and its tools no longer return tokens, passwords or secret variables.',
+        'A script from an imported collection can no longer freeze the app: a run that ignores the five-second limit is detached and the request fails instead.',
+        'gRPC metadata reaches scripts as a copy, so a script no longer edits the saved request.',
+      ],
+    },
+    ru: {
+      added: [],
+      fixed: [
+        'MCP-сервер слушает только localhost, а его инструменты больше не отдают токены, пароли и секретные переменные.',
+        'Скрипт из импортированной коллекции больше не может заморозить приложение: если он не укладывается в пять секунд, запрос завершается ошибкой, а окно продолжает работать.',
+        'gRPC-метаданные приходят в скрипт копией — сохранённый запрос скрипт больше не меняет.',
+      ],
+    },
+  },
+  {
     version: '0.16.0',
     date: '2026-07-27',
     en: {

@@ -9,6 +9,30 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '0.17.0',
+    date: '2026-08-16',
+    en: {
+      added: [
+        'Links to the documentation: a Documentation item in Settings and a "?" next to MCP, scripts, the gRPC editor, sync and environments — each opens its own page.',
+        'Sync settings list the devices signed in to your account: sign one of them out, or sign out everywhere.',
+        'When the server refuses to sync something because of a plan limit, the app says so instead of retrying in silence. Your data stays on disk.',
+      ],
+      fixed: [
+        'Re-linking a workspace to a different cloud workspace now loads its contents right away.',
+      ],
+    },
+    ru: {
+      added: [
+        'Ссылки на документацию: пункт «Documentation» в настройках и «?» рядом с MCP, скриптами, gRPC-редактором, синхронизацией и окружениями — каждый ведёт на свою страницу.',
+        'В окне синхронизации видно устройства, где вы вошли в аккаунт: можно выйти с одного или со всех сразу.',
+        'Если сервер отказал в синхронизации из-за лимита тарифа, приложение говорит об этом, а не повторяет попытки молча. Данные остаются на диске.',
+      ],
+      fixed: [
+        'После перепривязки к другому облачному воркспейсу его содержимое загружается сразу.',
+      ],
+    },
+  },
+  {
     version: '0.16.1',
     date: '2026-08-12',
     en: {

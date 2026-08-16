@@ -27,12 +27,17 @@ type ResultError struct {
 }
 
 const (
-	ErrCodeValidation  = "validation"
-	ErrCodeNotFound    = "not_found"
-	ErrCodeConflict    = "conflict"
-	ErrCodeRateLimited = "rate_limited"
-	ErrCodeInternal    = "internal"
+	ErrCodeValidation   = "validation"
+	ErrCodeNotFound     = "not_found"
+	ErrCodeConflict     = "conflict"
+	ErrCodeRateLimited  = "rate_limited"
+	ErrCodeNotConnected = "not_connected"
+	ErrCodeInternal     = "internal"
 )
+
+// ErrNotConnected marks the sync RPCs the UI has to explain differently:
+// the account is signed in, the transport is not up.
+var ErrNotConnected = errors.New("not connected to sync server")
 
 // OK creates a successful Result with the given data.
 func OK[T any](data T) Result[T] {
@@ -63,6 +68,11 @@ func Err[T any](err error) Result[T] {
 		return Result[T]{Data: zero, Error: &ResultError{
 			Code:    ErrCodeConflict,
 			Message: conflictErr.Error(),
+		}}
+	case errors.Is(err, ErrNotConnected):
+		return Result[T]{Data: zero, Error: &ResultError{
+			Code:    ErrCodeNotConnected,
+			Message: err.Error(),
 		}}
 	case status.Code(err) == codes.ResourceExhausted:
 		return Result[T]{Data: zero, Error: &ResultError{

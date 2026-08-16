@@ -3,12 +3,21 @@ package sync
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"slices"
+	gosync "sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
@@ -786,4 +795,682 @@ func TestSyncEngine_PauseResume_ConcurrentSafe(t *testing.T) {
 		_ = engine.Resume(wsID)
 	}
 	<-done
+}
+
+type capturedEvent struct {
+	name string
+	data map[string]any
+}
+
+func captureEvents(engine *SyncEngine) *[]capturedEvent {
+	events := &[]capturedEvent{}
+	engine.SetEventEmitter(func(name string, data any) {
+		payload, _ := data.(map[string]any)
+		*events = append(*events, capturedEvent{name: name, data: payload})
+	})
+	return events
+}
+
+func findEvent(events []capturedEvent, name string) (map[string]any, int) {
+	var data map[string]any
+	count := 0
+	for _, e := range events {
+		if e.name == name {
+			if count == 0 {
+				data = e.data
+			}
+			count++
+		}
+	}
+	return data, count
+}
+
+func lastEventData(events []capturedEvent, name string) map[string]any {
+	var data map[string]any
+	for _, e := range events {
+		if e.name == name {
+			data = e.data
+		}
+	}
+	return data
+}
+
+func rejectedResult(entityID string, reason syncv1.PushRejectReason) *syncv1.PushResult {
+	return syncv1.PushResult_builder{
+		EntityId:     entityID,
+		Status:       syncv1.PushStatus_PUSH_STATUS_REJECTED,
+		RejectReason: reason,
+		ErrorMessage: "rejected",
+	}.Build()
+}
+
+func TestWorkspaceSyncer_HandleRejected_QuotaExceeded_EmitsEvent(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	entityID := uuid.New().String()
+	entries := []*sqlite.SyncEntry{{EntityID: entityID, EntityType: "collection"}}
+
+	ws.handleRejected(rejectedResult(entityID, syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED), entries)
+
+	data, count := findEvent(*events, "sync:quota_exceeded")
+	require.Equal(t, 1, count)
+	assert.Equal(t, ws.localWorkspaceID, data["workspaceId"])
+	assert.Equal(t, "cloud_collections", data["kind"])
+	assert.Equal(t, "collection", data["entityType"])
+	assert.Equal(t, entityID, data["entityId"])
+}
+
+func TestWorkspaceSyncer_HandleRejected_IDConflict_EmitsRejectedEvent(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	entityID := uuid.New().String()
+	entries := []*sqlite.SyncEntry{{EntityID: entityID, EntityType: "request"}}
+
+	ws.handleRejected(rejectedResult(entityID, syncv1.PushRejectReason_PUSH_REJECT_REASON_ID_CONFLICT), entries)
+
+	data, count := findEvent(*events, "sync:rejected")
+	require.Equal(t, 1, count)
+	assert.Equal(t, "id_conflict", data["reason"])
+	assert.Equal(t, "request", data["entityType"])
+	assert.Equal(t, entityID, data["entityId"])
+}
+
+func TestWorkspaceSyncer_HandleRejected_SilentWhileParked(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	entries := []*sqlite.SyncEntry{{EntityID: "a", EntityType: "collection"}, {EntityID: "b", EntityType: "collection"}}
+	ws.handleRejected(rejectedResult("a", syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED), entries)
+	ws.handleRejected(rejectedResult("b", syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED), entries)
+
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 1, count, "a rejection inside an open episode must not emit")
+}
+
+func TestWorkspaceSyncer_HandleRejected_ParentNotFound_NoEvent(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	entries := []*sqlite.SyncEntry{{EntityID: "a", EntityType: "request"}}
+	ws.handleRejected(rejectedResult("a", syncv1.PushRejectReason_PUSH_REJECT_REASON_PARENT_NOT_FOUND), entries)
+
+	assert.Empty(t, *events)
+}
+
+// quotaErr mimics the server: mapError prefixes the handler name to domain.ErrQuotaExceeded.
+func quotaErr() error {
+	return status.Error(codes.ResourceExhausted, "SyncHandler.Push: quota exceeded: org exceeds member limit; sync paused")
+}
+
+func TestWorkspaceSyncer_RetryAfterSyncErr_QuotaMarker_PlanLimit(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	backoff := ws.retryAfterSyncErr(fmt.Errorf("push rpc: %w", quotaErr()), initialBackoff)
+
+	assert.Equal(t, maxBackoff, backoff)
+	assert.Equal(t, StatePlanLimit, ws.getState())
+	data, count := findEvent(*events, "sync:quota_exceeded")
+	require.Equal(t, 1, count)
+	assert.Equal(t, "members", data["kind"])
+	assert.Equal(t, ws.localWorkspaceID, data["workspaceId"])
+}
+
+func TestWorkspaceSyncer_RetryAfterSyncErr_MessageTooLarge_Offline(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	tooLarge := status.Error(codes.ResourceExhausted, "grpc: received message larger than max (5242880 vs. 4194304)")
+	backoff := ws.retryAfterSyncErr(fmt.Errorf("push rpc: %w", tooLarge), 20*time.Second)
+
+	assert.Equal(t, 20*time.Second, backoff)
+	assert.Equal(t, StateOffline, ws.getState())
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Zero(t, count)
+}
+
+func TestWorkspaceSyncer_RetryAfterSyncErr_OtherError_Offline(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	backoff := ws.retryAfterSyncErr(errors.New("connection refused"), 20*time.Second)
+
+	assert.Equal(t, 20*time.Second, backoff)
+	assert.Equal(t, StateOffline, ws.getState())
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Zero(t, count)
+}
+
+func TestWorkspaceSyncer_PlanLimit_EmitsOncePerEpisode(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	ws.retryAfterSyncErr(quotaErr(), initialBackoff)
+	ws.retryAfterSyncErr(quotaErr(), maxBackoff)
+
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 1, count)
+
+	engine.clearPlanLimit()
+	ws.retryAfterSyncErr(quotaErr(), initialBackoff)
+
+	_, count = findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 2, count, "a new episode must notify again")
+}
+
+func TestWorkspaceSyncer_PlanLimit_OneEventForAllWorkspaces(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	wsA, cancelA := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancelA()
+	wsB, cancelB := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancelB()
+
+	wsA.retryAfterSyncErr(quotaErr(), initialBackoff)
+	wsB.retryAfterSyncErr(quotaErr(), initialBackoff)
+
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 1, count)
+	assert.Equal(t, StatePlanLimit, wsB.getState())
+}
+
+func TestWorkspaceSyncer_QuotaEvents_MembersDoesNotMuteCollections(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	entries := []*sqlite.SyncEntry{{EntityID: "a", EntityType: "collection"}}
+	ws.handleRejected(rejectedResult("a", syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED), entries)
+	ws.retryAfterSyncErr(quotaErr(), initialBackoff)
+
+	kinds := []string{}
+	for _, e := range *events {
+		if e.name == "sync:quota_exceeded" {
+			kinds = append(kinds, e.data["kind"].(string))
+		}
+	}
+	assert.Equal(t, []string{"cloud_collections", "members"}, kinds,
+		"a members freeze must not swallow the collection-limit event")
+}
+
+type stubSubscribeStream struct {
+	grpc.ClientStream
+	ctx context.Context
+}
+
+func (s *stubSubscribeStream) Recv() (*syncv1.SubscribeResponse, error) {
+	<-s.ctx.Done()
+	return nil, s.ctx.Err()
+}
+
+type stubSyncClient struct {
+	syncv1.SyncServiceClient
+	mu       gosync.Mutex
+	pushErr  error
+	pushed   [][]*syncv1.SyncEntity
+	pushResp func(call int, req *syncv1.PushRequest) *syncv1.PushResponse
+}
+
+func (s *stubSyncClient) Push(_ context.Context, req *syncv1.PushRequest, _ ...grpc.CallOption) (*syncv1.PushResponse, error) {
+	s.mu.Lock()
+	s.pushed = append(s.pushed, req.GetEntities())
+	calls := len(s.pushed)
+	s.mu.Unlock()
+
+	if s.pushErr != nil {
+		return nil, s.pushErr
+	}
+	if s.pushResp != nil {
+		return s.pushResp(calls, req), nil
+	}
+	return syncv1.PushResponse_builder{}.Build(), nil
+}
+
+func (s *stubSyncClient) Pull(_ context.Context, _ *syncv1.PullRequest, _ ...grpc.CallOption) (*syncv1.PullResponse, error) {
+	return syncv1.PullResponse_builder{}.Build(), nil
+}
+
+// pushBatches snapshots the recorded pushes for tests that read them while a syncer goroutine runs.
+func (s *stubSyncClient) pushBatches() [][]*syncv1.SyncEntity {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.pushed)
+}
+
+func (s *stubSyncClient) Subscribe(ctx context.Context, _ *syncv1.SubscribeRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[syncv1.SubscribeResponse], error) {
+	return &stubSubscribeStream{ctx: ctx}, nil
+}
+
+func TestWorkspaceSyncer_SubscribeLoop_PushQuotaExceeded_EntersPlanLimit(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ctx := context.Background()
+
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+	engine.SetGRPCClient(&GRPCClient{sync: &stubSyncClient{
+		pushErr: quotaErr(),
+	}})
+
+	wsID := uuid.New().String()
+	ws, cancelSyncer := newSyncer(engine, wsID, StateConnected)
+	defer cancelSyncer()
+
+	require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: wsID,
+		EntityType:  "collection",
+		EntityID:    uuid.NewString(),
+		Action:      "delete",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+
+	loopCtx, cancelLoop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ws.subscribeLoop(loopCtx)
+	}()
+	ws.pushSignal <- struct{}{}
+
+	require.Eventually(t, func() bool { return ws.getState() == StatePlanLimit }, 5*time.Second, 10*time.Millisecond)
+	cancelLoop()
+	<-done
+
+	data, count := findEvent(*events, "sync:quota_exceeded")
+	require.Equal(t, 1, count)
+	assert.Equal(t, "members", data["kind"])
+	assert.Equal(t, wsID, data["workspaceId"])
+}
+
+func TestWorkspaceSyncer_PushAll_QuotaRejected_KeptForRetry(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &stubSyncClient{pushResp: func(call int, req *syncv1.PushRequest) *syncv1.PushResponse {
+		pushStatus := syncv1.PushStatus_PUSH_STATUS_ACCEPTED
+		reason := syncv1.PushRejectReason_PUSH_REJECT_REASON_UNSPECIFIED
+		if call == 1 {
+			pushStatus = syncv1.PushStatus_PUSH_STATUS_REJECTED
+			reason = syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED
+		}
+		return syncv1.PushResponse_builder{Results: []*syncv1.PushResult{
+			syncv1.PushResult_builder{
+				EntityId:     req.GetEntities()[0].GetEntityId(),
+				Status:       pushStatus,
+				RejectReason: reason,
+			}.Build(),
+		}}.Build()
+	}}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: wsID,
+		EntityType:  "collection",
+		EntityID:    uuid.NewString(),
+		Action:      "delete",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+
+	require.NoError(t, ws.pushAll(ctx))
+	require.Len(t, stub.pushed, 1)
+
+	var queueStatus, retryAt string
+	require.NoError(t, engine.db.QueryRowContext(ctx,
+		`SELECT status, next_retry_at FROM sync_queue WHERE workspace_id = ?`, wsID).Scan(&queueStatus, &retryAt))
+	assert.Equal(t, "failed", queueStatus)
+	parsed, err := time.Parse(time.RFC3339, retryAt)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(quotaRetryDelay), parsed, time.Minute)
+
+	pending, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	requeued, err := engine.syncQueue.RequeueDue(ctx, wsID, time.Now().Add(quotaRetryDelay+time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), requeued)
+
+	require.NoError(t, ws.pushAll(ctx))
+	assert.Len(t, stub.pushed, 2)
+
+	remaining, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
+
+	var rows int
+	require.NoError(t, engine.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sync_queue`).Scan(&rows))
+	assert.Zero(t, rows, "an accepted entry must leave the outbox")
+}
+
+func TestWorkspaceSyncer_PushAll_QuotaEpisode_OneEventUntilParkedClears(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ctx := context.Background()
+
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	accept := false
+	engine.SetGRPCClient(&GRPCClient{sync: &stubSyncClient{pushResp: func(_ int, req *syncv1.PushRequest) *syncv1.PushResponse {
+		pushStatus := syncv1.PushStatus_PUSH_STATUS_REJECTED
+		reason := syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED
+		if accept {
+			pushStatus = syncv1.PushStatus_PUSH_STATUS_ACCEPTED
+			reason = syncv1.PushRejectReason_PUSH_REJECT_REASON_UNSPECIFIED
+		}
+		results := make([]*syncv1.PushResult, 0, len(req.GetEntities()))
+		for _, e := range req.GetEntities() {
+			results = append(results, syncv1.PushResult_builder{
+				EntityId:     e.GetEntityId(),
+				Status:       pushStatus,
+				RejectReason: reason,
+			}.Build())
+		}
+		return syncv1.PushResponse_builder{Results: results}.Build()
+	}}})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	enqueue := func() {
+		require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+			WorkspaceID: wsID,
+			EntityType:  "collection",
+			EntityID:    uuid.NewString(),
+			Action:      "delete",
+			OperationID: uuid.NewString(),
+			Status:      "pending",
+			CreatedAt:   time.Now().Truncate(time.Second),
+		}))
+	}
+
+	enqueue()
+	require.NoError(t, ws.pushAll(ctx))
+
+	_, quota := findEvent(*events, "sync:quota_exceeded")
+	require.Equal(t, 1, quota)
+	first, changes := findEvent(*events, "sync:parked_changed")
+	require.Equal(t, 1, changes)
+	assert.Equal(t, wsID, first["workspaceId"])
+	assert.Equal(t, 1, first["parked"])
+
+	enqueue()
+	require.NoError(t, ws.pushAll(ctx))
+
+	_, quota = findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 1, quota, "a rejection while entries are parked must stay silent")
+	assert.Equal(t, 2, lastEventData(*events, "sync:parked_changed")["parked"])
+
+	accept = true
+	_, err = engine.syncQueue.RequeueDue(ctx, wsID, time.Now().Add(quotaRetryDelay+time.Minute))
+	require.NoError(t, err)
+	require.NoError(t, ws.pushAll(ctx))
+
+	assert.Equal(t, 0, lastEventData(*events, "sync:parked_changed")["parked"])
+
+	accept = false
+	enqueue()
+	require.NoError(t, ws.pushAll(ctx))
+
+	_, quota = findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 2, quota, "the episode ended with the parked entries, so the next rejection notifies again")
+}
+
+func TestWorkspaceSyncer_PlanLimit_ClearedByReconnectWithoutPush(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ctx := context.Background()
+
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+	stub := &stubSyncClient{}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	ws, cancelSyncer := newSyncer(engine, uuid.New().String(), StateOffline)
+	defer cancelSyncer()
+
+	ws.retryAfterSyncErr(quotaErr(), initialBackoff)
+	require.Equal(t, StatePlanLimit, ws.getState())
+
+	loopCtx, cancelLoop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ws.subscribeLoop(loopCtx)
+	}()
+	require.Eventually(t, func() bool { return ws.getState() == StateConnected }, 5*time.Second, 10*time.Millisecond)
+	cancelLoop()
+	<-done
+
+	require.Empty(t, stub.pushed, "an empty outbox recovers without a push")
+
+	ws.retryAfterSyncErr(quotaErr(), initialBackoff)
+
+	_, count := findEvent(*events, "sync:quota_exceeded")
+	assert.Equal(t, 2, count, "the episode after a recovery must notify again")
+}
+
+func TestWorkspaceSyncer_QuotaParked_RequeueTimerSignalsPush(t *testing.T) {
+	restore := requeueDelay
+	requeueDelay = 10 * time.Millisecond
+	t.Cleanup(func() { requeueDelay = restore })
+
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: wsID,
+		EntityType:  "collection",
+		EntityID:    uuid.NewString(),
+		Action:      "delete",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+
+	entries, err := engine.syncQueue.CoalescedPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	ws.deferQuotaRejected(ctx, []int64{entries[0].ID}, []int64{entries[0].ID})
+
+	select {
+	case <-ws.pushSignal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked entries never woke the syncer")
+	}
+}
+
+func TestWorkspaceSyncer_RequeueTimer_SingleOutstandingAndStopped(t *testing.T) {
+	engine := newTestEngine(t)
+	wsID := uuid.New().String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	ws.scheduleRequeue()
+	first := ws.requeueTimer
+	ws.scheduleRequeue()
+	assert.Same(t, first, ws.requeueTimer, "a pending wake-up must not be replaced")
+
+	engine.StopWorkspace(wsID)
+	assert.Nil(t, ws.requeueTimer)
+}
+
+func TestSyncEngine_GetPendingCount_IncludesParkedEntries(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	wsID := testWorkspaceID.String()
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+			WorkspaceID: wsID,
+			EntityType:  "collection",
+			EntityID:    uuid.NewString(),
+			Action:      "create",
+			OperationID: uuid.NewString(),
+			Status:      "pending",
+			CreatedAt:   time.Now(),
+		}))
+	}
+
+	entries, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	require.NoError(t, engine.syncQueue.MarkFailed(ctx, entries[0].ID, time.Now().Add(quotaRetryDelay)))
+
+	count, err := engine.GetPendingCount(ctx, wsID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+}
+
+func enqueuePending(t *testing.T, engine *SyncEngine, wsID string) (entityID string, queueID int64) {
+	t.Helper()
+	ctx := context.Background()
+	entityID = uuid.NewString()
+	require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: wsID,
+		EntityType:  "collection",
+		EntityID:    entityID,
+		Action:      "delete",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+
+	pending, err := engine.syncQueue.ListPending(ctx, wsID, 100)
+	require.NoError(t, err)
+	require.NotEmpty(t, pending)
+	return entityID, pending[len(pending)-1].ID
+}
+
+func parkEntry(t *testing.T, engine *SyncEngine, wsID string, dueIn time.Duration) string {
+	t.Helper()
+	entityID, queueID := enqueuePending(t, engine, wsID)
+	require.NoError(t, engine.syncQueue.MarkFailed(context.Background(), queueID, time.Now().Add(dueIn)))
+	return entityID
+}
+
+func waitPushSignal(t *testing.T, ws *workspaceSyncer) {
+	t.Helper()
+	select {
+	case <-ws.pushSignal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the requeue timer never woke the syncer")
+	}
+}
+
+func TestWorkspaceSyncer_Start_RetriesParkedEntries(t *testing.T) {
+	restore := requeueDelay
+	requeueDelay = 5 * time.Second
+	t.Cleanup(func() { requeueDelay = restore })
+
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &stubSyncClient{}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	wsID := testWorkspaceID.String()
+	due := parkEntry(t, engine, wsID, -time.Minute)
+	// next_retry_at has second precision, so the deadline has to clear the current second.
+	later := parkEntry(t, engine, wsID, 2*time.Second)
+
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	t.Cleanup(func() { engine.StopWorkspace(wsID) })
+
+	require.Eventually(t, func() bool { return len(stub.pushBatches()) == 2 }, 10*time.Second, 20*time.Millisecond)
+
+	batches := stub.pushBatches()
+	require.Len(t, batches[0], 1)
+	assert.Equal(t, due, batches[0][0].GetEntityId(), "a syncer that starts must push what is already due")
+	require.Len(t, batches[1], 1)
+	assert.Equal(t, later, batches[1][0].GetEntityId(), "the rest must follow when their window elapses")
+
+	owed, err := engine.syncQueue.CountPendingOrFailed(ctx, wsID)
+	require.NoError(t, err)
+	assert.Zero(t, owed)
+}
+
+func TestWorkspaceSyncer_RequeueTimer_RearmsWhileEntriesStayParked(t *testing.T) {
+	restore := requeueDelay
+	requeueDelay = 500 * time.Millisecond
+	t.Cleanup(func() { requeueDelay = restore })
+
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	engine.SetGRPCClient(&GRPCClient{sync: &stubSyncClient{pushResp: func(_ int, req *syncv1.PushRequest) *syncv1.PushResponse {
+		results := make([]*syncv1.PushResult, 0, len(req.GetEntities()))
+		for _, e := range req.GetEntities() {
+			results = append(results, rejectedResult(e.GetEntityId(), syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED))
+		}
+		return syncv1.PushResponse_builder{Results: results}.Build()
+	}}})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	enqueuePending(t, engine, wsID)
+	require.NoError(t, ws.pushAll(ctx))
+
+	enqueuePending(t, engine, wsID)
+	require.NoError(t, ws.pushAll(ctx))
+
+	select {
+	case <-ws.pushSignal:
+		t.Fatal("the wake-up fired before its window elapsed")
+	default:
+	}
+
+	waitPushSignal(t, ws)
+	require.NoError(t, ws.pushAll(ctx))
+	waitPushSignal(t, ws)
+
+	parked, err := engine.syncQueue.CountParked(ctx, wsID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, parked)
 }

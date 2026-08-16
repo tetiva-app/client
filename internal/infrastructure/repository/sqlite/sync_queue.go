@@ -34,12 +34,21 @@ type SyncQueueRepository interface {
 	Delete(ctx context.Context, ids []int64) error
 	// MarkFailed increments retry_count, sets status='failed', and schedules next retry.
 	MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error
+	// RequeueDue returns 'failed' entries whose retry window has elapsed back to 'pending'.
+	RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error)
 	// ResetSending resets all 'sending' entries back to 'pending' (called on startup).
 	ResetSending(ctx context.Context) error
 	// DeleteByWorkspace removes all entries for a workspace and returns the count deleted.
 	DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error)
 	// CoalescedPending returns deduplicated pending entries: only the latest entry per (entity_type, entity_id).
 	CoalescedPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
+	// CountPendingOrFailed counts entries the server has not taken yet, including
+	// the ones parked for a later retry.
+	CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error)
+	// CountParked counts entries the server refused and that wait for a retry.
+	CountParked(ctx context.Context, workspaceID string) (int, error)
+	// EarliestParkedRetryAt returns when the first parked entry falls due; ok is false when none is parked.
+	EarliestParkedRetryAt(ctx context.Context, workspaceID string) (t time.Time, ok bool, err error)
 }
 
 // SyncQueueRepo implements SyncQueueRepository using SQLite.
@@ -158,6 +167,27 @@ func (r *SyncQueueRepo) MarkFailed(ctx context.Context, id int64, nextRetryAt ti
 	return nil
 }
 
+// RequeueDue returns failed entries whose retry window has elapsed back to 'pending'
+// and reports how many were requeued.
+func (r *SyncQueueRepo) RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error) {
+	const funcName = "SyncQueueRepo.RequeueDue"
+
+	query := `UPDATE sync_queue SET status = 'pending'
+		WHERE workspace_id = ? AND status = 'failed' AND next_retry_at <= ?`
+
+	result, err := r.db.ExecContext(ctx, query, workspaceID, now.Format(time.RFC3339))
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: rows affected: %w", funcName, err)
+	}
+
+	return n, nil
+}
+
 // ResetSending resets all 'sending' entries back to 'pending'.
 // Should be called on startup to recover from interrupted sessions.
 func (r *SyncQueueRepo) ResetSending(ctx context.Context) error {
@@ -215,6 +245,58 @@ func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string
 	defer func() { _ = rows.Close() }()
 
 	return scanSyncEntries(funcName, rows)
+}
+
+// CountPendingOrFailed counts entries still owed to the server: 'failed' ones are
+// parked quota retries, not losses.
+func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.CountPendingOrFailed"
+
+	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status IN ('pending', 'failed')`
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return count, nil
+}
+
+// CountParked counts the entries the server pushed back: on the UI side they are
+// the changes a plan limit keeps out of the cloud.
+func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.CountParked"
+
+	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status = 'failed'`
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return count, nil
+}
+
+// EarliestParkedRetryAt returns the closest retry deadline among the parked entries,
+// so a syncer that just started knows when to wake instead of waiting a full window.
+func (r *SyncQueueRepo) EarliestParkedRetryAt(ctx context.Context, workspaceID string) (time.Time, bool, error) {
+	const funcName = "SyncQueueRepo.EarliestParkedRetryAt"
+
+	query := `SELECT MIN(next_retry_at) FROM sync_queue WHERE workspace_id = ? AND status = 'failed'`
+
+	var raw sql.NullString
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&raw); err != nil {
+		return time.Time{}, false, fmt.Errorf("%s: %w", funcName, err)
+	}
+	if !raw.Valid {
+		return time.Time{}, false, nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, raw.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("%s: parse next_retry_at: %w", funcName, err)
+	}
+	return parsed, true, nil
 }
 
 func scanSyncEntries(funcName string, rows *sql.Rows) ([]*SyncEntry, error) {

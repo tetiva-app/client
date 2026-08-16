@@ -28,6 +28,26 @@ type MeResult struct {
 	EmailVerified bool   `json:"emailVerified"`
 }
 
+// SessionInfo is one device signed in to the account.
+type SessionInfo struct {
+	ID         string `json:"id"`
+	ClientID   string `json:"clientId"`
+	UserAgent  string `json:"userAgent"`
+	IP         string `json:"ip"`
+	LastUsedAt string `json:"lastUsedAt"`
+	IsCurrent  bool   `json:"isCurrent"`
+}
+
+// RevokeSessionRequest names the session to sign out.
+type RevokeSessionRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+// LogoutAllResult reports how many other devices were signed out.
+type LogoutAllResult struct {
+	RevokedCount int `json:"revokedCount"`
+}
+
 // SyncStatusResponse reports overall sync status.
 type SyncStatusResponse struct {
 	Enabled              bool   `json:"enabled"`
@@ -35,6 +55,7 @@ type SyncStatusResponse struct {
 	ServerURL            string `json:"serverUrl"`
 	UserEmail            string `json:"userEmail"`
 	Pending              int    `json:"pending"`
+	Parked               int    `json:"parked"`
 	AwaitingVerification bool   `json:"awaitingVerification"`
 }
 

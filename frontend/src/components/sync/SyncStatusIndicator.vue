@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { Cloud, CloudOff, CloudAlert, Loader2 } from 'lucide-vue-next'
-import { useWorkspaceStore } from '@/stores/workspace'
 import { onboardingCopy } from '@/onboarding/copy'
+import { useSyncStatus } from '@/composables/useSyncStatus'
 import {
   Tooltip,
   TooltipContent,
@@ -15,60 +15,16 @@ const emit = defineEmits<{
 
 const verify = onboardingCopy(navigator.language).verify
 
-const state = ref('disconnected')
-const pending = ref(0)
-const awaitingVerification = ref(false)
+const { state, pending, parked, awaitingVerification } = useSyncStatus()
 
-// State is driven by the Go engine's `sync:status` events; polling stays only
-// for the pending-queue counter, which the event payload doesn't carry.
-let pollInterval: ReturnType<typeof setInterval> | null = null
-let unsubscribeStatus: (() => void) | null = null
-
-async function fetchStatus() {
-  try {
-    const { getSyncService } = await import('@/services')
-    const svc = await getSyncService()
-    if (!svc) return
-    const result = await svc.getStatus()
-    if (result.data) {
-      state.value = result.data.state
-      pending.value = result.data.pending
-      awaitingVerification.value = result.data.awaitingVerification
-    }
-  } catch {
-    // Ignore — sync service may not be available
-  }
-}
-
-async function subscribeStatus() {
-  try {
-    const { Events } = await import('@wailsio/runtime')
-    type StatusPayload = { state?: string; workspaceId?: string }
-    unsubscribeStatus = Events.On('sync:status', (evt: { data?: StatusPayload } | StatusPayload) => {
-      // Wails runtime may wrap the payload in `data` depending on version; accept both.
-      const payload = (evt as { data?: StatusPayload }).data ?? (evt as StatusPayload)
-      if (!payload?.state) return
-      // Each workspace runs its own syncer — without this filter a background
-      // workspace going offline flips the global icon while the active one is fine.
-      const activeId = useWorkspaceStore().activeWorkspace?.id
-      if (payload.workspaceId && activeId && payload.workspaceId !== activeId) return
-      state.value = payload.state
-    })
-  } catch {
-    // Non-Wails environment (browser mode) — events unavailable; poll still runs.
-  }
-}
-
-onMounted(() => {
-  fetchStatus()
-  subscribeStatus()
-  pollInterval = setInterval(fetchStatus, 5000)
-})
-
-onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
-  if (unsubscribeStatus) unsubscribeStatus()
-})
+// Changes the plan quota keeps out of the cloud outlive the toast that announced
+// them, so the icon warns until they sync; the states below already say "stopped".
+const parkedAlert = computed(
+  () => parked.value > 0 && !['offline', 'auth_expired', 'plan_limit'].includes(state.value),
+)
+const parkedTooltip = computed(
+  () => `${parked.value} change${parked.value === 1 ? '' : 's'} not synced — plan limit`,
+)
 
 const stateLabels: Record<string, string> = {
   connected: 'Sync connected',
@@ -80,6 +36,7 @@ const stateLabels: Record<string, string> = {
   disconnected: 'Not connected',
   idle: 'Idle',
   auth_expired: 'Session expired — sign in to resume sync',
+  plan_limit: 'Sync paused — plan limit reached',
 }
 </script>
 
@@ -100,8 +57,10 @@ const stateLabels: Record<string, string> = {
               data-testid="sync-verify-badge"
             />
           </template>
+          <CloudAlert v-else-if="parkedAlert" class="size-5 text-amber-500" data-testid="sync-parked-alert" />
           <Cloud v-else-if="state === 'connected'" class="size-5 text-green-500" />
           <CloudAlert v-else-if="state === 'auth_expired'" class="size-5 text-red-400" />
+          <CloudAlert v-else-if="state === 'plan_limit'" class="size-5 text-amber-500" />
           <Loader2
             v-else-if="['pushing', 'pulling', 'subscribing', 'resyncing'].includes(state)"
             class="size-5 text-orange-400 animate-spin"
@@ -117,7 +76,9 @@ const stateLabels: Record<string, string> = {
       </button>
     </TooltipTrigger>
     <TooltipContent side="right" :side-offset="4">
-      {{ awaitingVerification ? verify.indicatorTooltip : (stateLabels[state] || 'Sync') }}
+      <template v-if="awaitingVerification">{{ verify.indicatorTooltip }}</template>
+      <template v-else-if="parkedAlert">{{ parkedTooltip }}</template>
+      <template v-else>{{ stateLabels[state] || 'Sync' }}</template>
     </TooltipContent>
   </Tooltip>
 </template>

@@ -4,16 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/zalando/go-keyring"
 	_ "modernc.org/sqlite"
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
+
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
@@ -87,7 +90,7 @@ func TestIsLoggedIn_AfterLogout(t *testing.T) {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
 
-	if err := mgr.Logout(context.Background()); err != nil {
+	if err := mgr.Logout(context.Background(), nil); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
 
@@ -242,7 +245,7 @@ func TestLogout_ClearsConfigEnabled(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 
-	if err := mgr.Logout(ctx); err != nil {
+	if err := mgr.Logout(ctx, nil); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
 
@@ -418,5 +421,227 @@ func TestResendVerification_SendsBearer(t *testing.T) {
 	}
 	if len(stub.authHeaders) != 1 || stub.authHeaders[0] != "Bearer access-1" {
 		t.Errorf("authHeaders = %v, want [\"Bearer access-1\"]", stub.authHeaders)
+	}
+}
+
+func TestLogout_RevokesServerSessionAndClearsLocalStateOnError(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	stub := &stubAuthClient{logoutErr: status.Error(codes.Unavailable, "server down")}
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "refresh-1", "org-1")
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.Enabled = true
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := mgr.Logout(ctx, NewGRPCClientWithStubs(stub, nil)); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+
+	if stub.logoutCalls != 1 {
+		t.Errorf("logoutCalls = %d, want 1", stub.logoutCalls)
+	}
+	if len(stub.authHeaders) != 1 || stub.authHeaders[0] != "Bearer access-1" {
+		t.Errorf("authHeaders = %v, want [\"Bearer access-1\"]", stub.authHeaders)
+	}
+	if mgr.IsLoggedIn() {
+		t.Error("expected IsLoggedIn() == false after Logout")
+	}
+	got, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Enabled {
+		t.Error("expected config.Enabled == false after Logout")
+	}
+	if got.RefreshToken != "" {
+		t.Errorf("cfg.RefreshToken = %q, want empty", got.RefreshToken)
+	}
+}
+
+func TestMe_MapsSessionsToDevices(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	lastUsed := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+
+	stub := &stubAuthClient{meResp: authv1.MeResponse_builder{
+		Sessions: []*authv1.SessionView{
+			authv1.SessionView_builder{
+				Id: "sess_1", ClientId: "client-1", UserAgent: "Tetiva/0.17.0 (darwin; mac) grpc-go/1.79.3",
+				Ip: "1.2.3.4", LastUsedAt: timestamppb.New(lastUsed), IsCurrent: true,
+			}.Build(),
+			authv1.SessionView_builder{Id: "sess_2", ClientId: "client-2"}.Build(),
+		},
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	sessions, err := mgr.Me(context.Background(), NewGRPCClientWithStubs(stub, nil))
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("len(sessions) = %d, want 2", len(sessions))
+	}
+	want := SessionInfo{
+		ID: "sess_1", ClientID: "client-1", UserAgent: "Tetiva/0.17.0 (darwin; mac) grpc-go/1.79.3",
+		IP: "1.2.3.4", LastUsedAt: lastUsed, IsCurrent: true,
+	}
+	if sessions[0] != want {
+		t.Errorf("sessions[0] = %+v, want %+v", sessions[0], want)
+	}
+	if !sessions[1].LastUsedAt.IsZero() {
+		t.Errorf("sessions[1].LastUsedAt = %v, want zero", sessions[1].LastUsedAt)
+	}
+	if len(stub.authHeaders) != 1 || stub.authHeaders[0] != "Bearer access-1" {
+		t.Errorf("authHeaders = %v, want [\"Bearer access-1\"]", stub.authHeaders)
+	}
+}
+
+func TestRevokeSession_SendsSessionID(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{}
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	if err := mgr.RevokeSession(context.Background(), NewGRPCClientWithStubs(stub, nil), "sess_2"); err != nil {
+		t.Fatalf("RevokeSession: %v", err)
+	}
+	if len(stub.revokedIDs) != 1 || stub.revokedIDs[0] != "sess_2" {
+		t.Errorf("revokedIDs = %v, want [sess_2]", stub.revokedIDs)
+	}
+}
+
+func TestLogoutAll_ReturnsRevokedCount(t *testing.T) {
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+
+	stub := &stubAuthClient{logoutAllN: 3}
+	mgr := NewSyncAuthManager(repo)
+	mgr.storeTokens("access-1", "", "org-1")
+
+	n, err := mgr.LogoutAll(context.Background(), NewGRPCClientWithStubs(stub, nil))
+	if err != nil {
+		t.Fatalf("LogoutAll: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("LogoutAll() = %d, want 3", n)
+	}
+	if stub.logoutAllRun != 1 {
+		t.Errorf("logoutAllRun = %d, want 1", stub.logoutAllRun)
+	}
+	if mgr.IsLoggedIn() != true {
+		t.Error("LogoutAll must keep this device signed in")
+	}
+}
+
+// Regression: a keychain write that outlives Logout resurrected the refresh token
+// the user had just signed out of.
+func TestStoreRefreshToken_LateWriteLosesToLogout(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+	if _, err := repo.GetOrCreate(ctx); err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.SetClientID("client-1")
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	mgr.keyringSet = func(service, account, token string) error {
+		close(started)
+		<-release
+		return keyring.Set(service, account, token)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		mgr.storeRefreshToken("late-token")
+	}()
+	<-started
+
+	if err := mgr.Logout(ctx, nil); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	close(release)
+	<-done
+
+	if got := mgr.loadRefreshTokenDB(); got != "" {
+		t.Errorf("sync_config.refresh_token = %q, want empty", got)
+	}
+	if got, err := keyring.Get(keyringService, keyringKeyFor("client-1")); err == nil {
+		t.Errorf("keychain still holds %q after Logout", got)
+	}
+}
+
+// Regression: the epoch used to be bumped before the server revoke, so the refresh
+// that revoke triggers stored its rotated token under the new epoch and survived
+// the delete that followed.
+func TestLogout_BumpsEpochAfterServerRevoke(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.Enabled = true
+	cfg.RefreshToken = "refresh-1"
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stub := &stubAuthClient{refreshResp: authv1.RefreshResponse_builder{
+		AccessToken:  "access-2",
+		RefreshToken: "refresh-2",
+		ActiveOrgId:  "org-1",
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.SetClientID("client-1")
+
+	var epochAtStore atomic.Uint64
+	epochAtStore.Store(^uint64(0))
+	mgr.keyringSet = func(service, account, token string) error {
+		epochAtStore.Store(mgr.logoutEpoch.Load())
+		return keyring.Set(service, account, token)
+	}
+
+	if err := mgr.Logout(ctx, NewGRPCClientWithStubs(stub, nil)); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+
+	if stub.logoutCalls != 1 {
+		t.Fatalf("logoutCalls = %d, want 1", stub.logoutCalls)
+	}
+	if got := epochAtStore.Load(); got != 0 {
+		t.Errorf("epoch seen by the revoke's own store = %d, want 0", got)
+	}
+	if got := mgr.logoutEpoch.Load(); got != 1 {
+		t.Errorf("logoutEpoch after Logout = %d, want 1", got)
+	}
+	if got := mgr.loadRefreshTokenDB(); got != "" {
+		t.Errorf("sync_config.refresh_token = %q, want empty", got)
+	}
+	if got, err := keyring.Get(keyringService, keyringKeyFor("client-1")); err == nil {
+		t.Errorf("keychain still holds %q after Logout", got)
 	}
 }

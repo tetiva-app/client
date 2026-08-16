@@ -30,6 +30,8 @@ export interface SyncStatus {
   serverUrl: string
   userEmail: string
   pending: number
+  // Entries the server refused over the plan quota; a subset of `pending`.
+  parked: number
   awaitingVerification: boolean
 }
 
@@ -51,6 +53,23 @@ export interface CreateRemoteWorkspaceRequest {
   name: string
 }
 
+export interface SessionInfo {
+  id: string
+  clientId: string
+  userAgent: string
+  ip: string
+  lastUsedAt: string
+  isCurrent: boolean
+}
+
+export interface RevokeSessionRequest {
+  sessionId: string
+}
+
+export interface LogoutAllResult {
+  revokedCount: number
+}
+
 export interface SyncServiceAPI {
   connect(req: ConnectRequest): Promise<Result<AuthState>>
   register(req: RegisterRequest): Promise<Result<AuthState>>
@@ -63,4 +82,7 @@ export interface SyncServiceAPI {
   unlinkWorkspace(req: UnlinkWorkspaceRequest): Promise<Result<boolean>>
   listRemoteWorkspaces(): Promise<Result<RemoteWorkspace[]>>
   createRemoteWorkspace(req: CreateRemoteWorkspaceRequest): Promise<Result<import('@/types/workspace').Workspace>>
+  listSessions(): Promise<Result<SessionInfo[]>>
+  revokeSession(req: RevokeSessionRequest): Promise<Result<void>>
+  logoutAll(): Promise<Result<LogoutAllResult>>
 }

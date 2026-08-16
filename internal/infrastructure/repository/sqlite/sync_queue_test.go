@@ -272,3 +272,170 @@ func TestSyncQueueRepo_DeleteByWorkspace(t *testing.T) {
 		t.Errorf("expected 2 entries for ws2 to remain, got %d", len(list2))
 	}
 }
+
+func TestSyncQueueRepo_RequeueDue(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncQueueRepo(db)
+	ctx := context.Background()
+
+	wsID := uuid.New().String()
+	for _, entityType := range []string{"collection", "request"} {
+		if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, entityType, uuid.New().String(), "upsert")); err != nil {
+			t.Fatalf("Enqueue %s failed: %v", entityType, err)
+		}
+	}
+
+	list, err := repo.ListPending(ctx, wsID, 10)
+	if err != nil {
+		t.Fatalf("ListPending failed: %v", err)
+	}
+	now := time.Now()
+	if err := repo.MarkFailed(ctx, list[0].ID, now.Add(-time.Minute)); err != nil {
+		t.Fatalf("MarkFailed due entry failed: %v", err)
+	}
+	if err := repo.MarkFailed(ctx, list[1].ID, now.Add(5*time.Minute)); err != nil {
+		t.Fatalf("MarkFailed pending entry failed: %v", err)
+	}
+
+	n, err := repo.RequeueDue(ctx, wsID, now)
+	if err != nil {
+		t.Fatalf("RequeueDue failed: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 requeued entry, got %d", n)
+	}
+
+	pending, err := repo.ListPending(ctx, wsID, 10)
+	if err != nil {
+		t.Fatalf("ListPending after RequeueDue failed: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != list[0].ID {
+		t.Fatalf("expected only the due entry back in the queue, got %+v", pending)
+	}
+
+	n, err = repo.RequeueDue(ctx, uuid.New().String(), now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("RequeueDue other workspace failed: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 requeued entries for another workspace, got %d", n)
+	}
+}
+
+func TestSyncQueueRepo_CountParked(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncQueueRepo(db)
+	ctx := context.Background()
+
+	wsID := uuid.New().String()
+	for i := 0; i < 3; i++ {
+		if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "collection", uuid.New().String(), "upsert")); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
+	}
+	if err := repo.Enqueue(ctx, newTestSyncEntry(uuid.New().String(), "collection", uuid.New().String(), "upsert")); err != nil {
+		t.Fatalf("Enqueue other workspace failed: %v", err)
+	}
+
+	list, _ := repo.ListPending(ctx, wsID, 10)
+	for _, e := range list[:2] {
+		if err := repo.MarkFailed(ctx, e.ID, time.Now().Add(5*time.Minute)); err != nil {
+			t.Fatalf("MarkFailed failed: %v", err)
+		}
+	}
+
+	count, err := repo.CountParked(ctx, wsID)
+	if err != nil {
+		t.Fatalf("CountParked failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("CountParked() = %d, want 2", count)
+	}
+
+	if _, err := repo.RequeueDue(ctx, wsID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("RequeueDue failed: %v", err)
+	}
+	count, err = repo.CountParked(ctx, wsID)
+	if err != nil {
+		t.Fatalf("CountParked after requeue failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("CountParked() after requeue = %d, want 0", count)
+	}
+}
+
+func TestSyncQueueRepo_CountPendingOrFailed(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncQueueRepo(db)
+	ctx := context.Background()
+
+	wsID := uuid.New().String()
+	for i := 0; i < 3; i++ {
+		if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "collection", uuid.New().String(), "upsert")); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
+	}
+	if err := repo.Enqueue(ctx, newTestSyncEntry(uuid.New().String(), "collection", uuid.New().String(), "upsert")); err != nil {
+		t.Fatalf("Enqueue other workspace failed: %v", err)
+	}
+
+	list, _ := repo.ListPending(ctx, wsID, 10)
+	if err := repo.MarkFailed(ctx, list[0].ID, time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatalf("MarkFailed failed: %v", err)
+	}
+	if err := repo.MarkSending(ctx, []int64{list[1].ID}); err != nil {
+		t.Fatalf("MarkSending failed: %v", err)
+	}
+
+	count, err := repo.CountPendingOrFailed(ctx, wsID)
+	if err != nil {
+		t.Fatalf("CountPendingOrFailed failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("CountPendingOrFailed() = %d, want 2", count)
+	}
+}
+
+func TestSyncQueueRepo_EarliestParkedRetryAt(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncQueueRepo(db)
+	ctx := context.Background()
+
+	wsID := uuid.New().String()
+	if _, _, err := repo.EarliestParkedRetryAt(ctx, wsID); err != nil {
+		t.Fatalf("EarliestParkedRetryAt on empty queue failed: %v", err)
+	}
+	if _, ok, _ := repo.EarliestParkedRetryAt(ctx, wsID); ok {
+		t.Error("EarliestParkedRetryAt() reported a deadline with nothing parked")
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "collection", uuid.New().String(), "upsert")); err != nil {
+			t.Fatalf("Enqueue failed: %v", err)
+		}
+	}
+
+	list, _ := repo.ListPending(ctx, wsID, 10)
+	soonest := time.Now().Add(2 * time.Minute).Truncate(time.Second)
+	if err := repo.MarkFailed(ctx, list[0].ID, time.Now().Add(9*time.Minute)); err != nil {
+		t.Fatalf("MarkFailed failed: %v", err)
+	}
+	if err := repo.MarkFailed(ctx, list[1].ID, soonest); err != nil {
+		t.Fatalf("MarkFailed failed: %v", err)
+	}
+
+	got, ok, err := repo.EarliestParkedRetryAt(ctx, wsID)
+	if err != nil {
+		t.Fatalf("EarliestParkedRetryAt failed: %v", err)
+	}
+	if !ok {
+		t.Fatal("EarliestParkedRetryAt() reported nothing parked")
+	}
+	if !got.Equal(soonest) {
+		t.Errorf("EarliestParkedRetryAt() = %s, want %s", got, soonest)
+	}
+
+	if _, ok, _ := repo.EarliestParkedRetryAt(ctx, uuid.New().String()); ok {
+		t.Error("EarliestParkedRetryAt() leaked another workspace's deadline")
+	}
+}

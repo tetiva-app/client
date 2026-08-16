@@ -20,13 +20,36 @@ type stubAuthClient struct {
 	loginResp    *authv1.LoginResponse
 	getMeResp    *authv1.GetMeResponse
 	getMeErr     error
+	refreshErr   error
 	resendErr    error
+	meResp       *authv1.MeResponse
+	logoutAllN   int32
+
+	logoutCalls int
+	revokedIDs  []string
 }
 
 func (s *stubAuthClient) setGetMe(resp *authv1.GetMeResponse, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.getMeResp, s.getMeErr = resp, err
+}
+
+func (s *stubAuthClient) setRefreshErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshErr = err
+}
+
+func (s *stubAuthClient) Refresh(context.Context, *authv1.RefreshRequest, ...grpc.CallOption) (*authv1.RefreshResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refreshErr != nil {
+		return nil, s.refreshErr
+	}
+	return authv1.RefreshResponse_builder{
+		AccessToken: "access-2", RefreshToken: "refresh-2", ActiveOrgId: "org-1",
+	}.Build(), nil
 }
 
 func (s *stubAuthClient) Register(context.Context, *authv1.RegisterRequest, ...grpc.CallOption) (*authv1.RegisterResponse, error) {
@@ -83,4 +106,30 @@ func (s *stubWorkspaceClient) calls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.listCalls
+}
+
+func (s *stubAuthClient) Me(context.Context, *authv1.MeRequest, ...grpc.CallOption) (*authv1.MeResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.meResp, nil
+}
+
+func (s *stubAuthClient) Logout(context.Context, *authv1.LogoutRequest, ...grpc.CallOption) (*authv1.LogoutResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logoutCalls++
+	return authv1.LogoutResponse_builder{}.Build(), nil
+}
+
+func (s *stubAuthClient) RevokeSession(_ context.Context, req *authv1.RevokeSessionRequest, _ ...grpc.CallOption) (*authv1.RevokeSessionResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.revokedIDs = append(s.revokedIDs, req.GetSessionId())
+	return authv1.RevokeSessionResponse_builder{}.Build(), nil
+}
+
+func (s *stubAuthClient) LogoutAll(context.Context, *authv1.LogoutAllRequest, ...grpc.CallOption) (*authv1.LogoutAllResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return authv1.LogoutAllResponse_builder{RevokedCount: s.logoutAllN}.Build(), nil
 }

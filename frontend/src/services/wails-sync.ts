@@ -11,6 +11,9 @@ import type {
   RemoteWorkspace,
   LinkWorkspaceRequest,
   UnlinkWorkspaceRequest,
+  SessionInfo,
+  RevokeSessionRequest,
+  LogoutAllResult,
 } from './sync-api'
 import { unwrap } from './unwrap'
 
@@ -67,5 +70,17 @@ export class WailsSyncService implements SyncServiceAPI {
 
   async createRemoteWorkspace(req: CreateRemoteWorkspaceRequest): Promise<Result<Workspace>> {
     return unwrap<Workspace>(await (await svc()).CreateRemoteWorkspace(req))
+  }
+
+  async listSessions(): Promise<Result<SessionInfo[]>> {
+    return unwrap<SessionInfo[]>(await (await svc()).ListSessions())
+  }
+
+  async revokeSession(req: RevokeSessionRequest): Promise<Result<void>> {
+    return unwrap<void>(await (await svc()).RevokeSession(req))
+  }
+
+  async logoutAll(): Promise<Result<LogoutAllResult>> {
+    return unwrap<LogoutAllResult>(await (await svc()).LogoutAll())
   }
 }

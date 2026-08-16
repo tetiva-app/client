@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
+
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
@@ -33,6 +35,9 @@ const (
 	refreshLeeway = 2 * time.Minute
 	// accessTokenTTL is the assumed lifetime of an access token (matches server default).
 	accessTokenTTL = 15 * time.Minute
+	// serverLogoutTimeout bounds the best-effort session revoke on Logout, so a
+	// local sign-out does not wait on an unreachable server.
+	serverLogoutTimeout = 3 * time.Second
 )
 
 // ErrAuthExpired means the refresh token was rejected: only an interactive
@@ -54,6 +59,17 @@ type AuthResult struct {
 	RequiresEmailVerification bool
 }
 
+// SessionInfo is one device signed in to the account: the server keeps a single
+// active session per client_id.
+type SessionInfo struct {
+	ID         string
+	ClientID   string
+	UserAgent  string
+	IP         string
+	LastUsedAt time.Time
+	IsCurrent  bool
+}
+
 // SyncAuthManager manages authentication with the sync server.
 // Access token is kept in memory; refresh token in OS keychain (fallback: sync_config table).
 type SyncAuthManager struct {
@@ -64,12 +80,18 @@ type SyncAuthManager struct {
 	activeOrgID string
 	configRepo  sqlite.SyncConfigRepository
 	sf          singleflight.Group
+	// logoutEpoch invalidates refresh-token stores that were already in flight
+	// when Logout deleted the token.
+	logoutEpoch atomic.Uint64
+	// keyringSet is swapped in tests: the real keychain write can block for seconds.
+	keyringSet func(service, account, token string) error
 }
 
 // NewSyncAuthManager creates a new SyncAuthManager.
 func NewSyncAuthManager(configRepo sqlite.SyncConfigRepository) *SyncAuthManager {
 	return &SyncAuthManager{
 		configRepo: configRepo,
+		keyringSet: keyring.Set,
 	}
 }
 
@@ -225,6 +247,71 @@ func (a *SyncAuthManager) ResendVerification(ctx context.Context, client *GRPCCl
 	return nil
 }
 
+// Me lists the devices currently signed in to the account.
+func (a *SyncAuthManager) Me(ctx context.Context, client *GRPCClient) ([]SessionInfo, error) {
+	const funcName = "SyncAuthManager.Me"
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	resp, err := client.Auth().Me(ContextWithAuth(ctx, token), authv1.MeRequest_builder{}.Build())
+	if err != nil {
+		return nil, fmt.Errorf("%s: me rpc: %w", funcName, err)
+	}
+
+	views := resp.GetSessions()
+	sessions := make([]SessionInfo, 0, len(views))
+	for _, v := range views {
+		info := SessionInfo{
+			ID:        v.GetId(),
+			ClientID:  v.GetClientId(),
+			UserAgent: v.GetUserAgent(),
+			IP:        v.GetIp(),
+			IsCurrent: v.GetIsCurrent(),
+		}
+		if v.HasLastUsedAt() {
+			info.LastUsedAt = v.GetLastUsedAt().AsTime()
+		}
+		sessions = append(sessions, info)
+	}
+	return sessions, nil
+}
+
+// RevokeSession signs one other device out. The server answers NotFound for a
+// session that belongs to someone else.
+func (a *SyncAuthManager) RevokeSession(ctx context.Context, client *GRPCClient, sessionID string) error {
+	const funcName = "SyncAuthManager.RevokeSession"
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	req := authv1.RevokeSessionRequest_builder{SessionId: sessionID}.Build()
+	if _, err := client.Auth().RevokeSession(ContextWithAuth(ctx, token), req); err != nil {
+		return fmt.Errorf("%s: revoke session rpc: %w", funcName, err)
+	}
+	return nil
+}
+
+// LogoutAll signs every other device out and reports how many sessions were revoked.
+func (a *SyncAuthManager) LogoutAll(ctx context.Context, client *GRPCClient) (int, error) {
+	const funcName = "SyncAuthManager.LogoutAll"
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	resp, err := client.Auth().LogoutAll(ContextWithAuth(ctx, token), authv1.LogoutAllRequest_builder{}.Build())
+	if err != nil {
+		return 0, fmt.Errorf("%s: logout all rpc: %w", funcName, err)
+	}
+	return int(resp.GetRevokedCount()), nil
+}
+
 // GetAccessToken returns a valid access token, refreshing it if expired or within leeway.
 func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient) (string, error) {
 	const funcName = "SyncAuthManager.GetAccessToken"
@@ -299,9 +386,11 @@ func (a *SyncAuthManager) InvalidateAccessToken() {
 	a.mu.Unlock()
 }
 
-// Logout clears authentication state and disables sync.
-func (a *SyncAuthManager) Logout(ctx context.Context) error {
+// Logout revokes the session on the server and clears authentication state.
+func (a *SyncAuthManager) Logout(ctx context.Context, client *GRPCClient) error {
 	const funcName = "SyncAuthManager.Logout"
+
+	a.revokeServerSession(ctx, client)
 
 	a.mu.Lock()
 	a.accessToken = ""
@@ -309,6 +398,9 @@ func (a *SyncAuthManager) Logout(ctx context.Context) error {
 	a.activeOrgID = ""
 	a.mu.Unlock()
 
+	// Bumped after the revoke and right before the delete: a store the revoke's own
+	// refresh started captured the old epoch and undoes itself if it lands late.
+	a.logoutEpoch.Add(1)
 	a.deleteRefreshToken()
 
 	cfg, err := a.configRepo.Get(ctx)
@@ -325,6 +417,26 @@ func (a *SyncAuthManager) Logout(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// revokeServerSession frees the device slot this install occupies. Best effort:
+// a failed call only leaves the session to expire on its own.
+func (a *SyncAuthManager) revokeServerSession(ctx context.Context, client *GRPCClient) {
+	if client == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, serverLogoutTimeout)
+	defer cancel()
+
+	token, err := a.GetAccessToken(ctx, client)
+	if err != nil {
+		slog.Warn("sync: skipping server logout, no access token", "err", err)
+		return
+	}
+	if _, err := client.Auth().Logout(ContextWithAuth(ctx, token), authv1.LogoutRequest_builder{}.Build()); err != nil {
+		slog.Warn("sync: server logout failed; session expires on its own", "err", err)
+	}
 }
 
 // storeTokens saves the access token in memory and the refresh token in the keychain.
@@ -352,15 +464,31 @@ const keyringTimeout = 2 * time.Second
 // storeRefreshToken persists the refresh token in the OS keychain, falling back
 // to sync_config. Entries are scoped by client_id to avoid collisions between installs.
 func (a *SyncAuthManager) storeRefreshToken(token string) {
+	epoch := a.logoutEpoch.Load()
+
 	a.mu.RLock()
 	account := keyringKeyFor(a.clientID)
 	a.mu.RUnlock()
 
-	done := make(chan error, 1)
-	go func() { done <- keyring.Set(keyringService, account, token) }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := a.keyringSet(keyringService, account, token); err != nil {
+			return
+		}
+		// A write that outlived Logout must undo itself: the delete already ran.
+		if a.logoutEpoch.Load() != epoch {
+			_ = keyring.Delete(keyringService, account)
+		}
+	}()
 	select {
 	case <-done:
 	case <-time.After(keyringTimeout):
+	}
+
+	if a.logoutEpoch.Load() != epoch {
+		a.deleteRefreshToken()
+		return
 	}
 	// Always mirror into SQLite: if a later load hits the keychain timeout,
 	// the fallback must hold the current token, not a long-rotated one.

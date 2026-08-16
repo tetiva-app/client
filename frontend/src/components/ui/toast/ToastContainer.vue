@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { CheckCircle2, XCircle, Info, X } from 'lucide-vue-next'
-import { useToast } from '@/composables/useToast'
+import { useToast, type ToastItem } from '@/composables/useToast'
 
 const { toasts, dismiss } = useToast()
+
+function runAction(t: ToastItem) {
+  t.action?.onClick()
+  dismiss(t.id)
+}
 
 const iconByKind = {
   success: CheckCircle2,
@@ -28,8 +33,21 @@ const colorByKind = {
           :class="colorByKind[t.kind]"
         >
           <component :is="iconByKind[t.kind]" class="size-4 shrink-0 mt-0.5" />
-          <span class="text-xs flex-1 break-words">{{ t.message }}</span>
-          <button class="shrink-0 opacity-60 hover:opacity-100 cursor-pointer" @click="dismiss(t.id)">
+          <div class="flex-1 space-y-1">
+            <span class="text-xs break-words">{{ t.message }}</span>
+            <button
+              v-if="t.action"
+              class="block text-xs font-medium underline underline-offset-2 cursor-pointer"
+              @click="runAction(t)"
+            >
+              {{ t.action.label }}
+            </button>
+          </div>
+          <button
+            class="shrink-0 opacity-60 hover:opacity-100 cursor-pointer"
+            aria-label="Dismiss"
+            @click="dismiss(t.id)"
+          >
             <X class="size-3.5" />
           </button>
         </div>

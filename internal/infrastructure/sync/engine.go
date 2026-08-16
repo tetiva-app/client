@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"slices"
+	"strings"
 	gosync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
+
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
@@ -38,6 +41,8 @@ const (
 	// StateAuthExpired means the refresh token was rejected: retrying is
 	// pointless until the user logs in again. The syncer goroutine stops.
 	StateAuthExpired SyncState = "auth_expired"
+	// StatePlanLimit means the server refuses pushes until the org's plan changes.
+	StatePlanLimit SyncState = "plan_limit"
 )
 
 const (
@@ -47,7 +52,24 @@ const (
 	fallbackPollInterval = 15 * time.Minute
 	maxBackoff           = 5 * time.Minute
 	initialBackoff       = 5 * time.Second
+	// rejectEventInterval throttles the id-conflict event: one refused push can
+	// carry a whole batch of rejected items.
+	rejectEventInterval = 5 * time.Minute
+	// quotaRetryDelay parks a quota-rejected outbox entry: the plan has to change
+	// before the server accepts it, and nothing local will trigger another push.
+	quotaRetryDelay = 5 * time.Minute
+	// planLimitMarker is the text of the server's domain.ErrQuotaExceeded: sync shares
+	// ResourceExhausted with transport limits, so the status code alone means nothing.
+	planLimitMarker = "quota exceeded"
 )
+
+// requeueDelay is how long the engine waits before waking a syncer whose entries
+// are parked. A var so tests need not wait out the real window.
+var requeueDelay = quotaRetryDelay
+
+// requeueFloor keeps a stale deadline from spinning the wake-up: next_retry_at is
+// stored with second precision, so a past-due value only ever misses by a fraction.
+const requeueFloor = 250 * time.Millisecond
 
 // EventEmitter is a function that emits events to the frontend via Wails.
 type EventEmitter func(name string, data any)
@@ -67,6 +89,9 @@ type SyncEngine struct {
 	eventEmitter      EventEmitter
 	workspaces        gosync.Map // workspaceID string → *workspaceSyncer
 	enabledWorkspaces gosync.Map // workspaceID string → bool
+	// planLimit marks an open plan-limit episode; the freeze is org-wide, so the
+	// stamp lives here and not on every workspace syncer.
+	planLimit atomic.Bool
 }
 
 // NewSyncEngine creates a new SyncEngine instance.
@@ -101,6 +126,17 @@ func (e *SyncEngine) SetEventEmitter(fn EventEmitter) {
 // SetGRPCClient sets the gRPC client (allows late binding during DI setup).
 func (e *SyncEngine) SetGRPCClient(client *GRPCClient) {
 	e.grpcClient = client
+}
+
+// startPlanLimitEpisode reports whether the org has just entered a plan-limit
+// episode, so N linked workspaces raise one toast instead of N.
+func (e *SyncEngine) startPlanLimitEpisode() bool {
+	return e.planLimit.CompareAndSwap(false, true)
+}
+
+// clearPlanLimit ends the episode: the next refusal notifies again.
+func (e *SyncEngine) clearPlanLimit() {
+	e.planLimit.Store(false)
 }
 
 // IsEnabledForWorkspace returns true if sync is enabled for the given workspace.
@@ -138,7 +174,7 @@ func (e *SyncEngine) StopWorkspace(localWorkspaceID string) {
 	e.enabledWorkspaces.Delete(localWorkspaceID)
 	if v, ok := e.workspaces.LoadAndDelete(localWorkspaceID); ok {
 		ws := v.(*workspaceSyncer)
-		ws.cancel()
+		ws.stop()
 	}
 }
 
@@ -146,7 +182,7 @@ func (e *SyncEngine) StopWorkspace(localWorkspaceID string) {
 func (e *SyncEngine) StopAll() {
 	e.workspaces.Range(func(key, value any) bool {
 		ws := value.(*workspaceSyncer)
-		ws.cancel()
+		ws.stop()
 		e.workspaces.Delete(key)
 		e.enabledWorkspaces.Delete(key)
 		return true
@@ -174,13 +210,16 @@ func (e *SyncEngine) GetWorkspaceState(localWorkspaceID string) SyncState {
 	return StateDisconnected
 }
 
-// GetPendingCount returns the number of pending sync queue entries for a workspace.
+// GetPendingCount returns how many entries still owe the server a push, parked
+// quota retries included: to the user they are unsynced either way.
 func (e *SyncEngine) GetPendingCount(ctx context.Context, workspaceID string) (int, error) {
-	entries, err := e.syncQueue.ListPending(ctx, workspaceID, 1000)
-	if err != nil {
-		return 0, err
-	}
-	return len(entries), nil
+	return e.syncQueue.CountPendingOrFailed(ctx, workspaceID)
+}
+
+// GetParkedCount returns how many entries the server refused over the plan quota
+// and that wait in the outbox for a retry.
+func (e *SyncEngine) GetParkedCount(ctx context.Context, workspaceID string) (int, error) {
+	return e.syncQueue.CountParked(ctx, workspaceID)
 }
 
 // ForcePush triggers an immediate push for the given workspace.
@@ -262,6 +301,7 @@ func (e *SyncEngine) Pause(workspaceID string) error {
 	}
 
 	ws.paused = true
+	ws.stopRequeueTimerLocked()
 	ws.cancel()
 	return nil
 }
@@ -325,6 +365,73 @@ type workspaceSyncer struct {
 	paused bool
 	// streamCancel cancels only the current Subscribe stream, leaving the reconnect loop to take over.
 	streamCancel context.CancelFunc
+	// Throttle stamp for the id-conflict rejection event, guarded by mu.
+	lastRejectEvent time.Time
+	// parked is the last published count of quota-rejected entries; quotaEpisode
+	// is open while the user still owes the cloud those changes. Guarded by mu.
+	parked       int
+	quotaEpisode bool
+	// requeueTimer wakes the syncer once when parked entries fall due: no local
+	// write is coming to trigger the push that would requeue them.
+	requeueTimer *time.Timer
+}
+
+// scheduleRequeue arms a single wake-up for entries parked just now.
+func (ws *workspaceSyncer) scheduleRequeue() {
+	ws.scheduleRequeueIn(requeueDelay)
+}
+
+// scheduleRequeueIn arms the wake-up d from now, clamped to [requeueFloor, requeueDelay];
+// a pending wake-up wins, so a workspace never holds more than one timer.
+func (ws *workspaceSyncer) scheduleRequeueIn(d time.Duration) {
+	d = min(max(d, requeueFloor), requeueDelay)
+
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	if ws.requeueTimer != nil {
+		return
+	}
+	ws.requeueTimer = time.AfterFunc(d, func() {
+		ws.mu.Lock()
+		ws.requeueTimer = nil
+		ws.mu.Unlock()
+		ws.engine.NotifyWrite(ws.localWorkspaceID)
+	})
+}
+
+// rearmRequeue keeps a wake-up armed while anything stays parked. Timers do not
+// survive a restart, and after one fires nothing else would requeue the rest.
+func (ws *workspaceSyncer) rearmRequeue(ctx context.Context) {
+	due, ok, err := ws.engine.syncQueue.EarliestParkedRetryAt(ctx, ws.localWorkspaceID)
+	if err != nil {
+		slog.Warn("sync: failed to read the earliest parked retry", "workspace", ws.localWorkspaceID, "err", err)
+		return
+	}
+	if !ok {
+		ws.stopRequeueTimer()
+		return
+	}
+	ws.scheduleRequeueIn(time.Until(due))
+}
+
+func (ws *workspaceSyncer) stopRequeueTimer() {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.stopRequeueTimerLocked()
+}
+
+func (ws *workspaceSyncer) stopRequeueTimerLocked() {
+	if ws.requeueTimer != nil {
+		ws.requeueTimer.Stop()
+		ws.requeueTimer = nil
+	}
+}
+
+// stop ends the syncer goroutine and drops its pending wake-up.
+func (ws *workspaceSyncer) stop() {
+	ws.stopRequeueTimer()
+	ws.cancel()
 }
 
 func (ws *workspaceSyncer) getState() SyncState {
@@ -334,6 +441,12 @@ func (ws *workspaceSyncer) getState() SyncState {
 }
 
 func (ws *workspaceSyncer) setState(s SyncState) {
+	// Reaching Connected proves the server talks to us again, whether the recovery
+	// went through a push or through subscribe with an empty outbox.
+	if s == StateConnected {
+		ws.engine.clearPlanLimit()
+	}
+
 	ws.mu.Lock()
 	ws.state = s
 	ws.mu.Unlock()
@@ -360,7 +473,7 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 		if ws.handleAuthErr(err) {
 			return
 		}
-		ws.goOffline(ctx)
+		ws.retryLoop(ctx, ws.retryAfterSyncErr(err, initialBackoff))
 		return
 	}
 
@@ -378,8 +491,23 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 	ws.subscribeLoop(ctx)
 }
 
-// pushAll drains the outbox queue by pushing all pending entries to the server.
+// pushAll requeues the parked entries that fell due, drains the outbox queue, and
+// re-arms the wake-up for whatever is still parked.
 func (ws *workspaceSyncer) pushAll(ctx context.Context) error {
+	if _, err := ws.engine.syncQueue.RequeueDue(ctx, ws.localWorkspaceID, time.Now()); err != nil {
+		slog.Warn("sync: failed to requeue deferred entries", "workspace", ws.localWorkspaceID, "err", err)
+	}
+
+	if err := ws.drainOutbox(ctx); err != nil {
+		return err
+	}
+
+	ws.rearmRequeue(ctx)
+	return nil
+}
+
+// drainOutbox pushes all pending entries to the server, batch by batch.
+func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 	for {
 		entries, err := ws.engine.syncQueue.CoalescedPending(ctx, ws.localWorkspaceID, pushBatchSize)
 		if err != nil {
@@ -475,7 +603,9 @@ func (ws *workspaceSyncer) pushAll(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("push rpc: %w", err)
 		}
+		ws.engine.clearPlanLimit()
 
+		var quotaRejected []int64
 		for _, result := range resp.GetResults() {
 			switch result.GetStatus() {
 			case syncv1.PushStatus_PUSH_STATUS_ACCEPTED, syncv1.PushStatus_PUSH_STATUS_DUPLICATE:
@@ -491,13 +621,22 @@ func (ws *workspaceSyncer) pushAll(ctx context.Context) error {
 					})
 				}
 			case syncv1.PushStatus_PUSH_STATUS_REJECTED:
-				slog.Warn("sync: push rejected", "entityId", result.GetEntityId(), "error", result.GetErrorMessage())
+				ws.handleRejected(result, entries)
+				if result.GetRejectReason() == syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED {
+					if id, ok := entryIDOf(result.GetEntityId(), entries); ok {
+						quotaRejected = append(quotaRejected, id)
+					}
+				}
 			}
 		}
+
+		entryIDs = ws.deferQuotaRejected(ctx, entryIDs, quotaRejected)
 
 		if err := ws.engine.syncQueue.Delete(ctx, entryIDs); err != nil {
 			return fmt.Errorf("delete queue entries: %w", err)
 		}
+
+		ws.refreshParked(ctx)
 	}
 }
 
@@ -562,13 +701,7 @@ func buildDeleteProto(entry *sqlite.SyncEntry) *syncv1.SyncEntity {
 }
 
 func (ws *workspaceSyncer) markSynced(ctx context.Context, entityID string, entries []*sqlite.SyncEntry) {
-	var entityType string
-	for _, e := range entries {
-		if e.EntityID == entityID {
-			entityType = e.EntityType
-			break
-		}
-	}
+	entityType := entityTypeOf(entityID, entries)
 	if entityType == "" {
 		return
 	}
@@ -578,6 +711,129 @@ func (ws *workspaceSyncer) markSynced(ctx context.Context, entityID string, entr
 	if _, err := sqlite.DBTXFromContext(ctx, ws.engine.db).ExecContext(ctx, query, entityID); err != nil {
 		slog.Warn("sync: failed to mark entity as synced", "type", entityType, "id", entityID, "err", err)
 	}
+}
+
+func entityTypeOf(entityID string, entries []*sqlite.SyncEntry) string {
+	for _, e := range entries {
+		if e.EntityID == entityID {
+			return e.EntityType
+		}
+	}
+	return ""
+}
+
+func entryIDOf(entityID string, entries []*sqlite.SyncEntry) (int64, bool) {
+	for _, e := range entries {
+		if e.EntityID == entityID {
+			return e.ID, true
+		}
+	}
+	return 0, false
+}
+
+// handleRejected reports a per-item rejection to the UI. Except for quota, the queue
+// entry is dropped with the batch: the entity stays local until a later write re-enqueues it.
+func (ws *workspaceSyncer) handleRejected(result *syncv1.PushResult, entries []*sqlite.SyncEntry) {
+	entityID := result.GetEntityId()
+	entityType := entityTypeOf(entityID, entries)
+
+	switch result.GetRejectReason() {
+	case syncv1.PushRejectReason_PUSH_REJECT_REASON_QUOTA_EXCEEDED:
+		slog.Warn("sync: push rejected by plan quota", "entityId", entityID, "error", result.GetErrorMessage())
+		ws.emitQuotaOnce(map[string]any{
+			"workspaceId": ws.localWorkspaceID,
+			"kind":        "cloud_collections",
+			"entityType":  entityType,
+			"entityId":    entityID,
+		})
+	case syncv1.PushRejectReason_PUSH_REJECT_REASON_ID_CONFLICT:
+		slog.Warn("sync: push rejected — entity id taken by another workspace", "entityId", entityID, "error", result.GetErrorMessage())
+		ws.emitThrottled("sync:rejected", &ws.lastRejectEvent, map[string]any{
+			"workspaceId": ws.localWorkspaceID,
+			"entityType":  entityType,
+			"entityId":    entityID,
+			"reason":      "id_conflict",
+		})
+	default:
+		slog.Warn("sync: push rejected", "entityId", entityID, "error", result.GetErrorMessage())
+	}
+}
+
+// deferQuotaRejected parks quota-rejected entries in the outbox instead of dropping
+// them: 'failed' hides them from the pending queries until their retry window elapses.
+// Returns the entry IDs the caller may still delete.
+func (ws *workspaceSyncer) deferQuotaRejected(ctx context.Context, entryIDs, rejected []int64) []int64 {
+	if len(rejected) == 0 {
+		return entryIDs
+	}
+
+	retryAt := time.Now().Add(quotaRetryDelay)
+	kept := make(map[int64]bool, len(rejected))
+	for _, id := range rejected {
+		if err := ws.engine.syncQueue.MarkFailed(ctx, id, retryAt); err != nil {
+			slog.Warn("sync: failed to defer quota-rejected queue entry", "entry", id, "workspace", ws.localWorkspaceID, "err", err)
+			continue
+		}
+		kept[id] = true
+	}
+
+	if len(kept) > 0 {
+		ws.scheduleRequeue()
+	}
+
+	return slices.DeleteFunc(entryIDs, func(id int64) bool { return kept[id] })
+}
+
+// emitQuotaOnce notifies on the first rejection of an episode; the rest stay silent
+// until the parked entries reach the cloud and the episode ends.
+func (ws *workspaceSyncer) emitQuotaOnce(data map[string]any) {
+	ws.mu.Lock()
+	open := ws.quotaEpisode
+	ws.quotaEpisode = true
+	ws.mu.Unlock()
+
+	if open {
+		return
+	}
+	ws.engine.eventEmitter("sync:quota_exceeded", data)
+}
+
+// refreshParked republishes the parked count when it moves: the indicator shows it,
+// and a drop to zero closes the episode so the next rejection notifies again.
+func (ws *workspaceSyncer) refreshParked(ctx context.Context) {
+	count, err := ws.engine.syncQueue.CountParked(ctx, ws.localWorkspaceID)
+	if err != nil {
+		slog.Warn("sync: failed to count parked entries", "workspace", ws.localWorkspaceID, "err", err)
+		return
+	}
+
+	ws.mu.Lock()
+	changed := ws.parked != count
+	ws.parked = count
+	ws.quotaEpisode = count > 0
+	ws.mu.Unlock()
+
+	if changed {
+		ws.engine.eventEmitter("sync:parked_changed", map[string]any{
+			"workspaceId": ws.localWorkspaceID,
+			"parked":      count,
+		})
+	}
+}
+
+// emitThrottled emits at most one event per rejectEventInterval per workspace.
+func (ws *workspaceSyncer) emitThrottled(name string, last *time.Time, data map[string]any) {
+	now := time.Now()
+
+	ws.mu.Lock()
+	if now.Sub(*last) < rejectEventInterval {
+		ws.mu.Unlock()
+		return
+	}
+	*last = now
+	ws.mu.Unlock()
+
+	ws.engine.eventEmitter(name, data)
 }
 
 // pullAll fetches all remote changes since lastSyncSeq and applies them.
@@ -759,6 +1015,44 @@ func (ws *workspaceSyncer) handleAuthErr(err error) (stop bool) {
 	return false
 }
 
+// grpcStatusOf walks the wrap chain like isUnauthenticatedErr.
+func grpcStatusOf(err error) (codes.Code, string, bool) {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s, ok := status.FromError(e); ok {
+			return s.Code(), s.Message(), true
+		}
+	}
+	return codes.OK, "", false
+}
+
+// retryAfterSyncErr moves the syncer into the state it waits in and returns the delay
+// before the next attempt, for both push and subscribe failures. A plan limit is not a
+// connectivity problem: the server keeps refusing until the plan changes, so it waits
+// at the slowest interval.
+func (ws *workspaceSyncer) retryAfterSyncErr(err error, next time.Duration) time.Duration {
+	if code, msg, ok := grpcStatusOf(err); ok && code == codes.ResourceExhausted {
+		if strings.Contains(msg, planLimitMarker) {
+			ws.enterPlanLimit()
+			return maxBackoff
+		}
+		slog.Warn("sync: resource exhausted without a plan-limit marker", "workspace", ws.localWorkspaceID, "err", msg)
+	}
+	ws.setState(StateOffline)
+	return next
+}
+
+// enterPlanLimit parks the syncer and notifies once per episode, not once per retry.
+func (ws *workspaceSyncer) enterPlanLimit() {
+	ws.setState(StatePlanLimit)
+	if !ws.engine.startPlanLimitEpisode() {
+		return
+	}
+	ws.engine.eventEmitter("sync:quota_exceeded", map[string]any{
+		"kind":        "members",
+		"workspaceId": ws.localWorkspaceID,
+	})
+}
+
 func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 	ws.setState(StateConnected)
 
@@ -782,8 +1076,7 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 			}
 		}
 
-		ws.setState(StateOffline)
-		backoff := initialBackoff
+		backoff := ws.retryAfterSyncErr(err, initialBackoff)
 		for {
 			select {
 			case <-ctx.Done():
@@ -798,8 +1091,7 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 				if ws.handleAuthErr(err) {
 					return
 				}
-				backoff = min(backoff*2, maxBackoff)
-				ws.setState(StateOffline)
+				backoff = ws.retryAfterSyncErr(err, min(backoff*2, maxBackoff))
 				continue
 			}
 			ws.setState(StatePulling)
@@ -964,8 +1256,12 @@ func (ws *workspaceSyncer) resync(ctx context.Context) error {
 // goOffline starts the offline-retry loop and re-enters the subscribe lifecycle on reconnect.
 func (ws *workspaceSyncer) goOffline(ctx context.Context) {
 	ws.setState(StateOffline)
+	ws.retryLoop(ctx, initialBackoff)
+}
 
-	backoff := initialBackoff
+// retryLoop waits out backoff, retries push → pull and re-enters subscribe on success.
+// The caller sets the state it waits in.
+func (ws *workspaceSyncer) retryLoop(ctx context.Context, backoff time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -979,8 +1275,7 @@ func (ws *workspaceSyncer) goOffline(ctx context.Context) {
 			if ws.handleAuthErr(err) {
 				return
 			}
-			backoff = min(backoff*2, maxBackoff)
-			ws.setState(StateOffline)
+			backoff = ws.retryAfterSyncErr(err, min(backoff*2, maxBackoff))
 			continue
 		}
 		ws.setState(StatePulling)

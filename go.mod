@@ -9,7 +9,7 @@ require (
 	github.com/jhump/protoreflect v1.18.0
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tetiva-app/proto v0.1.1
+	github.com/tetiva-app/proto v0.1.2
 	github.com/vektah/gqlparser/v2 v2.5.32
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	github.com/zalando/go-keyring v0.2.7

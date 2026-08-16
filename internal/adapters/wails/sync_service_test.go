@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,20 +12,29 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	_ "modernc.org/sqlite"
+
+	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
+	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
 func setupSyncTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	// A file DB, not ":memory:": every pooled connection would otherwise open its
+	// own empty database, and the sync engine queries from its own goroutines.
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		t.Fatal(err)
+	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000"} {
+		if _, err := db.Exec(pragma); err != nil {
+			t.Fatal(err)
+		}
 	}
 	migrations := []string{
 		"001_initial.sql",
@@ -126,6 +136,33 @@ func TestResumeOnStartup_ResetsStuckSendingRows(t *testing.T) {
 	require.Equal(t, "pending", pending[0].Status)
 }
 
+func TestSyncService_GetStatus_ReportsParkedEntries(t *testing.T) {
+	f := newVerificationFixture(t)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, f.svc.queueRepo.Enqueue(ctx, sqlite.SyncEntry{
+			WorkspaceID: seededWorkspaceID,
+			EntityType:  "collection",
+			EntityID:    uuid.New().String(),
+			Action:      "upsert",
+			OperationID: uuid.New().String(),
+			Status:      "pending",
+			CreatedAt:   time.Now().Truncate(time.Second),
+		}))
+	}
+
+	pending, err := f.svc.queueRepo.ListPending(ctx, seededWorkspaceID, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+	require.NoError(t, f.svc.queueRepo.MarkFailed(ctx, pending[0].ID, time.Now().Add(5*time.Minute)))
+
+	st := f.svc.GetStatus()
+	require.Nil(t, st.Error)
+	assert.Equal(t, 2, st.Data.Pending)
+	assert.Equal(t, 1, st.Data.Parked)
+}
+
 func TestActiveWorkspaceNeedingLink(t *testing.T) {
 	db := setupSyncTestDB(t)
 	ctx := context.Background()
@@ -174,4 +211,86 @@ func TestMigrateLegacyServerURL(t *testing.T) {
 	require.NoError(t, repo.Update(ctx, cfg))
 	svc.migrateLegacyServerURL(ctx, cfg)
 	assert.Equal(t, "sync.corp.local:50051", cfg.ServerURL)
+}
+
+// linkSeededWorkspace maps the active workspace to a remote, as a previous run
+// of the app would have left it.
+func (f *verificationFixture) linkSeededWorkspace(t *testing.T, remoteID string) {
+	t.Helper()
+	_, err := f.db.Exec(`UPDATE workspaces SET remote_workspace_id = ? WHERE id = ?`,
+		remoteID, seededWorkspaceID)
+	require.NoError(t, err)
+}
+
+// restart drops the in-memory access token, leaving only what survives a
+// process restart: the config row and the refresh token.
+func (f *verificationFixture) restart() {
+	f.auth.InvalidateAccessToken()
+}
+
+func TestResumeOnStartup_UnreachableServerStartsEngineOffline(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.linkSeededWorkspace(t, "remote-1")
+	f.restart()
+	f.authStub.setRefreshErr(status.Error(codes.Internal, "server selection error: connection refused"))
+
+	require.NoError(t, f.svc.ResumeOnStartup(context.Background()))
+
+	require.NotNil(t, f.svc.client(), "a failed refresh must not throw the client away")
+	assert.Zero(t, f.wsStub.calls(), "workspace discovery needs a token the server never gave")
+	assert.True(t, f.engine.IsEnabledForWorkspace(seededWorkspaceID))
+
+	st := f.svc.GetStatus()
+	require.Nil(t, st.Error)
+	assert.True(t, st.Data.Enabled)
+	require.Eventually(t, func() bool {
+		return f.svc.GetStatus().Data.State == string(syncsvc.StateOffline)
+	}, 3*time.Second, 10*time.Millisecond)
+}
+
+func TestResumeOnStartup_AuthExpiredLeavesEngineDark(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.linkSeededWorkspace(t, "remote-1")
+	f.restart()
+	f.authStub.setRefreshErr(status.Error(codes.Unauthenticated, "refresh token rejected"))
+
+	err := f.svc.ResumeOnStartup(context.Background())
+
+	require.ErrorIs(t, err, syncsvc.ErrAuthExpired)
+	assert.Nil(t, f.svc.client())
+	assert.Zero(t, f.wsStub.calls())
+	assert.False(t, f.engine.IsEnabledForWorkspace(seededWorkspaceID))
+}
+
+func TestSyncService_ListSessions_DialsAfterAFailedStartup(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.authStub.meResp = authv1.MeResponse_builder{
+		Sessions: []*authv1.SessionView{authv1.SessionView_builder{Id: "sess_1"}.Build()},
+	}.Build()
+	require.Nil(t, f.svc.client(), "startup left the service without a client")
+
+	res := f.svc.ListSessions()
+
+	require.Nil(t, res.Error)
+	require.Len(t, res.Data, 1)
+	assert.NotNil(t, f.svc.client())
+}
+
+func TestSyncService_ListSessions_DisabledSyncStaysNotConnected(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	ctx := context.Background()
+	cfg, err := f.configRepo.Get(ctx)
+	require.NoError(t, err)
+	cfg.Enabled = false
+	require.NoError(t, f.configRepo.Update(ctx, cfg))
+
+	res := f.svc.ListSessions()
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeNotConnected, res.Error.Code)
+	assert.Nil(t, f.svc.client())
 }

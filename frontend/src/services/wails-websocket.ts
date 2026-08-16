@@ -37,7 +37,7 @@ export class WailsWebSocketService implements WebSocketServiceAPI {
   ): Promise<() => void> {
     const { Events } = await import('@wailsio/runtime')
     // Wails may wrap the payload in `.data` depending on version; accept both
-    // shapes (mirrors the defensive unwrap in SyncStatusIndicator.vue:41-45).
+    // shapes (mirrors the defensive unwrap in composables/useSyncStatus.ts).
     const unwrap = (e: any) => (e && typeof e === 'object' && 'data' in e ? e.data : e)
     const offMsg = Events.On(`ws:message:${connectionId}`, (e: any) => handlers.onMessage(unwrap(e) as WsIncoming))
     const offState = Events.On(`ws:state:${connectionId}`, (e: any) => handlers.onState(unwrap(e) as WsStateEvent))

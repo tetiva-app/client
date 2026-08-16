@@ -167,8 +167,8 @@ github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXf
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/tetiva-app/proto v0.1.1 h1:DCNgvWwM0clfI3gVPovRl8ty5GMYBQcRwu0zENrdwII=
-github.com/tetiva-app/proto v0.1.1/go.mod h1:aBT8lz6YuJxOsbdn4RjiDQp2TTefeGQ5Lm5URQQTGNU=
+github.com/tetiva-app/proto v0.1.2 h1:2LN9omogp5IbDe6BjzazieEy7ixQPw8tkFicXpdyXFw=
+github.com/tetiva-app/proto v0.1.2/go.mod h1:aBT8lz6YuJxOsbdn4RjiDQp2TTefeGQ5Lm5URQQTGNU=
 github.com/vektah/gqlparser/v2 v2.5.32 h1:k9QPJd4sEDTL+qB4ncPLflqTJ3MmjB9SrVzJrawpFSc=
 github.com/vektah/gqlparser/v2 v2.5.32/go.mod h1:c1I28gSOVNzlfc4WuDlqU7voQnsqI6OG2amkBAFmgts=
 github.com/wailsapp/go-webview2 v1.0.23 h1:jmv8qhz1lHibCc79bMM/a/FqOnnzOGEisLav+a0b9P0=

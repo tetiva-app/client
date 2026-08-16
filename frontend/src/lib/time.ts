@@ -1,7 +1,9 @@
 // Format a relative time like "5 minutes ago" / "2 hours ago" / "just now".
-// Accepts an RFC3339 (or any Date-parseable) ISO string.
+// Accepts an RFC3339 (or any Date-parseable) ISO string; a session that was
+// never used carries an empty string, and callers hide the label then.
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
   const sec = Math.floor((now - t) / 1000)
   if (sec < 60) return 'just now'
   if (sec < 3600) {

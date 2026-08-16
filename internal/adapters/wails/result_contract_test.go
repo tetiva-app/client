@@ -6,6 +6,7 @@ package wails
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,6 +61,12 @@ func TestContract_Err_Conflict(t *testing.T) {
 	got := string(b)
 	require.Equal(t, `{"data":"","error":{"code":"conflict","message":"booking version conflict: abc-123"}}`, got)
 	assert.NotContains(t, got, `"fields"`)
+}
+
+func TestContract_Err_NotConnected(t *testing.T) {
+	b, err := json.Marshal(Err[string](fmt.Errorf("listSessions: %w", ErrNotConnected)))
+	require.NoError(t, err)
+	require.Equal(t, `{"data":"","error":{"code":"not_connected","message":"listSessions: not connected to sync server"}}`, string(b))
 }
 
 func TestContract_Err_Internal_PlainError(t *testing.T) {

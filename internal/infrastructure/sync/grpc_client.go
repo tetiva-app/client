@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"os"
+	"runtime"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -15,6 +17,8 @@ import (
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 	workspacev1 "github.com/tetiva-app/proto/go/gophercourier/workspace/v1"
+
+	"github.com/tetiva-app/client/internal/constants"
 )
 
 // GRPCClient wraps gRPC service stubs for sync server communication.
@@ -45,7 +49,7 @@ func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 
 	slog.Info("grpc: NewGRPCClient", "input", serverURL, "target", target, "tls", useTLS)
 
-	conn, err := grpc.NewClient(target, creds)
+	conn, err := grpc.NewClient(target, creds, grpc.WithUserAgent(userAgent()))
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}
@@ -61,6 +65,12 @@ func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 // NewGRPCClientWithStubs builds a client around ready-made stubs, for tests without a live server.
 func NewGRPCClientWithStubs(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient) *GRPCClient {
 	return &GRPCClient{auth: auth, workspace: ws}
+}
+
+// userAgent names this device in the server's session list.
+func userAgent() string {
+	host, _ := os.Hostname()
+	return fmt.Sprintf("Tetiva/%s (%s; %s)", constants.AppVersion, runtime.GOOS, host)
 }
 
 // Close closes the gRPC connection.

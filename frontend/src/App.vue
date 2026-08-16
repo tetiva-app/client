@@ -16,6 +16,9 @@ import { shouldShowOnboarding } from '@/lib/onboarding-decisions'
 import { OnboardingModal, OnboardingTour } from '@/components/onboarding'
 import { notesFor } from '@/whats-new/notes'
 import { isNewerVersion } from '@/lib/semver'
+import { quotaNotice, rejectNotice, type SyncNotice } from '@/lib/sync-notices'
+import { openExternal } from '@/lib/open-external'
+import { PRICING_URL } from '@/constants/pricing'
 import { isWailsEnvironment } from '@/services'
 import ActivityBar from '@/components/ActivityBar.vue'
 import AppSidebar from '@/components/sidebar/AppSidebar.vue'
@@ -146,6 +149,23 @@ function blockNativeContextMenu(e: MouseEvent) {
 
 const syncUnsubscribers: (() => void)[] = []
 
+// The Wails runtime may wrap the emitted map in `data` depending on version.
+function eventPayload(evt: unknown): Record<string, unknown> {
+  const wrapped = (evt as { data?: unknown })?.data
+  return ((wrapped ?? evt) as Record<string, unknown>) ?? {}
+}
+
+function showSyncNotice(notice: SyncNotice | null) {
+  if (!notice) return
+  toast.error(
+    notice.message,
+    notice.showPlans
+      ? { label: 'See plans', onClick: () => { openExternal(PRICING_URL).catch(() => {}) } }
+      : undefined,
+    { sticky: true },
+  )
+}
+
 async function setupSyncEvents() {
   if (!isWailsEnvironment() || windowMode) return
   const { Events } = await import('@wailsio/runtime')
@@ -161,6 +181,12 @@ async function setupSyncEvents() {
   // Remote sync-server events.
   syncUnsubscribers.push(Events.On('sync:changed', refresh))
   syncUnsubscribers.push(Events.On('sync:entity_updated', refresh))
+  syncUnsubscribers.push(Events.On('sync:quota_exceeded', (evt: unknown) => {
+    showSyncNotice(quotaNotice(String(eventPayload(evt).kind ?? '')))
+  }))
+  syncUnsubscribers.push(Events.On('sync:rejected', (evt: unknown) => {
+    showSyncNotice(rejectNotice(String(eventPayload(evt).reason ?? '')))
+  }))
   // Local edits made in other windows (e.g. a detached request window).
   syncUnsubscribers.push(Events.On('env:changed', refresh))
   syncUnsubscribers.push(Events.On('collection:updated', refresh))

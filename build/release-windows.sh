@@ -12,7 +12,7 @@ export PATH="$HOME/go/bin:$PATH"
 VERSION=$(perl -ne 'print $1 if /^\s*version:\s*"([^"]+)"/' build/config.yml)
 [ -n "$VERSION" ] || { echo "failed to read version from build/config.yml"; exit 1; }
 perl -pi -e 's/("(?:file_version|ProductVersion)":\s*")[^"]+/${1}'"$VERSION"'/' build/windows/info.json
-perl -pi -e 's/(<assemblyIdentity type="win32" name="[^"]+" version=")[^"]+/${1}'"$VERSION"'/' build/windows/wails.exe.manifest
+perl -pi -e 's/(<assemblyIdentity type="win32" name="yudinsv.com.Tetiva" version=")[^"]+/${1}'"$VERSION"'/' build/windows/wails.exe.manifest
 
 wails3 task common:build:frontend
 

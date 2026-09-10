@@ -12,17 +12,14 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
 
-// VariableRepo implements environment.VariableRepository using SQLite.
 type VariableRepo struct {
 	db *sql.DB
 }
 
-// NewVariableRepo creates a new VariableRepo instance.
 func NewVariableRepo(db *sql.DB) environment.VariableRepository {
 	return &VariableRepo{db: db}
 }
 
-// Create inserts a new variable into the database.
 func (r *VariableRepo) Create(ctx context.Context, v *entities.Variable) error {
 	const funcName = "VariableRepo.Create"
 
@@ -51,7 +48,6 @@ func (r *VariableRepo) Create(ctx context.Context, v *entities.Variable) error {
 	return nil
 }
 
-// GetByID retrieves a variable by ID.
 func (r *VariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Variable, error) {
 	const funcName = "VariableRepo.GetByID"
 
@@ -71,7 +67,7 @@ func (r *VariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Var
 	return v, nil
 }
 
-// List returns all non-deleted variables for an environment, ordered by sort_order.
+// Ordered by sort_order.
 func (r *VariableRepo) List(ctx context.Context, environmentID uuid.UUID) ([]*entities.Variable, error) {
 	const funcName = "VariableRepo.List"
 
@@ -99,7 +95,6 @@ func (r *VariableRepo) List(ctx context.Context, environmentID uuid.UUID) ([]*en
 	return result, nil
 }
 
-// Update persists all fields of an existing variable.
 func (r *VariableRepo) Update(ctx context.Context, v *entities.Variable) error {
 	const funcName = "VariableRepo.Update"
 
@@ -128,7 +123,7 @@ func (r *VariableRepo) Update(ctx context.Context, v *entities.Variable) error {
 	return nil
 }
 
-// Delete hard-deletes a variable by ID.
+// Hard-deletes the row.
 func (r *VariableRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	const funcName = "VariableRepo.Delete"
 

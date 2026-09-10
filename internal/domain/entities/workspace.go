@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Workspace represents an isolated container for collections, environments, and history.
 type Workspace struct {
 	ID                uuid.UUID
 	Name              string

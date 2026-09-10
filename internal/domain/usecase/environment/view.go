@@ -11,35 +11,29 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Filter defines criteria for listing environments.
 type Filter struct {
 	WorkspaceID uuid.UUID
 }
 
-// ListOpt holds contextual options for the List operation.
 type ListOpt struct {
 	WorkspaceID uuid.UUID
 }
 
-// DeleteOpt holds contextual options for the Delete operation.
 type DeleteOpt struct {
 	EnvironmentID uuid.UUID
 	UserID        string
 	Version       int
 }
 
-// SetActiveOpt holds options for setting the active environment.
 type SetActiveOpt struct {
 	WorkspaceID   uuid.UUID
 	EnvironmentID uuid.UUID
 }
 
-// DeleteVariableOpt holds options for deleting a variable.
 type DeleteVariableOpt struct {
 	VariableID uuid.UUID
 }
 
-// GetByID retrieves a single environment by its ID.
 func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Environment, error) {
 	const funcName = "environment.GetByID"
 
@@ -54,7 +48,6 @@ func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Environm
 	return e, nil
 }
 
-// List returns environments matching the given options.
 func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Environment, error) {
 	const funcName = "environment.List"
 
@@ -66,7 +59,7 @@ func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Environmen
 	return envs, nil
 }
 
-// Delete performs a soft delete on the environment.
+// Delete is a soft delete: the row stays with is_delete = true.
 func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	const funcName = "environment.Delete"
 
@@ -93,7 +86,6 @@ func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	return nil
 }
 
-// SetActive sets the active environment for a workspace.
 func (u *usecase) SetActive(ctx context.Context, opt SetActiveOpt) error {
 	const funcName = "environment.SetActive"
 
@@ -104,7 +96,6 @@ func (u *usecase) SetActive(ctx context.Context, opt SetActiveOpt) error {
 	return nil
 }
 
-// ListVariables returns all non-deleted variables for an environment.
 func (u *usecase) ListVariables(ctx context.Context, environmentID uuid.UUID) ([]*entities.Variable, error) {
 	const funcName = "environment.ListVariables"
 

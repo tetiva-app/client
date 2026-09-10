@@ -237,6 +237,22 @@ async function runStartupUpdateFlow() {
   // error → silent, timestamp untouched so the next launch retries.
 }
 
+// One nudge per launch: this update moved sign-in to the browser and signed every
+// existing session out.
+async function runStartupReauthNotice() {
+  if (windowMode) return
+  const { getSyncService } = await import('@/services')
+  const svc = await getSyncService()
+  if (!svc) return
+  const status = await svc.getStatus()
+  if (!status.data?.reauthRequired) return
+  toast.info(
+    'Sign-in has changed with this update. Please sign in again.',
+    { label: 'Sign in', onClick: () => syncModalUi.show() },
+    { sticky: true },
+  )
+}
+
 // Seen-version is recorded on close (not open) so a crash before the user sees
 // it re-shows next launch.
 function onWhatsNewClose() {
@@ -257,6 +273,7 @@ onMounted(() => {
   setupSyncEvents()
   runStartupWelcomeFlow()
   void runStartupUpdateFlow()
+  void runStartupReauthNotice()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)

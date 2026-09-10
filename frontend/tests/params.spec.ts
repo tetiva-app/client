@@ -49,8 +49,7 @@ test.describe('Params Editor', () => {
     await expect(urlInput).toContainText(/[?&]page=1/);
   });
 
-  // TODO(e2e): flaky param-row→URL sync on rapid add
-  test.skip('should add multiple params and update URL', async ({ page }) => {
+  test('should add multiple params and update URL', async ({ page }) => {
     await createAndOpenRequest(page);
     await page.locator('[aria-placeholder="Enter request URL"]').fill('https://api.example.com');
 
@@ -74,8 +73,7 @@ test.describe('Params Editor', () => {
     await expect(paramsTab).toContainText('(2)');
   });
 
-  // TODO(e2e): flaky checkbox-disable→URL sync
-  test.skip('should toggle param checkbox to disable/enable', async ({ page }) => {
+  test('should toggle param checkbox to disable/enable', async ({ page }) => {
     await createAndOpenRequest(page);
     await page.locator('[aria-placeholder="Enter request URL"]').fill('https://api.example.com');
 
@@ -97,8 +95,7 @@ test.describe('Params Editor', () => {
     await expect(page.locator('[aria-placeholder="Enter request URL"]')).toContainText(/token=abc123/);
   });
 
-  // TODO(e2e): flaky param-row delete→URL sync
-  test.skip('should delete a param row', async ({ page }) => {
+  test('should delete a param row', async ({ page }) => {
     await createAndOpenRequest(page);
     await page.locator('[aria-placeholder="Enter request URL"]').fill('https://api.example.com');
 

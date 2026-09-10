@@ -1,0 +1,70 @@
+{
+	"info": {
+		"_postman_id": "8d0a1f5c-6b2e-4b1a-9f3d-0d4c8f2a1b77",
+		"name": "Docs API",
+		"description": {
+			"content": "# Docs API\nCollection level.",
+			"type": "text/markdown"
+		},
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Ping",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"description": "Returns pong.",
+				"url": {
+					"raw": "https://api.example.com/ping"
+				}
+			}
+		},
+		{
+			"name": "Health",
+			"description": "Item level only.",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/health"
+				}
+			}
+		},
+		{
+			"name": "Status",
+			"description": "Item level loses.",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"description": {
+					"content": "Request level wins.",
+					"type": "text/markdown"
+				},
+				"url": {
+					"raw": "https://api.example.com/status"
+				}
+			}
+		},
+		{
+			"name": "Admin",
+			"description": {
+				"content": "Folder documentation.",
+				"type": "text/markdown"
+			},
+			"item": [
+				{
+					"name": "Reindex",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"description": "Rebuilds the search index.",
+						"url": {
+							"raw": "https://api.example.com/admin/reindex"
+						}
+					}
+				}
+			]
+		}
+	]
+}

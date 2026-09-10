@@ -5,6 +5,7 @@ import (
 
 	"github.com/tetiva-app/client/internal/adapters/requester"
 	wailsadapter "github.com/tetiva-app/client/internal/adapters/wails"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/cookie"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
@@ -18,9 +19,24 @@ import (
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
-// NewUsecases provides repositories, usecases, and Wails services.
 func NewUsecases() fx.Option {
 	return fx.Module("usecases",
+		// Local token store: no sync decorator, no exporter, no MCP tool.
+		fx.Provide(sqlite.NewAuthTokenRepo),
+		fx.Provide(func(r *sqlite.AuthTokenRepo) auth.TokenRepository { return r }),
+		fx.Provide(func(r *sqlite.AuthTokenRepo) request.TokenCleaner { return r }),
+		fx.Provide(func(r *sqlite.AuthTokenRepo) collection.TokenCleaner { return r }),
+		fx.Provide(func(r *sqlite.AuthTokenRepo) syncsvc.TokenCleaner { return r }),
+		// nil client and clock: the provider falls back to its production defaults.
+		fx.Provide(func(repo auth.TokenRepository) auth.Provider { return auth.NewProvider(repo, nil, nil) }),
+		fx.Provide(wailsadapter.NewAuthFlowEventSink),
+		fx.Provide(func(s *wailsadapter.AuthFlowEventSink) auth.FlowSink { return s }),
+		fx.Provide(func(repo auth.TokenRepository, sink auth.FlowSink) auth.FlowManager {
+			// Zero FlowOptions: production clock, crypto/rand and the documented deadlines.
+			return auth.NewFlowManager(repo, auth.NewTokenHTTPClient(), sink, auth.FlowOptions{})
+		}),
+		fx.Invoke(RegisterFlowShutdownHook),
+
 		fx.Provide(fx.Annotate(sqlite.NewCollectionRepo, fx.ResultTags(`name:"innerCollectionRepo"`))),
 		fx.Provide(fx.Annotate(
 			syncsvc.NewSyncedCollectionRepo,
@@ -80,6 +96,7 @@ func NewUsecases() fx.Option {
 		fx.Provide(func(r *requester.GraphQLRequester) request.GraphQLRequester { return r }),
 		fx.Provide(request.NewUsecase),
 		fx.Provide(wailsadapter.NewRequestService),
+		fx.Provide(wailsadapter.NewAuthService),
 		fx.Provide(wailsadapter.NewPortabilityService),
 		fx.Provide(sqlite.NewWorkspaceRepo),
 		fx.Provide(workspace.NewUsecase),

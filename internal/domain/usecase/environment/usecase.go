@@ -8,7 +8,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Repository defines the persistence contract for Environment usecase (ISP).
 type Repository interface {
 	Create(ctx context.Context, e *entities.Environment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Environment, error)
@@ -18,7 +17,6 @@ type Repository interface {
 	SetActive(ctx context.Context, workspaceID uuid.UUID, environmentID uuid.UUID) error
 }
 
-// VariableRepository defines the persistence contract for Variable operations.
 type VariableRepository interface {
 	Create(ctx context.Context, v *entities.Variable) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Variable, error)
@@ -27,7 +25,6 @@ type VariableRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
-// Usecase defines the public API for Environment operations.
 type Usecase interface {
 	Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Environment, error)
 	Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.Environment, error)
@@ -52,7 +49,6 @@ type usecase struct {
 	varRepo VariableRepository
 }
 
-// NewUsecase creates a new Environment usecase instance.
 func NewUsecase(repo Repository, varRepo VariableRepository) Usecase {
 	return &usecase{repo: repo, varRepo: varRepo}
 }

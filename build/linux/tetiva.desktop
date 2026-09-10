@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Tetiva
+Comment=API client for HTTP, gRPC, GraphQL and WebSocket
+Exec=tetiva
+Icon=tetiva
+Terminal=false
+Categories=Development;
+Keywords=API;HTTP;gRPC;GraphQL;WebSocket;REST;
+StartupWMClass=tetiva

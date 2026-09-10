@@ -2,30 +2,29 @@ package dto
 
 import "github.com/tetiva-app/client/internal/domain/usecase/request"
 
-// GraphQLIntrospectRequest is the frontend request to introspect a GraphQL endpoint.
 type GraphQLIntrospectRequest struct {
-	Endpoint   string            `json:"endpoint"`
-	SchemaPath string            `json:"schemaPath"`
-	Headers    map[string]string `json:"headers"`
+	Endpoint    string            `json:"endpoint"`
+	SchemaPath  string            `json:"schemaPath"`
+	Headers     map[string]string `json:"headers"`
+	WorkspaceID string            `json:"workspaceId"`
 }
 
-// GraphQLGenerateExampleRequest is the frontend request to generate an example query.
 type GraphQLGenerateExampleRequest struct {
 	Endpoint      string            `json:"endpoint"`
 	SchemaPath    string            `json:"schemaPath"`
 	Headers       map[string]string `json:"headers"`
+	WorkspaceID   string            `json:"workspaceId"`
 	OperationName string            `json:"operationName"`
 }
 
-// GraphQLGetTypeDefinitionRequest is the frontend request to get a type definition.
 type GraphQLGetTypeDefinitionRequest struct {
-	Endpoint   string            `json:"endpoint"`
-	SchemaPath string            `json:"schemaPath"`
-	Headers    map[string]string `json:"headers"`
-	TypeName   string            `json:"typeName"`
+	Endpoint    string            `json:"endpoint"`
+	SchemaPath  string            `json:"schemaPath"`
+	Headers     map[string]string `json:"headers"`
+	WorkspaceID string            `json:"workspaceId"`
+	TypeName    string            `json:"typeName"`
 }
 
-// GraphQLSchemaResponse is the frontend response for a GraphQL schema.
 type GraphQLSchemaResponse struct {
 	Queries   []GraphQLOperationResponse `json:"queries"`
 	Mutations []GraphQLOperationResponse `json:"mutations"`
@@ -33,7 +32,6 @@ type GraphQLSchemaResponse struct {
 	Source    string                     `json:"source"`
 }
 
-// GraphQLOperationResponse represents a query or mutation in the response.
 type GraphQLOperationResponse struct {
 	Name       string               `json:"name"`
 	Args       []GraphQLArgResponse `json:"args"`
@@ -41,14 +39,12 @@ type GraphQLOperationResponse struct {
 	Definition string               `json:"definition"`
 }
 
-// GraphQLArgResponse represents a GraphQL argument in the response.
 type GraphQLArgResponse struct {
 	Name         string `json:"name"`
 	Type         string `json:"type"`
 	DefaultValue string `json:"defaultValue"`
 }
 
-// GraphQLTypeResponse represents a GraphQL type in the response.
 type GraphQLTypeResponse struct {
 	Name          string                 `json:"name"`
 	Kind          string                 `json:"kind"`
@@ -58,20 +54,17 @@ type GraphQLTypeResponse struct {
 	Definition    string                 `json:"definition"`
 }
 
-// GraphQLFieldResponse represents a field within a GraphQL type.
 type GraphQLFieldResponse struct {
 	Name string               `json:"name"`
 	Type string               `json:"type"`
 	Args []GraphQLArgResponse `json:"args"`
 }
 
-// GraphQLExampleResponseDTO holds a generated example query and variables.
 type GraphQLExampleResponseDTO struct {
 	Query     string `json:"query"`
 	Variables string `json:"variables"`
 }
 
-// GraphQLSchemaToResponse converts domain schema to DTO.
 func GraphQLSchemaToResponse(s *request.GraphQLSchema) GraphQLSchemaResponse {
 	queries := make([]GraphQLOperationResponse, len(s.Queries))
 	for i, q := range s.Queries {

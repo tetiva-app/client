@@ -3,6 +3,7 @@ package request_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,15 +14,14 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// newDraftUsecase wires a usecase for draft tests; nil is fine for
-// collaborators the test does not exercise.
+// newDraftUsecase wires a draft usecase; nil is fine for collaborators the test does not exercise.
 func newDraftUsecase(repo request.Repository, historyRepo request.HistoryRepository, collectionReader request.CollectionReader) request.Usecase {
 	return request.NewUsecase(
 		repo, historyRepo,
 		nil, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}),
-		nil, collectionReader,
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
+		nil, collectionReader, nil, nil,
 	)
 }
 
@@ -508,5 +508,59 @@ func TestCleanupDrafts_Delegates(t *testing.T) {
 	}
 	if _, ok := repo.requests[keepID]; !ok {
 		t.Error("non-draft request must remain")
+	}
+}
+
+func TestCreateDraftFromHistory_StripsCredentials(t *testing.T) {
+	ctx := context.Background()
+	workspaceID := uuid.New()
+	historyID := uuid.New()
+	sourceRequestID := uuid.New()
+	collectionID := uuid.New()
+
+	historyRepo := &mockHistoryRepo{}
+	if err := historyRepo.Create(ctx, &entities.History{
+		ID:          historyID,
+		RequestID:   sourceRequestID,
+		WorkspaceID: workspaceID,
+		Protocol:    entities.ProtocolHTTP,
+		Method:      "GET",
+		URL:         "https://api.example.com/users?page=2&access_token=secret&sess=abc",
+		RequestHeaders: map[string][]string{
+			"authorization": {"Bearer secret"},
+			"Cookie":        {"sid=1"},
+			"X-Trace":       {"keep"},
+		},
+		AuthQueryKeys: []string{"sess"},
+		CreatedAt:     time.Now(),
+	}); err != nil {
+		t.Fatalf("setup history: %v", err)
+	}
+
+	repo := newMockRepo()
+	repo.requests[sourceRequestID] = &entities.Request{
+		ID: sourceRequestID, CollectionID: collectionID, Version: 1,
+	}
+	uc := newDraftUsecase(repo, historyRepo, nil)
+
+	draft, err := uc.CreateDraftFromHistory(ctx, request.CreateDraftFromHistoryOpt{
+		HistoryID:   historyID,
+		WorkspaceID: workspaceID,
+		UserID:      "tester",
+	})
+	if err != nil {
+		t.Fatalf("CreateDraftFromHistory: %v", err)
+	}
+
+	if draft.URL != "https://api.example.com/users?page=2" {
+		t.Errorf("URL = %q, want the credential parameters gone", draft.URL)
+	}
+	for _, h := range draft.Headers {
+		if strings.EqualFold(h.Key, "authorization") || strings.EqualFold(h.Key, "cookie") {
+			t.Errorf("header %q must not reach the draft", h.Key)
+		}
+	}
+	if !hasHeader(draft.Headers, "X-Trace", "keep") {
+		t.Errorf("ordinary headers must survive, got %+v", draft.Headers)
 	}
 }

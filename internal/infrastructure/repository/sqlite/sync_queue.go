@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// SyncEntry represents a pending sync operation.
 type SyncEntry struct {
 	ID          int64
 	WorkspaceID string
@@ -22,47 +21,39 @@ type SyncEntry struct {
 	CreatedAt   time.Time
 }
 
-// SyncQueueRepository manages the sync outbox queue.
 type SyncQueueRepository interface {
-	// Enqueue inserts a new entry into the sync queue using the TX from context if present.
+	// Uses the TX from context when present.
 	Enqueue(ctx context.Context, entry SyncEntry) error
-	// ListPending returns pending entries for a workspace ordered by id ASC.
+	// Ordered by id ASC.
 	ListPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
-	// MarkSending sets the status of the given entries to 'sending'.
 	MarkSending(ctx context.Context, ids []int64) error
-	// Delete removes entries by their IDs.
 	Delete(ctx context.Context, ids []int64) error
-	// MarkFailed increments retry_count, sets status='failed', and schedules next retry.
+	// Increments retry_count and schedules the next retry.
 	MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error
-	// RequeueDue returns 'failed' entries whose retry window has elapsed back to 'pending'.
+	// Moves 'failed' entries whose retry window elapsed back to 'pending'.
 	RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error)
-	// ResetSending resets all 'sending' entries back to 'pending' (called on startup).
+	// Resets 'sending' back to 'pending'; called on startup.
 	ResetSending(ctx context.Context) error
-	// DeleteByWorkspace removes all entries for a workspace and returns the count deleted.
 	DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error)
-	// CoalescedPending returns deduplicated pending entries: only the latest entry per (entity_type, entity_id).
+	// Only the latest entry per (entity_type, entity_id).
 	CoalescedPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
-	// CountPendingOrFailed counts entries the server has not taken yet, including
-	// the ones parked for a later retry.
+	// Counts entries the server has not taken, parked retries included.
 	CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error)
-	// CountParked counts entries the server refused and that wait for a retry.
+	// Entries the server refused, waiting for a retry.
 	CountParked(ctx context.Context, workspaceID string) (int, error)
-	// EarliestParkedRetryAt returns when the first parked entry falls due; ok is false when none is parked.
+	// ok is false when nothing is parked.
 	EarliestParkedRetryAt(ctx context.Context, workspaceID string) (t time.Time, ok bool, err error)
 }
 
-// SyncQueueRepo implements SyncQueueRepository using SQLite.
 type SyncQueueRepo struct {
 	db *sql.DB
 }
 
-// NewSyncQueueRepo creates a new SyncQueueRepo instance.
 func NewSyncQueueRepo(db *sql.DB) SyncQueueRepository {
 	return &SyncQueueRepo{db: db}
 }
 
-// Enqueue inserts a new entry into the sync queue.
-// Uses DBTXFromContext so it participates in the caller's transaction when present.
+// Uses DBTXFromContext so it joins the caller's transaction when present.
 func (r *SyncQueueRepo) Enqueue(ctx context.Context, entry SyncEntry) error {
 	const funcName = "SyncQueueRepo.Enqueue"
 
@@ -92,7 +83,6 @@ func (r *SyncQueueRepo) Enqueue(ctx context.Context, entry SyncEntry) error {
 	return nil
 }
 
-// ListPending returns pending entries for a workspace ordered by id ASC.
 func (r *SyncQueueRepo) ListPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error) {
 	const funcName = "SyncQueueRepo.ListPending"
 
@@ -111,7 +101,6 @@ func (r *SyncQueueRepo) ListPending(ctx context.Context, workspaceID string, lim
 	return scanSyncEntries(funcName, rows)
 }
 
-// MarkSending sets the status of the given entries to 'sending'.
 func (r *SyncQueueRepo) MarkSending(ctx context.Context, ids []int64) error {
 	const funcName = "SyncQueueRepo.MarkSending"
 
@@ -132,7 +121,6 @@ func (r *SyncQueueRepo) MarkSending(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-// Delete removes entries by their IDs.
 func (r *SyncQueueRepo) Delete(ctx context.Context, ids []int64) error {
 	const funcName = "SyncQueueRepo.Delete"
 
@@ -153,7 +141,6 @@ func (r *SyncQueueRepo) Delete(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-// MarkFailed increments retry_count, sets status='failed', and schedules the next retry.
 func (r *SyncQueueRepo) MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error {
 	const funcName = "SyncQueueRepo.MarkFailed"
 
@@ -167,8 +154,6 @@ func (r *SyncQueueRepo) MarkFailed(ctx context.Context, id int64, nextRetryAt ti
 	return nil
 }
 
-// RequeueDue returns failed entries whose retry window has elapsed back to 'pending'
-// and reports how many were requeued.
 func (r *SyncQueueRepo) RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error) {
 	const funcName = "SyncQueueRepo.RequeueDue"
 
@@ -188,8 +173,7 @@ func (r *SyncQueueRepo) RequeueDue(ctx context.Context, workspaceID string, now 
 	return n, nil
 }
 
-// ResetSending resets all 'sending' entries back to 'pending'.
-// Should be called on startup to recover from interrupted sessions.
+// Called on startup to recover from interrupted sessions.
 func (r *SyncQueueRepo) ResetSending(ctx context.Context) error {
 	const funcName = "SyncQueueRepo.ResetSending"
 
@@ -203,7 +187,6 @@ func (r *SyncQueueRepo) ResetSending(ctx context.Context) error {
 	return nil
 }
 
-// DeleteByWorkspace removes all entries for a workspace and returns the count deleted.
 func (r *SyncQueueRepo) DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.DeleteByWorkspace"
 
@@ -222,8 +205,6 @@ func (r *SyncQueueRepo) DeleteByWorkspace(ctx context.Context, workspaceID strin
 	return int(n), nil
 }
 
-// CoalescedPending returns deduplicated pending entries, keeping only the latest entry
-// per (entity_type, entity_id) combination.
 func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error) {
 	const funcName = "SyncQueueRepo.CoalescedPending"
 
@@ -247,8 +228,7 @@ func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string
 	return scanSyncEntries(funcName, rows)
 }
 
-// CountPendingOrFailed counts entries still owed to the server: 'failed' ones are
-// parked quota retries, not losses.
+// 'failed' entries are parked quota retries, not losses.
 func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountPendingOrFailed"
 
@@ -262,8 +242,7 @@ func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID st
 	return count, nil
 }
 
-// CountParked counts the entries the server pushed back: on the UI side they are
-// the changes a plan limit keeps out of the cloud.
+// On the UI side these are the changes a plan limit keeps out of the cloud.
 func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountParked"
 
@@ -277,8 +256,7 @@ func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (in
 	return count, nil
 }
 
-// EarliestParkedRetryAt returns the closest retry deadline among the parked entries,
-// so a syncer that just started knows when to wake instead of waiting a full window.
+// Lets a syncer that just started wake on time instead of waiting a full window.
 func (r *SyncQueueRepo) EarliestParkedRetryAt(ctx context.Context, workspaceID string) (time.Time, bool, error) {
 	const funcName = "SyncQueueRepo.EarliestParkedRetryAt"
 

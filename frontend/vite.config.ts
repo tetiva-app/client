@@ -20,4 +20,8 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  server: {
+    // Wails' dev proxy dials tcp4; a ::1-only Vite leaves the window blank.
+    host: "127.0.0.1",
+  },
 });

@@ -20,7 +20,6 @@ type SyncedEnvironmentRepo struct {
 	engine    *SyncEngine
 }
 
-// NewSyncedEnvironmentRepo creates a new SyncedEnvironmentRepo.
 func NewSyncedEnvironmentRepo(inner environment.Repository, syncQueue sqlite.SyncQueueRepository, db *sql.DB, engine *SyncEngine) *SyncedEnvironmentRepo {
 	return &SyncedEnvironmentRepo{
 		inner:     inner,
@@ -60,12 +59,10 @@ func (r *SyncedEnvironmentRepo) Create(ctx context.Context, e *entities.Environm
 	return err
 }
 
-// GetByID delegates to the inner repository.
 func (r *SyncedEnvironmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Environment, error) {
 	return r.inner.GetByID(ctx, id)
 }
 
-// List delegates to the inner repository.
 func (r *SyncedEnvironmentRepo) List(ctx context.Context, filter environment.Filter) ([]*entities.Environment, error) {
 	return r.inner.List(ctx, filter)
 }
@@ -100,12 +97,11 @@ func (r *SyncedEnvironmentRepo) Update(ctx context.Context, e *entities.Environm
 	return err
 }
 
-// GetActive delegates to the inner repository.
 func (r *SyncedEnvironmentRepo) GetActive(ctx context.Context, workspaceID uuid.UUID) (*entities.Environment, error) {
 	return r.inner.GetActive(ctx, workspaceID)
 }
 
-// SetActive delegates to the inner repository (not a sync-relevant operation).
+// SetActive is not sync-relevant, so nothing is enqueued.
 func (r *SyncedEnvironmentRepo) SetActive(ctx context.Context, workspaceID uuid.UUID, environmentID uuid.UUID) error {
 	return r.inner.SetActive(ctx, workspaceID, environmentID)
 }

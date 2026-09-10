@@ -11,7 +11,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Usecase defines the public API for History read operations.
 type Usecase interface {
 	List(ctx context.Context, opt ListOpt) ([]*entities.History, int, error) // items, total count
 	GetByID(ctx context.Context, id uuid.UUID, workspaceID uuid.UUID) (*entities.History, error)
@@ -19,7 +18,6 @@ type Usecase interface {
 	Clear(ctx context.Context, opt ClearOpt) error
 }
 
-// Repository defines the persistence contract for History (ISP).
 type Repository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.History, error)
 	List(ctx context.Context, filter Filter) ([]*entities.History, error)
@@ -32,7 +30,6 @@ type usecase struct {
 	repo Repository
 }
 
-// NewUsecase creates a History usecase.
 func NewUsecase(repo Repository) Usecase {
 	return &usecase{repo: repo}
 }

@@ -7,7 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/adapters/requester"
 	req "github.com/tetiva-app/client/internal/domain/usecase/request"
@@ -20,7 +23,6 @@ func introspectionFixture() []byte {
 				"queryType":    map[string]interface{}{"name": "Query"},
 				"mutationType": map[string]interface{}{"name": "Mutation"},
 				"types": []interface{}{
-					// Query root type
 					map[string]interface{}{
 						"name": "Query",
 						"kind": "OBJECT",
@@ -81,7 +83,6 @@ func introspectionFixture() []byte {
 							},
 						},
 					},
-					// Mutation root type
 					map[string]interface{}{
 						"name": "Mutation",
 						"kind": "OBJECT",
@@ -115,7 +116,6 @@ func introspectionFixture() []byte {
 							},
 						},
 					},
-					// User type
 					map[string]interface{}{
 						"name": "User",
 						"kind": "OBJECT",
@@ -148,7 +148,6 @@ func introspectionFixture() []byte {
 							},
 						},
 					},
-					// CreateUserInput type
 					map[string]interface{}{
 						"name": "CreateUserInput",
 						"kind": "INPUT_OBJECT",
@@ -211,7 +210,7 @@ func TestGraphQL_Introspect_FromEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	schema, err := r.Introspect(t.Context(), newIntrospectReq(server.URL, ""))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -342,7 +341,7 @@ enum ProductStatus {
 		t.Fatalf("failed to write schema file: %v", err)
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	schema, err := r.Introspect(t.Context(), newIntrospectReq("", schemaPath))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -432,7 +431,7 @@ enum ProductStatus {
 }
 
 func TestGraphQL_Introspect_BothSet(t *testing.T) {
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	_, err := r.Introspect(t.Context(), newIntrospectReq("http://example.com/graphql", "/some/path.graphql"))
 	if err == nil {
 		t.Fatal("expected error when both Endpoint and SchemaPath are set")
@@ -443,7 +442,7 @@ func TestGraphQL_Introspect_BothSet(t *testing.T) {
 }
 
 func TestGraphQL_Introspect_NeitherSet(t *testing.T) {
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	_, err := r.Introspect(t.Context(), newIntrospectReq("", ""))
 	if err == nil {
 		t.Fatal("expected error when neither Endpoint nor SchemaPath is set")
@@ -461,7 +460,7 @@ func TestGraphQL_Introspect_FiltersBuiltinTypes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	schema, err := r.Introspect(t.Context(), newIntrospectReq(server.URL, ""))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -483,5 +482,47 @@ func newIntrospectReq(endpoint, schemaPath string) req.GraphQLIntrospectRequest 
 	return req.GraphQLIntrospectRequest{
 		Endpoint:   endpoint,
 		SchemaPath: schemaPath,
+	}
+}
+
+func TestGraphQL_Introspect_SendsWorkspaceCookies(t *testing.T) {
+	var mu sync.Mutex
+	var sent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		sent = r.Header.Get("Cookie")
+		mu.Unlock()
+		w.Header().Set("Set-Cookie", "sid=xyz; Path=/")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(introspectionFixture())
+	}))
+	defer server.Close()
+
+	store := &fakeCookieStore{send: []*http.Cookie{{Name: "session", Value: "abc"}}}
+	wsID := uuid.New()
+	r := requester.NewGraphQLRequester(store)
+
+	introspectReq := newIntrospectReq(server.URL, "")
+	introspectReq.WorkspaceID = wsID
+	if _, err := r.Introspect(t.Context(), introspectReq); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	got := sent
+	mu.Unlock()
+	if got != "session=abc" {
+		t.Fatalf("Cookie header = %q, want session=abc", got)
+	}
+
+	gotWS, gotURL, cookies := store.snapshot()
+	if len(cookies) != 1 || cookies[0].Name != "sid" || cookies[0].Value != "xyz" {
+		t.Fatalf("persisted cookies = %+v, want sid=xyz", cookies)
+	}
+	if gotWS != wsID {
+		t.Fatalf("persisted for workspace %s, want %s", gotWS, wsID)
+	}
+	if gotURL == nil || gotURL.Scheme != "http" {
+		t.Fatalf("jar saw URL %v, want http scheme", gotURL)
 	}
 }

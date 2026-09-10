@@ -18,12 +18,10 @@ type CollectionService struct {
 	uc collection.Usecase
 }
 
-// NewCollectionService creates a new CollectionService instance.
 func NewCollectionService(uc collection.Usecase) *CollectionService {
 	return &CollectionService{uc: uc}
 }
 
-// Create creates a new collection and returns the result.
 func (s *CollectionService) Create(req dto.CreateCollectionRequest) Result[dto.CollectionResponse] {
 	ctx := context.Background()
 
@@ -65,7 +63,6 @@ func (s *CollectionService) Create(req dto.CreateCollectionRequest) Result[dto.C
 	return OK(dto.CollectionToResponse(c))
 }
 
-// GetByID retrieves a collection by its ID.
 func (s *CollectionService) GetByID(id string) Result[dto.CollectionResponse] {
 	ctx := context.Background()
 
@@ -84,7 +81,6 @@ func (s *CollectionService) GetByID(id string) Result[dto.CollectionResponse] {
 	return OK(dto.CollectionToResponse(c))
 }
 
-// List returns all collections for the given workspace.
 func (s *CollectionService) List(workspaceIDStr string) Result[[]dto.CollectionResponse] {
 	ctx := context.Background()
 
@@ -107,7 +103,6 @@ func (s *CollectionService) List(workspaceIDStr string) Result[[]dto.CollectionR
 	return OK(dto.CollectionsToResponse(collections))
 }
 
-// Edit updates an existing collection.
 func (s *CollectionService) Edit(req dto.EditCollectionRequest) Result[dto.CollectionResponse] {
 	ctx := context.Background()
 
@@ -141,7 +136,6 @@ func (s *CollectionService) Edit(req dto.EditCollectionRequest) Result[dto.Colle
 	return OK(dto.CollectionToResponse(c))
 }
 
-// Delete soft-deletes a collection by ID.
 func (s *CollectionService) Delete(req dto.DeleteCollectionRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -165,7 +159,6 @@ func (s *CollectionService) Delete(req dto.DeleteCollectionRequest) Result[Empty
 	return OK(Empty{})
 }
 
-// Move changes the parent of a collection.
 func (s *CollectionService) Move(req dto.MoveCollectionRequest) Result[dto.CollectionResponse] {
 	ctx := context.Background()
 
@@ -202,7 +195,6 @@ func (s *CollectionService) Move(req dto.MoveCollectionRequest) Result[dto.Colle
 	return OK(dto.CollectionToResponse(c))
 }
 
-// Reorder updates the sort order of a collection.
 func (s *CollectionService) Reorder(req dto.ReorderCollectionRequest) Result[Empty] {
 	ctx := context.Background()
 

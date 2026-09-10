@@ -18,12 +18,17 @@ func (r *fakeSettingsRepo) Set(_ context.Context, k, v string) error {
 	r.data[k] = v
 	return nil
 }
+func (r *fakeSettingsRepo) SetMany(_ context.Context, values map[string]string) error {
+	for k, v := range values {
+		r.data[k] = v
+	}
+	return nil
+}
 
 func newUC(data map[string]string) settings.Usecase {
 	return settings.NewUsecase(&fakeSettingsRepo{data: data})
 }
 
-// unsetEnv removes key for the duration of the test, restoring it on cleanup.
 func unsetEnv(t *testing.T, key string) {
 	t.Helper()
 	orig, had := os.LookupEnv(key)
@@ -33,8 +38,7 @@ func unsetEnv(t *testing.T, key string) {
 	}
 }
 
-// clearMCPEnv drops both the Tetiva and legacy GopherCourier variables so a
-// developer's own MCP env cannot leak into the resolution tests.
+// clearMCPEnv keeps a developer's own MCP env out of the resolution tests.
 func clearMCPEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"TETIVA_MCP", "TETIVA_MCP_ADDR", "GOPHERCOURIER_MCP", "GOPHERCOURIER_MCP_ADDR"} {

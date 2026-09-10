@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, defineAsyncComponent } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -12,16 +12,28 @@ import AuthEditor from './AuthEditor.vue'
 import HeadersEditor from './HeadersEditor.vue'
 import BodyEditor from './BodyEditor.vue'
 import ScriptEditor from './ScriptEditor.vue'
+import RequestDocs from './RequestDocs.vue'
 import ResponseViewer from './ResponseViewer.vue'
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable'
-import type { BodyType } from '@/types/request'
+import type { AuthType, BodyType, HTTPMethod, Request } from '@/types/request'
 import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isInsideOverlay } from '@/lib/shortcut-guards'
+import {
+  curlAuthChange,
+  curlImportFields,
+  curlImportIntact,
+  curlImportLosesWork,
+  curlImportMessage,
+} from '@/lib/curl-paste'
+import type { CurlImportFields } from '@/lib/curl-paste'
+import { useToast } from '@/composables/useToast'
+import { authBadgeLabel } from '@/constants/auth'
+import { warningsToastMessage } from '@/lib/auth-warnings'
 
 const GRPCRequestEditor = defineAsyncComponent(() => import('./grpc/GRPCRequestEditor.vue'))
 const GraphQLRequestEditor = defineAsyncComponent(() => import('./graphql/GraphQLRequestEditor.vue'))
@@ -63,9 +75,10 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.requestId,
 )
 
-const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts'>('params')
+const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs'>('params')
 const promoteOpen = ref(false)
 const collectionsStore = useCollectionStore()
+const toast = useToast()
 
 async function onPromoted() {
   // Refresh collection tree so the newly-promoted request shows up in the sidebar.
@@ -93,12 +106,6 @@ const headerCount = computed(() => {
   return request.value.headers.length
 })
 
-const authLabel: Record<string, string> = {
-  basic: 'Basic',
-  bearer: 'Bearer',
-  api_key: 'API Key',
-}
-
 const bodyLabel: Record<string, string> = {
   json: 'JSON',
   xml: 'XML',
@@ -107,10 +114,7 @@ const bodyLabel: Record<string, string> = {
   binary: 'Binary',
 }
 
-const authBadge = computed(() => {
-  const t = request.value?.authType
-  return t && t !== 'none' ? authLabel[t] ?? '' : ''
-})
+const authBadge = computed(() => authBadgeLabel(request.value?.authType))
 
 const bodyBadge = computed(() => {
   const t = request.value?.bodyType
@@ -123,6 +127,7 @@ const tabs = computed(() => [
   { id: 'headers' as const, label: 'Headers', badge: headerCount.value > 0 ? String(headerCount.value) : '' },
   { id: 'body' as const, label: 'Body', badge: bodyBadge.value },
   { id: 'scripts' as const, label: 'Scripts', badge: (() => { const count = (request.value?.preScript ? 1 : 0) + (request.value?.postScript ? 1 : 0); return count > 0 ? String(count) : '' })() },
+  { id: 'docs' as const, label: 'Docs', badge: request.value?.description ? '•' : '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -168,6 +173,8 @@ async function handleCopyCurl() {
     console.error('generateCurl failed:', result.error)
     return
   }
+  const warning = warningsToastMessage(result.data.warnings)
+  if (warning) toast.info(warning)
   // Use Wails native clipboard: navigator.clipboard.writeText fails in WebView
   // after an awaited backend call (user-activation gesture is consumed).
   try {
@@ -177,6 +184,80 @@ async function handleCopyCurl() {
     // Browser-mode fallback (vite dev without Wails).
     await navigator.clipboard.writeText(result.data.command)
   }
+}
+
+// The sticky Undo toast can hang around for minutes, so the import it belongs to
+// is remembered and dropped as soon as the request stops matching it.
+let curlUndo: { toastId: number; applied: CurlImportFields } | null = null
+
+function dismissCurlUndo() {
+  if (!curlUndo) return
+  toast.dismiss(curlUndo.toastId)
+  curlUndo = null
+}
+
+watch(
+  () => (request.value ? curlImportFields(request.value) : null),
+  (fields) => {
+    if (!curlUndo || curlImportIntact(curlUndo.applied, fields)) return
+    dismissCurlUndo()
+  },
+  { deep: true },
+)
+
+async function handlePasteCurl(text: string) {
+  const current = request.value
+  if (!current) return
+  const service = await getRequestService()
+  const result = await service.parseCurl({ text })
+  if (result.error) {
+    toast.error(result.error.message)
+    return
+  }
+  const parsed = result.data
+  const before = curlImportFields(current)
+  const applied = {
+    method: parsed.method as HTTPMethod,
+    url: parsed.url,
+    headers: parsed.headers,
+    body: parsed.body,
+    bodyType: parsed.bodyType as BodyType,
+    authType: parsed.authType as AuthType,
+    authData: parsed.authData,
+  }
+  // One updateLocal, not updateField: the bodyType branch there rewrites
+  // Content-Type from a lookup table and would flatten what curl carried.
+  store.updateLocal(props.requestId, applied)
+  store.syncTabMeta(props.requestId)
+
+  // A second paste leaves the pending Undo pointing at a state that is gone.
+  dismissCurlUndo()
+
+  const message = curlImportMessage(
+    parsed.method,
+    parsed.headers.length,
+    parsed.warnings,
+    curlAuthChange(before, applied),
+  )
+  // Nothing was overwritten, so there is nothing to take back.
+  if (!curlImportLosesWork(before)) {
+    toast.success(message)
+    return
+  }
+  // Sticky: the toast is the only way back to the overwritten request, so it has
+  // to outlive the four seconds it takes to notice what changed.
+  const toastId = toast.success(
+    message,
+    {
+      label: 'Undo',
+      onClick: () => {
+        store.updateLocal(props.requestId, before)
+        store.syncTabMeta(props.requestId)
+      },
+    },
+    { sticky: true },
+  )
+  curlUndo = { toastId, applied: curlImportFields(applied) }
 }
 
 function updateField(field: string, value: any) {
@@ -207,13 +288,9 @@ function updateField(field: string, value: any) {
 </script>
 
 <template>
-  <GRPCRequestEditor v-if="request && request.protocol === 'grpc'" :request="request" />
-
-  <GraphQLRequestEditor v-else-if="request && request.protocol === 'graphql'" :request="request" />
-
-  <WebSocketEditor v-else-if="request && request.protocol === 'websocket'" :request="request" @manage-environments="$emit('manage-environments')" />
-
-  <div v-else-if="request" class="flex flex-col h-full">
+  <!-- The draft banner sits above the protocol branch so a replayed WS or gRPC
+       row can be promoted too, not only an HTTP one. -->
+  <div v-if="request" class="flex flex-col h-full">
     <div
       v-if="request.isDraft"
       class="mt-3 mx-3 flex items-center justify-between gap-3 px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 text-xs"
@@ -237,100 +314,123 @@ function updateField(field: string, value: any) {
       @promoted="onPromoted"
     />
 
-    <div class="pt-3">
-      <UrlBar
-        :method="request.method"
-        :url="request.url"
-        :loading="responseState.status === 'loading'"
-        @update:method="(v) => updateField('method', v)"
-        @update:url="(v) => updateField('url', v)"
-        @send="store.executeRequest(props.requestId)"
-        @cancel="responseStore.cancelRequest(props.requestId)"
-        @manage-environments="$emit('manage-environments')"
-        @copy-curl="handleCopyCurl"
-        @show-history="onShowHistory"
-      />
-    </div>
+    <GRPCRequestEditor v-if="request.protocol === 'grpc'" :request="request" class="min-h-0 flex-1" />
 
-    <ResizablePanelGroup
-      direction="vertical"
-      auto-save-id="request-response-split"
-      class="flex-1 mt-3"
-    >
-      <ResizablePanel :default-size="40" :min-size="15">
-        <div class="flex flex-col h-full">
-          <div class="flex border-b border-border px-3">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
-              :class="activeTab === tab.id
-                ? 'border-b-[3px] border-primary text-foreground'
-                : 'text-muted-foreground hover:text-foreground'"
-              @click="activeTab = tab.id"
-            >
-              {{ tab.label }}
-              <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
-                ({{ tab.badge }})
-              </span>
-            </button>
+    <GraphQLRequestEditor v-else-if="request.protocol === 'graphql'" :request="request" class="min-h-0 flex-1" />
 
-            <div v-if="dirty" class="ml-auto flex items-center pr-3">
-              <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+    <WebSocketEditor
+      v-else-if="request.protocol === 'websocket'"
+      :request="request"
+      class="min-h-0 flex-1"
+      @manage-environments="$emit('manage-environments')"
+    />
+
+    <div v-else class="flex min-h-0 flex-1 flex-col">
+      <div class="pt-3">
+        <UrlBar
+          :method="request.method"
+          :url="request.url"
+          :loading="responseState.status === 'loading'"
+          @update:method="(v) => updateField('method', v)"
+          @update:url="(v) => updateField('url', v)"
+          @send="store.executeRequest(props.requestId)"
+          @cancel="responseStore.cancelRequest(props.requestId)"
+          @manage-environments="$emit('manage-environments')"
+          @copy-curl="handleCopyCurl"
+          @show-history="onShowHistory"
+          @paste-curl="handlePasteCurl"
+        />
+      </div>
+
+      <ResizablePanelGroup
+        direction="vertical"
+        auto-save-id="request-response-split"
+        class="flex-1 mt-3"
+      >
+        <ResizablePanel :default-size="40" :min-size="15">
+          <div class="flex flex-col h-full">
+            <div class="flex border-b border-border px-3">
+              <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
+                :class="activeTab === tab.id
+                  ? 'border-b-[3px] border-primary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'"
+                @click="activeTab = tab.id"
+              >
+                {{ tab.label }}
+                <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
+                  ({{ tab.badge }})
+                </span>
+              </button>
+
+              <div v-if="dirty" class="ml-auto flex items-center pr-3">
+                <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+              </div>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-auto">
+              <ParamsEditor
+                v-if="activeTab === 'params'"
+                :url="request.url"
+                @update:url="(v) => updateField('url', v)"
+              />
+              <AuthEditor
+                v-else-if="activeTab === 'auth'"
+                :auth-type="request.authType"
+                :auth-data="request.authData"
+                owner-kind="request"
+                :owner-id="requestId"
+                :owner-version="request.version"
+                :protocol="request.protocol"
+                @update:auth-type="(v) => updateField('authType', v)"
+                @update:auth-data="(v) => updateField('authData', v)"
+              />
+              <HeadersEditor
+                v-else-if="activeTab === 'headers'"
+                :headers="request.headers"
+                @update:headers="(v) => updateField('headers', v)"
+              />
+              <BodyEditor
+                v-else-if="activeTab === 'body'"
+                :request-id="requestId"
+                :body="request.body"
+                :body-type="request.bodyType"
+                :method="request.method"
+                :resolved-variables="envStore.resolvedVariables"
+                :secret-keys="secretKeys"
+                @update:body="(v) => updateField('body', v)"
+                @update:body-type="(v) => updateField('bodyType', v)"
+              />
+              <ScriptEditor
+                v-else-if="activeTab === 'scripts'"
+                :entity-id="requestId"
+                :pre-script="request.preScript"
+                :post-script="request.postScript"
+                :resolved-variables="envStore.resolvedVariables"
+                :secret-keys="secretKeys"
+                @update:pre-script="(v) => updateField('preScript', v)"
+                @update:post-script="(v) => updateField('postScript', v)"
+              />
+              <RequestDocs
+                v-else-if="activeTab === 'docs'"
+                :description="request.description"
+                @update:description="(v) => updateField('description', v)"
+              />
             </div>
           </div>
+        </ResizablePanel>
 
-          <div class="flex-1 min-h-0 overflow-auto">
-            <ParamsEditor
-              v-if="activeTab === 'params'"
-              :url="request.url"
-              @update:url="(v) => updateField('url', v)"
-            />
-            <AuthEditor
-              v-else-if="activeTab === 'auth'"
-              :auth-type="request.authType"
-              :auth-data="request.authData"
-              @update:auth-type="(v) => updateField('authType', v)"
-              @update:auth-data="(v) => updateField('authData', v)"
-            />
-            <HeadersEditor
-              v-else-if="activeTab === 'headers'"
-              :headers="request.headers"
-              @update:headers="(v) => updateField('headers', v)"
-            />
-            <BodyEditor
-              v-else-if="activeTab === 'body'"
-              :request-id="requestId"
-              :body="request.body"
-              :body-type="request.bodyType"
-              :method="request.method"
-              :resolved-variables="envStore.resolvedVariables"
-              :secret-keys="secretKeys"
-              @update:body="(v) => updateField('body', v)"
-              @update:body-type="(v) => updateField('bodyType', v)"
-            />
-            <ScriptEditor
-              v-else-if="activeTab === 'scripts'"
-              :entity-id="requestId"
-              :pre-script="request.preScript"
-              :post-script="request.postScript"
-              :resolved-variables="envStore.resolvedVariables"
-              :secret-keys="secretKeys"
-              @update:pre-script="(v) => updateField('preScript', v)"
-              @update:post-script="(v) => updateField('postScript', v)"
-            />
-          </div>
-        </div>
-      </ResizablePanel>
+        <ResizableHandle with-handle />
 
-      <ResizableHandle with-handle />
-
-      <ResizablePanel :default-size="60" :min-size="20">
-        <ResponseViewer
-          :state="responseState"
-          @cancel="responseStore.cancelRequest(props.requestId)"
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        <ResizablePanel :default-size="60" :min-size="20">
+          <ResponseViewer
+            :state="responseState"
+            @cancel="responseStore.cancelRequest(props.requestId)"
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
   </div>
 </template>

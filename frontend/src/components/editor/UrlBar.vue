@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'manage-environments'): void
   (e: 'copy-curl'): void
   (e: 'show-history'): void
+  (e: 'paste-curl', text: string): void
 }>()
 
 const dropdownOpen = ref(false)
@@ -127,8 +128,10 @@ function handleClickOutside() {
         :available-variables="availableVariables"
         variant="borderless"
         placeholder="Enter request URL"
+        detect-curl
         @update:model-value="emit('update:url', $event)"
         @submit="emit('send')"
+        @paste-curl="(text) => emit('paste-curl', text)"
       />
     </div>
 

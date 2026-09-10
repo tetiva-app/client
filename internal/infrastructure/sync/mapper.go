@@ -1,16 +1,29 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 )
 
-// CollectionToProto converts a domain Collection to a proto SyncEntity.
+// ErrUpdateRequired marks an inbound entity written in a scheme this build does not
+// know: retrying changes nothing until the app updates, so the syncer parks it.
+var ErrUpdateRequired = errors.New("sync: entity needs a newer app version")
+
+// checkAuthType keeps an unknown scheme out of the local database. An empty value
+// comes from a peer that never set the field and stays an ordinary apply failure.
+func checkAuthType(raw string) error {
+	if raw == "" || entities.AuthType(raw).IsValid() {
+		return nil
+	}
+	return fmt.Errorf("%w: unknown auth type %q", ErrUpdateRequired, raw)
+}
+
 func CollectionToProto(c *entities.Collection, operationID string) *syncv1.SyncEntity {
 	grpcMetadata := make([]*syncv1.HeaderItem, len(c.GRPCMetadata))
 	for i, h := range c.GRPCMetadata {
@@ -46,7 +59,6 @@ func CollectionToProto(c *entities.Collection, operationID string) *syncv1.SyncE
 	}.Build()
 }
 
-// RequestToProto converts a domain Request to a proto SyncEntity.
 func RequestToProto(r *entities.Request, operationID string) *syncv1.SyncEntity {
 	headers := make([]*syncv1.HeaderItem, len(r.Headers))
 	for i, h := range r.Headers {
@@ -98,7 +110,6 @@ func RequestToProto(r *entities.Request, operationID string) *syncv1.SyncEntity 
 	}.Build()
 }
 
-// EnvironmentToProto converts a domain Environment to a proto SyncEntity.
 func EnvironmentToProto(e *entities.Environment, operationID string) *syncv1.SyncEntity {
 	return syncv1.SyncEntity_builder{
 		EntityType:  syncv1.EntityType_ENTITY_TYPE_ENVIRONMENT,
@@ -114,7 +125,6 @@ func EnvironmentToProto(e *entities.Environment, operationID string) *syncv1.Syn
 	}.Build()
 }
 
-// VariableToProto converts a domain Variable to a proto SyncEntity.
 func VariableToProto(v *entities.Variable, operationID string) *syncv1.SyncEntity {
 	return syncv1.SyncEntity_builder{
 		EntityType:  syncv1.EntityType_ENTITY_TYPE_VARIABLE,
@@ -135,7 +145,6 @@ func VariableToProto(v *entities.Variable, operationID string) *syncv1.SyncEntit
 	}.Build()
 }
 
-// CollectionFromProto converts a proto SyncEntity to a domain Collection.
 func CollectionFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entities.Collection, error) {
 	coll := e.GetCollection()
 	if coll == nil {
@@ -145,6 +154,9 @@ func CollectionFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entities
 	id, err := uuid.Parse(e.GetEntityId())
 	if err != nil {
 		return nil, fmt.Errorf("CollectionFromProto: invalid entity id %q: %w", e.GetEntityId(), err)
+	}
+	if err := checkAuthType(coll.GetAuthType()); err != nil {
+		return nil, fmt.Errorf("CollectionFromProto: %w", err)
 	}
 
 	c := &entities.Collection{
@@ -188,7 +200,6 @@ func CollectionFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entities
 	return c, nil
 }
 
-// RequestFromProto converts a proto SyncEntity to a domain Request.
 func RequestFromProto(e *syncv1.SyncEntity) (*entities.Request, error) {
 	rd := e.GetRequest()
 	if rd == nil {
@@ -202,6 +213,9 @@ func RequestFromProto(e *syncv1.SyncEntity) (*entities.Request, error) {
 	collID, err := uuid.Parse(rd.GetCollectionId())
 	if err != nil {
 		return nil, fmt.Errorf("RequestFromProto: invalid collection id %q: %w", rd.GetCollectionId(), err)
+	}
+	if err := checkAuthType(rd.GetAuthType()); err != nil {
+		return nil, fmt.Errorf("RequestFromProto: %w", err)
 	}
 
 	r := &entities.Request{
@@ -252,7 +266,6 @@ func RequestFromProto(e *syncv1.SyncEntity) (*entities.Request, error) {
 	return r, nil
 }
 
-// EnvironmentFromProto converts a proto SyncEntity to a domain Environment.
 func EnvironmentFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entities.Environment, error) {
 	ed := e.GetEnvironment()
 	if ed == nil {
@@ -284,7 +297,6 @@ func EnvironmentFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entitie
 	return env, nil
 }
 
-// VariableFromProto converts a proto SyncEntity to a domain Variable.
 func VariableFromProto(e *syncv1.SyncEntity) (*entities.Variable, error) {
 	vd := e.GetVariable()
 	if vd == nil {

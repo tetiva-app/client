@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,12 +22,10 @@ type RequestService struct {
 	uc request.Usecase
 }
 
-// NewRequestService creates a new RequestService instance.
 func NewRequestService(uc request.Usecase) *RequestService {
 	return &RequestService{uc: uc}
 }
 
-// Create creates a new request and returns the result.
 func (s *RequestService) Create(req dto.CreateRequestRequest) Result[dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -40,6 +39,7 @@ func (s *RequestService) Create(req dto.CreateRequestRequest) Result[dto.Request
 	input := request.Create{
 		CollectionID:      collectionID,
 		Name:              req.Name,
+		Description:       req.Description,
 		Protocol:          entities.Protocol(req.Protocol),
 		Method:            entities.HTTPMethod(req.Method),
 		URL:               req.URL,
@@ -71,7 +71,6 @@ func (s *RequestService) Create(req dto.CreateRequestRequest) Result[dto.Request
 	return OK(dto.RequestToResponse(r))
 }
 
-// GetByID retrieves a request by its ID.
 func (s *RequestService) GetByID(id string) Result[dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -90,7 +89,6 @@ func (s *RequestService) GetByID(id string) Result[dto.RequestResponse] {
 	return OK(dto.RequestToResponse(r))
 }
 
-// List returns all requests for the given collection.
 func (s *RequestService) List(collectionID string) Result[[]dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -113,7 +111,6 @@ func (s *RequestService) List(collectionID string) Result[[]dto.RequestResponse]
 	return OK(dto.RequestsToResponse(requests))
 }
 
-// Edit updates an existing request.
 func (s *RequestService) Edit(req dto.EditRequestRequest) Result[dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -126,6 +123,7 @@ func (s *RequestService) Edit(req dto.EditRequestRequest) Result[dto.RequestResp
 
 	input := request.Edit{
 		Name:              req.Name,
+		Description:       req.Description,
 		Method:            entities.HTTPMethod(req.Method),
 		URL:               req.URL,
 		Headers:           dto.HeaderItemsToEntity(req.Headers),
@@ -158,7 +156,6 @@ func (s *RequestService) Edit(req dto.EditRequestRequest) Result[dto.RequestResp
 	return OK(dto.RequestToResponse(r))
 }
 
-// Delete soft-deletes a request by ID.
 func (s *RequestService) Delete(req dto.DeleteRequestRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -182,7 +179,6 @@ func (s *RequestService) Delete(req dto.DeleteRequestRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// Move changes the collection of a request.
 func (s *RequestService) Move(req dto.MoveRequestRequest) Result[dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -215,7 +211,6 @@ func (s *RequestService) Move(req dto.MoveRequestRequest) Result[dto.RequestResp
 	return OK(dto.RequestToResponse(r))
 }
 
-// Reorder updates the sort order of a request.
 func (s *RequestService) Reorder(req dto.ReorderRequestRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -233,7 +228,6 @@ func (s *RequestService) Reorder(req dto.ReorderRequestRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// SaveResponseToFile copies a binary response temp file to the user-selected destination.
 // The save dialog is handled on the frontend side; this method only performs the copy.
 func (s *RequestService) SaveResponseToFile(tempPath string, destPath string) Result[string] {
 	const funcName = "RequestService.SaveResponseToFile"
@@ -294,7 +288,6 @@ func (s *RequestService) SaveResponseToFile(tempPath string, destPath string) Re
 	return OK(destPath)
 }
 
-// Execute sends the request and returns the response.
 func (s *RequestService) Execute(req dto.ExecuteRequestRequest) Result[dto.ExecuteResponseDTO] {
 	ctx := context.Background()
 
@@ -325,7 +318,6 @@ func (s *RequestService) Execute(req dto.ExecuteRequestRequest) Result[dto.Execu
 	return OK(dto.ResponseToExecuteDTO(resp))
 }
 
-// GenerateCurl returns a shell-ready curl command for an HTTP request.
 // Pre-script runs in dry-run mode (no var persistence, no history).
 func (s *RequestService) GenerateCurl(req dto.GenerateCurlRequest) Result[dto.GenerateCurlResponse] {
 	ctx := context.Background()
@@ -343,7 +335,7 @@ func (s *RequestService) GenerateCurl(req dto.GenerateCurlRequest) Result[dto.Ge
 		})
 	}
 
-	cmd, scriptResult, buildErr := s.uc.BuildCurl(ctx, requestID, request.BuildCurlOpt{
+	res, buildErr := s.uc.BuildCurl(ctx, requestID, request.BuildCurlOpt{
 		WorkspaceID: workspaceID,
 	})
 	if buildErr != nil {
@@ -351,12 +343,12 @@ func (s *RequestService) GenerateCurl(req dto.GenerateCurlRequest) Result[dto.Ge
 	}
 
 	return OK(dto.GenerateCurlResponse{
-		Command:      cmd,
-		ScriptResult: dto.ScriptResultToDTO(scriptResult),
+		Command:      res.Command,
+		Warnings:     res.Warnings,
+		ScriptResult: dto.ScriptResultToDTO(res.ScriptResult),
 	})
 }
 
-// GRPCListServices connects to a gRPC server and returns available services.
 func (s *RequestService) GRPCListServices(req dto.GRPCConnectRequest) Result[dto.GRPCSchemaResponse] {
 	ctx := context.Background()
 	schema, err := s.uc.GRPCListServices(ctx, request.GRPCConnectRequest{
@@ -370,7 +362,6 @@ func (s *RequestService) GRPCListServices(req dto.GRPCConnectRequest) Result[dto
 	return OK(dto.GRPCSchemaToResponse(schema))
 }
 
-// GRPCGenerateExample generates an example JSON body for a gRPC method.
 func (s *RequestService) GRPCGenerateExample(req dto.GRPCGenerateExampleRequest) Result[string] {
 	ctx := context.Background()
 	example, err := s.uc.GRPCGenerateExample(ctx, request.GRPCConnectRequest{
@@ -384,7 +375,6 @@ func (s *RequestService) GRPCGenerateExample(req dto.GRPCGenerateExampleRequest)
 	return OK(example)
 }
 
-// GRPCGetProtoDefinition returns the proto definition for a gRPC method.
 func (s *RequestService) GRPCGetProtoDefinition(req dto.GRPCGetProtoDefinitionRequest) Result[string] {
 	ctx := context.Background()
 	proto, err := s.uc.GRPCGetProtoDefinition(ctx, request.GRPCConnectRequest{
@@ -406,13 +396,40 @@ func singleValueHeaders(h map[string]string) map[string][]string {
 	return result
 }
 
+// schemaWorkspaceID resolves the jar a schema call runs under: an endpoint call
+// goes over the network and needs the workspace cookies, a schema file does not.
+func schemaWorkspaceID(raw, endpoint string) (uuid.UUID, error) {
+	missing := &domain.ValidationError{
+		Fields: map[string]string{"workspaceId": "a workspace is required to introspect an endpoint"},
+	}
+	if raw == "" {
+		if endpoint == "" {
+			return uuid.Nil, nil
+		}
+		return uuid.Nil, missing
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, &domain.ValidationError{Fields: map[string]string{"workspaceId": "invalid UUID"}}
+	}
+	if endpoint != "" && id == uuid.Nil {
+		return uuid.Nil, missing
+	}
+	return id, nil
+}
+
 // GraphQLIntrospect loads schema from endpoint or file.
 func (s *RequestService) GraphQLIntrospect(req dto.GraphQLIntrospectRequest) Result[dto.GraphQLSchemaResponse] {
 	ctx := context.Background()
+	workspaceID, err := schemaWorkspaceID(req.WorkspaceID, req.Endpoint)
+	if err != nil {
+		return Err[dto.GraphQLSchemaResponse](err)
+	}
 	domainReq := request.GraphQLIntrospectRequest{
-		Endpoint:   req.Endpoint,
-		SchemaPath: req.SchemaPath,
-		Headers:    singleValueHeaders(req.Headers),
+		Endpoint:    req.Endpoint,
+		SchemaPath:  req.SchemaPath,
+		Headers:     singleValueHeaders(req.Headers),
+		WorkspaceID: workspaceID,
 	}
 	schema, err := s.uc.GraphQLIntrospect(ctx, domainReq)
 	if err != nil {
@@ -421,13 +438,17 @@ func (s *RequestService) GraphQLIntrospect(req dto.GraphQLIntrospectRequest) Res
 	return OK(dto.GraphQLSchemaToResponse(schema))
 }
 
-// GraphQLGenerateExample generates an example query for an operation.
 func (s *RequestService) GraphQLGenerateExample(req dto.GraphQLGenerateExampleRequest) Result[dto.GraphQLExampleResponseDTO] {
 	ctx := context.Background()
+	workspaceID, err := schemaWorkspaceID(req.WorkspaceID, req.Endpoint)
+	if err != nil {
+		return Err[dto.GraphQLExampleResponseDTO](err)
+	}
 	domainReq := request.GraphQLIntrospectRequest{
-		Endpoint:   req.Endpoint,
-		SchemaPath: req.SchemaPath,
-		Headers:    singleValueHeaders(req.Headers),
+		Endpoint:    req.Endpoint,
+		SchemaPath:  req.SchemaPath,
+		Headers:     singleValueHeaders(req.Headers),
+		WorkspaceID: workspaceID,
 	}
 	example, err := s.uc.GraphQLGenerateExample(ctx, domainReq, req.OperationName)
 	if err != nil {
@@ -439,7 +460,7 @@ func (s *RequestService) GraphQLGenerateExample(req dto.GraphQLGenerateExampleRe
 	})
 }
 
-// DeleteDraft hard-deletes a draft request (used when closing an unsaved tab).
+// Hard delete, used when closing an unsaved tab.
 func (s *RequestService) DeleteDraft(req dto.DeleteDraftRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -457,8 +478,6 @@ func (s *RequestService) DeleteDraft(req dto.DeleteDraftRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// PromoteDraft converts a draft request into a regular request with the given
-// name and target collection.
 func (s *RequestService) PromoteDraft(req dto.PromoteDraftRequest) Result[dto.RequestResponse] {
 	ctx := context.Background()
 
@@ -493,14 +512,62 @@ func (s *RequestService) PromoteDraft(req dto.PromoteDraftRequest) Result[dto.Re
 // GraphQLGetTypeDefinition returns the SDL for a specific type.
 func (s *RequestService) GraphQLGetTypeDefinition(req dto.GraphQLGetTypeDefinitionRequest) Result[string] {
 	ctx := context.Background()
+	workspaceID, err := schemaWorkspaceID(req.WorkspaceID, req.Endpoint)
+	if err != nil {
+		return Err[string](err)
+	}
 	domainReq := request.GraphQLIntrospectRequest{
-		Endpoint:   req.Endpoint,
-		SchemaPath: req.SchemaPath,
-		Headers:    singleValueHeaders(req.Headers),
+		Endpoint:    req.Endpoint,
+		SchemaPath:  req.SchemaPath,
+		Headers:     singleValueHeaders(req.Headers),
+		WorkspaceID: workspaceID,
 	}
 	def, err := s.uc.GraphQLGetTypeDefinition(ctx, domainReq, req.TypeName)
 	if err != nil {
 		return Err[string](err)
 	}
 	return OK(def)
+}
+
+// parseCurlMessage turns parser sentinels into text a user can act on;
+// the wrapped Go error is too noisy for a toast.
+func parseCurlMessage(err error) string {
+	switch {
+	case errors.Is(err, request.ErrCurlEmpty):
+		return "Nothing to import: the pasted text is empty"
+	case errors.Is(err, request.ErrCurlNotCurl):
+		return "Not a cURL command: it has to start with curl"
+	case errors.Is(err, request.ErrCurlNoURL):
+		return "This cURL command has no URL"
+	default:
+		return "Could not parse this cURL command"
+	}
+}
+
+// Nothing is persisted: the frontend applies the result to the open tab.
+func (s *RequestService) ParseCurl(req dto.ParseCurlRequest) Result[dto.ParseCurlResponse] {
+	parsed, err := request.ParseCurl(req.Text)
+	if err != nil {
+		return Err[dto.ParseCurlResponse](errors.New(parseCurlMessage(err)))
+	}
+
+	warnings := parsed.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	headers := dto.HeaderItemsToDTO(parsed.Headers)
+	if headers == nil {
+		headers = []dto.HeaderItemDTO{}
+	}
+
+	return OK(dto.ParseCurlResponse{
+		Method:   parsed.Method,
+		URL:      parsed.URL,
+		Headers:  headers,
+		BodyType: string(parsed.BodyType),
+		Body:     parsed.Body,
+		AuthType: string(parsed.AuthType),
+		AuthData: parsed.AuthData,
+		Warnings: warnings,
+	})
 }

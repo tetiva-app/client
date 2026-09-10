@@ -14,7 +14,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
+
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
+	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
@@ -26,6 +28,8 @@ const testServerURL = "sync.test:443"
 
 type verificationFixture struct {
 	svc        *SyncService
+	signIn     *fakeSignInManager
+	signInSink *SignInEventSink
 	engine     *syncsvc.SyncEngine
 	auth       *syncsvc.SyncAuthManager
 	client     *syncsvc.GRPCClient
@@ -50,12 +54,15 @@ func newVerificationFixture(t *testing.T) *verificationFixture {
 		sqlite.NewRequestRepo(db),
 		sqlite.NewEnvironmentRepo(db),
 		sqlite.NewVariableRepo(db),
+		sqlite.NewAuthTokenRepo(db),
 	)
-	t.Cleanup(engine.StopAll)
+	t.Cleanup(func() { engine.StopAll() })
 
 	authStub := &stubAuthClient{}
 	wsStub := &stubWorkspaceClient{remoteID: "remote-1"}
 	client := syncsvc.NewGRPCClientWithStubs(authStub, wsStub)
+	signIn := &fakeSignInManager{}
+	signInSink := NewSignInEventSink()
 
 	return &verificationFixture{
 		svc: &SyncService{
@@ -64,8 +71,13 @@ func newVerificationFixture(t *testing.T) *verificationFixture {
 			configRepo: configRepo,
 			queueRepo:  queueRepo,
 			db:         db,
+			wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(db)),
 			newClient:  func(string) (*syncsvc.GRPCClient, error) { return client, nil },
+			signIn:     signIn,
+			signInSink: signInSink,
 		},
+		signIn:     signIn,
+		signInSink: signInSink,
 		engine:     engine,
 		auth:       auth,
 		client:     client,
@@ -207,6 +219,41 @@ func (f *verificationFixture) seedSession(t *testing.T) {
 	require.NoError(t, err)
 	cfg.ServerURL = testServerURL
 	require.NoError(t, f.configRepo.Update(ctx, cfg))
+}
+
+// restartApp rebuilds the auth manager and the service over the same database,
+// the way the app comes back up: the refresh token is on disk, memory is empty.
+func (f *verificationFixture) restartApp(t *testing.T) {
+	t.Helper()
+
+	auth := syncsvc.NewSyncAuthManager(f.configRepo)
+	queueRepo := sqlite.NewSyncQueueRepo(f.db)
+	engine := syncsvc.NewSyncEngine(
+		auth, queueRepo, f.configRepo, f.db,
+		sqlite.NewCollectionRepo(f.db),
+		sqlite.NewRequestRepo(f.db),
+		sqlite.NewEnvironmentRepo(f.db),
+		sqlite.NewVariableRepo(f.db),
+		sqlite.NewAuthTokenRepo(f.db),
+	)
+	t.Cleanup(func() { engine.StopAll() })
+
+	f.auth, f.engine = auth, engine
+	f.svc = &SyncService{
+		engine:     engine,
+		auth:       auth,
+		configRepo: f.configRepo,
+		queueRepo:  queueRepo,
+		db:         f.db,
+		wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(f.db)),
+		newClient:  func(string) (*syncsvc.GRPCClient, error) { return f.client, nil },
+		signIn:     f.signIn,
+		signInSink: f.signInSink,
+	}
+	f.svc.setClient(f.client)
+
+	require.False(t, auth.IsLoggedIn(), "a restarted app holds no access token yet")
+	require.Empty(t, auth.GetActiveOrgID(), "the org is not persisted, only the refresh token is")
 }
 
 func (f *verificationFixture) registerUnverified(t *testing.T) {

@@ -22,18 +22,15 @@ const (
 
 var abandonedScripts atomic.Int64
 
-// AbandonedScripts returns how many script runs ignored the interrupt and were left running.
+// How many script runs ignored the interrupt and were left running.
 func AbandonedScripts() int64 { return abandonedScripts.Load() }
 
-// GojaEngine implements request.ScriptEngine using the Goja JS runtime.
 type GojaEngine struct{}
 
-// NewGojaEngine creates a new GojaEngine instance.
 func NewGojaEngine() *GojaEngine {
 	return &GojaEngine{}
 }
 
-// RunPreScript executes a pre-request script and returns modified headers/variables.
 func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx request.ScriptContext) (*request.PreScriptResult, error) {
 	vm := goja.New()
 
@@ -59,7 +56,6 @@ func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx reque
 	}, nil
 }
 
-// RunPostScript executes a post-response script and returns test results/variables.
 func (e *GojaEngine) RunPostScript(ctx context.Context, script string, sctx request.ScriptContext) (*request.PostScriptResult, error) {
 	vm := goja.New()
 
@@ -270,9 +266,8 @@ func getPmObject(vm *goja.Runtime) *goja.Object {
 	return pm
 }
 
-// runWithTimeout runs the script on its own goroutine so that a run which ignores the interrupt
-// cannot hold the caller. The caller must not read anything the script wrote once this returns
-// an error: an abandoned run keeps writing to those maps and slices.
+// Runs the script on its own goroutine so a run that ignores the interrupt cannot hold the
+// caller. On error the caller must not read what the script wrote — an abandoned run keeps writing.
 func runWithTimeout(ctx context.Context, vm *goja.Runtime, script string, timeout time.Duration) error {
 	done := make(chan error, 1)
 	go func() {

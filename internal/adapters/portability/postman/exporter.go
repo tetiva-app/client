@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
 
 func stringVal(v any) string {
@@ -17,8 +19,7 @@ func stringVal(v any) string {
 	return ""
 }
 
-// ExportCollection builds a Postman Collection v2.1 JSON; collections and
-// requests must include the whole subtree under rootID.
+// collections and requests must include the whole subtree under rootID.
 func ExportCollection(
 	rootID uuid.UUID,
 	collections []*entities.Collection,
@@ -70,7 +71,7 @@ func ExportCollection(
 		Info: PostmanInfo{
 			PostmanID:   uuid.New().String(),
 			Name:        root.Name,
-			Description: root.Description,
+			Description: PostmanDescription(root.Description),
 			Schema:      SchemaV21,
 		},
 		Auth: buildAuth(root.AuthType, root.AuthData),
@@ -96,7 +97,7 @@ func buildItems(
 		subItems := buildItems(child.ID, childrenMap, requestsMap)
 		items = append(items, PostmanItem{
 			Name:        child.Name,
-			Description: child.Description,
+			Description: PostmanDescription(child.Description),
 			Auth:        buildAuth(child.AuthType, child.AuthData),
 			Item:        subItems,
 		})
@@ -123,9 +124,13 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 		URL:    PostmanURL{Raw: req.URL},
 	}
 
+	// A WebSocket body holds the settings document, not a payload Postman could send.
+	hasSendableBody := req.Protocol != entities.ProtocolWebSocket &&
+		req.BodyType != entities.BodyTypeNone && req.Body != ""
+
 	if req.Protocol == entities.ProtocolGraphQL {
 		pmReq.Body = buildGraphQLBody(req.GraphQLQuery, req.GraphQLVariables)
-	} else if req.BodyType != entities.BodyTypeNone && req.Body != "" {
+	} else if hasSendableBody {
 		pmReq.Body = buildBody(req.BodyType, req.Body)
 	}
 
@@ -134,8 +139,9 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 	}
 
 	return PostmanItem{
-		Name:    req.Name,
-		Request: &pmReq,
+		Name:        req.Name,
+		Description: PostmanDescription(req.Description),
+		Request:     &pmReq,
 	}
 }
 
@@ -214,36 +220,176 @@ func buildBody(bodyType entities.BodyType, body string) *PostmanBody {
 	}
 }
 
+// buildAuth renders our auth_data as the matching Postman auth block.
 func buildAuth(authType entities.AuthType, authData string) *PostmanAuth {
-	var data map[string]string
-	_ = json.Unmarshal([]byte(authData), &data)
+	f, err := auth.ParseFields(authData)
+	if err != nil {
+		f = auth.Fields{}
+	}
 
 	switch authType {
 	case entities.AuthTypeBearer:
 		return &PostmanAuth{
-			Type: "bearer",
-			Bearer: []PostmanKV{
-				{Key: "token", Value: data["token"]},
-			},
+			Type:   "bearer",
+			Bearer: []PostmanAuthKV{authKV("token", f.Str("token"))},
 		}
 	case entities.AuthTypeBasic:
 		return &PostmanAuth{
 			Type: "basic",
-			Basic: []PostmanKV{
-				{Key: "username", Value: data["username"]},
-				{Key: "password", Value: data["password"]},
+			Basic: []PostmanAuthKV{
+				authKV("username", f.Str("username")),
+				authKV("password", f.Str("password")),
 			},
 		}
 	case entities.AuthTypeAPIKey:
 		return &PostmanAuth{
 			Type: "apikey",
-			APIKey: []PostmanKV{
-				{Key: "key", Value: data["key"]},
-				{Key: "value", Value: data["value"]},
-				{Key: "in", Value: data["in"]},
+			APIKey: []PostmanAuthKV{
+				authKV("key", f.Str("key")),
+				authKV("value", f.Str("value")),
+				authKV("in", apiKeyAddTo(f)),
 			},
 		}
+	case entities.AuthTypeOAuth2:
+		return &PostmanAuth{Type: "oauth2", OAuth2: buildOAuth2KVs(f)}
+	case entities.AuthTypeJWT:
+		return &PostmanAuth{Type: "jwt", JWT: buildJWTKVs(f)}
+	case entities.AuthTypeDigest:
+		return &PostmanAuth{
+			Type: "digest",
+			Digest: []PostmanAuthKV{
+				authKV("username", f.Str("username")),
+				authKV("password", f.Str("password")),
+			},
+		}
+	case entities.AuthTypeAWSSigV4:
+		kvs := []PostmanAuthKV{
+			authKV("accessKey", f.Str("accessKeyId")),
+			authKV("secretKey", f.Str("secretAccessKey")),
+			authKV("region", f.Str("region")),
+			authKV("service", f.Str("service")),
+		}
+		if token := f.Str("sessionToken"); token != "" {
+			kvs = append(kvs, authKV("sessionToken", token))
+		}
+		return &PostmanAuth{Type: "awsv4", AWSV4: kvs}
 	default:
 		return nil
 	}
+}
+
+// ourOAuth2Grants is the reverse of postmanOAuth2Grants; unknown values go out
+// verbatim so a Postman import of our export can still show them.
+var ourOAuth2Grants = map[string]string{
+	auth.GrantClientCredentials: "client_credentials",
+	auth.GrantPassword:          "password_credentials",
+	auth.GrantAuthorizationCode: "authorization_code",
+	auth.GrantDeviceCode:        "device_code",
+}
+
+func buildOAuth2KVs(f auth.Fields) []PostmanAuthKV {
+	grant := f.Str("grant")
+	if mapped, ok := ourOAuth2Grants[grant]; ok {
+		grant = mapped
+	}
+
+	var kvs []PostmanAuthKV
+	appendKV := func(key, value string) {
+		if value != "" {
+			kvs = append(kvs, authKV(key, value))
+		}
+	}
+	appendKV("grant_type", grant)
+	appendKV("accessTokenUrl", f.Str("tokenUrl"))
+	appendKV("authUrl", f.Str("authUrl"))
+	appendKV("clientId", f.Str("clientId"))
+	appendKV("clientSecret", f.Str("clientSecret"))
+	appendKV("scope", f.Str("scope"))
+	appendKV("audience", f.Str("audience"))
+	appendKV("username", f.Str("username"))
+	appendKV("password", f.Str("password"))
+	appendKV("headerPrefix", f.Str("headerPrefix"))
+
+	switch f.Str("clientAuth") {
+	case auth.ClientAuthBasic:
+		appendKV("client_authentication", "header")
+	case auth.ClientAuthBody:
+		appendKV("client_authentication", "body")
+	case auth.ClientAuthNone:
+		appendKV(clientAuthExtKey, auth.ClientAuthNone)
+	}
+	appendKV("addTokenTo", ourAddTokenTo(f.Str("addTo")))
+	appendKV(queryParamExtKey, authFieldText(f, "queryParam"))
+	appendKV(redirectPortExtKey, authFieldText(f, "redirectPort"))
+	appendKV(deviceAuthURLExtKey, authFieldText(f, "deviceAuthUrl"))
+
+	return kvs
+}
+
+func buildJWTKVs(f auth.Fields) []PostmanAuthKV {
+	var kvs []PostmanAuthKV
+	appendKV := func(key, value string) {
+		if value != "" {
+			kvs = append(kvs, authKV(key, value))
+		}
+	}
+	appendKV("algorithm", f.Str("alg"))
+	appendKV("secret", f.Str("secret"))
+	appendKV("privateKey", f.Str("privateKey"))
+	if _, ok := f["secretBase64"]; ok {
+		kvs = append(kvs, boolAuthKV("isSecretBase64Encoded", f.Str("secretBase64") == "true"))
+	}
+	appendKV("payload", jsonObjectText(f.Obj("claims")))
+	appendKV("header", jsonObjectText(f.Obj("header")))
+	appendKV("headerPrefix", f.Str("headerPrefix"))
+	appendKV("queryParamKey", f.Str("queryParam"))
+	appendKV("addTokenTo", ourAddTokenTo(f.Str("addTo")))
+	appendKV(expiresInExtKey, authFieldText(f, "expiresIn"))
+
+	return kvs
+}
+
+// authFieldText renders a leaf the forms write as text but an import or a synced
+// document may carry as a JSON number.
+func authFieldText(f auth.Fields, key string) string {
+	switch v := f[key].(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return ""
+	}
+}
+
+func ourAddTokenTo(v string) string {
+	switch v {
+	case "header":
+		return "header"
+	case "query":
+		return "queryParams"
+	default:
+		return ""
+	}
+}
+
+// jsonObjectText renders a nested auth_data object as the JSON text Postman keeps.
+func jsonObjectText(obj map[string]any) string {
+	if len(obj) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+// apiKeyAddTo falls back to the legacy "in" key written by imports made before
+// the executor's "addTo" spelling won.
+func apiKeyAddTo(f auth.Fields) string {
+	if v := f.Str("addTo"); v != "" {
+		return v
+	}
+	return f.Str("in")
 }

@@ -123,7 +123,6 @@ type introspectionTypeRefFull struct {
 	OfType *introspectionTypeRefFull `json:"ofType"`
 }
 
-// Introspect loads a GraphQL schema either via endpoint introspection or from a .graphql file.
 // Exactly one of req.Endpoint or req.SchemaPath must be non-empty.
 func (r *GraphQLRequester) Introspect(ctx context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
 	const funcName = "GraphQLRequester.Introspect"
@@ -173,7 +172,7 @@ func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req reque
 		}
 	}
 
-	httpResp, err := r.client.Do(httpReq)
+	httpResp, err := r.clientFor(ctx, req.WorkspaceID).Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("%s: request failed: %w", funcName, err)
 	}
@@ -338,7 +337,6 @@ func convertIntrospectionType(t introspectionType) request.GraphQLType {
 	return gt
 }
 
-// flattenTypeRef converts a nested introspection TypeRef into a human-readable string.
 // e.g. NON_NULL(LIST(NON_NULL(String))) → "[String!]!"
 func flattenTypeRef(t *introspectionTypeRefFull) string {
 	if t == nil {
@@ -470,7 +468,6 @@ func convertASTDefinition(def *ast.Definition) request.GraphQLType {
 	return gt
 }
 
-// buildOperationSDL generates an SDL snippet for a query/mutation field.
 // e.g. "users(limit: Int, offset: Int): [User!]!"
 func buildOperationSDL(name string, args []request.GraphQLArg, returnType string) string {
 	var sb strings.Builder

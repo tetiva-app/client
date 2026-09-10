@@ -10,6 +10,7 @@ test.describe('Sync modal plan notice', () => {
         (window as unknown as { __opened: string[] }).__opened.push(url);
         return null;
       }) as typeof window.open;
+      localStorage.setItem('tetiva.mockSignInMs', '200');
     });
     await page.goto('/?mock=' + scenario);
     await page.getByRole('button', { name: 'Sync', exact: true }).click();
@@ -40,12 +41,8 @@ test.describe('Sync modal plan notice', () => {
   });
 
   test('stays quiet while everything syncs', async ({ page }) => {
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Sync', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.locator('#login-email').fill('test@example.com');
-    await dialog.locator('#login-password').fill('secret123');
-    await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+    const dialog = await openConnected(page, 'signin-approve');
+    await dialog.getByTestId('signin-browser').click();
 
     await expect(dialog.getByRole('button', { name: 'Disconnect' })).toBeVisible();
     await expect(dialog.getByTestId('sync-plan-notice')).toHaveCount(0);

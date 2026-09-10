@@ -1,10 +1,12 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	gosync "sync"
 	"testing"
@@ -83,6 +85,14 @@ func (r *stubRequestRepo) GetByID(_ context.Context, id uuid.UUID) (*entities.Re
 		return nil, nil
 	}
 	return req, nil
+}
+
+func (r *stubRequestRepo) GetDescriptionByID(_ context.Context, id uuid.UUID) (string, error) {
+	req, ok := r.data[id]
+	if !ok {
+		return "", nil
+	}
+	return req.Description, nil
 }
 
 func (r *stubRequestRepo) List(_ context.Context, _ request.Filter) ([]*entities.Request, error) {
@@ -201,7 +211,7 @@ func newTestEngine(t *testing.T) *SyncEngine {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(),
+		newStubVariableRepo(), nil,
 	)
 }
 
@@ -253,7 +263,7 @@ func TestSyncEngine_StartWorkspace_EnablesWorkspace(t *testing.T) {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(),
+		newStubVariableRepo(), nil,
 	)
 
 	wsID := uuid.New().String()
@@ -422,7 +432,7 @@ func TestSyncEngine_GetPendingCount(t *testing.T) {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(),
+		newStubVariableRepo(), nil,
 	)
 
 	ctx := context.Background()
@@ -514,12 +524,12 @@ func TestSyncEngine_WorkspaceSyncer_StateTransitions(t *testing.T) {
 
 func TestSyncEngine_SetGRPCClient(t *testing.T) {
 	engine := newTestEngine(t)
-	assert.Nil(t, engine.grpcClient)
+	assert.Nil(t, engine.GRPCClient())
 
 	// GRPCClient requires a live server — just verify the field is set.
 	fakeClient := &GRPCClient{}
 	engine.SetGRPCClient(fakeClient)
-	assert.Equal(t, fakeClient, engine.grpcClient)
+	assert.Equal(t, fakeClient, engine.GRPCClient())
 }
 
 func TestSyncEngine_MultipleWorkspaces(t *testing.T) {
@@ -577,8 +587,7 @@ func TestSyncEngine_DB_NotNil(t *testing.T) {
 
 var _ *sql.DB = (*sql.DB)(nil)
 
-// newSyncer is a helper that inserts a pre-built workspaceSyncer into the engine
-// without starting a goroutine, giving tests full control over state.
+// newSyncer inserts a pre-built workspaceSyncer without starting a goroutine.
 func newSyncer(engine *SyncEngine, wsID string, state SyncState) (*workspaceSyncer, context.CancelFunc) {
 	_, cancel := context.WithCancel(context.Background())
 	ws := &workspaceSyncer{
@@ -635,7 +644,7 @@ func TestSyncEngine_Pause_QueueRetainsWrites(t *testing.T) {
 
 	engine := NewSyncEngine(auth, queueRepo, configRepo, db,
 		newStubCollectionRepo(), newStubRequestRepo(),
-		newStubEnvironmentRepo(), newStubVariableRepo())
+		newStubEnvironmentRepo(), newStubVariableRepo(), nil)
 
 	wsID := testWorkspaceID.String()
 	_, outerCancel := newSyncer(engine, wsID, StateConnected)
@@ -1310,7 +1319,7 @@ func TestWorkspaceSyncer_QuotaParked_RequeueTimerSignalsPush(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 
-	ws.deferQuotaRejected(ctx, []int64{entries[0].ID}, []int64{entries[0].ID})
+	ws.parkEntries(ctx, []int64{entries[0].ID}, []int64{entries[0].ID})
 
 	select {
 	case <-ws.pushSignal:
@@ -1473,4 +1482,375 @@ func TestWorkspaceSyncer_RequeueTimer_RearmsWhileEntriesStayParked(t *testing.T)
 	parked, err := engine.syncQueue.CountParked(ctx, wsID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, parked)
+}
+
+// seedRequestRow inserts the bare row upsertRequest's existence check looks for;
+// the stub repo holds the entity itself.
+func seedRequestRow(t *testing.T, db *sql.DB, requestID uuid.UUID) {
+	t.Helper()
+	collID := uuid.NewString()
+	_, err := db.Exec(
+		"INSERT INTO collections (id, workspace_id, name) VALUES (?, '00000000-0000-4000-a000-000000000001', 'Synced')",
+		collID)
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO requests (id, collection_id, name) VALUES (?, ?, 'Ping')",
+		requestID.String(), collID)
+	require.NoError(t, err)
+}
+
+func TestUpsertRequest_KeepsDescriptionWhenIncomingIsEmpty(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	id := uuid.New()
+	repo.data[id] = &entities.Request{ID: id, Name: "Ping", Description: "local docs"}
+	seedRequestRow(t, engine.db, id)
+
+	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping v2"}
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+
+	assert.Equal(t, "local docs", repo.data[id].Description,
+		"sync must not wipe a field its contract does not carry")
+	assert.Equal(t, "Ping v2", repo.data[id].Name)
+}
+
+func TestUpsertRequest_IncomingDescriptionWins(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	id := uuid.New()
+	repo.data[id] = &entities.Request{ID: id, Name: "Ping", Description: "local docs"}
+	seedRequestRow(t, engine.db, id)
+
+	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping", Description: "remote docs"}
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+
+	assert.Equal(t, "remote docs", repo.data[id].Description)
+}
+
+func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	incoming := &entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "New"}
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+
+	assert.Equal(t, "New", repo.data[incoming.ID].Name)
+}
+
+// gatedSyncClient holds a run goroutine inside the transport: Pull blocks until its context
+// is cancelled and then until the test opens the gate, so a syncer can outlive a missing barrier.
+type gatedSyncClient struct {
+	syncv1.SyncServiceClient
+	entered   chan struct{}
+	gate      chan struct{}
+	ignoreCtx bool
+}
+
+func newGatedSyncClient() *gatedSyncClient {
+	return &gatedSyncClient{entered: make(chan struct{}, 8), gate: make(chan struct{})}
+}
+
+func (s *gatedSyncClient) Push(_ context.Context, _ *syncv1.PushRequest, _ ...grpc.CallOption) (*syncv1.PushResponse, error) {
+	return syncv1.PushResponse_builder{}.Build(), nil
+}
+
+func (s *gatedSyncClient) Pull(ctx context.Context, _ *syncv1.PullRequest, _ ...grpc.CallOption) (*syncv1.PullResponse, error) {
+	s.entered <- struct{}{}
+	if !s.ignoreCtx {
+		<-ctx.Done()
+	}
+	<-s.gate
+	return nil, errors.New("transport closed")
+}
+
+// gatedEngine wires an engine to a gated transport and reports the workspace of
+// every syncer goroutine that reached its final state.
+func gatedEngine(t *testing.T) (*SyncEngine, *gatedSyncClient, chan string) {
+	t.Helper()
+	engine := newTestEngine(t)
+	_, err := engine.configRepo.GetOrCreate(context.Background())
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := newGatedSyncClient()
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	exits := make(chan string, 8)
+	engine.SetEventEmitter(func(name string, data any) {
+		m, ok := data.(map[string]any)
+		if !ok || name != "sync:status" || m["state"] != string(StateDisconnected) {
+			return
+		}
+		exits <- m["workspaceId"].(string)
+	})
+	return engine, stub, exits
+}
+
+func TestSyncEngine_StopAll_JoinsSyncerGoroutine(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+
+	wsID := uuid.New().String()
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	<-stub.entered
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(stub.gate)
+	}()
+
+	start := time.Now()
+	assert.True(t, engine.StopAll(), "a joined syncer is a held barrier")
+	assert.GreaterOrEqual(t, time.Since(start), 100*time.Millisecond, "StopAll must wait for the syncer, not just cancel it")
+
+	select {
+	case got := <-exits:
+		assert.Equal(t, wsID, got)
+	default:
+		t.Fatal("StopAll returned while the syncer goroutine was still running")
+	}
+}
+
+// A replaced syncer is gone from the workspaces map but its goroutine lives on,
+// which is why the barrier counts goroutines instead of map entries.
+func TestSyncEngine_StopAll_JoinsReplacedSyncer(t *testing.T) {
+	cases := []struct {
+		name    string
+		restart func(t *testing.T, e *SyncEngine, wsID string)
+	}{
+		{"stop then start", func(_ *testing.T, e *SyncEngine, wsID string) {
+			e.StopWorkspace(wsID)
+			e.StartWorkspace(wsID, "remote-"+wsID, 0)
+		}},
+		{"force pull", func(t *testing.T, e *SyncEngine, wsID string) {
+			require.NoError(t, e.ForcePull(wsID))
+		}},
+		{"pause then resume", func(t *testing.T, e *SyncEngine, wsID string) {
+			require.NoError(t, e.Pause(wsID))
+			require.NoError(t, e.Resume(wsID))
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			engine, stub, exits := gatedEngine(t)
+
+			wsID := uuid.New().String()
+			engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+			<-stub.entered
+
+			tc.restart(t, engine, wsID)
+			<-stub.entered
+
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				close(stub.gate)
+			}()
+			engine.StopAll()
+
+			assert.Len(t, exits, 2, "both the replaced syncer and its successor must be joined")
+		})
+	}
+}
+
+func TestSyncEngine_StopAll_TimesOutOnWedgedSyncer(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+	stub.ignoreCtx = true
+
+	logs := &lockedBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	wsID := uuid.New().String()
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	<-stub.entered
+
+	start := time.Now()
+	held := engine.stopAll(80 * time.Millisecond)
+	elapsed := time.Since(start)
+
+	assert.False(t, held, "a wedged syncer must be reported, not only logged")
+
+	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond)
+	assert.Less(t, elapsed, 2*time.Second, "a wedged syncer must not hold StopAll past its ceiling")
+	assert.Contains(t, logs.String(), "StopAll timed out waiting for syncers")
+
+	close(stub.gate)
+	select {
+	case <-exits:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the wedged syncer never finished after the gate opened")
+	}
+}
+
+// A timed-out barrier must leave nothing parked on the count: a WaitGroup here
+// would keep a waiter on a counter the next start reuses, which panics the process.
+func TestSyncerCount_ReusableAfterTimedOutWait(t *testing.T) {
+	var c syncerCount
+
+	c.add()
+	assert.False(t, c.wait(10*time.Millisecond), "a live goroutine must hold the barrier")
+	assert.False(t, c.wait(10*time.Millisecond))
+
+	c.done()
+	assert.True(t, c.wait(time.Second), "the count must still join after a barrier gave up")
+
+	var hammer gosync.WaitGroup
+	for i := 0; i < 8; i++ {
+		hammer.Add(1)
+		go func() {
+			defer hammer.Done()
+			c.wait(time.Second)
+		}()
+	}
+	for i := 0; i < 200; i++ {
+		c.add()
+		hammer.Add(1)
+		go func() {
+			defer hammer.Done()
+			c.done()
+		}()
+	}
+	hammer.Wait()
+
+	assert.True(t, c.wait(time.Second))
+}
+
+// A barrier that gave up must leave the counter usable: the wedged syncer still
+// owes it an exit, and the starts that follow are ordinary work.
+func TestSyncEngine_StopAll_StartsAgainAfterTimeout(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+	stub.ignoreCtx = true
+
+	logs := &lockedBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	wedged := uuid.New().String()
+	engine.StartWorkspace(wedged, "remote-"+wedged, 0)
+	<-stub.entered
+
+	engine.stopAll(80 * time.Millisecond)
+	require.Contains(t, logs.String(), "StopAll timed out waiting for syncers")
+
+	next := uuid.New().String()
+	engine.StartWorkspace(next, "remote-"+next, 0)
+	<-stub.entered
+
+	close(stub.gate)
+	engine.stopAll(2 * time.Second)
+
+	assert.Len(t, exits, 2, "the second barrier must join the freed syncer and its successor")
+}
+
+// A start that raced the barrier used to leave a syncer nobody cancelled — and,
+// in the tighter interleaving, panicked the WaitGroup with an Add during Wait.
+func TestSyncEngine_StopAll_RacesStartWorkspace(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+	close(stub.gate)
+
+	drained := make(chan struct{})
+	t.Cleanup(func() { close(drained) })
+	go func() {
+		for {
+			select {
+			case <-stub.entered:
+			case <-exits:
+			case <-drained:
+				return
+			}
+		}
+	}()
+
+	logs := &lockedBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	var starts gosync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wsID := uuid.New().String()
+		starts.Add(1)
+		go func() {
+			defer starts.Done()
+			engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+		}()
+	}
+
+	engine.stopAll(2 * time.Second)
+	starts.Wait()
+	// The second barrier collects whatever started after the first one returned.
+	engine.stopAll(2 * time.Second)
+
+	assert.NotContains(t, logs.String(), "StopAll timed out waiting for syncers")
+}
+
+func TestSyncEngine_StopAll_WithoutGoroutines(t *testing.T) {
+	engine := newTestEngine(t)
+
+	start := time.Now()
+	engine.StopAll()
+
+	wsID := uuid.New().String()
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	engine.InjectRawSyncer(wsID, "remote-"+wsID, cancel)
+
+	engine.StopAll()
+	engine.StopAll()
+	assert.Less(t, time.Since(start), 2*time.Second, "an engine with no run goroutines must not wait")
+}
+
+func TestSyncEngine_GRPCClient_SwapDuringReads(t *testing.T) {
+	engine := newTestEngine(t)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = engine.GRPCClient()
+			}
+		}
+	}()
+
+	var last *GRPCClient
+	for i := 0; i < 200; i++ {
+		last = &GRPCClient{}
+		engine.SetGRPCClient(last)
+	}
+	close(stop)
+	<-done
+
+	assert.Same(t, last, engine.GRPCClient())
+}
+
+// lockedBuffer collects log output written by both the test and a syncer goroutine.
+type lockedBuffer struct {
+	mu  gosync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

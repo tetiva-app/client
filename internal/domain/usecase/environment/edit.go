@@ -11,19 +11,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Edit holds the data required to edit an environment.
 type Edit struct {
 	Name string
 }
 
-// EditOpt holds contextual options for the Edit operation.
 type EditOpt struct {
 	EnvironmentID uuid.UUID
 	UserID        string
 	Version       int
 }
 
-// Validate checks that all required fields are present.
 func (e *Edit) Validate() error {
 	errs := make(map[string]string)
 	if e.Name == "" {
@@ -35,7 +32,6 @@ func (e *Edit) Validate() error {
 	return nil
 }
 
-// Edit updates an existing environment.
 func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.Environment, error) {
 	const funcName = "environment.Edit"
 
@@ -66,7 +62,6 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 	return existing, nil
 }
 
-// EditVariable holds the data required to edit a variable.
 type EditVariable struct {
 	Key      string
 	Value    string
@@ -74,14 +69,12 @@ type EditVariable struct {
 	Enabled  bool
 }
 
-// EditVariableOpt holds contextual options for EditVariable.
 type EditVariableOpt struct {
 	VariableID uuid.UUID
 	UserID     string
 	Version    int
 }
 
-// EditVariable updates an existing variable.
 func (u *usecase) EditVariable(ctx context.Context, input EditVariable, opt EditVariableOpt) (*entities.Variable, error) {
 	const funcName = "environment.EditVariable"
 

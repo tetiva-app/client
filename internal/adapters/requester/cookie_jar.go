@@ -14,14 +14,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/cookie"
 )
 
-// CookieStore — workspace-aware persistent cookie storage. Implemented by an
-// adapter over cookie.Repository (see internal/app/usecases.go wiring).
+// Implemented by an adapter over cookie.Repository (see internal/app/usecases.go).
 type CookieStore interface {
 	GetCookiesFor(ctx context.Context, workspaceID uuid.UUID, u *url.URL) []*http.Cookie
 	SetCookies(ctx context.Context, workspaceID uuid.UUID, u *url.URL, cookies []*http.Cookie) error
 }
 
-// workspaceJar adapts CookieStore to net/http.CookieJar for a single workspace.
 // Created per-call by HTTPRequester.Execute and discarded after the request.
 type workspaceJar struct {
 	readCtx     context.Context

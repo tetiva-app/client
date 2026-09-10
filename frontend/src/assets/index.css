@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,6 +24,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -59,6 +61,8 @@
   --accent: #F0F2F5;
   --accent-foreground: #1F2328;
   --destructive: #D92D20;
+  /* Small red text: --destructive itself is only 4.3:1 on the dark popover. */
+  --destructive-text: #D92D20;
   --border: #D0D7DE;
   --input: #D0D7DE;
   --ring: #5B4BD5;
@@ -106,6 +110,7 @@
   --accent: #1E2028;
   --accent-foreground: #E1E4E8;
   --destructive: #F04438;
+  --destructive-text: #F97066;
   --border: #2E3038;
   --input: #2E3038;
   --ring: #6C5CE7;

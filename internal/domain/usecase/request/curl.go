@@ -11,46 +11,55 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
 
-// BuildCurl renders a request as a shell-ready curl command using the same prep
-// pipeline as Execute, but without sending, persisting variables, or writing history.
-// HTTP only — gRPC/GraphQL return ValidationError; pre-script errors do not abort.
-func (u *usecase) BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (string, *entities.ScriptResult, error) {
+// BuildCurl reuses the Execute prep pipeline but sends nothing and never acquires a token: an oauth2
+// request renders from the cached one or without credentials. HTTP only; a pre-script error does not abort.
+func (u *usecase) BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error) {
 	const funcName = "request.BuildCurl"
 
 	req, err := u.repo.GetByID(ctx, id)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, err)
+		return CurlResult{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 	if req == nil {
-		return "", nil, &domain.NotFoundError{Entity: "request", ID: id.String()}
+		return CurlResult{}, &domain.NotFoundError{Entity: "request", ID: id.String()}
 	}
 	if req.Protocol != entities.ProtocolHTTP {
-		return "", nil, &domain.ValidationError{Fields: map[string]string{
+		return CurlResult{}, &domain.ValidationError{Fields: map[string]string{
 			"protocol": "Copy as cURL is only supported for HTTP requests",
 		}}
 	}
 
-	vars, err := u.envResolver.ResolveVariables(ctx, opt.WorkspaceID)
+	resolvedAuth, err := u.resolveAuthFor(ctx, req, opt.WorkspaceID)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, err)
+		return CurlResult{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	prep, scriptResult, err := u.prepareHTTP(ctx, req, vars, prepareOpt{})
+	vars, err := u.envResolver.ResolveVariables(ctx, opt.WorkspaceID)
 	if err != nil {
-		return "", scriptResult, fmt.Errorf("%s: %w", funcName, err)
+		return CurlResult{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	prep, scriptResult, err := u.prepareHTTP(ctx, req, vars, resolvedAuth, prepareOpt{TokenFromCacheOnly: true})
+	if err != nil {
+		return CurlResult{ScriptResult: scriptResult}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
 	var cookies []*http.Cookie
 	if u.cookieReader != nil {
 		cookies = u.cookieReader.CookiesFor(ctx, opt.WorkspaceID, prep.URL)
 	}
-	return buildCurlText(prep, cookies), scriptResult, nil
+
+	return CurlResult{
+		Command:      buildCurlText(prep, cookies),
+		Warnings:     prep.Warnings,
+		ScriptResult: scriptResult,
+	}, nil
 }
 
-// buildCurlText formats a prepared HTTP request as a multi-line curl command.
-// Pure function; no IO. Arguments are single-quoted via shellQuote.
+// buildCurlText is pure: no IO, and every argument goes through shellQuote.
 func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 	parts := []string{"curl"}
 
@@ -71,6 +80,8 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 			parts = append(parts, "-H "+shellQuote(k+": "+v))
 		}
 	}
+
+	parts = append(parts, curlAuthFlags(prep.Auth)...)
 
 	if len(cookies) > 0 {
 		pairs := make([]string, 0, len(cookies))
@@ -112,8 +123,31 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 	return strings.Join(parts, " \\\n  ")
 }
 
-// shellQuote wraps s in single quotes, escaping embedded single quotes
-// with the standard quote/backslash-quote/quote shell pattern.
+// curlAuthFlags renders the schemes the requester applies on the wire; header ones are in prep.Headers.
+func curlAuthFlags(ra *RequestAuth) []string {
+	if ra == nil {
+		return nil
+	}
+	f := auth.Fields(ra.Fields)
+
+	switch ra.Type {
+	case entities.AuthTypeDigest:
+		return []string{"--digest", "-u " + shellQuote(f.Str("username")+":"+f.Str("password"))}
+	case entities.AuthTypeAWSSigV4:
+		flags := []string{
+			"--aws-sigv4 " + shellQuote("aws:amz:"+f.Str("region")+":"+f.Str("service")),
+			"-u " + shellQuote(f.Str("accessKeyId")+":"+f.Str("secretAccessKey")),
+		}
+		if token := f.Str("sessionToken"); token != "" {
+			flags = append(flags, "-H "+shellQuote("x-amz-security-token: "+token))
+		}
+		return flags
+	default:
+		return nil
+	}
+}
+
+// shellQuote wraps s in single quotes, escaping embedded ones with the quote/backslash/quote pattern.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

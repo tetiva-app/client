@@ -33,10 +33,17 @@ async function pageOverflow(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 }
 
-// Mock build: MockSyncService accepts any credentials and echoes the server URL back.
+// Mock build: MockSyncService approves the browser sign-in on a timer, and accepts
+// any credentials on a server that cannot complete one.
 test.describe('Sync connect modal', () => {
-  async function openModal(page: Page) {
-    await page.goto('/');
+  async function openModal(page: Page, scenario = '') {
+    // The sign-in URL goes through openExternal; recording it keeps the system
+    // browser out of the run, and the short delay collapses the scripted wait.
+    await page.addInitScript(() => {
+      (window as unknown as { __TETIVA_NO_EXTERNAL_OPEN__?: boolean }).__TETIVA_NO_EXTERNAL_OPEN__ = true;
+      localStorage.setItem('tetiva.mockSignInMs', '200');
+    });
+    await page.goto(scenario ? `/?mock=${scenario}` : '/');
     await page.getByRole('button', { name: 'Sync', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -46,7 +53,7 @@ test.describe('Sync connect modal', () => {
   test('no server field by default, toggle reveals empty input', async ({ page }) => {
     const dialog = await openModal(page);
 
-    await expect(dialog.getByRole('tab', { name: 'Login' })).toBeVisible();
+    await expect(dialog.getByTestId('signin-browser')).toBeVisible();
     await expect(dialog.locator('#server-url')).toHaveCount(0);
 
     await dialog.getByRole('button', { name: 'Use custom server' }).click();
@@ -54,20 +61,20 @@ test.describe('Sync connect modal', () => {
     await expect(dialog.locator('#server-url')).toHaveValue('');
   });
 
-  test('connect without custom server shows the cloud label', async ({ page }) => {
-    const dialog = await openModal(page);
+  test('signing in without a custom server shows the cloud label', async ({ page }) => {
+    const dialog = await openModal(page, 'signin-approve');
 
-    await dialog.locator('#login-email').fill('test@example.com');
-    await dialog.locator('#login-password').fill('secret123');
-    await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+    await dialog.getByTestId('signin-browser').click();
 
     await expect(dialog.getByText('Tetiva Cloud')).toBeVisible();
-    await expect(dialog.getByText('test@example.com')).toBeVisible();
+    await expect(dialog.getByText('browser@example.com')).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   });
 
+  // A custom server that cannot complete a browser sign-in is the only place the
+  // email form is left.
   test('connect to a custom server shows the normalized raw address', async ({ page }) => {
-    const dialog = await openModal(page);
+    const dialog = await openModal(page, 'signin-unsupported');
 
     await dialog.getByRole('button', { name: 'Use custom server' }).click();
     await dialog.locator('#server-url').fill('https://sync.corp.local/');
@@ -80,10 +87,8 @@ test.describe('Sync connect modal', () => {
   });
 
   test('keeps the frame still while the connected state loads', async ({ page }) => {
-    const dialog = await openModal(page);
-    await dialog.locator('#login-email').fill('test@example.com');
-    await dialog.locator('#login-password').fill('secret123');
-    await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
+    const dialog = await openModal(page, 'signin-approve');
+    await dialog.getByTestId('signin-browser').click();
     await expect(dialog.getByTestId('sync-device')).toHaveCount(3);
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();

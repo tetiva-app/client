@@ -9,6 +9,40 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.1.0',
+    date: '2026-09-07',
+    en: {
+      added: [
+        'Sign in through your browser: the app opens the Tetiva cabinet, you confirm the sign-in there, and the session comes back on its own. Registration, e-mail confirmation and password reset live on the site too.',
+        'Paste a curl command into the URL bar and it becomes a request: method, address, headers, body and auth.',
+        'Auth schemes OAuth 2.0 (client credentials, password, authorization code with PKCE through the browser), JWT Bearer, Digest and AWS Signature V4 — on a request or on a collection that nested requests inherit from.',
+        'WebSocket requests are edited like any other: Params, Auth, Headers, a pre-connect script, cookies, binary frames, saved messages, keepalive ping and subprotocols.',
+        'A Markdown description next to every request and collection, with a real editor: headings, lists, tables you can fill from the keyboard, code, links. It travels through Postman import and export and is visible to MCP agents.',
+        'The MCP server now requires a token (shown in Settings); agents see credentials masked.',
+      ],
+      fixed: [
+        'Retrying a request from history no longer opens an empty tab and no longer carries the previous credentials.',
+        'Creating a workspace with "Sync to server" works again, and a workspace created right after signing in can be synced.',
+        'MCP update_request changes only the fields it receives instead of blanking the rest.',
+      ],
+    },
+    ru: {
+      added: [
+        'Вход через браузер: приложение открывает кабинет Tetiva, вы подтверждаете вход там, и сессия сама возвращается. Регистрация, подтверждение почты и восстановление пароля тоже на сайте.',
+        'Вставьте команду curl в строку адреса — она превратится в запрос: метод, адрес, заголовки, тело и авторизация.',
+        'Схемы авторизации OAuth 2.0 (client credentials, password, authorization code с PKCE через браузер), JWT Bearer, Digest и AWS Signature V4 — у запроса или у коллекции, от которой их наследуют вложенные запросы.',
+        'WebSocket-запрос редактируется как обычный: Params, Auth, Headers, скрипт перед подключением, куки, бинарные кадры, сохранённые сообщения, keepalive-ping и subprotocols.',
+        'Описание в Markdown у каждого запроса и коллекции, в настоящем редакторе: заголовки, списки, таблицы с заполнением с клавиатуры, код, ссылки. Переносится при импорте и экспорте Postman и видно агентам через MCP.',
+        'MCP-сервер теперь требует токен (показан в настройках); агенты видят учётные данные замаскированными.',
+      ],
+      fixed: [
+        'Повтор запроса из истории больше не открывает пустую вкладку и не переносит прежние учётные данные.',
+        'Создание воркспейса с галкой «Sync to server» снова работает, а воркспейс, созданный сразу после входа, можно синхронизировать.',
+        'MCP update_request меняет только переданные поля, а не затирает остальные.',
+      ],
+    },
+  },
+  {
     version: '0.17.0',
     date: '2026-08-16',
     en: {

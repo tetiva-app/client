@@ -83,7 +83,6 @@ func TestEnvironmentRepo_List(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	// Default + Dev + Prod = 3
 	if len(envs) != 3 {
 		t.Errorf("len = %d, want 3", len(envs))
 	}
@@ -267,7 +266,6 @@ func TestVariableRepo_CascadeDelete(t *testing.T) {
 	v := newTestVariable(env.ID, "cascade_test", "val")
 	_ = varRepo.Create(ctx, v)
 
-	// Delete environment via SQL (CASCADE should remove variables)
 	_, err := db.ExecContext(ctx, `DELETE FROM environments WHERE id = ?`, env.ID.String())
 	if err != nil {
 		t.Fatalf("delete env: %v", err)

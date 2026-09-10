@@ -38,7 +38,6 @@ func newTestHistory(requestID uuid.UUID) *entities.History {
 	}
 }
 
-// createTestRequest inserts a collection and request, returning the request ID.
 func createTestRequest(t *testing.T, db *sql.DB) uuid.UUID {
 	t.Helper()
 	collRepo := NewCollectionRepo(db)
@@ -179,7 +178,6 @@ func TestHistoryRepo_Create_WithError(t *testing.T) {
 	}
 }
 
-// insertWorkspace creates a bare workspaces row to satisfy the workspace_id FK.
 // The name derives from the ID so multiple workspaces can coexist in one test.
 func insertWorkspace(t *testing.T, db *sql.DB, id uuid.UUID) {
 	t.Helper()
@@ -424,5 +422,87 @@ func TestHistoryRepo_DeleteAll_OnlyAffectsWorkspace(t *testing.T) {
 	}
 	if n2 != 1 {
 		t.Errorf("ws2 count after DeleteAll(ws1) = %d, want 1", n2)
+	}
+}
+
+func TestHistoryRepo_List_StatusFilter_WebSocketHandshakeIs2xx(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+	repo := NewHistoryRepo(db)
+	var historyRepo history.Repository = repo
+	ctx := context.Background()
+	ws := uuid.New()
+	insertWorkspace(t, db, ws)
+
+	now := time.Now().Truncate(time.Second)
+	ok := newHistoryRow(ws, "", "wss://api.example.com/ws", 101, "", entities.ProtocolWebSocket, now.Add(-time.Minute))
+	if err := repo.Create(ctx, ok); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	failed := newHistoryRow(ws, "", "wss://api.example.com/ws", 101, "read: connection reset", entities.ProtocolWebSocket, now)
+	if err := repo.Create(ctx, failed); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	items, err := historyRepo.List(ctx, history.Filter{
+		WorkspaceID: ws,
+		StatusKinds: []history.StatusKind{history.StatusKind2xx},
+		Limit:       100,
+	})
+	if err != nil {
+		t.Fatalf("List 2xx: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("2xx filter: got %d rows, want 1 (the successful handshake)", len(items))
+	}
+	if items[0].ID != ok.ID {
+		t.Errorf("2xx filter returned %v, want the errorless 101 row %v", items[0].ID, ok.ID)
+	}
+
+	items, err = historyRepo.List(ctx, history.Filter{
+		WorkspaceID: ws,
+		StatusKinds: []history.StatusKind{history.StatusKindError},
+		Limit:       100,
+	})
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != failed.ID {
+		t.Errorf("error filter: got %d rows, want only the failed handshake", len(items))
+	}
+}
+
+func TestHistoryRepo_AuthQueryKeysRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	requestID := createTestRequest(t, db)
+	repo := NewHistoryRepo(db)
+	ctx := context.Background()
+
+	h := newTestHistory(requestID)
+	h.AuthQueryKeys = []string{"access_token", "sig"}
+	if err := repo.Create(ctx, h); err != nil {
+		t.Fatalf("Create history failed: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, h.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if len(got.AuthQueryKeys) != 2 || got.AuthQueryKeys[0] != "access_token" || got.AuthQueryKeys[1] != "sig" {
+		t.Errorf("AuthQueryKeys = %v, want [access_token sig]", got.AuthQueryKeys)
+	}
+
+	plain := newTestHistory(requestID)
+	if err := repo.Create(ctx, plain); err != nil {
+		t.Fatalf("Create history without keys failed: %v", err)
+	}
+	rows, err := repo.List(ctx, history.Filter{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	for _, row := range rows {
+		if row.ID == plain.ID && len(row.AuthQueryKeys) != 0 {
+			t.Errorf("AuthQueryKeys = %v, want empty", row.AuthQueryKeys)
+		}
 	}
 }

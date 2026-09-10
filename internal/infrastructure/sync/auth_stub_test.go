@@ -25,6 +25,21 @@ type stubAuthClient struct {
 	logoutErr    error
 	logoutAllN   int32
 
+	serverInfoResp *authv1.GetServerInfoResponse
+	serverInfoErr  error
+	startResp      *authv1.StartDesktopSignInResponse
+	startErr       error
+	pollResp       *authv1.PollDesktopSignInResponse
+	pollErr        error
+	cancelErr      error
+
+	refreshEntered chan struct{}
+	refreshGate    chan struct{}
+
+	startReq  *authv1.StartDesktopSignInRequest
+	pollReq   *authv1.PollDesktopSignInRequest
+	cancelReq *authv1.CancelDesktopSignInRequest
+
 	authHeaders  []string
 	resendCalls  int
 	logoutCalls  int
@@ -63,6 +78,12 @@ func (s *stubAuthClient) ResendVerification(ctx context.Context, _ *authv1.Resen
 
 func (s *stubAuthClient) Refresh(ctx context.Context, _ *authv1.RefreshRequest, _ ...grpc.CallOption) (*authv1.RefreshResponse, error) {
 	s.recordAuth(ctx)
+	if s.refreshEntered != nil {
+		s.refreshEntered <- struct{}{}
+	}
+	if s.refreshGate != nil {
+		<-s.refreshGate
+	}
 	return s.refreshResp, nil
 }
 
@@ -90,4 +111,39 @@ func (s *stubAuthClient) LogoutAll(ctx context.Context, _ *authv1.LogoutAllReque
 	s.recordAuth(ctx)
 	s.logoutAllRun++
 	return authv1.LogoutAllResponse_builder{RevokedCount: s.logoutAllN}.Build(), nil
+}
+
+func (s *stubAuthClient) GetServerInfo(ctx context.Context, _ *authv1.GetServerInfoRequest, _ ...grpc.CallOption) (*authv1.GetServerInfoResponse, error) {
+	s.recordAuth(ctx)
+	if s.serverInfoErr != nil {
+		return nil, s.serverInfoErr
+	}
+	return s.serverInfoResp, nil
+}
+
+func (s *stubAuthClient) StartDesktopSignIn(ctx context.Context, req *authv1.StartDesktopSignInRequest, _ ...grpc.CallOption) (*authv1.StartDesktopSignInResponse, error) {
+	s.recordAuth(ctx)
+	s.startReq = req
+	if s.startErr != nil {
+		return nil, s.startErr
+	}
+	return s.startResp, nil
+}
+
+func (s *stubAuthClient) PollDesktopSignIn(ctx context.Context, req *authv1.PollDesktopSignInRequest, _ ...grpc.CallOption) (*authv1.PollDesktopSignInResponse, error) {
+	s.recordAuth(ctx)
+	s.pollReq = req
+	if s.pollErr != nil {
+		return nil, s.pollErr
+	}
+	return s.pollResp, nil
+}
+
+func (s *stubAuthClient) CancelDesktopSignIn(ctx context.Context, req *authv1.CancelDesktopSignInRequest, _ ...grpc.CallOption) (*authv1.CancelDesktopSignInResponse, error) {
+	s.recordAuth(ctx)
+	s.cancelReq = req
+	if s.cancelErr != nil {
+		return nil, s.cancelErr
+	}
+	return authv1.CancelDesktopSignInResponse_builder{}.Build(), nil
 }

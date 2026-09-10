@@ -42,3 +42,39 @@ export const lightHighlightStyle = HighlightStyle.define([
   { tag: tags.comment, color: '#6E7781', fontStyle: 'italic' },
   { tag: tags.content, color: '#1F2328' },
 ])
+
+// Markdown source styling for the description editor. Markers stay dim so the
+// prose reads first; heading sizes give the raw text some of the shape it will
+// have in the preview.
+const markdownStructure = [
+  { tag: tags.heading1, fontSize: '1.35em', fontWeight: 'bold' },
+  { tag: tags.heading2, fontSize: '1.2em', fontWeight: 'bold' },
+  { tag: tags.heading3, fontSize: '1.1em', fontWeight: 'bold' },
+  { tag: [tags.heading4, tags.heading5, tags.heading6, tags.heading], fontWeight: 'bold' },
+  { tag: tags.strong, fontWeight: 'bold' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+]
+
+export const markdownDarkHighlightStyle = HighlightStyle.define([
+  ...markdownStructure,
+  { tag: [tags.heading1, tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6, tags.heading], color: '#61afef' },
+  { tag: [tags.link, tags.url], color: '#56b6c2' },
+  { tag: tags.monospace, color: '#98c379', backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 14%, transparent)', borderRadius: '3px' },
+  { tag: tags.quote, color: '#7f848e', fontStyle: 'italic' },
+  { tag: tags.list, color: '#c678dd' },
+  { tag: tags.labelName, color: '#e5c07b' },
+  // Table pipes and the delimiter row carry the shape of a table, so they stay above AA.
+  { tag: [tags.processingInstruction, tags.contentSeparator], color: '#7D8590' },
+])
+
+export const markdownLightHighlightStyle = HighlightStyle.define([
+  ...markdownStructure,
+  { tag: [tags.heading1, tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6, tags.heading], color: '#0550AE' },
+  { tag: [tags.link, tags.url], color: '#0969DA' },
+  { tag: tags.monospace, color: '#0A3069', backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 14%, transparent)', borderRadius: '3px' },
+  { tag: tags.quote, color: '#6E7781', fontStyle: 'italic' },
+  { tag: tags.list, color: '#6F42C1' },
+  { tag: tags.labelName, color: '#953800' },
+  { tag: [tags.processingInstruction, tags.contentSeparator], color: '#6A737D' },
+])

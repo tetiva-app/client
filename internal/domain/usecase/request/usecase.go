@@ -8,14 +8,18 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// Repository defines the persistence contract for Request usecase (ISP).
 type Repository interface {
 	Create(ctx context.Context, r *entities.Request) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error)
 	List(ctx context.Context, filter Filter) ([]*entities.Request, error)
 	Update(ctx context.Context, r *entities.Request) error
+	// GetDescriptionByID reads one field ignoring is_delete; the sync engine needs it
+	// to keep a description the sync contract does not carry.
+	GetDescriptionByID(ctx context.Context, id uuid.UUID) (string, error)
 	UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error
 	DeleteHard(ctx context.Context, id uuid.UUID) error
 	CleanupDrafts(ctx context.Context) (int, error)
@@ -27,18 +31,15 @@ type HistoryRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.History, error)
 }
 
-// HTTPRequester sends HTTP requests.
 type HTTPRequester interface {
 	Execute(ctx context.Context, req HTTPExecuteRequest) (*entities.Response, error)
 }
 
-// GRPCRequester sends gRPC requests.
 type GRPCRequester interface {
 	Execute(ctx context.Context, req GRPCExecuteRequest) (*entities.Response, error)
 	ListServices(ctx context.Context, req GRPCConnectRequest) (*GRPCSchema, error)
 }
 
-// GRPCExecuteRequest contains resolved gRPC request data ready to send.
 type GRPCExecuteRequest struct {
 	Host        string
 	UseTLS      bool
@@ -50,7 +51,6 @@ type GRPCExecuteRequest struct {
 	WorkspaceID uuid.UUID
 }
 
-// GRPCConnectRequest is used to connect and list services.
 type GRPCConnectRequest struct {
 	Host        string
 	UseTLS      bool
@@ -58,19 +58,16 @@ type GRPCConnectRequest struct {
 	WorkspaceID uuid.UUID
 }
 
-// GRPCSchema holds discovered services and methods.
 type GRPCSchema struct {
 	Services []GRPCService
 	Source   string // "reflection" | "proto_file" | "proto_directory"
 }
 
-// GRPCService represents a single gRPC service.
 type GRPCService struct {
 	FullName string
 	Methods  []GRPCMethodInfo
 }
 
-// GRPCMethodInfo holds info about a single gRPC method.
 type GRPCMethodInfo struct {
 	Name            string
 	InputType       string
@@ -81,31 +78,29 @@ type GRPCMethodInfo struct {
 	ExampleJSON     string
 }
 
-// GraphQLRequester sends GraphQL requests and performs introspection.
 type GraphQLRequester interface {
 	Execute(ctx context.Context, req GraphQLExecuteRequest) (*entities.Response, error)
 	Introspect(ctx context.Context, req GraphQLIntrospectRequest) (*GraphQLSchema, error)
 	GenerateExampleQuery(schema *GraphQLSchema, operationName string) (*GraphQLExampleResponse, error)
 }
 
-// GraphQLExecuteRequest contains resolved GraphQL request data ready to send.
 type GraphQLExecuteRequest struct {
 	Endpoint      string
 	Query         string
 	Variables     string // JSON
 	OperationName string
 	Headers       map[string][]string
+	WorkspaceID   uuid.UUID // selects the cookie jar; Nil sends no cookies
 }
 
-// GraphQLIntrospectRequest is used to load schema via introspection or file.
-// Exactly one of Endpoint or SchemaPath must be non-empty.
+// GraphQLIntrospectRequest needs exactly one of Endpoint or SchemaPath.
 type GraphQLIntrospectRequest struct {
-	Endpoint   string
-	SchemaPath string
-	Headers    map[string][]string
+	Endpoint    string
+	SchemaPath  string
+	Headers     map[string][]string
+	WorkspaceID uuid.UUID // selects the cookie jar; Nil sends no cookies
 }
 
-// GraphQLSchema holds discovered queries, mutations, and types.
 type GraphQLSchema struct {
 	Queries   []GraphQLOperation
 	Mutations []GraphQLOperation
@@ -113,7 +108,6 @@ type GraphQLSchema struct {
 	Source    string // "introspection" | "schema_file"
 }
 
-// GraphQLOperation represents a single query or mutation.
 type GraphQLOperation struct {
 	Name       string
 	Args       []GraphQLArg
@@ -121,14 +115,12 @@ type GraphQLOperation struct {
 	Definition string // SDL snippet for schema viewer
 }
 
-// GraphQLArg represents a GraphQL argument.
 type GraphQLArg struct {
 	Name         string
 	Type         string // e.g. "ID!", "[String]", "CreateUserInput!"
 	DefaultValue string
 }
 
-// GraphQLType represents a GraphQL type definition.
 type GraphQLType struct {
 	Name          string
 	Kind          string // OBJECT, INPUT_OBJECT, ENUM, INTERFACE, UNION, SCALAR
@@ -138,20 +130,17 @@ type GraphQLType struct {
 	Definition    string   // SDL for this type
 }
 
-// GraphQLField represents a field within a GraphQL type.
 type GraphQLField struct {
 	Name string
 	Type string // e.g. "String!", "[Order!]"
 	Args []GraphQLArg
 }
 
-// GraphQLExampleResponse holds a generated example query and variables.
 type GraphQLExampleResponse struct {
 	Query     string
 	Variables string // JSON
 }
 
-// EnvironmentResolver resolves environment variables for a workspace.
 type EnvironmentResolver interface {
 	ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error)
 }
@@ -162,8 +151,7 @@ type CookieReader interface {
 	CookiesFor(ctx context.Context, workspaceID uuid.UUID, rawURL string) []*http.Cookie
 }
 
-// CollectionReader provides read access to collections for script resolution
-// and draft creation.
+// CollectionReader is the read side used by script resolution and draft creation.
 type CollectionReader interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error)
 	// ListByWorkspace returns all non-deleted collections in the workspace,
@@ -171,8 +159,29 @@ type CollectionReader interface {
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Collection, error)
 }
 
-// ScriptResolver resolves the effective pre/post script for a request,
-// walking up the collection hierarchy if the request has no script of its own.
+// TokenCleaner invalidates OAuth 2.0 tokens whose owner was deleted, moved to another workspace
+// or rewritten; the request usecase never reads tokens itself.
+type TokenCleaner interface {
+	Clear(ctx context.Context, owner entities.AuthOwner) error
+	ClearOwners(ctx context.Context, kind string, ids []uuid.UUID) error
+	ClearOwnersUnlessHash(ctx context.Context, kind string, ids []uuid.UUID, keepHash string) error
+	DeleteOrphans(ctx context.Context) (int, error)
+}
+
+// noopTokenCleaner stands in for test constructors built without a token store.
+type noopTokenCleaner struct{}
+
+func (noopTokenCleaner) Clear(context.Context, entities.AuthOwner) error { return nil }
+
+func (noopTokenCleaner) ClearOwners(context.Context, string, []uuid.UUID) error { return nil }
+
+func (noopTokenCleaner) ClearOwnersUnlessHash(context.Context, string, []uuid.UUID, string) error {
+	return nil
+}
+
+func (noopTokenCleaner) DeleteOrphans(context.Context) (int, error) { return 0, nil }
+
+// ScriptResolver walks up the collection hierarchy when the request has no script of its own.
 type ScriptResolver interface {
 	ResolvePreScript(ctx context.Context, req *entities.Request) (string, error)
 	ResolvePostScript(ctx context.Context, req *entities.Request) (string, error)
@@ -183,7 +192,13 @@ type VariablePersister interface {
 	PersistVariableChanges(ctx context.Context, workspaceID uuid.UUID, userID string, newVars map[string]string) error
 }
 
-// HTTPExecuteRequest contains resolved request data ready to send.
+// RequestAuth carries a scheme the requester applies to the final request:
+// digest needs the server's challenge, aws_sigv4 signs the assembled request.
+type RequestAuth struct {
+	Type   entities.AuthType
+	Fields map[string]any
+}
+
 type HTTPExecuteRequest struct {
 	Method      entities.HTTPMethod
 	URL         string
@@ -191,20 +206,26 @@ type HTTPExecuteRequest struct {
 	Body        string
 	BodyReader  io.Reader
 	WorkspaceID uuid.UUID // required for per-workspace cookie jar
+	Auth        *RequestAuth
 }
 
-// ExecuteOpt holds contextual options for the Execute operation.
 type ExecuteOpt struct {
 	UserID      string
 	WorkspaceID uuid.UUID
 }
 
-// BuildCurlOpt holds contextual options for the BuildCurl operation.
 type BuildCurlOpt struct {
 	WorkspaceID uuid.UUID
 }
 
-// Usecase defines the public API for Request operations.
+// CurlResult is a rendered curl command plus what the renderer could not do:
+// an oauth2 request with no cached token ships without its Authorization header.
+type CurlResult struct {
+	Command      string
+	Warnings     []string
+	ScriptResult *entities.ScriptResult
+}
+
 type Usecase interface {
 	Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Request, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error)
@@ -213,7 +234,7 @@ type Usecase interface {
 	Delete(ctx context.Context, opt DeleteOpt) error
 	Reorder(ctx context.Context, id uuid.UUID, sortOrder int) error
 	Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*entities.Response, error)
-	BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (string, *entities.ScriptResult, error)
+	BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error)
 	Move(ctx context.Context, opt MoveOpt) (*entities.Request, error)
 	GRPCListServices(ctx context.Context, req GRPCConnectRequest) (*GRPCSchema, error)
 	GRPCGenerateExample(ctx context.Context, req GRPCConnectRequest, service, method string) (string, error)
@@ -225,7 +246,8 @@ type Usecase interface {
 	DeleteDraft(ctx context.Context, id uuid.UUID) error
 	PromoteDraft(ctx context.Context, opt PromoteDraftOpt) (*entities.Request, error)
 	CleanupDrafts(ctx context.Context) (int, error)
-	ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, userID string) (url string, headers map[string][]string, err error)
+	ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, userID string) (websocket.ResolvedDial, error)
+	SubstituteMessage(ctx context.Context, workspaceID uuid.UUID, text string) (string, error)
 }
 
 type usecase struct {
@@ -241,10 +263,11 @@ type usecase struct {
 	authResolver     AuthResolver
 	cookieReader     CookieReader
 	collectionReader CollectionReader
+	tokenCleaner     TokenCleaner
+	authProvider     auth.Provider
 }
 
-// NewUsecase creates a new Request usecase instance.
-func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRequester, grpcRequester GRPCRequester, graphqlRequester GraphQLRequester, envResolver EnvironmentResolver, scriptEngine ScriptEngine, scriptResolver ScriptResolver, varPersister VariablePersister, authResolver AuthResolver, cookieReader CookieReader, collectionReader CollectionReader) Usecase {
+func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRequester, grpcRequester GRPCRequester, graphqlRequester GraphQLRequester, envResolver EnvironmentResolver, scriptEngine ScriptEngine, scriptResolver ScriptResolver, varPersister VariablePersister, authResolver AuthResolver, cookieReader CookieReader, collectionReader CollectionReader, tokenCleaner TokenCleaner, authProvider auth.Provider) Usecase {
 	return &usecase{
 		repo:             repo,
 		historyRepo:      historyRepo,
@@ -258,5 +281,15 @@ func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRe
 		authResolver:     authResolver,
 		cookieReader:     cookieReader,
 		collectionReader: collectionReader,
+		tokenCleaner:     tokenCleaner,
+		authProvider:     authProvider,
 	}
+}
+
+// tokens returns the injected cleaner, or a no-op for usecases built without one.
+func (u *usecase) tokens() TokenCleaner {
+	if u.tokenCleaner == nil {
+		return noopTokenCleaner{}
+	}
+	return u.tokenCleaner
 }

@@ -9,11 +9,13 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// Edit holds the data required to edit an existing request.
 type Edit struct {
 	Name              string
+	Description       string
 	Protocol          entities.Protocol // set from existing entity before validation
 	Method            entities.HTTPMethod
 	URL               string
@@ -34,14 +36,12 @@ type Edit struct {
 	GraphQLOperation  string
 }
 
-// EditOpt holds contextual options for the Edit operation.
 type EditOpt struct {
 	RequestID uuid.UUID
 	UserID    string
 	Version   int
 }
 
-// Validate checks that all required fields are present and valid.
 func (e *Edit) Validate() error {
 	errs := make(map[string]string)
 
@@ -64,7 +64,6 @@ func (e *Edit) Validate() error {
 	return nil
 }
 
-// Edit validates input, applies optimistic locking, updates and persists the request.
 func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.Request, error) {
 	const funcName = "request.Edit"
 
@@ -85,12 +84,23 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 		return nil, err
 	}
 
+	if input.Protocol == entities.ProtocolWebSocket {
+		if err := websocket.ValidateSettings(input.Body); err != nil {
+			return nil, err
+		}
+		// The body of a WS request is never sent: it carries the settings document.
+		input.BodyType = entities.BodyTypeRaw
+	}
+
 	headers := input.Headers
 	if headers == nil {
 		headers = []entities.HeaderItem{}
 	}
 
+	prevAuthType, prevAuthData := existing.AuthType, existing.AuthData
+
 	existing.Name = input.Name
+	existing.Description = input.Description
 	existing.Method = input.Method
 	existing.URL = input.URL
 	existing.Headers = headers
@@ -120,6 +130,15 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 
 	if err := u.repo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	if auth.AcquisitionChanged(prevAuthType, existing.AuthType, prevAuthData, existing.AuthData) {
+		// The saved configuration can no longer produce the stored token — unless
+		// it is the one the token was acquired with, from the same editor buffer.
+		keep := auth.AcquisitionHash(existing.AuthType, existing.AuthData)
+		if err := u.tokens().ClearOwnersUnlessHash(ctx, entities.AuthOwnerKindRequest, []uuid.UUID{existing.ID}, keep); err != nil {
+			return nil, fmt.Errorf("%s: clear tokens: %w", funcName, err)
+		}
 	}
 
 	return existing, nil

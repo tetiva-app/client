@@ -17,23 +17,23 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// ucWithRequest builds a usecase with a single request loaded into the mock repo.
 func ucWithRequest(t *testing.T, r *entities.Request) request.Usecase {
 	t.Helper()
 	repo := newMockRepo()
 	repo.requests[r.ID] = r
 	return request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 }
 
 func TestBuildCurl_GETPlain(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	})
-	got, sr, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got, sr := res.Command, res.ScriptResult
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -49,12 +49,13 @@ func TestBuildCurl_GETPlain(t *testing.T) {
 func TestBuildCurl_POSTJSONAddsContentType(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
 		URL:      "https://api.example.com/users",
 		Body:     `{"name":"Alice"}`,
 		BodyType: entities.BodyTypeJSON, AuthType: entities.AuthTypeNone,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -72,11 +73,12 @@ func TestBuildCurl_POSTJSONAddsContentType(t *testing.T) {
 func TestBuildCurl_BearerAuth(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/me", BodyType: entities.BodyTypeNone,
 		AuthType: entities.AuthTypeBearer, AuthData: `{"token":"xyz"}`,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -88,12 +90,13 @@ func TestBuildCurl_BearerAuth(t *testing.T) {
 func TestBuildCurl_APIKeyInQuery(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone,
 		AuthType: entities.AuthTypeAPIKey,
 		AuthData: `{"key":"api_key","value":"secret","addTo":"query"}`,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -105,12 +108,13 @@ func TestBuildCurl_APIKeyInQuery(t *testing.T) {
 func TestBuildCurl_FormUrlencoded(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
 		URL:      "https://api.example.com/login",
 		Body:     `[{"key":"user","value":"alice","type":"text","enabled":true}]`,
 		BodyType: entities.BodyTypeForm, AuthType: entities.AuthTypeNone,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -138,11 +142,12 @@ func TestBuildCurl_FormMultipartWithFile(t *testing.T) {
 		{"key": "avatar", "value": filePath, "type": "file", "enabled": true},
 	})
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
 		URL:  "https://api.example.com/upload",
 		Body: string(body), BodyType: entities.BodyTypeForm, AuthType: entities.AuthTypeNone,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -160,10 +165,11 @@ func TestBuildCurl_FormMultipartWithFile(t *testing.T) {
 func TestBuildCurl_URLWithSingleQuote(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/it's-fine", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	})
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -175,11 +181,11 @@ func TestBuildCurl_URLWithSingleQuote(t *testing.T) {
 func TestBuildCurl_NonHTTPProtocolErrors(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{
-		ID: id, Protocol: entities.ProtocolGRPC, Method: entities.MethodPOST,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolGRPC, Method: entities.MethodPOST,
 		URL: "grpc.example.com:50051", BodyType: entities.BodyTypeJSON,
 		GRPCService: "Foo", GRPCMethod: "Bar",
 	})
-	_, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	_, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
 	if err == nil {
 		t.Fatal("expected error for gRPC protocol")
 	}
@@ -196,7 +202,7 @@ func TestBuildCurl_PreScriptInjectsHeader(t *testing.T) {
 	id := uuid.New()
 	repo := newMockRepo()
 	repo.requests[id] = &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	}
 	cap := &captureScriptEngine{
@@ -205,9 +211,10 @@ func TestBuildCurl_PreScriptInjectsHeader(t *testing.T) {
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 
-	got, sr, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got, sr := res.Command, res.ScriptResult
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -233,7 +240,7 @@ func TestBuildCurl_DryRunVsExecuteVarPersist(t *testing.T) {
 	id := uuid.New()
 	repo := newMockRepo()
 	repo.requests[id] = &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	}
 	cap := &captureScriptEngine{
@@ -243,17 +250,17 @@ func TestBuildCurl_DryRunVsExecuteVarPersist(t *testing.T) {
 	persister := &recordingPersister{}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{response: &entities.Response{StatusCode: 200}}, nil, nil,
 		&mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// set var"},
-		persister, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+		persister, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 
 	// positive control — Execute does persist vars
-	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if persister.calls != 1 {
 		t.Fatalf("Execute should persist vars: got %d calls, want 1", persister.calls)
 	}
 
-	if _, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("buildcurl: %v", err)
 	}
 	if persister.calls != 1 {
@@ -272,7 +279,7 @@ func TestBuildCurl_EmitsCookiesFromJar(t *testing.T) {
 	id := uuid.New()
 	repo := newMockRepo()
 	repo.requests[id] = &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/me", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	}
 	cookies := []*http.Cookie{
@@ -281,10 +288,11 @@ func TestBuildCurl_EmitsCookiesFromJar(t *testing.T) {
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}),
-		&fakeCookieReader{cookies: cookies}, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
+		&fakeCookieReader{cookies: cookies}, nil, nil, nil)
 
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -297,14 +305,15 @@ func TestBuildCurl_NoCookieReaderProducesNoB(t *testing.T) {
 	id := uuid.New()
 	repo := newMockRepo()
 	repo.requests[id] = &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -317,19 +326,83 @@ func TestBuildCurl_EmptyCookieListProducesNoB(t *testing.T) {
 	id := uuid.New()
 	repo := newMockRepo()
 	repo.requests[id] = &entities.Request{
-		ID: id, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
 		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}),
-		&fakeCookieReader{cookies: nil}, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
+		&fakeCookieReader{cookies: nil}, nil, nil, nil)
 
-	got, _, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: uuid.New()})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	got := res.Command
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if strings.Contains(got, "-b ") {
 		t.Errorf("expected no -b for empty cookie list, got: %s", got)
+	}
+}
+
+func TestBuildCurl_DigestAuth(t *testing.T) {
+	id := uuid.New()
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL: "https://api.example.com/dir/index.html", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeDigest, AuthData: `{"username":"Mufasa","password":"Circle Of Life"}`,
+	})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(res.Command, "--digest") {
+		t.Errorf("missing --digest: %s", res.Command)
+	}
+	if !strings.Contains(res.Command, `-u 'Mufasa:Circle Of Life'`) {
+		t.Errorf("missing credentials: %s", res.Command)
+	}
+	if strings.Contains(res.Command, "Authorization") {
+		t.Errorf("digest credentials must not be sent as a header: %s", res.Command)
+	}
+}
+
+func TestBuildCurl_AWSSigV4Auth(t *testing.T) {
+	id := uuid.New()
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL: "https://api.example.com/prod/orders", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeAWSSigV4,
+		AuthData: `{"accessKeyId":"AKIDEXAMPLE","secretAccessKey":"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",` +
+			`"sessionToken":"FQoDYXdzEJr","region":"eu-west-1","service":"execute-api"}`,
+	})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	for _, want := range []string{
+		`--aws-sigv4 'aws:amz:eu-west-1:execute-api'`,
+		`-u 'AKIDEXAMPLE:wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY'`,
+		`-H 'x-amz-security-token: FQoDYXdzEJr'`,
+	} {
+		if !strings.Contains(res.Command, want) {
+			t.Errorf("missing %s in: %s", want, res.Command)
+		}
+	}
+}
+
+func TestBuildCurl_AWSSigV4WithoutSessionToken(t *testing.T) {
+	id := uuid.New()
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL: "https://api.example.com/prod/orders", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeAWSSigV4,
+		AuthData: `{"accessKeyId":"AKIDEXAMPLE","secretAccessKey":"secret","region":"us-east-1","service":"s3"}`,
+	})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if strings.Contains(res.Command, "x-amz-security-token") {
+		t.Errorf("no session token was configured: %s", res.Command)
 	}
 }

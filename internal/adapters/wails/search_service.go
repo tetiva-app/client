@@ -15,7 +15,6 @@ type SearchService struct {
 	uc search.Usecase
 }
 
-// NewSearchService wires the usecase.
 func NewSearchService(uc search.Usecase) *SearchService {
 	return &SearchService{uc: uc}
 }

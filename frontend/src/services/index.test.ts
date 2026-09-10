@@ -36,6 +36,15 @@ describe('isWailsEnvironment', () => {
     expect(await detectWith({})).toBe(false)
   })
 
+  it('honours ?wails=1 for the server build, where the runtime is bundled and lands after this module', async () => {
+    expect(await detectWith({ location: { search: '?theme=dark&wails=1' } })).toBe(true)
+  })
+
+  it('ignores unrelated query params', async () => {
+    expect(await detectWith({ location: { search: '?wails=0' } })).toBe(false)
+    expect(await detectWith({ location: { search: '?foo=1' } })).toBe(false)
+  })
+
   it('returns false in regular Chrome (chrome without webview)', async () => {
     expect(await detectWith({ chrome: {} })).toBe(false)
   })

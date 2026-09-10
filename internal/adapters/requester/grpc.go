@@ -11,10 +11,8 @@ import (
 	"strings"
 	"time"
 
-	// jhump/protoreflect packages below are deprecated in favour of
-	// google.golang.org/protobuf v2 + bufbuild/protocompile, but
-	// dynamic/grpcdynamic/grpcreflect have no drop-in v2 replacements yet,
-	// so the migration is deferred.
+	// jhump/protoreflect is deprecated in favour of google.golang.org/protobuf v2 +
+	// bufbuild/protocompile; dynamic/grpcdynamic/grpcreflect have no v2 twin, so it is deferred.
 	"github.com/jhump/protoreflect/desc"            //nolint:staticcheck // SA1019: deferred migration
 	"github.com/jhump/protoreflect/desc/protoparse" //nolint:staticcheck // SA1019: deferred migration
 	"github.com/jhump/protoreflect/desc/protoprint"
@@ -41,12 +39,10 @@ const (
 // GRPCRequester implements request.GRPCRequester using protoreflect and grpc.
 type GRPCRequester struct{}
 
-// NewGRPCRequester creates a new GRPCRequester.
 func NewGRPCRequester() *GRPCRequester {
 	return &GRPCRequester{}
 }
 
-// Execute sends a gRPC unary request and returns the response.
 func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequest) (*entities.Response, error) {
 	const funcName = "GRPCRequester.Execute"
 
@@ -131,7 +127,6 @@ func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequ
 	}, nil
 }
 
-// ListServices connects to a gRPC server and returns available services and methods.
 func (r *GRPCRequester) ListServices(ctx context.Context, req request.GRPCConnectRequest) (*request.GRPCSchema, error) {
 	if req.ProtoPath != "" {
 		return r.listServicesFromProto(req.ProtoPath)

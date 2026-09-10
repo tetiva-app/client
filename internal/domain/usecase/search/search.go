@@ -12,8 +12,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// InWorkspace searches by name within a single workspace.
-// Short/empty queries return empty result without touching the repository.
+// InWorkspace answers short or empty queries with an empty result, without touching the repository.
 func (u *usecase) InWorkspace(ctx context.Context, input Input) (entities.SearchResult, error) {
 	const funcName = "search.InWorkspace"
 

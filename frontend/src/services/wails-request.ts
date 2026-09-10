@@ -1,7 +1,7 @@
 import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
-import type { GenerateCurlResponse } from '@/types/curl'
+import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 import type {
@@ -24,6 +24,7 @@ import {
   PromoteDraftRequest as BindingPromoteDraftRequest,
   ExecuteRequestRequest as BindingExecuteRequestRequest,
   GenerateCurlRequest as BindingGenerateCurlRequest,
+  ParseCurlRequest as BindingParseCurlRequest,
   GRPCConnectRequest as BindingGRPCConnectRequest,
   GRPCGenerateExampleRequest as BindingGRPCGenerateExampleRequest,
   GRPCGetProtoDefinitionRequest as BindingGRPCGetProtoDefinitionRequest,
@@ -48,6 +49,7 @@ export class WailsRequestService implements RequestServiceAPI {
     return unwrap<Request>(await RequestService.Create(new BindingCreateRequestRequest({
       collectionId: req.collectionId,
       name: req.name,
+      description: req.description,
       protocol: req.protocol,
       method: req.method,
       url: req.url,
@@ -73,6 +75,7 @@ export class WailsRequestService implements RequestServiceAPI {
     return unwrap<Request>(await RequestService.Edit(new BindingEditRequestRequest({
       id: req.id,
       name: req.name,
+      description: req.description,
       method: req.method,
       url: req.url,
       headers: req.headers,
@@ -124,6 +127,12 @@ export class WailsRequestService implements RequestServiceAPI {
       requestId: req.requestId,
       workspaceId: req.workspaceId,
     })) as unknown as BindingResult<GenerateCurlResponse>)
+  }
+
+  async parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>> {
+    return unwrap<ParseCurlResponse>(await RequestService.ParseCurl(new BindingParseCurlRequest({
+      text: req.text,
+    })) as unknown as BindingResult<ParseCurlResponse>)
   }
 
   async move(req: MoveRequestReq): Promise<Result<Request>> {
@@ -180,6 +189,7 @@ export class WailsRequestService implements RequestServiceAPI {
       endpoint: req.endpoint,
       schemaPath: req.schemaPath,
       headers: req.headers,
+      workspaceId: req.workspaceId,
     })) as unknown as BindingResult<GraphQLSchema>)
   }
 
@@ -188,6 +198,7 @@ export class WailsRequestService implements RequestServiceAPI {
       endpoint: req.endpoint,
       schemaPath: req.schemaPath,
       headers: req.headers,
+      workspaceId: req.workspaceId,
       operationName: req.operationName,
     })) as unknown as BindingResult<GraphQLExampleResponse>)
   }
@@ -197,6 +208,7 @@ export class WailsRequestService implements RequestServiceAPI {
       endpoint: req.endpoint,
       schemaPath: req.schemaPath,
       headers: req.headers,
+      workspaceId: req.workspaceId,
       typeName: req.typeName,
     })) as unknown as BindingResult<string>)
   }

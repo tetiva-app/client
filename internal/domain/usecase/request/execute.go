@@ -18,6 +18,7 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
 
 // reservedHeaders cannot be overwritten by API Key auth.
@@ -29,32 +30,32 @@ var reservedHeaders = map[string]bool{
 	"transfer-encoding": true,
 }
 
-// applyAuth adds authentication headers/query params based on auth config.
-func applyAuth(authType entities.AuthType, authData string, headers map[string][]string, rawURL string) (map[string][]string, string, error) {
-	if authType == entities.AuthTypeNone || authType == entities.AuthTypeInherit || authType == "" {
-		return headers, rawURL, nil
+// applyHeaderAuth applies the header-layer schemes and names the query parameters it injected, so
+// history replay can strip them; oauth2, digest and aws_sigv4 live in other layers.
+func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[string][]string, rawURL string) (map[string][]string, string, []string, error) {
+	switch authType {
+	case entities.AuthTypeNone, entities.AuthTypeInherit, "":
+		return headers, rawURL, nil, nil
+	case entities.AuthTypeBasic, entities.AuthTypeBearer, entities.AuthTypeAPIKey, entities.AuthTypeJWT:
+	default:
+		return headers, rawURL, nil, fmt.Errorf("unsupported auth type %q", authType)
 	}
-	if authData == "" || authData == "{}" {
-		return headers, rawURL, nil
+	if len(f) == 0 {
+		return headers, rawURL, nil, nil
 	}
 
-	var data map[string]string
-	if err := json.Unmarshal([]byte(authData), &data); err != nil {
-		return headers, rawURL, fmt.Errorf("invalid auth_data JSON: %w", err)
-	}
+	var queryKeys []string
 
 	switch authType {
 	case entities.AuthTypeBasic:
-		username := data["username"]
-		password := data["password"]
-		creds := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		creds := base64.StdEncoding.EncodeToString([]byte(f.Str("username") + ":" + f.Str("password")))
 		headers["Authorization"] = []string{"Basic " + creds}
 
 	case entities.AuthTypeBearer:
-		token := data["token"]
-		prefix, hasPrefix := data["prefix"]
-		if !hasPrefix {
-			prefix = "Bearer"
+		token := f.Str("token")
+		prefix := "Bearer"
+		if _, ok := f["prefix"]; ok {
+			prefix = f.Str("prefix")
 		}
 		if prefix == "" {
 			headers["Authorization"] = []string{token}
@@ -63,27 +64,36 @@ func applyAuth(authType entities.AuthType, authData string, headers map[string][
 		}
 
 	case entities.AuthTypeAPIKey:
-		key := data["key"]
-		value := data["value"]
-		addTo := data["addTo"]
+		key := f.Str("key")
+		value := f.Str("value")
+		addTo := f.Str("addTo")
+		if addTo == "" {
+			addTo = f.Str("in") // legacy key from Postman imports
+		}
 		if addTo == "query" {
 			parsed, err := url.Parse(rawURL)
 			if err != nil {
-				return headers, rawURL, fmt.Errorf("invalid URL for API key: %w", err)
+				return headers, rawURL, nil, fmt.Errorf("invalid URL for API key: %w", err)
 			}
 			q := parsed.Query()
 			q.Set(key, value)
 			parsed.RawQuery = q.Encode()
 			rawURL = parsed.String()
+			if key != "" {
+				queryKeys = append(queryKeys, key)
+			}
 		} else {
 			if reservedHeaders[strings.ToLower(key)] {
-				return headers, rawURL, fmt.Errorf("API key header %q is reserved and cannot be overwritten", key)
+				return headers, rawURL, nil, fmt.Errorf("API key header %q is reserved and cannot be overwritten", key)
 			}
 			headers[key] = []string{value}
 		}
+
+	case entities.AuthTypeJWT:
+		return applyJWT(f, headers, rawURL, time.Now())
 	}
 
-	return headers, rawURL, nil
+	return headers, rawURL, queryKeys, nil
 }
 
 // formField's JSON tags describe the wire format the frontend writes into
@@ -95,7 +105,6 @@ type formField struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// parseFormFields parses JSON array of form fields.
 func parseFormFields(body string) ([]formField, error) {
 	if body == "" || body == "[]" {
 		return nil, nil
@@ -121,7 +130,6 @@ func FormHasFiles(body string) bool {
 	return false
 }
 
-// encodeFormBody converts JSON array of form fields to url-encoded string.
 func encodeFormBody(body string) (string, error) {
 	fields, err := parseFormFields(body)
 	if err != nil {
@@ -137,8 +145,7 @@ func encodeFormBody(body string) (string, error) {
 	return values.Encode(), nil
 }
 
-// encodeMultipartFormBody encodes form fields as multipart/form-data, including file fields.
-// Returns the Content-Type (with boundary) and an io.Reader for the body.
+// encodeMultipartFormBody returns the Content-Type (with boundary) and a reader for the body.
 func encodeMultipartFormBody(body string) (string, io.Reader, error) {
 	fields, err := parseFormFields(body)
 	if err != nil {
@@ -195,7 +202,6 @@ func encodeMultipartFormBody(body string) (string, io.Reader, error) {
 	return writer.FormDataContentType(), &buf, nil
 }
 
-// autoContentType returns the Content-Type for a body type, or empty if none.
 func autoContentType(bodyType entities.BodyType) string {
 	switch bodyType {
 	case entities.BodyTypeJSON:
@@ -211,8 +217,6 @@ func autoContentType(bodyType entities.BodyType) string {
 	}
 }
 
-// Execute loads a request by ID, applies auth, encodes body, sends it via HTTPRequester,
-// saves history, and returns the response.
 func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*entities.Response, error) {
 	const funcName = "request.Execute"
 
@@ -222,6 +226,16 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	}
 	if req == nil {
 		return nil, &domain.NotFoundError{Entity: "request", ID: id.String()}
+	}
+
+	resolvedAuth, err := u.resolveAuthFor(ctx, req, opt.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	if req.Protocol != entities.ProtocolHTTP {
+		if authErr := rejectNonHTTPAuth(resolvedAuth.Type); authErr != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, authErr)
+		}
 	}
 
 	vars, err := u.envResolver.ResolveVariables(ctx, opt.WorkspaceID)
@@ -235,6 +249,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	var execURL string
 	var historyHeaders map[string][]string
 	var historyBody string
+	var historyAuthQueryKeys []string
 	var grpcRequestMetadata map[string][]string
 
 	switch req.Protocol {
@@ -262,14 +277,11 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		pre := u.runPreScriptForNonHTTP(ctx, req, vars)
 		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
 		headers, body := pre.Headers, pre.Body
-		resolvedAuthType, resolvedAuthData, authErr := u.authResolver.ResolveAuth(ctx, req)
-		if authErr != nil {
-			return nil, fmt.Errorf("%s: %w", funcName, authErr)
+		authFields, fieldsErr := auth.ParseFields(resolvedAuth.Data)
+		if fieldsErr != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, fieldsErr)
 		}
-		if resolvedAuthData != "" && resolvedAuthData != "{}" {
-			resolvedAuthData = substituteVariables(resolvedAuthData, vars)
-		}
-		headers, execURL, err = applyAuth(resolvedAuthType, resolvedAuthData, headers, execURL)
+		headers, execURL, historyAuthQueryKeys, _, err = u.applyResolvedAuth(ctx, resolvedAuth, auth.Substitute(authFields, vars), headers, execURL, prepareOpt{UserID: opt.UserID})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, err)
 		}
@@ -281,6 +293,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			Variables:     graphqlVars,
 			OperationName: req.GraphQLOperation,
 			Headers:       headers,
+			WorkspaceID:   opt.WorkspaceID,
 		}
 		resp, execErr = u.graphqlRequester.Execute(ctx, graphqlReq)
 		historyHeaders = headers
@@ -288,7 +301,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		_ = body
 
 	default: // HTTP
-		prep, sr, prepErr := u.prepareHTTP(ctx, req, vars, prepareOpt{})
+		prep, sr, prepErr := u.prepareHTTP(ctx, req, vars, resolvedAuth, prepareOpt{UserID: opt.UserID})
 		if prepErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, prepErr)
 		}
@@ -301,6 +314,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			Headers:     prep.Headers,
 			Body:        prep.Body,
 			WorkspaceID: opt.WorkspaceID,
+			Auth:        prep.Auth,
 		}
 		if prep.BodyReader != nil {
 			execReq.BodyReader = prep.BodyReader
@@ -316,12 +330,12 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		resp, execErr = u.requester.Execute(ctx, execReq)
 		historyHeaders = prep.Headers
 		historyBody = prep.RawBody
+		historyAuthQueryKeys = prep.AuthQueryKeys
 		if req.BodyType == entities.BodyTypeBinary {
 			historyBody = "[binary: " + prep.BinaryPath + "]"
 		}
 	}
 
-	// Post-script (all protocols)
 	postScript, postResolveErr := u.scriptResolver.ResolvePostScript(ctx, req)
 	if postResolveErr != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, postResolveErr)
@@ -404,6 +418,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		RequestHeaders:  historyHeaders,
 		RequestBody:     historyBody,
 		ResponseHeaders: make(map[string][]string),
+		AuthQueryKeys:   historyAuthQueryKeys,
 		CreatedAt:       time.Now(),
 	}
 
@@ -461,12 +476,13 @@ func (u *usecase) runPreScriptForNonHTTP(
 	req *entities.Request,
 	vars map[string]string,
 ) preScriptOutcome {
-	headers := entities.EnabledHeadersToMap(req.Headers)
+	// The script sees the raw placeholders; its header map is substituted once
+	// afterwards, with whatever variables the script left behind.
+	rawHeaders := entities.EnabledHeadersToMap(req.Headers)
 	execURL := substituteVariables(req.URL, vars)
 	body := substituteVariables(req.Body, vars)
-	headers = substituteHeaders(headers, vars)
 
-	out := preScriptOutcome{Vars: vars, URL: execURL, Body: body, Headers: headers, Metadata: req.GRPCMetadata}
+	out := preScriptOutcome{Vars: vars, URL: execURL, Body: body, Headers: substituteHeaders(rawHeaders, vars), Metadata: req.GRPCMetadata}
 
 	preScript, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
 	if preResolveErr != nil {
@@ -484,7 +500,7 @@ func (u *usecase) runPreScriptForNonHTTP(
 		Variables:      vars,
 		RequestMethod:  string(req.Method),
 		RequestURL:     execURL,
-		RequestHeaders: headers,
+		RequestHeaders: rawHeaders,
 		Protocol:       string(req.Protocol),
 	}
 	if req.Protocol == entities.ProtocolGRPC {
@@ -505,7 +521,6 @@ func (u *usecase) runPreScriptForNonHTTP(
 		return out
 	}
 	scriptResult.PreConsole = preResult.ConsoleOutput
-	out.Headers = preResult.Headers
 	if req.Protocol == entities.ProtocolGRPC {
 		out.Metadata = preResult.Metadata
 	}
@@ -513,7 +528,7 @@ func (u *usecase) runPreScriptForNonHTTP(
 		out.Vars = preResult.Variables
 		out.URL = substituteVariables(req.URL, out.Vars)
 		out.Body = substituteVariables(req.Body, out.Vars)
-		out.Headers = substituteHeaders(out.Headers, out.Vars)
 	}
+	out.Headers = substituteHeaders(preResult.Headers, out.Vars)
 	return out
 }

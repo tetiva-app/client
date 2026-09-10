@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/google/uuid"
 	"go.uber.org/fx"
 
 	mcpadapter "github.com/tetiva-app/client/internal/adapters/mcp"
@@ -18,8 +19,7 @@ import (
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
-// resolveMCPConfig computes the effective MCP runtime config. Env vars override
-// the persisted DB settings and mark the config env-managed (the UI disables editing).
+// resolveMCPConfig merges persisted settings with env vars, which win and mark the config env-managed.
 func resolveMCPConfig(uc settings.Usecase) (*mcpadapter.RuntimeStatus, error) {
 	// A DB read failure must not crash app boot — fall back to disabled defaults.
 	// Runs during fx graph construction, after storage migrations, so app_settings exists.
@@ -49,11 +49,28 @@ func resolveMCPConfig(uc settings.Usecase) (*mcpadapter.RuntimeStatus, error) {
 	return st, nil
 }
 
-// MCPModule wires the MCP DevTools server. Always included, but the server only
-// starts when the resolved config is enabled; RuntimeStatus is read by SettingsService.
+// resolveMCPAuth builds the token guard, generating the token on first launch.
+// A storage failure falls back to an ephemeral token nobody can know.
+func resolveMCPAuth(uc settings.Usecase) *mcpadapter.TokenAuth {
+	ctx := context.Background()
+	token, err := uc.EnsureMCPToken(ctx)
+	if err != nil {
+		slog.Error("MCP: failed to read token, refusing every client until restart", "err", err)
+		return mcpadapter.NewTokenAuth(uuid.NewString(), true)
+	}
+	require, err := uc.GetMCPRequireToken(ctx)
+	if err != nil {
+		slog.Error("MCP: failed to read token requirement, defaulting to required", "err", err)
+		require = true
+	}
+	return mcpadapter.NewTokenAuth(token, require)
+}
+
+// MCPModule is always wired, but the server only starts when the resolved config is enabled.
 func MCPModule() fx.Option {
 	return fx.Module("mcp",
 		fx.Provide(resolveMCPConfig),
+		fx.Provide(resolveMCPAuth),
 		fx.Provide(func(
 			engine *syncsvc.SyncEngine,
 			syncQueue sqlite.SyncQueueRepository,
@@ -62,8 +79,9 @@ func MCPModule() fx.Option {
 			envUC environment.Usecase,
 			wsUC workspace.Usecase,
 			st *mcpadapter.RuntimeStatus,
+			auth *mcpadapter.TokenAuth,
 		) *mcpadapter.Server {
-			return mcpadapter.NewServer(engine, syncQueue, colUC, reqUC, envUC, wsUC, st.Addr)
+			return mcpadapter.NewServer(engine, syncQueue, colUC, reqUC, envUC, wsUC, st.Addr, auth)
 		}),
 		fx.Invoke(func(lc fx.Lifecycle, srv *mcpadapter.Server, st *mcpadapter.RuntimeStatus) {
 			lc.Append(fx.Hook{
@@ -91,8 +109,7 @@ func MCPModule() fx.Option {
 	)
 }
 
-// lookupEnvWithLegacy checks the Tetiva-era variable first and falls back
-// to the pre-rebrand GopherCourier name so existing setups keep working.
+// lookupEnvWithLegacy falls back to the pre-rebrand GopherCourier name so old setups keep working.
 func lookupEnvWithLegacy(name, legacy string) (string, bool) {
 	if v, ok := os.LookupEnv(name); ok {
 		return v, true

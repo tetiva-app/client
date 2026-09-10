@@ -3,7 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,28 +11,26 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
+	"github.com/tetiva-app/client/migrations"
+	"github.com/tetiva-app/client/pkg/migrate"
 )
 
 var testWorkspaceID = uuid.MustParse("00000000-0000-4000-a000-000000000001")
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	// A file DB with one connection: ":memory:" hands every pooled connection its
+	// own empty database, and the fk-off migration runs on a dedicated one.
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		t.Fatal(err)
 	}
-	migrations := []string{"001_initial.sql", "002_requests_json_checks.sql", "003_auth.sql", "004_collection_scripts.sql", "005_collection_auth_description.sql", "006_workspace_is_active.sql", "007_grpc_collection_metadata.sql", "008_graphql.sql", "009_sync.sql", "010_workspace_remote_index.sql", "011_sync_config_refresh_token.sql", "012_cookies.sql", "013_request_drafts.sql", "014_app_settings.sql"}
-	for _, name := range migrations {
-		migration, err := os.ReadFile("../../../../migrations/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(migration)); err != nil {
-			t.Fatalf("migration %s: %v", name, err)
-		}
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db

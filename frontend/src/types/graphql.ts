@@ -42,6 +42,7 @@ export interface GraphQLIntrospectRequest {
   endpoint: string
   schemaPath: string
   headers: Record<string, string>
+  workspaceId: string
 }
 
 export interface GraphQLGenerateExampleRequest extends GraphQLIntrospectRequest {

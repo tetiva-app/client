@@ -3,7 +3,7 @@ package wails
 import (
 	"context"
 	"database/sql"
-	"os"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,6 +21,8 @@ import (
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
+	"github.com/tetiva-app/client/migrations"
+	"github.com/tetiva-app/client/pkg/migrate"
 )
 
 func setupSyncTestDB(t *testing.T) *sql.DB {
@@ -31,50 +33,156 @@ func setupSyncTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000"} {
 		if _, err := db.Exec(pragma); err != nil {
 			t.Fatal(err)
 		}
 	}
-	migrations := []string{
-		"001_initial.sql",
-		"002_requests_json_checks.sql",
-		"003_auth.sql",
-		"004_collection_scripts.sql",
-		"005_collection_auth_description.sql",
-		"006_workspace_is_active.sql",
-		"007_grpc_collection_metadata.sql",
-		"008_graphql.sql",
-		"009_sync.sql",
-		"010_workspace_remote_index.sql",
-		"011_sync_config_refresh_token.sql",
-		"012_cookies.sql",
-		"013_request_drafts.sql",
-	}
-	for _, name := range migrations {
-		migration, err := os.ReadFile("../../../migrations/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(migration)); err != nil {
-			t.Fatalf("migration %s: %v", name, err)
-		}
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
-func TestSyncService_CreateRemoteWorkspace_Error_NotConnected(t *testing.T) {
-	svc := &SyncService{}
+func TestCreateRemoteWorkspace_NotConnectedKeepsItLocal(t *testing.T) {
+	f := newVerificationFixture(t)
 
-	res := svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "ws"})
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Offline WS"})
+
+	require.Nil(t, res.Error, "a workspace the server never saw is still a workspace")
+	assert.Equal(t, "Offline WS", res.Data.Workspace.Name)
+	assert.Nil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Contains(t, res.Data.SyncWarning, "not connected to the sync server")
+	assert.False(t, remoteIDOf(t, f.db, res.Data.Workspace.ID).Valid)
+	assert.False(t, f.engine.IsEnabledForWorkspace(res.Data.Workspace.ID))
+}
+
+func TestCreateRemoteWorkspace_LinksAndStartsSyncer(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.svc.setClient(f.client)
+	f.wsStub.setCreate("remote-new", nil)
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Empty(t, res.Data.SyncWarning)
+	require.NotNil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Equal(t, "remote-new", *res.Data.Workspace.RemoteWorkspaceID)
+	assert.Equal(t, "Team", f.wsStub.createdName())
+	assert.Equal(t, "remote-new", remoteIDOf(t, f.db, res.Data.Workspace.ID).String)
+	assert.True(t, f.engine.IsEnabledForWorkspace(res.Data.Workspace.ID))
+}
+
+func TestCreateRemoteWorkspace_ServerRefusalKeepsItLocal(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.svc.setClient(f.client)
+	f.wsStub.setCreate("", status.Error(codes.ResourceExhausted, "workspace limit reached"))
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Nil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Contains(t, res.Data.SyncWarning, "workspace limit is reached")
+	assert.False(t, remoteIDOf(t, f.db, res.Data.Workspace.ID).Valid)
+	assert.False(t, f.engine.IsEnabledForWorkspace(res.Data.Workspace.ID))
+}
+
+// A configured server that is simply down must not read as a refusal by the
+// account: ErrNotConnected only covers sync that was never set up.
+func TestCreateRemoteWorkspace_UnreachableServerKeepsItLocal(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.svc.setClient(f.client)
+	f.wsStub.setCreate("", status.Error(codes.Unavailable, "connection refused"))
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Nil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Contains(t, res.Data.SyncWarning, "sync server is unreachable")
+	assert.NotContains(t, res.Data.SyncWarning, "did not accept it")
+	assert.False(t, remoteIDOf(t, f.db, res.Data.Workspace.ID).Valid)
+	assert.False(t, f.engine.IsEnabledForWorkspace(res.Data.Workspace.ID))
+}
+
+// A blown deadline can surface as a bare context error when it lands on the token
+// refresh instead of on an RPC, so status.Code alone would miss it.
+func TestLocalOnlyWorkspaceWarning_BareDeadlineReadsAsUnreachable(t *testing.T) {
+	warning := localOnlyWorkspaceWarning(fmt.Errorf("get access token: %w", context.DeadlineExceeded))
+
+	assert.Contains(t, warning, "sync server is unreachable")
+	assert.NotContains(t, warning, "did not accept it")
+}
+
+// The org lives only in memory, so it is missing right after a restart until the
+// refresh brings it back — reading it before the refresh sent workspaces local.
+func TestCreateRemoteWorkspace_RestoredSessionRefreshesTheOrgFirst(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.wsStub.setCreate("remote-restored", nil)
+	f.restartApp(t)
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Empty(t, res.Data.SyncWarning)
+	require.NotNil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Equal(t, "remote-restored", *res.Data.Workspace.RemoteWorkspaceID)
+	assert.Equal(t, "org-1", f.wsStub.createdOrgID(), "the org came from the refresh response")
+	assert.Equal(t, "remote-restored", remoteIDOf(t, f.db, res.Data.Workspace.ID).String)
+}
+
+// An account really without an organization: the refresh succeeds and still
+// names none.
+func TestCreateRemoteWorkspace_NoActiveOrgKeepsItLocal(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.restartApp(t)
+	f.authStub.setRefresh(authv1.RefreshResponse_builder{
+		AccessToken: "access-2", RefreshToken: "refresh-2",
+	}.Build())
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Nil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.Contains(t, res.Data.SyncWarning, "no active organization")
+	assert.Empty(t, f.wsStub.createdName(), "no org means no create call")
+}
+
+// A restart with nothing on disk is not connected at all: no refresh token, so
+// the failure must read as "not signed in", never as an org problem.
+func TestCreateRemoteWorkspace_RestartWithoutSessionKeepsItLocal(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.svc.setClient(f.client)
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: "Team"})
+
+	require.Nil(t, res.Error)
+	assert.Nil(t, res.Data.Workspace.RemoteWorkspaceID)
+	assert.NotContains(t, res.Data.SyncWarning, "no active organization")
+	assert.Empty(t, f.wsStub.createdName())
+}
+
+func TestCreateRemoteWorkspace_EmptyNameIsRejected(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.svc.setClient(f.client)
+
+	res := f.svc.CreateRemoteWorkspace(dto.CreateWorkspaceRequest{Name: ""})
 
 	require.NotNil(t, res.Error)
-	assert.Equal(t, ErrCodeInternal, res.Error.Code)
-	assert.True(t,
-		strings.Contains(res.Error.Message, "not connected to sync server"),
-		"expected 'not connected to sync server' in message, got %q", res.Error.Message,
-	)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+	assert.Empty(t, f.wsStub.createdName(), "an invalid name must not reach the server")
+
+	var count int
+	require.NoError(t, f.db.QueryRow(
+		`SELECT COUNT(*) FROM workspaces WHERE is_delete = 0`).Scan(&count))
+	assert.Equal(t, 1, count, "only the seeded workspace should exist")
 }
 
 func TestSyncService_ListRemoteWorkspaces_Error_NotConnected(t *testing.T) {

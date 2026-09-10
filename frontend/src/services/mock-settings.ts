@@ -10,6 +10,8 @@ let state: MCPSettings = {
   running: false,
   sseUrl: 'http://127.0.0.1:9300/sse',
   restartRequired: false,
+  token: 'mock-token-000',
+  requireToken: true,
 }
 
 export class MockSettingsService implements SettingsServiceAPI {
@@ -23,7 +25,12 @@ export class MockSettingsService implements SettingsServiceAPI {
       return { data: { ...state }, error: { code: 'validation', message: 'invalid port', fields: { addr: 'port must be between 1 and 65535' } } }
     }
     const host = m[1] || 'localhost'
-    state = { ...state, enabled: req.enabled, addr: req.addr, sseUrl: `http://${host}:${m[2]}/sse`, restartRequired: req.enabled !== state.running }
+    state = { ...state, enabled: req.enabled, addr: req.addr, requireToken: req.requireToken ?? state.requireToken, sseUrl: `http://${host}:${m[2]}/sse`, restartRequired: req.enabled !== state.running }
+    return { data: { ...state } }
+  }
+
+  async regenerateMCPToken(): Promise<Result<MCPSettings>> {
+    state = { ...state, token: `mock-token-${Math.random().toString(36).slice(2, 8)}` }
     return { data: { ...state } }
   }
 }

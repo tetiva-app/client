@@ -1,6 +1,6 @@
-import type { WebSocketServiceAPI } from './websocket-api'
+import type { WebSocketServiceAPI, WsConnectReq, WsSendReq } from './websocket-api'
 import type { Result } from '@/types/common'
-import type { WsIncoming, WsStateEvent } from '@/types/websocket'
+import type { WsConnectResult, WsIncoming, WsStateEvent } from '@/types/websocket'
 import { WebSocketService } from '../../bindings/github.com/tetiva-app/client/internal/adapters/wails'
 import {
   WSConnectRequest as BindingWSConnectRequest,
@@ -10,18 +10,19 @@ import {
 import { unwrap, type BindingResult } from './unwrap'
 
 export class WailsWebSocketService implements WebSocketServiceAPI {
-  async connect(req: { requestId: string; workspaceId: string; userId?: string }): Promise<Result<{ connectionId: string }>> {
-    return unwrap<{ connectionId: string }>(await WebSocketService.Connect(new BindingWSConnectRequest({
+  async connect(req: WsConnectReq): Promise<Result<WsConnectResult>> {
+    return unwrap<WsConnectResult>(await WebSocketService.Connect(new BindingWSConnectRequest({
       requestId: req.requestId,
       workspaceId: req.workspaceId,
-      userId: req.userId ?? '',
-    })) as unknown as BindingResult<{ connectionId: string }>)
+      connectionId: req.connectionId,
+    })) as unknown as BindingResult<WsConnectResult>)
   }
 
-  async send(req: { connectionId: string; data: string }): Promise<Result<Record<string, never>>> {
+  async send(req: WsSendReq): Promise<Result<Record<string, never>>> {
     return unwrap<Record<string, never>>(await WebSocketService.Send(new BindingWSSendRequest({
       connectionId: req.connectionId,
       data: req.data,
+      messageType: req.messageType,
     })) as unknown as BindingResult<Record<string, never>>)
   }
 

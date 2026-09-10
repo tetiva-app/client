@@ -12,6 +12,7 @@ import {
   varsChangedEffect,
 } from '@/lib/codemirror-variables'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
+import { isCurlCommand } from '@/lib/curl-paste'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -22,9 +23,14 @@ const props = withDefaults(defineProps<{
   masked?: boolean
   variant?: 'default' | 'borderless'
   contentClass?: string
+  // Assistive-technology state of the editable element; the wrapper div is not
+  // the input, so a label or a message must point at .cm-content itself.
+  invalid?: boolean
+  describedBy?: string
   resolvedVariables?: Record<string, string>
   secretKeys?: Set<string>
   availableVariables?: Array<{ key: string; value: string; isSecret: boolean }>
+  detectCurl?: boolean
 }>(), {
   placeholder: '',
   multiline: false,
@@ -33,6 +39,9 @@ const props = withDefaults(defineProps<{
   masked: false,
   variant: 'default',
   contentClass: '',
+  invalid: false,
+  describedBy: '',
+  detectCurl: false,
 })
 
 const emit = defineEmits<{
@@ -40,11 +49,11 @@ const emit = defineEmits<{
   (e: 'submit'): void
   (e: 'focus'): void
   (e: 'blur'): void
+  (e: 'paste-curl', text: string): void
 }>()
 
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
-let ignoreNextUpdate = false
 
 const getVars = () => props.resolvedVariables ?? {}
 const getSecrets = () => props.secretKeys ?? new Set<string>()
@@ -52,6 +61,16 @@ const getAvailableVars = () => props.availableVariables ?? []
 
 const maskedCompartment = new Compartment()
 const editableCompartment = new Compartment()
+const contentAttrsCompartment = new Compartment()
+
+function getContentAttrsExtension() {
+  const attrs: Record<string, string> = {}
+  if (props.contentClass) attrs.class = props.contentClass
+  if (props.invalid) attrs['aria-invalid'] = 'true'
+  if (props.describedBy) attrs['aria-describedby'] = props.describedBy
+
+  return Object.keys(attrs).length > 0 ? EditorView.contentAttributes.of(attrs) : []
+}
 
 function getMaskedExtension() {
   return props.masked
@@ -82,13 +101,22 @@ function createExtensions() {
     cmPlaceholder(props.placeholder),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        ignoreNextUpdate = true
         emit('update:modelValue', update.state.doc.toString())
       }
     }),
     EditorView.domEventHandlers({
       focus: () => { emit('focus'); return false },
       blur: () => { emit('blur'); return false },
+      // Read the clipboard before CodeMirror does: the single-line
+      // transactionFilter below flattens newlines, and cURL needs them intact.
+      paste: (event) => {
+        if (!props.detectCurl) return false
+        const text = event.clipboardData?.getData('text') ?? ''
+        if (!isCurlCommand(text)) return false
+        event.preventDefault()
+        emit('paste-curl', text)
+        return true
+      },
     }),
     EditorView.theme({
       '&': {
@@ -98,6 +126,9 @@ function createExtensions() {
       },
       '&.cm-focused': { outline: 'none' },
       '.cm-content': { cursor: 'text' },
+      // The placeholder is a span inside .cm-content and would inherit the
+      // masking: an empty secret field would show dots and read as filled.
+      '.cm-placeholder': { WebkitTextSecurity: 'none' },
       '.cm-scroller': { cursor: 'text' },
       '.cm-cursor, .cm-dropCursor': {
         borderLeftColor: 'var(--foreground, #e4e4e7)',
@@ -111,13 +142,8 @@ function createExtensions() {
     }),
     maskedCompartment.of(getMaskedExtension()),
     editableCompartment.of(getEditableExtension()),
+    contentAttrsCompartment.of(getContentAttrsExtension()),
   ]
-
-  if (props.contentClass) {
-    extensions.push(
-      EditorView.contentAttributes.of({ class: props.contentClass }),
-    )
-  }
 
   if (!props.multiline) {
     // Single-line: replace newlines with spaces (handles paste, drag-drop)
@@ -187,10 +213,6 @@ onBeforeUnmount(() => {
 })
 
 watch(() => props.modelValue, (newVal) => {
-  if (ignoreNextUpdate) {
-    ignoreNextUpdate = false
-    return
-  }
   if (!view) return
   const current = view.state.doc.toString()
   if (newVal === current) return
@@ -207,6 +229,11 @@ watch(() => props.resolvedVariables, () => {
 watch(() => props.masked, () => {
   if (!view) return
   view.dispatch({ effects: maskedCompartment.reconfigure(getMaskedExtension()) })
+})
+
+watch([() => props.contentClass, () => props.invalid, () => props.describedBy], () => {
+  if (!view) return
+  view.dispatch({ effects: contentAttrsCompartment.reconfigure(getContentAttrsExtension()) })
 })
 
 watch([() => props.disabled, () => props.readonly], () => {

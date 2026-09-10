@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,26 +12,22 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Filter defines criteria for listing collections.
 type Filter struct {
 	WorkspaceID uuid.UUID
 	ParentID    *uuid.UUID
 }
 
-// ListOpt holds contextual options for the List operation.
 type ListOpt struct {
 	WorkspaceID uuid.UUID
 	ParentID    *uuid.UUID
 }
 
-// DeleteOpt holds contextual options for the Delete operation.
 type DeleteOpt struct {
 	CollectionID uuid.UUID
 	UserID       string
 	Version      int
 }
 
-// MoveOpt holds contextual options for the Move operation.
 type MoveOpt struct {
 	CollectionID   uuid.UUID
 	TargetParentID *uuid.UUID
@@ -38,7 +35,6 @@ type MoveOpt struct {
 	Version        int
 }
 
-// Move changes the parent of a collection, with circular dependency validation.
 func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Collection, error) {
 	const funcName = "collection.Move"
 
@@ -80,7 +76,6 @@ func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Collection, 
 	return existing, nil
 }
 
-// isDescendant checks if candidateID is a descendant of ancestorID by walking up the tree.
 func (u *usecase) isDescendant(ctx context.Context, ancestorID, candidateID uuid.UUID) (bool, error) {
 	current := candidateID
 	for {
@@ -98,7 +93,6 @@ func (u *usecase) isDescendant(ctx context.Context, ancestorID, candidateID uuid
 	}
 }
 
-// GetByID retrieves a single collection by its ID.
 func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
 	const funcName = "collection.GetByID"
 
@@ -113,7 +107,6 @@ func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collecti
 	return c, nil
 }
 
-// List returns collections matching the given options.
 func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Collection, error) {
 	const funcName = "collection.List"
 
@@ -127,7 +120,7 @@ func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Collection
 	return collections, nil
 }
 
-// Delete performs a soft delete on the collection (sets is_delete = true).
+// Delete is a soft delete: the row stays with is_delete = true.
 func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	const funcName = "collection.Delete"
 
@@ -157,10 +150,23 @@ func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 		return fmt.Errorf("%s: soft delete descendants: %w", funcName, err)
 	}
 
+	owner := entities.AuthOwner{
+		WorkspaceID: existing.WorkspaceID,
+		Kind:        entities.AuthOwnerKindCollection,
+		ID:          existing.ID,
+	}
+	if err := u.tokens().Clear(ctx, owner); err != nil {
+		return fmt.Errorf("%s: clear tokens: %w", funcName, err)
+	}
+	// Requests under the subtree keep is_delete = 0, so only the ancestor-walking sweep
+	// reaches their tokens; the delete is committed, so a failed sweep waits for the next one.
+	if _, err := u.tokens().DeleteOrphans(ctx); err != nil {
+		slog.Warn("collection: token sweep failed", "op", funcName, "err", err)
+	}
+
 	return nil
 }
 
-// Reorder updates the sort order of a collection.
 func (u *usecase) Reorder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	const funcName = "collection.Reorder"
 

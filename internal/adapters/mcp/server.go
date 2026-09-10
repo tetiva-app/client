@@ -2,13 +2,18 @@ package mcp
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
@@ -20,6 +25,10 @@ import (
 const (
 	defaultWorkspaceID = "00000000-0000-4000-a000-000000000001"
 	mcpUserID          = "mcp-devtools"
+
+	// shutdownTimeout caps the graceful phase even when the caller passes a
+	// context without a deadline, so quitting the app never waits on a client.
+	shutdownTimeout = 5 * time.Second
 )
 
 // Server is the MCP DevTools server embedded in the Wails application.
@@ -33,9 +42,10 @@ type Server struct {
 	reqUC     request.Usecase
 	envUC     environment.Usecase
 	wsUC      workspace.Usecase
+	auth      *TokenAuth
+	httpSrv   *http.Server
 }
 
-// NewServer creates a new MCP DevTools server.
 func NewServer(
 	engine *syncsvc.SyncEngine,
 	syncQueue sqlite.SyncQueueRepository,
@@ -44,9 +54,14 @@ func NewServer(
 	envUC environment.Usecase,
 	wsUC workspace.Usecase,
 	addr string,
+	auth *TokenAuth,
 ) *Server {
+	if auth == nil {
+		auth = NewTokenAuth("", false)
+	}
 	s := &Server{
 		addr:      addr,
+		auth:      auth,
 		engine:    engine,
 		syncQueue: syncQueue,
 		colUC:     colUC,
@@ -71,22 +86,35 @@ func NewServer(
 	return s
 }
 
-// Start starts the SSE server on the configured address.
 func (s *Server) Start(_ context.Context) error {
-	if !isLoopbackAddr(s.addr) {
-		slog.Warn("MCP DevTools is reachable from the network and has no authentication: "+
+	if !isLoopbackAddr(s.addr) && !s.auth.Enabled() {
+		slog.Warn("MCP DevTools is reachable from the network without a token: "+
 			"anyone who can reach this address can read collections, environment variables and send requests",
 			"addr", s.addr)
+	}
+
+	// The handler closes over s.sse, which the constructor below assigns; it is
+	// only dereferenced once the goroutine starts serving.
+	s.httpSrv = &http.Server{
+		Addr: s.addr,
+		Handler: s.auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.sse.ServeHTTP(w, r)
+		})),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	s.sse = mcpserver.NewSSEServer(s.mcp,
 		mcpserver.WithSSEEndpoint("/sse"),
 		mcpserver.WithMessageEndpoint("/message"),
+		// Without this the endpoint event drops the ?token= of the /sse request and
+		// every follow-up POST /message would be rejected as unauthenticated.
+		mcpserver.WithAppendQueryToMessageEndpoint(),
+		mcpserver.WithHTTPServer(s.httpSrv),
 	)
 
 	go func() {
 		slog.Info("MCP DevTools server starting", "addr", s.addr)
-		if err := s.sse.Start(s.addr); err != nil {
+		if err := s.sse.Start(s.addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("MCP DevTools server failed", "err", err)
 		}
 	}()
@@ -94,18 +122,47 @@ func (s *Server) Start(_ context.Context) error {
 	return nil
 }
 
-// Engine returns the underlying SyncEngine. Exposed for test helpers only.
+// Exposed for test helpers only.
 func (s *Server) Engine() *syncsvc.SyncEngine {
 	return s.engine
 }
 
-// Stop gracefully shuts down the SSE server.
-func (s *Server) Stop(_ context.Context) error {
-	if s.sse != nil {
-		slog.Info("MCP DevTools server stopping")
-		return s.sse.Shutdown(context.Background())
+// Graceful shutdown gets the caller's deadline capped at shutdownTimeout: a half-sent
+// POST /message parks in the JSON decoder forever, so the connections are then dropped.
+func (s *Server) Stop(ctx context.Context) error {
+	if s.sse == nil {
+		return nil
 	}
-	return nil
+	slog.Info("MCP DevTools server stopping")
+
+	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+	defer cancel()
+
+	shutdownSSE(ctx, s.sse)
+	if s.httpSrv == nil {
+		return nil
+	}
+	// Repeated after shutdownSSE because a panic there leaves the port bound and
+	// skips whatever sessions the panic cut the loop short of.
+	err := s.httpSrv.Shutdown(ctx)
+	if err == nil {
+		return nil
+	}
+	slog.Warn("MCP DevTools graceful shutdown timed out, dropping connections", "err", err)
+	return s.httpSrv.Close()
+}
+
+// shutdownSSE contains the double close of a session's done channel that mcp-go
+// v0.45.0 panics on when a client is still attached at quit.
+func shutdownSSE(ctx context.Context, sse *mcpserver.SSEServer) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("MCP DevTools shutdown panicked", "err", r)
+		}
+	}()
+	if err := sse.Shutdown(ctx); err != nil {
+		slog.Warn("MCP DevTools shutdown failed", "err", err)
+	}
 }
 
 // isLoopbackAddr reports whether the listen address is reachable only from this
@@ -123,7 +180,28 @@ func isLoopbackAddr(addr string) bool {
 }
 
 func errResult(err error) *mcplib.CallToolResult {
-	return mcplib.NewToolResultError(fmt.Sprintf("error: %v", err))
+	return mcplib.NewToolResultError("error: " + errText(err))
+}
+
+// errText spells out per-field reasons: a bare "validation failed" gives the agent
+// nothing to correct.
+func errText(err error) string {
+	var valErr *domain.ValidationError
+	if !errors.As(err, &valErr) || len(valErr.Fields) == 0 {
+		return err.Error()
+	}
+
+	fields := make([]string, 0, len(valErr.Fields))
+	for name := range valErr.Fields {
+		fields = append(fields, name)
+	}
+	sort.Strings(fields)
+
+	parts := make([]string, 0, len(fields))
+	for _, name := range fields {
+		parts = append(parts, name+": "+valErr.Fields[name])
+	}
+	return valErr.Error() + " (" + strings.Join(parts, "; ") + ")"
 }
 
 func textResult(text string) *mcplib.CallToolResult {

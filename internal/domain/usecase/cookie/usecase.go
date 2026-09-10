@@ -10,7 +10,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Repository persists cookies. ISP — usecase owns the contract.
 type Repository interface {
 	Upsert(ctx context.Context, c *entities.Cookie) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Cookie, error)
@@ -18,12 +17,10 @@ type Repository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteByDomain(ctx context.Context, workspaceID uuid.UUID, domain string) (int, error)
 	Clear(ctx context.Context, workspaceID uuid.UUID) (int, error)
-	// MatchForRequest returns cookies that should be sent for u in workspace.
-	// Filters by domain match, path match, secure, and expiration.
+	// MatchForRequest filters by domain, path, secure flag and expiration.
 	MatchForRequest(ctx context.Context, workspaceID uuid.UUID, u *url.URL) ([]*entities.Cookie, error)
 }
 
-// Usecase is the public API.
 type Usecase interface {
 	Add(ctx context.Context, input Add, opt Opt) (*entities.Cookie, error)
 	Edit(ctx context.Context, input Edit, opt Opt) (*entities.Cookie, error)
@@ -42,7 +39,6 @@ type usecase struct {
 	repo Repository
 }
 
-// NewUsecase creates a new cookie usecase instance.
 func NewUsecase(repo Repository) Usecase {
 	return &usecase{repo: repo}
 }

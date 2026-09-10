@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onActivated, onMounted, onUnmounted } from 'vue'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
 import { useEnvironmentStore } from '@/stores/environments'
+import { isInsideOverlay } from '@/lib/shortcut-guards'
 import CollectionOverview from './CollectionOverview.vue'
 import CollectionAuth from './CollectionAuth.vue'
 import ScriptEditor from './ScriptEditor.vue'
@@ -27,8 +28,19 @@ const collection = computed(() =>
   collectionStore.collectionsMap.get(props.collectionId)
 )
 
+const isActiveTab = computed(
+  () => tabStore.activeTab?.type === 'collection' && tabStore.activeTab.collectionId === props.collectionId,
+)
+
 const initialSection = tabStore.consumeInitialSection(props.collectionId)
 const activeSection = ref<string>(initialSection ?? 'overview')
+
+// KeepAlive never re-runs setup, so a request to open an already-open tab on a
+// given section arrives here instead.
+onActivated(() => {
+  const section = tabStore.consumeInitialSection(props.collectionId)
+  if (section) activeSection.value = section
+})
 
 const localPreScript = ref(collection.value?.preScript ?? '')
 const localPostScript = ref(collection.value?.postScript ?? '')
@@ -60,34 +72,33 @@ async function saveCollection() {
   )
 }
 
-const hasParent = computed(() => !!collection.value?.parentId)
+// On window, not on the container: clicking a button inside does not focus it in
+// WebKit, so a container handler would miss Cmd+S right after any button press.
+function handleKeydown(event: KeyboardEvent) {
+  if (!isActiveTab.value) return
+  if (isInsideOverlay(event)) return
+  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+    event.preventDefault()
+    void saveCollection()
+  }
+}
 
 onMounted(() => {
   tabStore.registerCollectionEditor(props.collectionId, {
     saveScripts: saveCollection,
     get scriptsDirty() { return isDirty.value },
   })
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
   tabStore.unregisterCollectionEditor(props.collectionId)
+  window.removeEventListener('keydown', handleKeydown)
 })
-
-function handleKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
-    event.preventDefault()
-    saveCollection()
-  }
-}
 </script>
 
 <template>
-  <div
-    v-if="collection"
-    class="flex flex-col h-full"
-    tabindex="0"
-    @keydown="handleKeydown"
-  >
+  <div v-if="collection" class="flex flex-col h-full">
     <Tabs v-model="activeSection" class="flex flex-col h-full">
       <TabsList class="w-full justify-start rounded-none border-b border-border bg-transparent px-2 h-9 shrink-0">
         <TabsTrigger value="overview" class="text-xs data-[state=active]:shadow-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
@@ -114,7 +125,7 @@ function handleKeydown(event: KeyboardEvent) {
           :collection-id="collectionId"
           :auth-type="localAuthType"
           :auth-data="localAuthData"
-          :has-parent="hasParent"
+          :version="collection.version"
           @update:auth-type="localAuthType = $event"
           @update:auth-data="localAuthData = $event"
         />

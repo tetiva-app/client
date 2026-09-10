@@ -10,7 +10,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// PersistVariableChanges syncs the given variable map with the active environment.
+// PersistVariableChanges touches the active environment only: missing keys are created, none removed.
 func (u *usecase) PersistVariableChanges(ctx context.Context, workspaceID uuid.UUID, userID string, newVars map[string]string) error {
 	const funcName = "environment.PersistVariableChanges"
 

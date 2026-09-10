@@ -1,0 +1,14 @@
+# frontend/dist and frontend/bindings stay: the image build needs both.
+.git
+.idea
+.task
+.DS_Store
+bin
+client
+node_modules
+frontend/node_modules
+frontend/playwright-report
+frontend/test-results
+.tour-capture
+build/linux/appimage/build
+*.log

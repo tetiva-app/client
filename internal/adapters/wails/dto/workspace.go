@@ -2,30 +2,25 @@ package dto
 
 import "github.com/tetiva-app/client/internal/domain/entities"
 
-// CreateWorkspaceRequest is the frontend request to create a workspace.
 type CreateWorkspaceRequest struct {
 	Name string `json:"name"`
 }
 
-// EditWorkspaceRequest is the frontend request to edit a workspace.
 type EditWorkspaceRequest struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 }
 
-// DeleteWorkspaceRequest is the frontend request to delete a workspace.
 type DeleteWorkspaceRequest struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
 }
 
-// SetActiveWorkspaceRequest is the frontend request to set the active workspace.
 type SetActiveWorkspaceRequest struct {
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// WorkspaceResponse is the frontend response representing a workspace.
 type WorkspaceResponse struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
@@ -36,7 +31,6 @@ type WorkspaceResponse struct {
 	UpdatedAt         string  `json:"updatedAt"`
 }
 
-// WorkspaceToResponse maps a domain Workspace entity to a WorkspaceResponse DTO.
 func WorkspaceToResponse(w *entities.Workspace) WorkspaceResponse {
 	return WorkspaceResponse{
 		ID:                w.ID.String(),
@@ -49,11 +43,17 @@ func WorkspaceToResponse(w *entities.Workspace) WorkspaceResponse {
 	}
 }
 
-// WorkspacesToResponse maps a slice of domain Workspace entities to WorkspaceResponse DTOs.
 func WorkspacesToResponse(workspaces []*entities.Workspace) []WorkspaceResponse {
 	result := make([]WorkspaceResponse, 0, len(workspaces))
 	for _, w := range workspaces {
 		result = append(result, WorkspaceToResponse(w))
 	}
 	return result
+}
+
+// Carries the workspace with the reason its cloud copy is missing: the local half
+// succeeds even when the server refuses, and Result has room for one, not both.
+type CreateRemoteWorkspaceResult struct {
+	Workspace   WorkspaceResponse `json:"workspace"`
+	SyncWarning string            `json:"syncWarning"`
 }

@@ -108,7 +108,6 @@ test.describe('URL Bar', () => {
 
     await cancelBtn.click();
 
-    // idle state shows the ⌘ Enter hint
     await expect(page.getByText('⌘ Enter')).toBeVisible({ timeout: 3000 });
   });
 

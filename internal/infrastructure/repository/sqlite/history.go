@@ -15,19 +15,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/history"
 )
 
-// HistoryRepo implements both request.HistoryRepository (Create/GetByID)
-// and history.Repository (List/Count/Delete/DeleteAll) using SQLite.
+// Implements both request.HistoryRepository and history.Repository.
 type HistoryRepo struct {
 	db *sql.DB
 }
 
-// NewHistoryRepo creates a new HistoryRepo. The concrete return type lets it
-// satisfy multiple usecase interfaces via fx bridges.
+// The concrete return type lets it satisfy multiple usecase interfaces via fx bridges.
 func NewHistoryRepo(db *sql.DB) *HistoryRepo {
 	return &HistoryRepo{db: db}
 }
 
-// Create inserts a new history record into the database.
 func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 	const funcName = "HistoryRepo.Create"
 
@@ -41,10 +38,19 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 		return fmt.Errorf("%s: marshal response_headers: %w", funcName, err)
 	}
 
+	authQueryKeys := h.AuthQueryKeys
+	if authQueryKeys == nil {
+		authQueryKeys = []string{}
+	}
+	queryKeys, err := json.Marshal(authQueryKeys)
+	if err != nil {
+		return fmt.Errorf("%s: marshal auth_query_keys: %w", funcName, err)
+	}
+
 	query := `INSERT INTO history (id, request_id, workspace_id, protocol, method, url,
 		request_headers, request_body, response_status, response_headers, response_body,
-		response_size, duration_ms, error_message, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		response_size, duration_ms, error_message, created_at, auth_query_keys)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	// request_id is nullable in schema (ON DELETE SET NULL). Persist a zero
 	// UUID as NULL so the FK constraint accepts orphan history rows.
@@ -69,6 +75,7 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 		h.DurationMs,
 		h.ErrorMessage,
 		h.CreatedAt.Format(time.RFC3339),
+		string(queryKeys),
 	)
 	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
@@ -77,13 +84,11 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 	return nil
 }
 
-// historyColumns is the canonical column list feeding scanHistoryRow / scanHistoryRowSingle.
 const historyColumns = `id, request_id, workspace_id, protocol, method, url,
 	request_headers, request_body, response_status, response_headers, response_body,
-	response_size, duration_ms, error_message, created_at`
+	response_size, duration_ms, error_message, created_at, auth_query_keys`
 
-// GetByID retrieves a single history record by its ID. Returns (nil, nil)
-// when the record does not exist.
+// Returns (nil, nil) when the record does not exist.
 func (r *HistoryRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.History, error) {
 	const funcName = "HistoryRepo.GetByID"
 
@@ -100,7 +105,7 @@ func (r *HistoryRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Hist
 	return h, nil
 }
 
-// List returns history rows matching the filter, ordered DESC by created_at.
+// Ordered DESC by created_at.
 func (r *HistoryRepo) List(ctx context.Context, f history.Filter) ([]*entities.History, error) {
 	const funcName = "HistoryRepo.List"
 	where, args := buildHistoryWhere(f)
@@ -133,8 +138,7 @@ func (r *HistoryRepo) List(ctx context.Context, f history.Filter) ([]*entities.H
 	return out, nil
 }
 
-// Count returns the total number of history rows matching the filter (no
-// limit/offset applied).
+// The filter's limit/offset are ignored.
 func (r *HistoryRepo) Count(ctx context.Context, f history.Filter) (int, error) {
 	const funcName = "HistoryRepo.Count"
 	where, args := buildHistoryWhere(f)
@@ -145,7 +149,7 @@ func (r *HistoryRepo) Count(ctx context.Context, f history.Filter) (int, error) 
 	return n, nil
 }
 
-// Delete removes a single history row by ID. Missing rows are not an error.
+// Missing rows are not an error.
 func (r *HistoryRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	const funcName = "HistoryRepo.Delete"
 	if _, err := r.db.ExecContext(ctx, "DELETE FROM history WHERE id = ?", id.String()); err != nil {
@@ -154,7 +158,6 @@ func (r *HistoryRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// DeleteAll removes every history row belonging to the given workspace.
 func (r *HistoryRepo) DeleteAll(ctx context.Context, workspaceID uuid.UUID) error {
 	const funcName = "HistoryRepo.DeleteAll"
 	if _, err := r.db.ExecContext(ctx, "DELETE FROM history WHERE workspace_id = ?", workspaceID.String()); err != nil {
@@ -163,7 +166,6 @@ func (r *HistoryRepo) DeleteAll(ctx context.Context, workspaceID uuid.UUID) erro
 	return nil
 }
 
-// buildHistoryWhere returns a parameterized WHERE clause (with leading "WHERE ") and args.
 // workspace_id is always the first clause, so queries are workspace-bounded by construction.
 func buildHistoryWhere(f history.Filter) (string, []any) {
 	var clauses []string
@@ -188,7 +190,8 @@ func buildHistoryWhere(f history.Filter) (string, []any) {
 		for _, k := range f.StatusKinds {
 			switch k {
 			case history.StatusKind2xx:
-				kindParts = append(kindParts, "(response_status BETWEEN 200 AND 299 AND error_message = '')")
+				// 101 is the success status of a WebSocket handshake, it has no range of its own.
+				kindParts = append(kindParts, "((response_status BETWEEN 200 AND 299 OR response_status = 101) AND error_message = '')")
 			case history.StatusKind3xx:
 				kindParts = append(kindParts, "(response_status BETWEEN 300 AND 399 AND error_message = '')")
 			case history.StatusKind4xx:
@@ -210,19 +213,18 @@ func buildHistoryWhere(f history.Filter) (string, []any) {
 	return "WHERE " + strings.Join(clauses, " AND "), args
 }
 
-// rowScanner is the minimal interface satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanHistoryFields defers UUID/JSON parsing to populateHistory. request_id is
-// read into sql.NullString: the schema stores NULL, not zero-UUID, for orphan rows.
-func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt string, err error) {
+// UUID/JSON parsing is deferred to populateHistory. request_id reads into sql.NullString:
+// the schema stores NULL, not zero-UUID, for orphan rows.
+func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys string, err error) {
 	var reqIDNS sql.NullString
 	err = rs.Scan(
 		&idStr, &reqIDNS, &workspaceIDStr, &protocolStr, &h.Method, &h.URL,
 		&reqHeaders, &h.RequestBody, &h.ResponseStatus, &respHeaders, &h.ResponseBody,
-		&h.ResponseSize, &h.DurationMs, &h.ErrorMessage, &createdAt,
+		&h.ResponseSize, &h.DurationMs, &h.ErrorMessage, &createdAt, &authQueryKeys,
 	)
 	if reqIDNS.Valid {
 		requestIDStr = reqIDNS.String
@@ -230,9 +232,9 @@ func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr,
 	return
 }
 
-// populateHistory parses id and workspace_id strictly; request_id is lenient
-// because orphan history rows may carry an empty or zero UUID — a valid state.
-func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt string) error {
+// id and workspace_id are parsed strictly; request_id is lenient because orphan
+// history rows may carry an empty or zero UUID — a valid state.
+func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys string) error {
 	parsedID, err := uuid.Parse(idStr)
 	if err != nil {
 		return fmt.Errorf("parse id: %w", err)
@@ -257,6 +259,9 @@ func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, p
 	if err := json.Unmarshal([]byte(respHeaders), &h.ResponseHeaders); err != nil {
 		return fmt.Errorf("unmarshal response_headers: %w", err)
 	}
+	if err := json.Unmarshal([]byte(authQueryKeys), &h.AuthQueryKeys); err != nil {
+		return fmt.Errorf("unmarshal auth_query_keys: %w", err)
+	}
 
 	parsedCreated, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
@@ -268,25 +273,24 @@ func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, p
 
 func scanHistoryRow(rows *sql.Rows) (*entities.History, error) {
 	var h entities.History
-	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, err := scanHistoryFields(rows, &h)
+	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, err := scanHistoryFields(rows, &h)
 	if err != nil {
 		return nil, err
 	}
-	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt); err != nil {
+	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys); err != nil {
 		return nil, err
 	}
 	return &h, nil
 }
 
-// scanHistoryRowSingle scans a single-row *sql.Row result. Returns sql.ErrNoRows
-// unwrapped so callers can use errors.Is.
+// Returns sql.ErrNoRows unwrapped so callers can use errors.Is.
 func scanHistoryRowSingle(row *sql.Row) (*entities.History, error) {
 	var h entities.History
-	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, err := scanHistoryFields(row, &h)
+	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, err := scanHistoryFields(row, &h)
 	if err != nil {
 		return nil, err
 	}
-	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt); err != nil {
+	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys); err != nil {
 		return nil, err
 	}
 	return &h, nil

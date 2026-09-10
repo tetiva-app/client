@@ -9,12 +9,11 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/settings"
 )
 
-// SettingsRepo implements settings.Repository using SQLite (generic KV store).
+// Generic KV store.
 type SettingsRepo struct {
 	db *sql.DB
 }
 
-// NewSettingsRepo creates a new SettingsRepo instance.
 func NewSettingsRepo(db *sql.DB) settings.Repository {
 	return &SettingsRepo{db: db}
 }
@@ -39,6 +38,25 @@ func (r *SettingsRepo) Set(ctx context.Context, key, value string) error {
 	INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
 	ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
 	_, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, q, key, value, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	return nil
+}
+
+func (r *SettingsRepo) SetMany(ctx context.Context, values map[string]string) error {
+	const funcName = "SettingsRepo.SetMany"
+	if len(values) == 0 {
+		return nil
+	}
+	err := WithTx(ctx, r.db, func(ctx context.Context) error {
+		for key, value := range values {
+			if err := r.Set(ctx, key, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}

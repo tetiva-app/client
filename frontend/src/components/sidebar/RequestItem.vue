@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MoreHorizontal } from 'lucide-vue-next'
-import type { Request, HTTPMethod } from '@/types/request'
-import { methodColors, methodLabel, METHOD_COLOR_FALLBACK } from '@/lib/http-methods'
+import type { Request } from '@/types/request'
+import MethodBadge from '@/components/ui/MethodBadge.vue'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { isWailsEnvironment, getWindowService } from '@/services'
 import { useSidebarSearchStore, type RequestHitPreview } from '@/stores/sidebarSearch'
@@ -45,9 +45,6 @@ const visible = computed(() => search.isVisible(props.request.id, 'request', par
 const isContextOnly = computed(() => search.isContextOnly(props.request.id, 'request', parentCollectionId.value))
 const isSearchOnly = computed(() => search.isSearchOnly(props.request.id))
 const highlightedName = useHighlight(() => props.request.name, () => search.query)
-
-// methodLabel expects HTTPMethod — preview may have empty string (non-HTTP protocols)
-const methodForBadge = computed(() => (props.request.method || 'GET') as HTTPMethod)
 
 async function handleClick(event: MouseEvent) {
   if (event.metaKey || event.ctrlKey) {
@@ -128,27 +125,7 @@ function handleMoreClick(e: MouseEvent) {
         @click="handleClick"
       >
         <span class="size-3.5 shrink-0" />
-        <span
-          v-if="request.protocol === 'grpc'"
-          class="shrink-0 text-[10px] font-bold uppercase leading-none px-1.5 py-0.5 rounded text-center min-w-[32px]"
-          style="color: #A78BFA; background-color: rgba(167, 139, 250, 0.12)"
-        >
-          gRPC
-        </span>
-        <span
-          v-else-if="request.protocol === 'graphql'"
-          class="shrink-0 text-[10px] font-bold uppercase leading-none px-1.5 py-0.5 rounded text-center min-w-[32px]"
-          style="color: #E535AB; background-color: rgba(229, 53, 171, 0.12)"
-        >
-          GQL
-        </span>
-        <span
-          v-else
-          class="shrink-0 text-[10px] font-bold uppercase leading-none px-1.5 py-0.5 rounded text-center min-w-[32px]"
-          :style="{ color: methodColors[methodForBadge] || METHOD_COLOR_FALLBACK, backgroundColor: (methodColors[methodForBadge] || METHOD_COLOR_FALLBACK) + '20' }"
-        >
-          {{ methodLabel(methodForBadge) }}
-        </span>
+        <MethodBadge :method="request.method" :protocol="request.protocol" />
         <span class="truncate flex-1" v-html="highlightedName" />
         <div
           role="button"

@@ -12,7 +12,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Create holds the data required to create a new collection.
 type Create struct {
 	Name        string
 	ParentID    *uuid.UUID
@@ -23,13 +22,11 @@ type Create struct {
 	AuthData    string
 }
 
-// CreateOpt holds contextual options for the Create operation.
 type CreateOpt struct {
 	UserID      string
 	WorkspaceID uuid.UUID
 }
 
-// Validate checks that all required fields are present.
 func (c *Create) Validate() error {
 	errs := make(map[string]string)
 	if c.Name == "" {
@@ -51,7 +48,6 @@ func (c *Create) Validate() error {
 	return nil
 }
 
-// Create validates input, builds a Collection entity and persists it.
 func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Collection, error) {
 	const funcName = "collection.Create"
 

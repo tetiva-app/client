@@ -16,7 +16,11 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
     return {
       ...res,
       data: res.data
-        ? { foldersCreated: res.data.foldersCreated, requestsCreated: res.data.requestsCreated }
+        ? {
+            foldersCreated: res.data.foldersCreated,
+            requestsCreated: res.data.requestsCreated,
+            warnings: res.data.warnings ?? [],
+          }
         : undefined,
     } as Result<ImportCollectionResult>
   }

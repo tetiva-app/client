@@ -21,7 +21,6 @@ type SyncedRequestRepo struct {
 	engine    *SyncEngine
 }
 
-// NewSyncedRequestRepo creates a new SyncedRequestRepo.
 func NewSyncedRequestRepo(inner request.Repository, syncQueue sqlite.SyncQueueRepository, db *sql.DB, engine *SyncEngine) *SyncedRequestRepo {
 	return &SyncedRequestRepo{
 		inner:     inner,
@@ -61,12 +60,10 @@ func (r *SyncedRequestRepo) Create(ctx context.Context, req *entities.Request) e
 	return txErr
 }
 
-// GetByID delegates to the inner repository.
 func (r *SyncedRequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
 	return r.inner.GetByID(ctx, id)
 }
 
-// List delegates to the inner repository.
 func (r *SyncedRequestRepo) List(ctx context.Context, filter request.Filter) ([]*entities.Request, error) {
 	return r.inner.List(ctx, filter)
 }
@@ -101,17 +98,20 @@ func (r *SyncedRequestRepo) Update(ctx context.Context, req *entities.Request) e
 	return txErr
 }
 
-// UpdateSortOrder delegates to the inner repository (not a sync-relevant operation).
+func (r *SyncedRequestRepo) GetDescriptionByID(ctx context.Context, id uuid.UUID) (string, error) {
+	return r.inner.GetDescriptionByID(ctx, id)
+}
+
+// UpdateSortOrder is not sync-relevant, so nothing is enqueued.
 func (r *SyncedRequestRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	return r.inner.UpdateSortOrder(ctx, id, sortOrder)
 }
 
-// DeleteHard delegates to the inner repository. Drafts are local-only and bypass sync queue.
+// Drafts are local-only and bypass the sync queue.
 func (r *SyncedRequestRepo) DeleteHard(ctx context.Context, id uuid.UUID) error {
 	return r.inner.DeleteHard(ctx, id)
 }
 
-// CleanupDrafts delegates to the inner repository. Drafts are local-only and bypass sync queue.
 func (r *SyncedRequestRepo) CleanupDrafts(ctx context.Context) (int, error) {
 	return r.inner.CleanupDrafts(ctx)
 }

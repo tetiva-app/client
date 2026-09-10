@@ -21,7 +21,6 @@ import (
 	"github.com/tetiva-app/client/internal/constants"
 )
 
-// GRPCClient wraps gRPC service stubs for sync server communication.
 type GRPCClient struct {
 	conn      *grpc.ClientConn
 	auth      authv1.AuthServiceClient
@@ -29,7 +28,6 @@ type GRPCClient struct {
 	workspace workspacev1.WorkspaceServiceClient
 }
 
-// NewGRPCClient creates a new gRPC client connected to the given server URL.
 // Uses TLS for port 443, insecure for localhost/127.0.0.1 addresses.
 func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 	useTLS := requiresTLS(serverURL)
@@ -73,7 +71,6 @@ func userAgent() string {
 	return fmt.Sprintf("Tetiva/%s (%s; %s)", constants.AppVersion, runtime.GOOS, host)
 }
 
-// Close closes the gRPC connection.
 func (c *GRPCClient) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()
@@ -81,21 +78,16 @@ func (c *GRPCClient) Close() error {
 	return nil
 }
 
-// Auth returns the auth service client.
 func (c *GRPCClient) Auth() authv1.AuthServiceClient { return c.auth }
 
-// Sync returns the sync service client.
 func (c *GRPCClient) Sync() syncv1.SyncServiceClient { return c.sync }
 
-// Workspace returns the workspace service client.
 func (c *GRPCClient) Workspace() workspacev1.WorkspaceServiceClient { return c.workspace }
 
-// ContextWithAuth creates a context with the authorization header.
 func ContextWithAuth(ctx context.Context, token string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 }
 
-// requiresTLS returns true if the server address needs TLS (port 443 or non-local host).
 func requiresTLS(addr string) bool {
 	if strings.HasSuffix(addr, ":443") {
 		return true

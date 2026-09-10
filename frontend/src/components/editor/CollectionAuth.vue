@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ChevronDown, ShieldOff, Info } from 'lucide-vue-next'
+import { ShieldOff } from 'lucide-vue-next'
 import AuthEditor from './AuthEditor.vue'
+import AuthSelect from './auth/AuthSelect.vue'
 import type { AuthType } from '@/types/request'
-
-type CollectionAuthType = 'inherit' | AuthType
+import { collectionAuthOptions } from '@/constants/auth'
+import { defaultAuthData } from '@/lib/auth-data'
+import { useAuthTokenStore } from '@/stores/auth-tokens'
 
 const props = defineProps<{
   collectionId: string
   authType: string
   authData: string
-  hasParent: boolean
+  version?: number
 }>()
 
 const emit = defineEmits<{
@@ -18,112 +20,49 @@ const emit = defineEmits<{
   'update:authData': [value: string]
 }>()
 
-const authTypeOptions = computed(() => {
-  const options: { value: CollectionAuthType; label: string }[] = []
-  if (props.hasParent) {
-    options.push({ value: 'inherit', label: 'Inherit from parent' })
+const authTypeOptions = computed(() => collectionAuthOptions())
+
+// Credentials of a type the user steps away from survive the session, the same
+// way the request editor keeps them.
+const drafts = ref<Partial<Record<string, string>>>({})
+
+const tokens = useAuthTokenStore()
+
+// This selector is the collection's own; AuthEditor's cancel never sees it.
+function selectType(value: AuthType) {
+  if (value === props.authType) return
+  if (props.authType === 'oauth2') {
+    void tokens.cancelFlow({
+      ownerKind: 'collection',
+      ownerId: props.collectionId,
+      authType: props.authType,
+      authData: props.authData,
+    })
   }
-  options.push(
-    { value: 'none', label: 'No Auth' },
-    { value: 'basic', label: 'Basic Auth' },
-    { value: 'bearer', label: 'Bearer Token' },
-    { value: 'api_key', label: 'API Key' },
-  )
-  return options
-})
-
-const currentLabel = computed(() =>
-  authTypeOptions.value.find(o => o.value === props.authType)?.label ?? 'No Auth'
-)
-
-const dropdownOpen = ref(false)
-const selectedIndex = ref(0)
-
-function openDropdown() {
-  selectedIndex.value = authTypeOptions.value.findIndex(o => o.value === props.authType)
-  if (selectedIndex.value < 0) selectedIndex.value = 0
-  dropdownOpen.value = !dropdownOpen.value
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (!dropdownOpen.value) return
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    selectedIndex.value = Math.min(selectedIndex.value + 1, authTypeOptions.value.length - 1)
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    selectedIndex.value = Math.max(selectedIndex.value - 1, 0)
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    selectType(authTypeOptions.value[selectedIndex.value].value)
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    dropdownOpen.value = false
-  }
-}
-
-function selectType(value: CollectionAuthType) {
-  dropdownOpen.value = false
+  drafts.value = { ...drafts.value, [props.authType]: props.authData }
   emit('update:authType', value)
-  emit('update:authData', '')
+  emit('update:authData', drafts.value[value] ?? defaultAuthData(value))
 }
 </script>
 
 <template>
   <div class="p-4 space-y-4">
-    <div>
-      <label class="text-xs text-muted-foreground mb-1.5 block">Authorization Type</label>
-      <div class="relative max-w-[240px]">
-        <button
-          class="flex items-center justify-between w-full h-8 px-3 text-sm bg-background border border-border rounded-md hover:bg-muted/30 transition-colors cursor-pointer"
-          role="combobox"
-          :aria-expanded="dropdownOpen"
-          aria-haspopup="listbox"
-          @click="openDropdown"
-          @keydown="handleKeydown"
-        >
-          {{ currentLabel }}
-          <ChevronDown class="size-3 text-muted-foreground" />
-        </button>
-        <Teleport to="body">
-          <div v-if="dropdownOpen" class="fixed inset-0 z-40" @click="dropdownOpen = false" />
-        </Teleport>
-        <div
-          v-if="dropdownOpen"
-          role="listbox"
-          class="absolute top-full left-0 z-50 mt-1 w-full rounded-md border border-border bg-popover py-1 shadow-md"
-        >
-          <button
-            v-for="(opt, idx) in authTypeOptions"
-            :key="opt.value"
-            role="option"
-            :aria-selected="opt.value === authType"
-            class="flex w-full items-center px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
-            :class="{ 'bg-black/5 dark:bg-white/10': idx === selectedIndex }"
-            @click="selectType(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="authType === 'inherit'" class="flex items-start gap-2.5 rounded-md border border-border/50 bg-muted/15 p-3">
-      <Info class="size-4 text-muted-foreground shrink-0 mt-0.5" />
-      <div>
-        <p class="text-sm text-muted-foreground">
-          Authorization will be inherited from the parent collection.
-        </p>
-        <p class="text-xs text-muted-foreground/50 mt-1">
-          All requests in this collection will use the parent's auth settings unless overridden individually.
-        </p>
-      </div>
-    </div>
+    <AuthSelect
+      class="max-w-[240px]"
+      label="Authorization Type"
+      test-id="collection-auth-type-selector"
+      :model-value="authType"
+      :options="authTypeOptions"
+      @update:model-value="selectType($event as AuthType)"
+    />
 
     <AuthEditor
-      v-if="authType !== 'inherit' && authType !== 'none'"
+      v-if="authType !== 'none'"
       :auth-type="(authType as AuthType)"
       :auth-data="authData"
+      owner-kind="collection"
+      :owner-id="collectionId"
+      :owner-version="version"
       hide-type-selector
       @update:auth-type="emit('update:authType', $event)"
       @update:auth-data="emit('update:authData', $event)"

@@ -10,6 +10,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
+// wsSettingsSchemaDoc describes the JSON document a websocket request keeps in its body.
+const wsSettingsSchemaDoc = `the connection settings document ` +
+	`{"version":1,"pingIntervalSec":0,"subprotocols":[],` +
+	`"messages":[{"id":"uuid","name":"Login","format":"json|text|binary","data":"payload"}]}` +
+	` (binary data is base64); an empty body means default settings, anything else is rejected`
+
 func (s *Server) registerRequestTools() {
 	s.mcp.AddTool(
 		mcplib.NewTool("list_requests",
@@ -33,33 +39,36 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("create_request",
-			mcplib.WithDescription("Create a request in a collection. Supports HTTP, gRPC, GraphQL and optional headers/auth/scripts."),
+			mcplib.WithDescription("Create a request in a collection. Supports HTTP, gRPC, GraphQL, WebSocket and optional headers/auth/scripts."),
 			mcplib.WithString("collection_id", mcplib.Required(),
 				mcplib.Description("Collection UUID to add the request to"),
 			),
 			mcplib.WithString("name", mcplib.Required(),
 				mcplib.Description("Request name"),
 			),
+			mcplib.WithString("description",
+				mcplib.Description("Request documentation (Markdown)"),
+			),
 			mcplib.WithString("protocol",
-				mcplib.Description("Protocol: http, grpc, graphql (default: http)"),
+				mcplib.Description("Protocol: http, grpc, graphql, websocket (default: http)"),
 			),
 			mcplib.WithString("method",
 				mcplib.Description("HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS (default: GET, ignored for non-HTTP)"),
 			),
 			mcplib.WithString("url",
-				mcplib.Description("Request URL (HTTP/GraphQL) or host (gRPC)"),
+				mcplib.Description("Request URL (HTTP/GraphQL), host (gRPC) or ws:// / wss:// endpoint (WebSocket)"),
 			),
 			mcplib.WithString("body",
-				mcplib.Description("Request body (HTTP/gRPC message)"),
+				mcplib.Description("Request body (HTTP/gRPC message). For websocket: "+wsSettingsSchemaDoc),
 			),
 			mcplib.WithString("body_type",
-				mcplib.Description("Body type: none, json, xml, form, binary, raw (default: none)"),
+				mcplib.Description("Body type: none, json, xml, form, binary, raw (default: none; forced to raw for websocket)"),
 			),
 			mcplib.WithArray("headers",
 				mcplib.Description("Array of {key, value, enabled} header items"),
 			),
 			mcplib.WithString("auth_type",
-				mcplib.Description("Auth type: none, basic, bearer, api_key, inherit (default: inherit)"),
+				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidAuthTypes())+" (default: inherit)"),
 			),
 			mcplib.WithString("auth_data",
 				mcplib.Description("Auth payload as JSON string (shape depends on auth_type)"),
@@ -100,15 +109,18 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("update_request",
-			mcplib.WithDescription("Update an existing request (name, url, method, body, headers, auth, scripts, grpc, graphql). Uses optimistic locking."),
+			mcplib.WithDescription("Update an existing request (name, description, url, method, body, headers, auth, scripts, grpc, graphql). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Request UUID"),
 			),
 			mcplib.WithNumber("version", mcplib.Required(),
 				mcplib.Description("Current version for optimistic locking"),
 			),
-			mcplib.WithString("name", mcplib.Required(),
+			mcplib.WithString("name",
 				mcplib.Description("Request name"),
+			),
+			mcplib.WithString("description",
+				mcplib.Description("Request documentation (Markdown)"),
 			),
 			mcplib.WithString("method",
 				mcplib.Description("HTTP method"),
@@ -117,16 +129,16 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("Request URL / gRPC host"),
 			),
 			mcplib.WithString("body",
-				mcplib.Description("Request body"),
+				mcplib.Description("Request body. For websocket: "+wsSettingsSchemaDoc),
 			),
 			mcplib.WithString("body_type",
-				mcplib.Description("Body type"),
+				mcplib.Description("Body type (forced to raw for websocket)"),
 			),
 			mcplib.WithArray("headers",
 				mcplib.Description("Array of {key, value, enabled}"),
 			),
 			mcplib.WithString("auth_type",
-				mcplib.Description("Auth type: none, basic, bearer, api_key, inherit"),
+				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidAuthTypes())),
 			),
 			mcplib.WithString("auth_data",
 				mcplib.Description("Auth payload as JSON string"),
@@ -188,7 +200,7 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("Request UUID"),
 			),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID for env-variable resolution (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID of the request's collection, used for env-variable resolution; must match it, otherwise the call is rejected (defaults to default workspace)"),
 			),
 		),
 		s.handleSendRequest,
@@ -223,7 +235,7 @@ func (s *Server) handleListRequests(ctx context.Context, req mcplib.CallToolRequ
 			"name":     r.Name,
 			"protocol": string(r.Protocol),
 			"method":   string(r.Method),
-			"url":      r.URL,
+			"url":      maskURLSecrets(r.URL),
 			"version":  r.Version,
 		})
 	}
@@ -274,23 +286,32 @@ func (s *Server) handleCreateRequest(ctx context.Context, req mcplib.CallToolReq
 		authType = entities.AuthTypeInherit
 	}
 
+	url := stringArg(req, "url", "")
+	authData := stringArg(req, "auth_data", "")
+	headers := headersFromArg(req, "headers")
+	metadata := grpcMetadataFromArg(req, "grpc_metadata")
+	if err := rejectRedactedValues(url, authData, headers, metadata); err != nil {
+		return errResult(err), nil
+	}
+
 	r, err := s.reqUC.Create(ctx, request.Create{
 		CollectionID:      colID,
 		Name:              stringArg(req, "name", ""),
+		Description:       stringArg(req, "description", ""),
 		Protocol:          protocol,
 		Method:            method,
-		URL:               stringArg(req, "url", ""),
-		Headers:           headersFromArg(req, "headers"),
+		URL:               url,
+		Headers:           headers,
 		Body:              stringArg(req, "body", ""),
 		BodyType:          bodyType,
 		AuthType:          authType,
-		AuthData:          stringArg(req, "auth_data", ""),
+		AuthData:          authData,
 		PreScript:         stringArg(req, "pre_script", ""),
 		PostScript:        stringArg(req, "post_script", ""),
 		GRPCService:       stringArg(req, "grpc_service", ""),
 		GRPCMethod:        stringArg(req, "grpc_method", ""),
 		GRPCProtoPath:     stringArg(req, "grpc_proto_path", ""),
-		GRPCMetadata:      grpcMetadataFromArg(req, "grpc_metadata"),
+		GRPCMetadata:      metadata,
 		GraphQLQuery:      stringArg(req, "graphql_query", ""),
 		GraphQLVariables:  stringArg(req, "graphql_variables", ""),
 		GraphQLSchemaPath: stringArg(req, "graphql_schema_path", ""),
@@ -318,41 +339,101 @@ func (s *Server) handleUpdateRequest(ctx context.Context, req mcplib.CallToolReq
 		return errResult(fmt.Errorf("version is required (>= 1)")), nil
 	}
 
-	method := entities.HTTPMethod(stringArg(req, "method", "GET"))
-	if !method.IsValid() {
-		method = entities.MethodGET
+	// Edit overwrites every field, so start from the stored request: an argument the
+	// caller left out keeps its stored value instead of being blanked.
+	current, err := s.reqUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
 	}
 
-	bodyType := entities.BodyType(stringArg(req, "body_type", "none"))
-	if !bodyType.IsValid() {
-		bodyType = entities.BodyTypeNone
+	input := request.Edit{
+		Name:              current.Name,
+		Description:       current.Description,
+		Method:            current.Method,
+		URL:               current.URL,
+		Headers:           current.Headers,
+		Body:              current.Body,
+		BodyType:          current.BodyType,
+		AuthType:          current.AuthType,
+		AuthData:          current.AuthData,
+		PreScript:         current.PreScript,
+		PostScript:        current.PostScript,
+		GRPCService:       current.GRPCService,
+		GRPCMethod:        current.GRPCMethod,
+		GRPCProtoPath:     current.GRPCProtoPath,
+		GRPCMetadata:      current.GRPCMetadata,
+		GraphQLQuery:      current.GraphQLQuery,
+		GraphQLVariables:  current.GraphQLVariables,
+		GraphQLSchemaPath: current.GraphQLSchemaPath,
+		GraphQLOperation:  current.GraphQLOperation,
 	}
 
-	authType := entities.AuthType(stringArg(req, "auth_type", string(entities.AuthTypeInherit)))
-	if !authType.IsValid() {
-		authType = entities.AuthTypeInherit
+	applyStringArgs(req, map[string]*string{
+		"name":                &input.Name,
+		"description":         &input.Description,
+		"url":                 &input.URL,
+		"body":                &input.Body,
+		"auth_data":           &input.AuthData,
+		"pre_script":          &input.PreScript,
+		"post_script":         &input.PostScript,
+		"grpc_service":        &input.GRPCService,
+		"grpc_method":         &input.GRPCMethod,
+		"grpc_proto_path":     &input.GRPCProtoPath,
+		"graphql_query":       &input.GraphQLQuery,
+		"graphql_variables":   &input.GraphQLVariables,
+		"graphql_schema_path": &input.GraphQLSchemaPath,
+		"graphql_operation":   &input.GraphQLOperation,
+	})
+
+	if v, ok := optionalString(req, "method"); ok {
+		if m := entities.HTTPMethod(v); m.IsValid() {
+			input.Method = m
+		}
+	}
+	if v, ok := optionalString(req, "body_type"); ok {
+		if bt := entities.BodyType(v); bt.IsValid() {
+			input.BodyType = bt
+		}
+	}
+	if v, ok := optionalString(req, "auth_type"); ok {
+		if at := entities.AuthType(v); at.IsValid() {
+			input.AuthType = at
+		}
+	}
+	if h := headersFromArg(req, "headers"); h != nil {
+		input.Headers = h
+	}
+	if md := grpcMetadataFromArg(req, "grpc_metadata"); md != nil {
+		input.GRPCMetadata = md
 	}
 
-	r, err := s.reqUC.Edit(ctx, request.Edit{
-		Name:              stringArg(req, "name", ""),
-		Method:            method,
-		URL:               stringArg(req, "url", ""),
-		Headers:           headersFromArg(req, "headers"),
-		Body:              stringArg(req, "body", ""),
-		BodyType:          bodyType,
-		AuthType:          authType,
-		AuthData:          stringArg(req, "auth_data", ""),
-		PreScript:         stringArg(req, "pre_script", ""),
-		PostScript:        stringArg(req, "post_script", ""),
-		GRPCService:       stringArg(req, "grpc_service", ""),
-		GRPCMethod:        stringArg(req, "grpc_method", ""),
-		GRPCProtoPath:     stringArg(req, "grpc_proto_path", ""),
-		GRPCMetadata:      grpcMetadataFromArg(req, "grpc_metadata"),
-		GraphQLQuery:      stringArg(req, "graphql_query", ""),
-		GraphQLVariables:  stringArg(req, "graphql_variables", ""),
-		GraphQLSchemaPath: stringArg(req, "graphql_schema_path", ""),
-		GraphQLOperation:  stringArg(req, "graphql_operation", ""),
-	}, request.EditOpt{
+	// The agent only ever saw the masked request, and changing one header means
+	// resending the whole array — so a mask coming back means "keep what is stored".
+	restoredAuth, err := restoreAuthData(input.AuthData, current.AuthData)
+	if err != nil {
+		return errResult(err), nil
+	}
+	input.AuthData = restoredAuth
+
+	restoredURL, err := restoreURLSecrets(input.URL, current.URL)
+	if err != nil {
+		return errResult(err), nil
+	}
+	input.URL = restoredURL
+
+	restoredHeaders, err := restoreHeaderSecrets(input.Headers, current.Headers)
+	if err != nil {
+		return errResult(err), nil
+	}
+	input.Headers = restoredHeaders
+
+	restoredMetadata, err := restoreMetadataSecrets(input.GRPCMetadata, current.GRPCMetadata)
+	if err != nil {
+		return errResult(err), nil
+	}
+	input.GRPCMetadata = restoredMetadata
+
+	r, err := s.reqUC.Edit(ctx, input, request.EditOpt{
 		RequestID: id,
 		UserID:    mcpUserID,
 		Version:   version,
@@ -426,7 +507,7 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 		"executed":           true,
 		"status_code":        resp.StatusCode,
 		"status_text":        resp.StatusText,
-		"headers":            resp.Headers,
+		"headers":            maskResponseHeaders(resp.Headers),
 		"body":               resp.Body,
 		"size_bytes":         resp.Size,
 		"duration_ms":        resp.Duration.Milliseconds(),
@@ -447,7 +528,6 @@ func (s *Server) handleDeleteRequest(ctx context.Context, req mcplib.CallToolReq
 		return errResult(err), nil
 	}
 
-	// Fetch current version for optimistic locking.
 	r, err := s.reqUC.GetByID(ctx, id)
 	if err != nil {
 		return errResult(err), nil

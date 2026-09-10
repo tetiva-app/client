@@ -1,24 +1,29 @@
 package dto
 
-// WSConnectRequest is the Connect RPC input.
+// The connection id comes from the frontend so it can subscribe before the handshake.
 type WSConnectRequest struct {
-	RequestID   string `json:"requestId"`
-	WorkspaceID string `json:"workspaceId"`
-	UserID      string `json:"userId"`
-}
-
-// WSConnectionDTO is the Connect RPC output.
-type WSConnectionDTO struct {
+	RequestID    string `json:"requestId"`
+	WorkspaceID  string `json:"workspaceId"`
 	ConnectionID string `json:"connectionId"`
 }
 
-// WSSendRequest is the Send RPC input.
+// A failed handshake is reported here, not an error, so pre-connect output survives.
+type WSConnectResultDTO struct {
+	Connected    bool             `json:"connected"`
+	ConnectionID string           `json:"connectionId"`
+	Status       int              `json:"status"`
+	Subprotocol  string           `json:"subprotocol"`
+	Error        string           `json:"error,omitempty"`
+	Script       *ScriptResultDTO `json:"script,omitempty"`
+}
+
+// Binary payloads travel base64-encoded.
 type WSSendRequest struct {
 	ConnectionID string `json:"connectionId"`
 	Data         string `json:"data"`
+	MessageType  string `json:"messageType"` // "text" | "binary"
 }
 
-// WSDisconnectRequest is the Disconnect RPC input.
 type WSDisconnectRequest struct {
 	ConnectionID string `json:"connectionId"`
 }

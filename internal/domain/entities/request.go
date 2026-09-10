@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Protocol represents the communication protocol of a request.
 type Protocol string
 
 const (
@@ -16,7 +15,6 @@ const (
 	ProtocolWebSocket Protocol = "websocket"
 )
 
-// IsValid checks whether the protocol value is supported.
 func (p Protocol) IsValid() bool {
 	switch p {
 	case ProtocolHTTP, ProtocolGRPC, ProtocolGraphQL, ProtocolWebSocket:
@@ -25,12 +23,10 @@ func (p Protocol) IsValid() bool {
 	return false
 }
 
-// ValidProtocols returns all supported protocol values.
 func ValidProtocols() []Protocol {
 	return []Protocol{ProtocolHTTP, ProtocolGRPC, ProtocolGraphQL, ProtocolWebSocket}
 }
 
-// HTTPMethod represents an HTTP request method.
 type HTTPMethod string
 
 const (
@@ -43,7 +39,6 @@ const (
 	MethodHEAD    HTTPMethod = "HEAD"
 )
 
-// IsValid checks whether the HTTP method value is supported.
 func (m HTTPMethod) IsValid() bool {
 	switch m {
 	case MethodGET, MethodPOST, MethodPUT, MethodPATCH,
@@ -53,7 +48,6 @@ func (m HTTPMethod) IsValid() bool {
 	return false
 }
 
-// ValidHTTPMethods returns all supported HTTP method values.
 func ValidHTTPMethods() []HTTPMethod {
 	return []HTTPMethod{
 		MethodGET, MethodPOST, MethodPUT, MethodPATCH,
@@ -61,7 +55,6 @@ func ValidHTTPMethods() []HTTPMethod {
 	}
 }
 
-// BodyType represents the content type of the request body.
 type BodyType string
 
 const (
@@ -73,7 +66,6 @@ const (
 	BodyTypeRaw    BodyType = "raw"
 )
 
-// IsValid checks whether the body type value is supported.
 func (b BodyType) IsValid() bool {
 	switch b {
 	case BodyTypeNone, BodyTypeJSON, BodyTypeXML, BodyTypeForm,
@@ -83,7 +75,6 @@ func (b BodyType) IsValid() bool {
 	return false
 }
 
-// ValidBodyTypes returns all supported body type values.
 func ValidBodyTypes() []BodyType {
 	return []BodyType{
 		BodyTypeNone, BodyTypeJSON, BodyTypeXML, BodyTypeForm,
@@ -91,39 +82,55 @@ func ValidBodyTypes() []BodyType {
 	}
 }
 
-// AuthType represents the authentication method for a request.
 type AuthType string
 
 const (
-	AuthTypeNone    AuthType = "none"
-	AuthTypeBasic   AuthType = "basic"
-	AuthTypeBearer  AuthType = "bearer"
-	AuthTypeAPIKey  AuthType = "api_key"
-	AuthTypeInherit AuthType = "inherit"
+	AuthTypeNone     AuthType = "none"
+	AuthTypeBasic    AuthType = "basic"
+	AuthTypeBearer   AuthType = "bearer"
+	AuthTypeAPIKey   AuthType = "api_key"
+	AuthTypeInherit  AuthType = "inherit"
+	AuthTypeOAuth2   AuthType = "oauth2"
+	AuthTypeJWT      AuthType = "jwt"
+	AuthTypeDigest   AuthType = "digest"
+	AuthTypeAWSSigV4 AuthType = "aws_sigv4"
 )
 
-// IsValid checks whether the auth type value is supported.
 func (a AuthType) IsValid() bool {
-	switch a {
-	case AuthTypeNone, AuthTypeBasic, AuthTypeBearer, AuthTypeAPIKey, AuthTypeInherit:
-		return true
+	for _, t := range ValidAuthTypes() {
+		if a == t {
+			return true
+		}
 	}
 	return false
 }
 
-// ValidAuthTypes returns all supported auth type values.
+// ValidAuthTypes is the single registry: validation, MCP tool descriptions and the frontend fixture derive from it.
 func ValidAuthTypes() []AuthType {
-	return []AuthType{AuthTypeNone, AuthTypeBasic, AuthTypeBearer, AuthTypeAPIKey, AuthTypeInherit}
+	return []AuthType{
+		AuthTypeNone, AuthTypeBasic, AuthTypeBearer, AuthTypeAPIKey, AuthTypeInherit,
+		AuthTypeOAuth2, AuthTypeJWT, AuthTypeDigest, AuthTypeAWSSigV4,
+	}
 }
 
-// HeaderItem represents a single header with enabled/disabled state.
+// ValidCollectionAuthTypes drops inherit: a collection with auth_type none already delegates to its parent.
+func ValidCollectionAuthTypes() []AuthType {
+	all := ValidAuthTypes()
+	types := make([]AuthType, 0, len(all)-1)
+	for _, t := range all {
+		if t != AuthTypeInherit {
+			types = append(types, t)
+		}
+	}
+	return types
+}
+
 type HeaderItem struct {
 	Key     string
 	Value   string
 	Enabled bool
 }
 
-// EnabledHeadersToMap filters enabled headers and converts them to map[string][]string.
 func EnabledHeadersToMap(items []HeaderItem) map[string][]string {
 	result := make(map[string][]string)
 	for _, item := range items {
@@ -134,11 +141,11 @@ func EnabledHeadersToMap(items []HeaderItem) map[string][]string {
 	return result
 }
 
-// Request represents an HTTP or gRPC request within a collection.
 type Request struct {
 	ID                uuid.UUID
 	CollectionID      uuid.UUID
 	Name              string
+	Description       string
 	Protocol          Protocol
 	Method            HTTPMethod
 	URL               string

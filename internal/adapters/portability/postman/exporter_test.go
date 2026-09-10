@@ -1,6 +1,7 @@
 package postman_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -210,15 +211,15 @@ func TestExportCollection_WithDescriptionAndAuth(t *testing.T) {
 	var pc postman.PostmanCollection
 	require.NoError(t, json.Unmarshal(data, &pc))
 
-	assert.Equal(t, "# Root API", pc.Info.Description)
+	assert.Equal(t, "# Root API", string(pc.Info.Description))
 
 	require.NotNil(t, pc.Auth)
 	assert.Equal(t, "bearer", pc.Auth.Type)
-	assert.Equal(t, "root-token", pc.Auth.Bearer[0].Value)
+	assert.Equal(t, "root-token", pc.Auth.Bearer[0].String())
 
 	require.Equal(t, 1, len(pc.Item))
 	assert.Equal(t, "Admin", pc.Item[0].Name)
-	assert.Equal(t, "Admin endpoints", pc.Item[0].Description)
+	assert.Equal(t, "Admin endpoints", string(pc.Item[0].Description))
 	require.NotNil(t, pc.Item[0].Auth)
 	assert.Equal(t, "basic", pc.Item[0].Auth.Type)
 }
@@ -309,4 +310,127 @@ func TestExportCollection_GraphQL(t *testing.T) {
 	require.NotNil(t, body1.Graphql)
 	assert.Equal(t, "mutation CreateUser($name: String!) { createUser(name: $name) { id } }", body1.Graphql.Query)
 	assert.Equal(t, "", body1.Graphql.Variables)
+}
+
+func TestExportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
+	rootID := uuid.New()
+	collections := []*entities.Collection{{ID: rootID, Name: "API", ParentID: nil}}
+	requests := []*entities.Request{
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Ping",
+			Description: "# Ping\nReturns pong.",
+			Protocol:    entities.ProtocolHTTP, Method: entities.MethodGET,
+			URL: "https://api.example.com/ping", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeAPIKey,
+			AuthData: `{"key":"api_key","value":"sk_live","addTo":"query"}`,
+		},
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Legacy",
+			Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+			URL: "https://api.example.com/legacy", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeAPIKey,
+			AuthData: `{"key":"api_key","value":"sk_live","in":"query"}`,
+		},
+	}
+
+	data, err := postman.ExportCollection(rootID, collections, requests)
+	require.NoError(t, err)
+
+	var pc postman.PostmanCollection
+	require.NoError(t, json.Unmarshal(data, &pc))
+
+	require.Len(t, pc.Item, 2)
+	assert.Equal(t, "# Ping\nReturns pong.", string(pc.Item[0].Description))
+	assert.Equal(t, "query", findKV(t, pc.Item[0].Request.Auth.APIKey, "in"))
+	assert.Equal(t, "query", findKV(t, pc.Item[1].Request.Auth.APIKey, "in"),
+		"collections imported before the addTo rename must still export their location")
+}
+
+// The exporter writes descriptions at item level and the importer prefers the
+// request level, so a round trip is the only proof the two still meet.
+func TestExportImportRoundTrip_KeepsDescriptions(t *testing.T) {
+	rootID := uuid.New()
+	folderID := uuid.New()
+	collections := []*entities.Collection{
+		{ID: rootID, Name: "API", Description: "# API\nRoot docs."},
+		{ID: folderID, Name: "Admin", Description: "Folder docs.", ParentID: &rootID},
+	}
+	requests := []*entities.Request{
+		{
+			ID: uuid.New(), CollectionID: folderID, Name: "Reindex",
+			Description: "Rebuilds the search index.",
+			Protocol:    entities.ProtocolHTTP, Method: entities.MethodPOST,
+			URL: "https://api.example.com/admin/reindex", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeNone, AuthData: "{}",
+		},
+	}
+
+	data, err := postman.ExportCollection(rootID, collections, requests)
+	require.NoError(t, err)
+
+	collUC := &stubCollectionUC{}
+	reqUC := &stubRequestUC{}
+	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err)
+
+	require.Len(t, collUC.created, 2)
+	assert.Equal(t, "# API\nRoot docs.", collUC.created[0].Description)
+	assert.Equal(t, "Folder docs.", collUC.created[1].Description)
+
+	require.Len(t, reqUC.created, 1)
+	assert.Equal(t, "Rebuilds the search index.", reqUC.created[0].Description)
+}
+
+func findKV(t *testing.T, kvs []postman.PostmanAuthKV, key string) string {
+	t.Helper()
+	for _, kv := range kvs {
+		if kv.Key == key {
+			return kv.String()
+		}
+	}
+	t.Fatalf("key %q not found in %+v", key, kvs)
+	return ""
+}
+
+func TestExportCollection_WebSocketOmitsSettingsBody(t *testing.T) {
+	rootID := uuid.New()
+	collections := []*entities.Collection{{ID: rootID, Name: "Realtime"}}
+	requests := []*entities.Request{
+		{
+			ID:           uuid.New(),
+			CollectionID: rootID,
+			Name:         "Ticker",
+			Description:  "# Ticker\nStreams prices.",
+			Protocol:     entities.ProtocolWebSocket,
+			Method:       entities.MethodGET,
+			URL:          "wss://api.example.com/ws",
+			Headers:      []entities.HeaderItem{{Key: "X-Test", Value: "1", Enabled: true}},
+			Body:         `{"version":1,"pingIntervalSec":30,"subprotocols":["graphql-ws"],"messages":[{"id":"m1","name":"Login","format":"json","data":"{}"}]}`,
+			BodyType:     entities.BodyTypeRaw,
+			AuthType:     entities.AuthTypeBearer,
+			AuthData:     `{"token":"tok"}`,
+		},
+	}
+
+	data, err := postman.ExportCollection(rootID, collections, requests)
+	require.NoError(t, err)
+
+	var pc postman.PostmanCollection
+	require.NoError(t, json.Unmarshal(data, &pc))
+	require.Equal(t, 1, len(pc.Item))
+
+	item := pc.Item[0]
+	require.NotNil(t, item.Request)
+	assert.Nil(t, item.Request.Body, "websocket settings must not be exported as a request body")
+	assert.NotContains(t, string(data), "pingIntervalSec")
+
+	assert.Equal(t, "Ticker", item.Name)
+	assert.Equal(t, "# Ticker\nStreams prices.", string(item.Description))
+	assert.Equal(t, "wss://api.example.com/ws", item.Request.URL.Raw)
+	require.Equal(t, 1, len(item.Request.Header))
+	assert.Equal(t, "X-Test", item.Request.Header[0].Key)
+	require.NotNil(t, item.Request.Auth)
+	assert.Equal(t, "bearer", item.Request.Auth.Type)
 }

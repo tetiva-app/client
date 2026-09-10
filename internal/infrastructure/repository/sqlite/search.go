@@ -12,18 +12,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/search"
 )
 
-// SearchRepo implements search.Repository using SQLite.
 type SearchRepo struct {
 	db *sql.DB
 }
 
-// NewSearchRepo creates a new SearchRepo instance.
 func NewSearchRepo(db *sql.DB) search.Repository {
 	return &SearchRepo{db: db}
 }
 
-// SearchByName filters active collections+requests by case-insensitive substring in Go
-// (Unicode-correct, unlike SQLite NOCASE). At most filter.Limit hits; LimitReached flags more.
+// The substring match runs in Go: case-insensitive and Unicode-correct, unlike SQLite
+// NOCASE. At most filter.Limit hits; LimitReached flags more.
 func (r *SearchRepo) SearchByName(ctx context.Context, filter search.Filter) (entities.SearchResult, error) {
 	const funcName = "SearchRepo.SearchByName"
 

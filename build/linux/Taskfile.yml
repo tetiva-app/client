@@ -13,6 +13,9 @@ vars:
   # Docker image for cross-compilation (used when building on non-Linux or no CC available)
   CROSS_IMAGE: wails-cross
 
+  # Installed package/binary name; the Go output stays {{.APP_NAME}} like on the other platforms.
+  PACKAGE_NAME: "tetiva"
+
 tasks:
   build:
     summary: Builds the application for Linux
@@ -26,7 +29,7 @@ tasks:
           ARCH: '{{.ARCH}}'
           DEV: '{{.DEV}}'
           OUTPUT: '{{.OUTPUT}}'
-          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS | default "gtk3"}}'
     vars:
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
@@ -34,7 +37,7 @@ tasks:
       TARGET_ARCH: '{{.ARCH | default ARCH}}'
       # Check if a C compiler is available (gcc or clang)
       HAS_CC:
-        sh: '(command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1) && echo "true" || echo "false"'
+        sh: 'wails3 tool has "gcc|clang"'
 
   build:native:
     summary: Builds the application natively on Linux
@@ -48,7 +51,6 @@ tasks:
           DEV:
             ref: .DEV
       - task: common:generate:icons
-      - task: generate:dotdesktop
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
     vars:
@@ -66,7 +68,6 @@ tasks:
     deps:
       - task: common:build:frontend
       - task: common:generate:icons
-      - task: generate:dotdesktop
     preconditions:
       - sh: docker info > /dev/null 2>&1
         msg: "Docker is required for cross-compilation to Linux. Please install Docker."
@@ -75,31 +76,17 @@ tasks:
           Docker image '{{.CROSS_IMAGE}}' not found.
           Build it first: wails3 task setup:docker
     cmds:
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} "{{.CROSS_IMAGE}}" linux {{.DOCKER_ARCH}}
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.DOCKER_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} "{{.CROSS_IMAGE}}" linux {{.DOCKER_ARCH}}
+      - cmd: docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
+        platforms: [linux, darwin]
       - mkdir -p {{.BIN_DIR}}
       - mv "bin/{{.APP_NAME}}-linux-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
     vars:
       DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
-      # Mount Go module cache for faster builds
-      GO_CACHE_MOUNT:
-        sh: 'echo "-v ${GOPATH:-$HOME/go}/pkg/mod:/go/pkg/mod"'
-      # Extract replace directives from go.mod and create -v mounts for each
-      REPLACE_MOUNTS:
-        sh: |
-          grep -E '^replace .* => ' go.mod 2>/dev/null | while read -r line; do
-            path=$(echo "$line" | sed -E 's/^replace .* => //' | tr -d '\r')
-            # Convert relative paths to absolute
-            if [ "${path#/}" = "$path" ]; then
-              path="$(cd "$(dirname "$path")" 2>/dev/null && pwd)/$(basename "$path")"
-            fi
-            # Only mount if directory exists
-            if [ -d "$path" ]; then
-              echo "-v $path:$path:ro"
-            fi
-          done | tr '\n' ' '
+      DOCKER_MOUNTS:
+        sh: 'wails3 tool docker-mounts'
 
   package:
     summary: Packages the application for Linux
@@ -116,16 +103,14 @@ tasks:
     dir: build/linux/appimage
     deps:
       - task: build
-      - task: generate:dotdesktop
     cmds:
-      - cp "{{.APP_BINARY}}" "{{.APP_NAME}}"
-      - cp ../../appicon.png "{{.APP_NAME}}.png"
-      - wails3 generate appimage -binary "{{.APP_NAME}}" -icon {{.ICON}} -desktopfile {{.DESKTOP_FILE}} -outputdir {{.OUTPUT_DIR}} -builddir {{.ROOT_DIR}}/build/linux/appimage/build
+      - cp "{{.APP_BINARY}}" "{{.PACKAGE_NAME}}"
+      - cp ../../linux/{{.PACKAGE_NAME}}.png "{{.ICON}}"
+      - wails3 generate appimage -binary "{{.PACKAGE_NAME}}" -icon {{.ICON}} -desktopfile {{.DESKTOP_FILE}} -outputdir {{.OUTPUT_DIR}} -builddir {{.ROOT_DIR}}/build/linux/appimage/build
     vars:
-      APP_NAME: '{{.APP_NAME}}'
       APP_BINARY: '../../../bin/{{.APP_NAME}}'
-      ICON: '{{.APP_NAME}}.png'
-      DESKTOP_FILE: '../{{.APP_NAME}}.desktop'
+      ICON: '{{.PACKAGE_NAME}}.png'
+      DESKTOP_FILE: '../{{.PACKAGE_NAME}}.desktop'
       OUTPUT_DIR: '../../../bin'
 
   create:deb:
@@ -133,7 +118,6 @@ tasks:
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
       - task: generate:deb
 
   create:rpm:
@@ -141,7 +125,6 @@ tasks:
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
       - task: generate:rpm
 
   create:aur:
@@ -149,36 +132,22 @@ tasks:
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
       - task: generate:aur
 
   generate:deb:
     summary: Creates a deb package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 
   generate:rpm:
     summary: Creates a rpm package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 
   generate:aur:
     summary: Creates a arch linux packager package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
-
-  generate:dotdesktop:
-    summary: Generates a `.desktop` file
-    dir: build
-    cmds:
-      - mkdir -p {{.ROOT_DIR}}/build/linux/appimage
-      - wails3 generate .desktop -name "{{.APP_NAME}}" -exec "{{.EXEC}}" -icon "{{.ICON}}" -outputfile "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop" -categories "{{.CATEGORIES}}"
-    vars:
-      APP_NAME: '{{.APP_NAME}}'
-      EXEC: '{{.APP_NAME}}'
-      ICON: '{{.APP_NAME}}'
-      CATEGORIES: 'Development;'
-      OUTPUTFILE: '{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop'
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 
   run:
     cmds:
@@ -193,7 +162,7 @@ tasks:
     deps:
       - task: create:deb
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.deb" --pgp-key {{.PGP_KEY}} {{if .SIGN_ROLE}}--role {{.SIGN_ROLE}}{{end}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.PACKAGE_NAME}}*.deb" --pgp-key "{{.PGP_KEY}}" {{if .SIGN_ROLE}}--role "{{.SIGN_ROLE}}"{{end}}
     preconditions:
       - sh: '[ -n "{{.PGP_KEY}}" ]'
         msg: "PGP_KEY is required. Set it in the vars section at the top of build/linux/Taskfile.yml"
@@ -207,7 +176,7 @@ tasks:
     deps:
       - task: create:rpm
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.rpm" --pgp-key {{.PGP_KEY}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.PACKAGE_NAME}}*.rpm" --pgp-key "{{.PGP_KEY}}"
     preconditions:
       - sh: '[ -n "{{.PGP_KEY}}" ]'
         msg: "PGP_KEY is required. Set it in the vars section at the top of build/linux/Taskfile.yml"

@@ -25,15 +25,14 @@ test.describe('Onboarding welcome', () => {
     await expect(page.getByTestId('onboarding-modal')).toHaveCount(0);
   });
 
-  test('connecting an account opens sync on the register tab', async ({ page }) => {
+  test('connecting an account opens sync ready to create one', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('onboarding-choice-account').click();
     await expect(page.getByTestId('onboarding-modal')).toHaveCount(0);
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('tab', { name: 'Register' })).toHaveAttribute('aria-selected', 'true');
-    await expect(dialog.locator('#reg-email')).toBeVisible();
+    await expect(dialog.getByTestId('signin-browser-register')).toHaveClass(/bg-primary/);
   });
 
   test('the tour walks both ways and hands back to the choice', async ({ page }) => {
@@ -87,6 +86,10 @@ test.describe('Email confirmation', () => {
     await page.getByRole('button', { name: 'Sync', exact: true }).click();
 
     const dialog = page.getByRole('dialog');
+    // The cloud registers through the browser now; the in-app gate lives on a
+    // server that cannot complete a browser sign-in.
+    await dialog.getByRole('button', { name: 'Use custom server' }).click();
+    await dialog.locator('#server-url').fill('sync.corp.local');
     await dialog.getByRole('tab', { name: 'Register' }).click();
     await dialog.locator('#reg-name').fill('Test User');
     await dialog.locator('#reg-email').fill('pending@example.com');

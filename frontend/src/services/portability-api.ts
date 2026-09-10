@@ -1,8 +1,11 @@
 import type { Result } from '@/types/common'
 
+// Warnings name items whose auth could not be mapped one to one; the import
+// itself succeeded.
 export interface ImportCollectionResult {
   foldersCreated: number
   requestsCreated: number
+  warnings: string[]
 }
 
 export interface ImportEnvironmentResult {

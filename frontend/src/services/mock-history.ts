@@ -252,6 +252,7 @@ export class MockHistoryService implements HistoryServiceAPI {
       id: crypto.randomUUID(),
       collectionId: '',
       name: `Replay: ${truncateUrl(rec.url)}`,
+      description: '',
       protocol: rec.protocol,
       method: (rec.method as RequestEntity['method']) || 'GET',
       url: rec.url,

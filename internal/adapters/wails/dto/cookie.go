@@ -2,7 +2,6 @@ package dto
 
 import "github.com/tetiva-app/client/internal/domain/entities"
 
-// CookieResponse is the wire format for a single cookie.
 type CookieResponse struct {
 	ID        string `json:"id"`
 	Domain    string `json:"domain"`
@@ -16,7 +15,6 @@ type CookieResponse struct {
 	SameSite  string `json:"sameSite"` // "", "Lax", "Strict", "None"
 }
 
-// AddCookieRequest creates a new manually-added cookie.
 type AddCookieRequest struct {
 	WorkspaceID string `json:"workspaceId"`
 	Domain      string `json:"domain"`
@@ -30,8 +28,7 @@ type AddCookieRequest struct {
 	SameSite    string `json:"sameSite"`
 }
 
-// EditCookieRequest replaces an existing cookie. Replace-semantics — the UI
-// must send the full current state of the cookie.
+// Replace semantics: the UI must send the full current state of the cookie.
 type EditCookieRequest struct {
 	ID        string `json:"id"`
 	Domain    string `json:"domain"`
@@ -45,7 +42,6 @@ type EditCookieRequest struct {
 	SameSite  string `json:"sameSite"`
 }
 
-// CookieToResponse maps a domain entity to its DTO.
 func CookieToResponse(c *entities.Cookie) CookieResponse {
 	r := CookieResponse{
 		ID:     c.ID.String(),
@@ -61,7 +57,6 @@ func CookieToResponse(c *entities.Cookie) CookieResponse {
 	return r
 }
 
-// CookiesToResponse maps a slice of domain entities.
 func CookiesToResponse(cs []*entities.Cookie) []CookieResponse {
 	out := make([]CookieResponse, len(cs))
 	for i, c := range cs {

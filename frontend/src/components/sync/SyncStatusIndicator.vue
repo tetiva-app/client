@@ -20,7 +20,7 @@ const { state, pending, parked, awaitingVerification } = useSyncStatus()
 // Changes the plan quota keeps out of the cloud outlive the toast that announced
 // them, so the icon warns until they sync; the states below already say "stopped".
 const parkedAlert = computed(
-  () => parked.value > 0 && !['offline', 'auth_expired', 'plan_limit'].includes(state.value),
+  () => parked.value > 0 && !['offline', 'auth_expired', 'plan_limit', 'update_required'].includes(state.value),
 )
 const parkedTooltip = computed(
   () => `${parked.value} change${parked.value === 1 ? '' : 's'} not synced — plan limit`,
@@ -37,6 +37,7 @@ const stateLabels: Record<string, string> = {
   idle: 'Idle',
   auth_expired: 'Session expired — sign in to resume sync',
   plan_limit: 'Sync paused — plan limit reached',
+  update_required: 'Sync stopped — update the app to read the newest changes',
 }
 </script>
 
@@ -61,6 +62,7 @@ const stateLabels: Record<string, string> = {
           <Cloud v-else-if="state === 'connected'" class="size-5 text-green-500" />
           <CloudAlert v-else-if="state === 'auth_expired'" class="size-5 text-red-400" />
           <CloudAlert v-else-if="state === 'plan_limit'" class="size-5 text-amber-500" />
+          <CloudAlert v-else-if="state === 'update_required'" class="size-5 text-red-400" data-testid="sync-update-required" />
           <Loader2
             v-else-if="['pushing', 'pulling', 'subscribing', 'resyncing'].includes(state)"
             class="size-5 text-orange-400 animate-spin"

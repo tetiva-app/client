@@ -19,4 +19,8 @@ export class WailsSettingsService implements SettingsServiceAPI {
   async setMCPSettings(req: SetMCPSettingsRequest): Promise<Result<MCPSettings>> {
     return unwrap<MCPSettings>(await (await svc()).SetMCPSettings(req))
   }
+
+  async regenerateMCPToken(): Promise<Result<MCPSettings>> {
+    return unwrap<MCPSettings>(await (await svc()).RegenerateMCPToken())
+  }
 }

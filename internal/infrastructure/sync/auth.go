@@ -17,6 +17,7 @@ import (
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
@@ -38,11 +39,21 @@ const (
 	// serverLogoutTimeout bounds the best-effort session revoke on Logout, so a
 	// local sign-out does not wait on an unreachable server.
 	serverLogoutTimeout = 3 * time.Second
+	// CurrentAuthGeneration is bumped when a release must sign every install out
+	// once; sync_config.auth_generation below it triggers the cleanup on startup.
+	CurrentAuthGeneration = 1
+	// syncConfigWriteTimeout bounds the one config write of the commit phase: a
+	// busy SQLite must not eat the whole budget the sign-in gives OnApproved.
+	syncConfigWriteTimeout = 1500 * time.Millisecond
 )
 
 // ErrAuthExpired means the refresh token was rejected: only an interactive
 // re-login can restore sync. Sync engines stop retrying on it.
 var ErrAuthExpired = errors.New("sync auth expired: refresh token rejected")
+
+// ErrSessionReplaced means the answer arrived after another session was adopted;
+// the caller retries and gets the new session's token.
+var ErrSessionReplaced = errors.New("sync auth: session was replaced while refreshing")
 
 // keyringKeyFor falls back to the legacy unscoped key when clientID is
 // empty (early boot or tests that never SetClientID).
@@ -70,8 +81,7 @@ type SessionInfo struct {
 	IsCurrent  bool
 }
 
-// SyncAuthManager manages authentication with the sync server.
-// Access token is kept in memory; refresh token in OS keychain (fallback: sync_config table).
+// SyncAuthManager keeps the access token in memory and the refresh token in the OS keychain (fallback: sync_config).
 type SyncAuthManager struct {
 	mu          sync.RWMutex
 	accessToken string
@@ -80,14 +90,13 @@ type SyncAuthManager struct {
 	activeOrgID string
 	configRepo  sqlite.SyncConfigRepository
 	sf          singleflight.Group
-	// logoutEpoch invalidates refresh-token stores that were already in flight
-	// when Logout deleted the token.
-	logoutEpoch atomic.Uint64
+	// sessionEpoch grows on every session boundary (a Logout, or a sign-in adopting another
+	// account), so a store still in flight from the previous session undoes itself.
+	sessionEpoch atomic.Uint64
 	// keyringSet is swapped in tests: the real keychain write can block for seconds.
 	keyringSet func(service, account, token string) error
 }
 
-// NewSyncAuthManager creates a new SyncAuthManager.
 func NewSyncAuthManager(configRepo sqlite.SyncConfigRepository) *SyncAuthManager {
 	return &SyncAuthManager{
 		configRepo: configRepo,
@@ -95,7 +104,7 @@ func NewSyncAuthManager(configRepo sqlite.SyncConfigRepository) *SyncAuthManager
 	}
 }
 
-// SetClientID sets the client ID (called during initialization from config).
+// SetClientID is called during initialization, from config.
 func (a *SyncAuthManager) SetClientID(clientID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -109,15 +118,13 @@ func (a *SyncAuthManager) IsLoggedIn() bool {
 	return a.accessToken != ""
 }
 
-// GetActiveOrgID returns the active org ID captured at last Login/Register/Refresh.
-// Empty string means no successful auth has happened in this session.
+// GetActiveOrgID returns the org ID of the last Login/Register/Refresh; empty means none this session.
 func (a *SyncAuthManager) GetActiveOrgID() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.activeOrgID
 }
 
-// Login authenticates with the sync server and stores tokens.
 func (a *SyncAuthManager) Login(ctx context.Context, client *GRPCClient, email, password string) (*AuthResult, error) {
 	const funcName = "SyncAuthManager.Login"
 
@@ -156,7 +163,6 @@ func (a *SyncAuthManager) Login(ctx context.Context, client *GRPCClient, email, 
 	}, nil
 }
 
-// Register creates a new account on the sync server and stores tokens.
 func (a *SyncAuthManager) Register(ctx context.Context, client *GRPCClient, email, password, name, locale string) (*AuthResult, error) {
 	const funcName = "SyncAuthManager.Register"
 
@@ -195,12 +201,13 @@ func (a *SyncAuthManager) Register(ctx context.Context, client *GRPCClient, emai
 	}, nil
 }
 
-// persistSession marks the account as connected. refreshToken is carried into
-// cfg because storeTokens already mirrored the rotated token into sync_config,
-// and cfg was read before that — writing it back would restore the old token.
+// refreshToken is carried into cfg because cfg was read before storeTokens mirrored the
+// rotated token into sync_config — writing cfg back as-is would restore the old token.
 func (a *SyncAuthManager) persistSession(ctx context.Context, cfg *sqlite.SyncConfig, email, refreshToken string) error {
 	cfg.UserEmail = email
 	cfg.Enabled = true
+	cfg.AuthGeneration = CurrentAuthGeneration
+	cfg.ReauthRequired = false
 	if refreshToken != "" {
 		cfg.RefreshToken = refreshToken
 	}
@@ -210,8 +217,43 @@ func (a *SyncAuthManager) persistSession(ctx context.Context, cfg *sqlite.SyncCo
 	return nil
 }
 
-// GetMe reports the account behind the stored credentials, including whether
-// its email has been confirmed.
+// AdoptSignIn is the tail of Login for a session obtained in the browser: the whole config
+// goes out in one Update, so a partial failure cannot leave a fresh token by a stale server_url.
+func (a *SyncAuthManager) AdoptSignIn(ctx context.Context, serverURL string, tokens auth.SignInTokens) (*AuthResult, error) {
+	const funcName = "SyncAuthManager.AdoptSignIn"
+
+	cfg, err := a.configRepo.GetOrCreate(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%s: get config: %w", funcName, err)
+	}
+	// The keychain entry is scoped by client_id, so it has to be known before
+	// the token is stored.
+	a.SetClientID(cfg.ClientID)
+
+	cfg.ServerURL = serverURL
+	cfg.UserEmail = tokens.Email
+	cfg.Enabled = true
+	cfg.RefreshToken = tokens.RefreshToken
+	cfg.AuthGeneration = CurrentAuthGeneration
+	cfg.ReauthRequired = false
+
+	writeCtx, cancel := context.WithTimeout(ctx, syncConfigWriteTimeout)
+	defer cancel()
+	if err := a.configRepo.Update(writeCtx, cfg); err != nil {
+		return nil, fmt.Errorf("%s: update config: %w", funcName, err)
+	}
+
+	// From here on a refresh of the previous session must discard its answer.
+	a.sessionEpoch.Add(1)
+	a.storeTokensNoMirror(tokens.AccessToken, tokens.RefreshToken, tokens.ActiveOrgID)
+
+	return &AuthResult{
+		Email:                     tokens.Email,
+		RequiresEmailVerification: tokens.RequiresEmailVerification,
+	}, nil
+}
+
+// GetMe reports the account behind the stored credentials and whether its email is confirmed.
 func (a *SyncAuthManager) GetMe(ctx context.Context, client *GRPCClient) (email string, verified bool, err error) {
 	const funcName = "SyncAuthManager.GetMe"
 
@@ -229,8 +271,7 @@ func (a *SyncAuthManager) GetMe(ctx context.Context, client *GRPCClient) (email 
 	return user.GetEmail(), user.GetEmailVerified(), nil
 }
 
-// ResendVerification asks the server to send the confirmation email again.
-// The server rate-limits this; the codes.ResourceExhausted status survives the wrap.
+// The server rate-limits ResendVerification; the codes.ResourceExhausted status survives the wrap.
 func (a *SyncAuthManager) ResendVerification(ctx context.Context, client *GRPCClient) error {
 	const funcName = "SyncAuthManager.ResendVerification"
 
@@ -279,8 +320,7 @@ func (a *SyncAuthManager) Me(ctx context.Context, client *GRPCClient) ([]Session
 	return sessions, nil
 }
 
-// RevokeSession signs one other device out. The server answers NotFound for a
-// session that belongs to someone else.
+// RevokeSession signs one other device out; the server answers NotFound for someone else's session.
 func (a *SyncAuthManager) RevokeSession(ctx context.Context, client *GRPCClient, sessionID string) error {
 	const funcName = "SyncAuthManager.RevokeSession"
 
@@ -341,6 +381,7 @@ func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient
 		}
 		clientID := a.clientID
 		a.mu.Unlock()
+		epoch := a.sessionEpoch.Load()
 
 		refreshToken := a.loadRefreshToken()
 		if refreshToken == "" {
@@ -360,7 +401,17 @@ func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient
 			return result{err: fmt.Errorf("%s: refresh rpc: %w", funcName, err)}, nil
 		}
 
-		a.storeTokens(resp.GetAccessToken(), resp.GetRefreshToken(), resp.GetActiveOrgId())
+		if a.sessionEpoch.Load() != epoch {
+			// Another session was adopted while this refresh was in flight: its
+			// tokens belong to an account this install no longer holds.
+			return result{err: fmt.Errorf("%s: %w", funcName, ErrSessionReplaced)}, nil
+		}
+
+		if !a.storeTokensForEpoch(epoch, resp.GetAccessToken(), resp.GetRefreshToken(), resp.GetActiveOrgId()) {
+			// The adoption landed between the check above and the write: its
+			// tokens are the live ones and must not be overwritten.
+			return result{err: fmt.Errorf("%s: %w", funcName, ErrSessionReplaced)}, nil
+		}
 
 		a.mu.RLock()
 		token := a.accessToken
@@ -377,7 +428,6 @@ func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient
 	return r.token, r.err
 }
 
-// InvalidateAccessToken forces the next GetAccessToken through the refresh path.
 // Called on Unauthenticated: the in-memory expiry can be stale after macOS sleep.
 func (a *SyncAuthManager) InvalidateAccessToken() {
 	a.mu.Lock()
@@ -386,7 +436,6 @@ func (a *SyncAuthManager) InvalidateAccessToken() {
 	a.mu.Unlock()
 }
 
-// Logout revokes the session on the server and clears authentication state.
 func (a *SyncAuthManager) Logout(ctx context.Context, client *GRPCClient) error {
 	const funcName = "SyncAuthManager.Logout"
 
@@ -400,7 +449,7 @@ func (a *SyncAuthManager) Logout(ctx context.Context, client *GRPCClient) error 
 
 	// Bumped after the revoke and right before the delete: a store the revoke's own
 	// refresh started captured the old epoch and undoes itself if it lands late.
-	a.logoutEpoch.Add(1)
+	a.sessionEpoch.Add(1)
 	a.deleteRefreshToken()
 
 	cfg, err := a.configRepo.Get(ctx)
@@ -439,10 +488,48 @@ func (a *SyncAuthManager) revokeServerSession(ctx context.Context, client *GRPCC
 	}
 }
 
-// storeTokens saves the access token in memory and the refresh token in the keychain.
 // activeOrgID is captured because the server's workspace-discovery contract is org-rooted.
 func (a *SyncAuthManager) storeTokens(accessToken, refreshToken, activeOrgID string) {
+	a.storeTokensInto(accessToken, refreshToken, activeOrgID, true)
+}
+
+// storeTokensNoMirror skips the SQLite mirror: AdoptSignIn already wrote the token with its
+// single config Update, and a second write would not fit the commit budget.
+func (a *SyncAuthManager) storeTokensNoMirror(accessToken, refreshToken, activeOrgID string) {
+	a.storeTokensInto(accessToken, refreshToken, activeOrgID, false)
+}
+
+// storeTokensForEpoch publishes a refreshed pair only while its session is still
+// current; epoch and write share a lock, so an AdoptSignIn in between wins.
+func (a *SyncAuthManager) storeTokensForEpoch(epoch uint64, accessToken, refreshToken, activeOrgID string) bool {
 	a.mu.Lock()
+	if a.sessionEpoch.Load() != epoch {
+		a.mu.Unlock()
+
+		return false
+	}
+	a.setTokensLocked(accessToken, activeOrgID)
+	a.mu.Unlock()
+
+	if refreshToken != "" {
+		a.storeRefreshToken(refreshToken, true)
+	}
+
+	return true
+}
+
+func (a *SyncAuthManager) storeTokensInto(accessToken, refreshToken, activeOrgID string, mirror bool) {
+	a.mu.Lock()
+	a.setTokensLocked(accessToken, activeOrgID)
+	a.mu.Unlock()
+
+	if refreshToken != "" {
+		a.storeRefreshToken(refreshToken, mirror)
+	}
+}
+
+// setTokensLocked writes the in-memory half; the caller holds a.mu.
+func (a *SyncAuthManager) setTokensLocked(accessToken, activeOrgID string) {
 	a.accessToken = accessToken
 	// Round(0) strips the monotonic reading: macOS stops the monotonic clock
 	// during sleep, so the expiry must be wall-clock only.
@@ -450,21 +537,15 @@ func (a *SyncAuthManager) storeTokens(accessToken, refreshToken, activeOrgID str
 	if activeOrgID != "" {
 		a.activeOrgID = activeOrgID
 	}
-	a.mu.Unlock()
-
-	if refreshToken != "" {
-		a.storeRefreshToken(refreshToken)
-	}
 }
 
 // keyringTimeout bounds keychain access: on macOS the first access can block
 // forever on a hidden security-agent prompt, hanging the Login UI thread.
 const keyringTimeout = 2 * time.Second
 
-// storeRefreshToken persists the refresh token in the OS keychain, falling back
-// to sync_config. Entries are scoped by client_id to avoid collisions between installs.
-func (a *SyncAuthManager) storeRefreshToken(token string) {
-	epoch := a.logoutEpoch.Load()
+// storeRefreshToken writes the token to the OS keychain, with sync_config as the fallback.
+func (a *SyncAuthManager) storeRefreshToken(token string, mirror bool) {
+	epoch := a.sessionEpoch.Load()
 
 	a.mu.RLock()
 	account := keyringKeyFor(a.clientID)
@@ -476,9 +557,9 @@ func (a *SyncAuthManager) storeRefreshToken(token string) {
 		if err := a.keyringSet(keyringService, account, token); err != nil {
 			return
 		}
-		// A write that outlived Logout must undo itself: the delete already ran.
-		if a.logoutEpoch.Load() != epoch {
-			_ = keyring.Delete(keyringService, account)
+		// A write that outlived its session must undo itself.
+		if a.sessionEpoch.Load() != epoch {
+			a.undoLateWrite(account, token)
 		}
 	}()
 	select {
@@ -486,17 +567,35 @@ func (a *SyncAuthManager) storeRefreshToken(token string) {
 	case <-time.After(keyringTimeout):
 	}
 
-	if a.logoutEpoch.Load() != epoch {
-		a.deleteRefreshToken()
+	if a.sessionEpoch.Load() != epoch {
+		// Only the mirror is skipped here: the undo belongs to the write goroutine,
+		// whose keychain calls are as unbounded as the one we gave up waiting for.
 		return
 	}
-	// Always mirror into SQLite: if a later load hits the keychain timeout,
-	// the fallback must hold the current token, not a long-rotated one.
-	a.storeRefreshTokenDB(token)
+	// The mirror keeps the SQLite fallback current for a later load that hits the keychain
+	// timeout; AdoptSignIn skips it because its config write carried the same token.
+	if mirror {
+		a.storeRefreshTokenDB(token)
+	}
 }
 
-// loadRefreshToken reads the refresh token from the OS keychain, falling back
-// to sync_config if the keychain is unavailable or slow.
+// undoLateWrite takes back a write that outlived its session, and only that write:
+// the session that replaced ours already mirrored its own token into sync_config.
+func (a *SyncAuthManager) undoLateWrite(account, token string) {
+	if current, err := keyring.Get(keyringService, account); err != nil || current != token {
+		return
+	}
+	// The session that replaced ours mirrors its own token into sync_config;
+	// anything equal to ours is our own stale mirror and must not come back.
+	if live := a.loadRefreshTokenDB(); live != "" && live != token {
+		if err := a.keyringSet(keyringService, account, live); err == nil {
+			return
+		}
+	}
+	_ = keyring.Delete(keyringService, account)
+}
+
+// loadRefreshToken falls back to sync_config when the keychain is unavailable or slow.
 func (a *SyncAuthManager) loadRefreshToken() string {
 	a.mu.RLock()
 	account := keyringKeyFor(a.clientID)
@@ -533,8 +632,7 @@ func (a *SyncAuthManager) loadRefreshToken() string {
 	return a.loadRefreshTokenDB()
 }
 
-// deleteRefreshToken removes the refresh token from both keychain and SQLite,
-// including the legacy unscoped entry; either may be absent.
+// deleteRefreshToken clears keychain and SQLite, the legacy unscoped entry included.
 func (a *SyncAuthManager) deleteRefreshToken() {
 	a.mu.RLock()
 	account := keyringKeyFor(a.clientID)

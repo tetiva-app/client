@@ -15,12 +15,34 @@ function triggerBrowserDownload(content: string, suggestedName: string) {
   URL.revokeObjectURL(url)
 }
 
+const SUPPORTED_POSTMAN_AUTH = new Set(['noauth', 'basic', 'bearer', 'apikey', 'oauth2', 'jwt', 'digest', 'awsv4'])
+
+// Browser mode has no Go importer; this repeats only the unsupported-scheme
+// warning, worded like the real one, so the toast can be exercised.
+function mockAuthWarnings(data: any): string[] {
+  const warnings: string[] = []
+  const report = (kind: string, name: string | undefined, type: string | undefined) => {
+    if (!type || SUPPORTED_POSTMAN_AUTH.has(type)) return
+    const label = name ? `${kind} "${name}"` : kind
+    warnings.push(`${label}: auth type "${type}" is not supported and was imported as no auth`)
+  }
+  report('collection', data.info?.name, data.auth?.type)
+  const walk = (list: any[]) => {
+    for (const item of list ?? []) {
+      report(item.item ? 'folder' : 'request', item.name, item.request?.auth?.type ?? item.auth?.type)
+      if (item.item) walk(item.item)
+    }
+  }
+  walk(data.item)
+  return warnings
+}
+
 export class MockPortabilityService implements PortabilityServiceAPI {
   async importCollection(content: string, _parentId: string | null | undefined, _workspaceId: string): Promise<Result<ImportCollectionResult>> {
     try {
       const data = JSON.parse(content)
       if (!data.info || !data.item) {
-        return { data: { foldersCreated: 0, requestsCreated: 0 }, error: { code: 'validation', message: 'Not a valid Postman collection' } }
+        return { data: { foldersCreated: 0, requestsCreated: 0, warnings: [] }, error: { code: 'validation', message: 'Not a valid Postman collection' } }
       }
 
       let folders = 1
@@ -37,9 +59,9 @@ export class MockPortabilityService implements PortabilityServiceAPI {
       }
       countItems(data.item)
 
-      return { data: { foldersCreated: folders, requestsCreated: requests } }
+      return { data: { foldersCreated: folders, requestsCreated: requests, warnings: mockAuthWarnings(data) } }
     } catch {
-      return { data: { foldersCreated: 0, requestsCreated: 0 }, error: { code: 'validation', message: 'Invalid JSON file' } }
+      return { data: { foldersCreated: 0, requestsCreated: 0, warnings: [] }, error: { code: 'validation', message: 'Invalid JSON file' } }
     }
   }
 

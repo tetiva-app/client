@@ -7,8 +7,7 @@ import (
 
 var varPattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
-// substituteVariables replaces all {{key}} occurrences in text with values from vars.
-// Unresolved variables are left as-is.
+// substituteVariables replaces {{key}} with values from vars; unresolved keys are left as-is.
 func substituteVariables(text string, vars map[string]string) string {
 	if len(vars) == 0 || !strings.Contains(text, "{{") {
 		return text

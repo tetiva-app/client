@@ -12,17 +12,14 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
 )
 
-// WorkspaceRepo implements workspace.Repository using SQLite.
 type WorkspaceRepo struct {
 	db *sql.DB
 }
 
-// NewWorkspaceRepo creates a new WorkspaceRepo instance.
 func NewWorkspaceRepo(db *sql.DB) workspace.Repository {
 	return &WorkspaceRepo{db: db}
 }
 
-// Create inserts a new workspace into the database.
 func (r *WorkspaceRepo) Create(ctx context.Context, w *entities.Workspace) error {
 	const funcName = "WorkspaceRepo.Create"
 
@@ -48,7 +45,7 @@ func (r *WorkspaceRepo) Create(ctx context.Context, w *entities.Workspace) error
 	return nil
 }
 
-// GetByID retrieves a workspace by ID, returning nil if not found or soft-deleted.
+// Returns nil when the row is missing or soft-deleted.
 func (r *WorkspaceRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Workspace, error) {
 	const funcName = "WorkspaceRepo.GetByID"
 
@@ -68,7 +65,7 @@ func (r *WorkspaceRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Wo
 	return w, nil
 }
 
-// List returns all non-deleted workspaces ordered by created_at ASC.
+// Ordered by created_at ASC.
 func (r *WorkspaceRepo) List(ctx context.Context) ([]*entities.Workspace, error) {
 	const funcName = "WorkspaceRepo.List"
 
@@ -96,8 +93,7 @@ func (r *WorkspaceRepo) List(ctx context.Context) ([]*entities.Workspace, error)
 	return result, nil
 }
 
-// Update persists all fields matched by id only — last-write-wins, no version guard:
-// the sync engine applies server changes; the UI enforces optimistic locking one layer up.
+// No version guard — sync applies server changes; the UI does optimistic locking one layer up.
 func (r *WorkspaceRepo) Update(ctx context.Context, w *entities.Workspace) error {
 	const funcName = "WorkspaceRepo.Update"
 
@@ -120,7 +116,7 @@ func (r *WorkspaceRepo) Update(ctx context.Context, w *entities.Workspace) error
 	return nil
 }
 
-// GetActive returns the currently active workspace, or nil if none is active.
+// Returns nil when none is active.
 func (r *WorkspaceRepo) GetActive(ctx context.Context) (*entities.Workspace, error) {
 	const funcName = "WorkspaceRepo.GetActive"
 
@@ -140,7 +136,7 @@ func (r *WorkspaceRepo) GetActive(ctx context.Context) (*entities.Workspace, err
 	return w, nil
 }
 
-// SetActive deactivates all workspaces and activates the target one within a transaction.
+// Deactivates every workspace first, in one transaction.
 func (r *WorkspaceRepo) SetActive(ctx context.Context, id uuid.UUID) error {
 	const funcName = "WorkspaceRepo.SetActive"
 
@@ -174,7 +170,6 @@ func (r *WorkspaceRepo) SetActive(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// CountNonDeleted returns the number of non-deleted workspaces.
 func (r *WorkspaceRepo) CountNonDeleted(ctx context.Context) (int, error) {
 	const funcName = "WorkspaceRepo.CountNonDeleted"
 
@@ -187,7 +182,6 @@ func (r *WorkspaceRepo) CountNonDeleted(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// GetByRemoteID retrieves a workspace by its remote workspace ID.
 func (r *WorkspaceRepo) GetByRemoteID(ctx context.Context, remoteID string) (*entities.Workspace, error) {
 	const funcName = "WorkspaceRepo.GetByRemoteID"
 

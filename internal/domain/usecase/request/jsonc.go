@@ -2,9 +2,8 @@ package request
 
 import "strings"
 
-// stripJSONC removes `// line` and `/* block */` comments, preserving comments inside
-// string literals and keeping newlines from stripped blocks so error positions map to
-// the original lines. Postman-compat: only JSON bodies get this treatment.
+// stripJSONC drops comments outside string literals, keeping the newlines of stripped blocks so
+// error positions still map to the original lines. Postman-compat: JSON bodies only.
 func stripJSONC(src string) string {
 	if src == "" {
 		return ""

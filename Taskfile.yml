@@ -12,22 +12,24 @@ vars:
   APP_NAME: "client"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # wails3 build GOOS=windows overrides this to cross-compile.
+  GOOS: '{{.GOOS | default OS}}'
 
 tasks:
   build:
     summary: Builds the application
     cmds:
-      - task: "{{OS}}:build"
+      - task: "{{.GOOS}}:build"
 
   package:
     summary: Packages a production build of the application
     cmds:
-      - task: "{{OS}}:package"
+      - task: "{{.GOOS}}:package"
 
   run:
     summary: Runs the application
     cmds:
-      - task: "{{OS}}:run"
+      - task: "{{.GOOS}}:run"
 
   dev:
     summary: Runs the application in development mode
@@ -45,7 +47,7 @@ tasks:
       - task: common:build:server
 
   run:server:
-    summary: Runs the application in server mode
+    summary: Builds and runs a development server (DEV=true)
     cmds:
       - task: common:run:server
 

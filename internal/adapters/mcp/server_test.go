@@ -5,45 +5,40 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	authuc "github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
+	"github.com/tetiva-app/client/migrations"
+	"github.com/tetiva-app/client/pkg/migrate"
 
 	_ "modernc.org/sqlite"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	// A file DB with one connection: ":memory:" hands every pooled connection its
+	// own empty database, and the fk-off migration runs on a dedicated one.
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
 	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
 	_, err = db.Exec("PRAGMA foreign_keys=ON")
 	require.NoError(t, err)
-
-	migrations := []string{
-		"001_initial.sql", "002_requests_json_checks.sql", "003_auth.sql",
-		"004_collection_scripts.sql", "005_collection_auth_description.sql",
-		"006_workspace_is_active.sql", "007_grpc_collection_metadata.sql",
-		"008_graphql.sql", "009_sync.sql", "010_workspace_remote_index.sql",
-		"011_sync_config_refresh_token.sql", "012_cookies.sql", "013_request_drafts.sql",
-	}
-	for _, name := range migrations {
-		data, err := os.ReadFile("../../../migrations/" + name)
-		require.NoError(t, err, "read migration %s", name)
-		_, err = db.Exec(string(data))
-		require.NoError(t, err, "apply migration %s", name)
-	}
+	require.NoError(t, migrate.Run(db, migrations.FS, "."))
 
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -61,8 +56,9 @@ func setupTestServer(t *testing.T) *Server {
 	wsRepo := sqlite.NewWorkspaceRepo(db)
 	syncQueueRepo := sqlite.NewSyncQueueRepo(db)
 	syncConfigRepo := sqlite.NewSyncConfigRepo(db)
+	tokenRepo := sqlite.NewAuthTokenRepo(db)
 
-	colUC := collection.NewUsecase(colRepo)
+	colUC := collection.NewUsecase(colRepo, tokenRepo)
 	envUC := environment.NewUsecase(envRepo, varRepo)
 	wsUC := workspace.NewUsecase(wsRepo)
 
@@ -71,14 +67,15 @@ func setupTestServer(t *testing.T) *Server {
 		&stubGRPCRequester{}, &stubGraphQLRequester{},
 		&stubEnvResolver{}, &stubScriptEngine{},
 		&stubScriptResolver{}, &stubVarPersister{},
-		&stubAuthResolver{}, &stubCookieReader{}, nil,
+		request.NewAuthResolver(collectionReaderFor{repo: colRepo}),
+		&stubCookieReader{}, nil, tokenRepo, authuc.NewProvider(tokenRepo, nil, nil),
 	)
 
-	auth := syncsvc.NewSyncAuthManager(syncConfigRepo)
-	engine := syncsvc.NewSyncEngine(auth, syncQueueRepo, syncConfigRepo, db,
-		colRepo, reqRepo, envRepo, varRepo)
+	syncAuth := syncsvc.NewSyncAuthManager(syncConfigRepo)
+	engine := syncsvc.NewSyncEngine(syncAuth, syncQueueRepo, syncConfigRepo, db,
+		colRepo, reqRepo, envRepo, varRepo, tokenRepo)
 
-	return NewServer(engine, syncQueueRepo, colUC, reqUC, envUC, wsUC, ":0")
+	return NewServer(engine, syncQueueRepo, colUC, reqUC, envUC, wsUC, ":0", NewTokenAuth("", false))
 }
 
 func TestServer_AllToolsRegistered(t *testing.T) {
@@ -368,6 +365,84 @@ func TestServer_CreateRequestWithAllFields(t *testing.T) {
 	assert.Equal(t, col2ID, moved["collection_id"])
 }
 
+func TestServer_UpdateRequest_PatchesOnlySentArguments(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "API"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	reqRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Get Users",
+		"description":   "# Users\n\nLists everyone.",
+		"method":        "POST",
+		"url":           "https://api.example.com/users",
+		"body":          `{"q":"hello"}`,
+		"body_type":     "json",
+		"headers": []map[string]any{
+			{"key": "X-Trace", "value": "on", "enabled": true},
+		},
+		"auth_type":   "bearer",
+		"auth_data":   `{"token":"xyz"}`,
+		"pre_script":  "console.log(1)",
+		"post_script": "console.log(2)",
+	})
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(reqRes), &created))
+	assert.Equal(t, "# Users\n\nLists everyone.", created["description"])
+	assert.Equal(t, redactedValue, created["auth_data"])
+
+	updateRes := callTool(t, srv, "update_request", map[string]any{
+		"id":      created["id"].(string),
+		"version": created["version"].(float64),
+		"name":    "Get Users v2",
+	})
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal([]byte(updateRes), &updated))
+
+	assert.Equal(t, "Get Users v2", updated["name"])
+	assert.Equal(t, "# Users\n\nLists everyone.", updated["description"])
+	assert.Equal(t, "https://api.example.com/users", updated["url"])
+	assert.Equal(t, "POST", updated["method"])
+	assert.Equal(t, "json", updated["body_type"])
+	assert.Equal(t, `{"q":"hello"}`, updated["body"])
+	assert.Equal(t, "bearer", updated["auth_type"])
+	assert.Equal(t, "console.log(1)", updated["pre_script"])
+	assert.Len(t, updated["headers"].([]any), 1)
+
+	// Tool output masks auth_data, so an omitted argument must leave the real one alone.
+	stored, err := srv.reqUC.GetByID(context.Background(), uuid.MustParse(created["id"].(string)))
+	require.NoError(t, err)
+	assert.Equal(t, `{"token":"xyz"}`, stored.AuthData)
+}
+
+func TestServer_UpdateRequest_ClearsFieldOnExplicitEmptyString(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "API"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	reqRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Documented",
+		"description":   "to be removed",
+	})
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(reqRes), &created))
+
+	updateRes := callTool(t, srv, "update_request", map[string]any{
+		"id":          created["id"].(string),
+		"version":     created["version"].(float64),
+		"name":        "Documented",
+		"description": "",
+	})
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal([]byte(updateRes), &updated))
+	assert.Equal(t, "", updated["description"])
+}
+
 func TestServer_SendRequest_UsesExecute(t *testing.T) {
 	srv := setupTestServer(t)
 
@@ -415,16 +490,10 @@ func TestServer_SyncQueueList_Empty(t *testing.T) {
 
 func TestServer_SSE_Starts(t *testing.T) {
 	srv := setupTestServer(t)
-	ctx := context.Background()
-
-	srv.addr = "127.0.0.1:9399"
-	require.NoError(t, srv.Start(ctx))
-
-	// Give SSE server a moment to bind.
-	time.Sleep(200 * time.Millisecond)
+	base := startHTTPServer(t, srv)
 
 	client := &http.Client{Timeout: time.Second}
-	resp, err := client.Get("http://127.0.0.1:9399/sse")
+	resp, err := client.Get(base + "/sse")
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -735,10 +804,16 @@ func (r *stubVarPersister) PersistVariableChanges(_ context.Context, _ uuid.UUID
 	return nil
 }
 
-type stubAuthResolver struct{}
+// collectionReaderFor adapts the collection repo to request.CollectionReader so
+// the tools resolve auth against the collections they create.
+type collectionReaderFor struct{ repo collection.Repository }
 
-func (r *stubAuthResolver) ResolveAuth(_ context.Context, _ *entities.Request) (entities.AuthType, string, error) {
-	return entities.AuthTypeNone, "{}", nil
+func (c collectionReaderFor) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
+	return c.repo.GetByID(ctx, id)
+}
+
+func (c collectionReaderFor) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Collection, error) {
+	return c.repo.List(ctx, collection.Filter{WorkspaceID: workspaceID})
 }
 
 type stubCookieReader struct{}
@@ -756,6 +831,188 @@ var (
 	_ request.ScriptEngine        = (*stubScriptEngine)(nil)
 	_ request.ScriptResolver      = (*stubScriptResolver)(nil)
 	_ request.VariablePersister   = (*stubVarPersister)(nil)
-	_ request.AuthResolver        = (*stubAuthResolver)(nil)
 	_ request.CookieReader        = (*stubCookieReader)(nil)
 )
+
+// The update tools promise that omitted fields keep their value, so a schema
+// that marks name required contradicts them and blocks a rename-free patch.
+func TestServer_UpdateTools_NameIsOptional(t *testing.T) {
+	srv := setupTestServer(t)
+	tools := srv.mcp.ListTools()
+
+	for _, name := range []string{"update_request", "update_collection"} {
+		tool, ok := tools[name]
+		require.True(t, ok, "tool %q not registered", name)
+		assert.NotContains(t, tool.Tool.InputSchema.Required, "name",
+			"%q must not force a name on a partial update", name)
+		assert.Contains(t, tool.Tool.InputSchema.Required, "id", "%q must still require id", name)
+		assert.Contains(t, tool.Tool.InputSchema.Required, "version",
+			"%q must still require version for optimistic locking", name)
+	}
+}
+
+func TestServer_UpdateRequest_PatchWithoutName(t *testing.T) {
+	srv := setupTestServer(t)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "Patch"})
+	created := callToolJSON(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"],
+		"name":          "Original",
+		"method":        "GET",
+		"url":           "https://api.example.com/u",
+	})
+
+	updated := callToolJSON(t, srv, "update_request", map[string]any{
+		"id":          created["id"],
+		"version":     created["version"],
+		"description": "docs only",
+	})
+	assert.Equal(t, "Original", updated["name"])
+	assert.Equal(t, "docs only", updated["description"])
+	assert.Equal(t, "https://api.example.com/u", updated["url"])
+}
+
+func TestServer_UpdateCollection_PatchWithoutName(t *testing.T) {
+	srv := setupTestServer(t)
+	created := callToolJSON(t, srv, "create_collection", map[string]any{
+		"name": "Original", "description": "old",
+	})
+
+	updated := callToolJSON(t, srv, "update_collection", map[string]any{
+		"id":          created["id"],
+		"version":     created["version"],
+		"description": "new",
+	})
+	assert.Equal(t, "Original", updated["name"])
+	assert.Equal(t, "new", updated["description"])
+}
+
+func TestServer_CreateRequest_WebSocketSettingsBody(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "Realtime"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	settings := `{"version":1,"pingIntervalSec":30,"subprotocols":["graphql-ws"],` +
+		`"messages":[{"id":"m1","name":"Login","format":"json","data":"{\"op\":\"login\"}"}]}`
+
+	createRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Ticker",
+		"protocol":      "websocket",
+		"url":           "wss://api.example.com/ws",
+		"body":          settings,
+	})
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(createRes), &created))
+	assert.Equal(t, "websocket", created["protocol"])
+	assert.Equal(t, "raw", created["body_type"])
+	assert.Equal(t, settings, created["body"])
+
+	badRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Broken",
+		"protocol":      "websocket",
+		"url":           "wss://api.example.com/ws",
+		"body":          "not json at all",
+	})
+	assert.Contains(t, badRes, "body")
+	assert.Contains(t, badRes, "websocket settings document")
+}
+
+func TestServer_UpdateRequest_WebSocketBodyIsValidated(t *testing.T) {
+	srv := setupTestServer(t)
+
+	colRes := callTool(t, srv, "create_collection", map[string]any{"name": "Realtime"})
+	var col map[string]any
+	require.NoError(t, json.Unmarshal([]byte(colRes), &col))
+
+	createRes := callTool(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"].(string),
+		"name":          "Ticker",
+		"protocol":      "websocket",
+		"url":           "wss://api.example.com/ws",
+	})
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(createRes), &created))
+	reqID := created["id"].(string)
+	version := created["version"].(float64)
+
+	badRes := callTool(t, srv, "update_request", map[string]any{
+		"id":      reqID,
+		"version": version,
+		"body":    `{"version":2,"messages":[{"id":"m1","format":"xml"}]}`,
+	})
+	assert.Contains(t, badRes, "body")
+	assert.Contains(t, badRes, "version must be 1")
+
+	okRes := callTool(t, srv, "update_request", map[string]any{
+		"id":      reqID,
+		"version": version,
+		"body":    `{"version":1,"pingIntervalSec":15,"subprotocols":[],"messages":[]}`,
+	})
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal([]byte(okRes), &updated))
+	assert.Equal(t, "raw", updated["body_type"])
+	assert.Contains(t, updated["body"], "pingIntervalSec")
+}
+
+func TestServer_RequestToolDescriptions_DocumentWebSocket(t *testing.T) {
+	srv := setupTestServer(t)
+
+	tools := srv.mcp.ListTools()
+
+	create, ok := tools["create_request"]
+	require.True(t, ok)
+	protocol, ok := create.Tool.InputSchema.Properties["protocol"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, protocol["description"], "websocket")
+
+	body, ok := create.Tool.InputSchema.Properties["body"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, body["description"], "pingIntervalSec")
+
+	update, ok := tools["update_request"]
+	require.True(t, ok)
+	updateBody, ok := update.Tool.InputSchema.Properties["body"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, updateBody["description"], "pingIntervalSec")
+}
+
+// authTypesInDescription reads back the list a tool advertises: "Auth type: a, b, c (…)".
+func authTypesInDescription(t *testing.T, tools map[string]*mcpserver.ServerTool, tool string) []string {
+	t.Helper()
+	entry, ok := tools[tool]
+	require.True(t, ok, "tool %q is not registered", tool)
+	prop, ok := entry.Tool.InputSchema.Properties["auth_type"].(map[string]any)
+	require.True(t, ok)
+	desc, ok := prop["description"].(string)
+	require.True(t, ok)
+
+	list, ok := strings.CutPrefix(desc, "Auth type: ")
+	require.True(t, ok, "description %q does not start with the list", desc)
+	if idx := strings.Index(list, " ("); idx >= 0 {
+		list = list[:idx]
+	}
+	return strings.Split(list, ", ")
+}
+
+func TestServer_AuthTypeDescriptions_MirrorTheRegistry(t *testing.T) {
+	srv := setupTestServer(t)
+	tools := srv.mcp.ListTools()
+
+	requestTypes := make([]string, 0, len(entities.ValidAuthTypes()))
+	for _, at := range entities.ValidAuthTypes() {
+		requestTypes = append(requestTypes, string(at))
+	}
+	collectionTypes := make([]string, 0, len(entities.ValidCollectionAuthTypes()))
+	for _, at := range entities.ValidCollectionAuthTypes() {
+		collectionTypes = append(collectionTypes, string(at))
+	}
+
+	assert.Equal(t, requestTypes, authTypesInDescription(t, tools, "create_request"))
+	assert.Equal(t, requestTypes, authTypesInDescription(t, tools, "update_request"))
+	assert.Equal(t, collectionTypes, authTypesInDescription(t, tools, "create_collection"))
+	assert.Equal(t, collectionTypes, authTypesInDescription(t, tools, "update_collection"))
+	assert.NotContains(t, collectionTypes, string(entities.AuthTypeInherit))
+}

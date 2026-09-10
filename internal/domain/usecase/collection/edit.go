@@ -10,9 +10,9 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
 
-// Edit holds the data required to edit an existing collection.
 type Edit struct {
 	Name         string
 	PreScript    string
@@ -23,14 +23,12 @@ type Edit struct {
 	GRPCMetadata []entities.HeaderItem
 }
 
-// EditOpt holds contextual options for the Edit operation.
 type EditOpt struct {
 	CollectionID uuid.UUID
 	UserID       string
 	Version      int
 }
 
-// Validate checks that all required fields are present.
 func (e *Edit) Validate() error {
 	errs := make(map[string]string)
 	if e.Name == "" {
@@ -52,7 +50,6 @@ func (e *Edit) Validate() error {
 	return nil
 }
 
-// Edit validates input, applies optimistic locking, updates and persists the collection.
 func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.Collection, error) {
 	const funcName = "collection.Edit"
 
@@ -72,6 +69,8 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 	if existing.Version != opt.Version {
 		return nil, &domain.ConflictError{Entity: "collection", ID: opt.CollectionID.String()}
 	}
+
+	prevAuthType, prevAuthData := existing.AuthType, existing.AuthData
 
 	authType := input.AuthType
 	if authType == "" {
@@ -97,6 +96,15 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 
 	if err := u.repo.Update(ctx, existing); err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	if auth.AcquisitionChanged(prevAuthType, existing.AuthType, prevAuthData, existing.AuthData) {
+		// The saved configuration can no longer produce the stored token — unless
+		// it is the one the token was acquired with, from the same editor buffer.
+		keep := auth.AcquisitionHash(existing.AuthType, existing.AuthData)
+		if err := u.tokens().ClearOwnersUnlessHash(ctx, entities.AuthOwnerKindCollection, []uuid.UUID{existing.ID}, keep); err != nil {
+			return nil, fmt.Errorf("%s: clear tokens: %w", funcName, err)
+		}
 	}
 
 	return existing, nil

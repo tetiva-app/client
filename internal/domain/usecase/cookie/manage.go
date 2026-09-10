@@ -12,7 +12,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Add — input for creating a cookie.
 type Add struct {
 	WorkspaceID uuid.UUID
 	Domain      string
@@ -26,8 +25,7 @@ type Add struct {
 	SameSite    string
 }
 
-// Edit — input for updating a cookie. Replace-semantics (PUT-style): every field
-// overwrites the stored value; WorkspaceID is preserved from the existing row.
+// Edit has replace semantics: every field overwrites the stored value, WorkspaceID stays.
 type Edit struct {
 	ID        uuid.UUID
 	Domain    string

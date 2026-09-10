@@ -1,67 +1,39 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
-#
-# The lines below are called `modelines`. See `:help modeline`
-
-name: "client"
+name: "tetiva"
 arch: ${GOARCH}
 platform: "linux"
-version: "0.15.3"
-section: "default"
-priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "API client for developers"
-vendor: "Saveliy Ludin"
-homepage: "https://wails.io"
+version: "1.1.0"
+section: "devel"
+priority: "optional"
+maintainer: "Saveliy Yudin <support@tetiva.app>"
+description: "Tetiva — API client for HTTP, gRPC, GraphQL and WebSocket"
+vendor: "Saveliy Yudin"
+homepage: "https://tetiva.app"
 license: "MIT"
 release: "1"
 
 contents:
   - src: "./bin/client"
-    dst: "/usr/local/bin/client"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/client.png"
-  - src: "./build/linux/client.desktop"
-    dst: "/usr/share/applications/client.desktop"
+    dst: "/usr/bin/tetiva"
+  # 512x512 is the largest size hicolor's index.theme knows about; appicon.png (1024) would never be looked up.
+  - src: "./build/linux/tetiva.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/tetiva.png"
+  - src: "./build/linux/tetiva.desktop"
+    dst: "/usr/share/applications/tetiva.desktop"
 
-# Default dependencies for Debian 12/Ubuntu 22.04+ with WebKit 4.1
+# GTK3 + WebKit2GTK 4.1 stack, matching the `gtk3` build tag.
 depends:
   - libgtk-3-0
   - libwebkit2gtk-4.1-0
 
-# Distribution-specific overrides for different package formats and WebKit versions
 overrides:
-  # RPM packages for RHEL/CentOS/AlmaLinux/Rocky Linux (WebKit 4.0)
   rpm:
     depends:
       - gtk3
       - webkit2gtk4.1
-  
-  # Arch Linux packages (WebKit 4.1)  
   archlinux:
     depends:
       - gtk3
       - webkit2gtk-4.1
 
-# scripts section to ensure desktop database is updated after install
 scripts:
   postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# depends:
-#   - gtk3
-#   - libwebkit2gtk
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"

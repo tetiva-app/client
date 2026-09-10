@@ -3,7 +3,8 @@ package sync
 import (
 	"context"
 	"database/sql"
-	"sync"
+	"errors"
+	gosync "sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
@@ -168,7 +170,7 @@ func TestGetAccessToken_Singleflight_NoConcurrentRefresh(t *testing.T) {
 	errors := make([]error, goroutines)
 	tokens := make([]string, goroutines)
 
-	var wg sync.WaitGroup
+	var wg gosync.WaitGroup
 	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
 		i := i
@@ -572,7 +574,7 @@ func TestStoreRefreshToken_LateWriteLosesToLogout(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		mgr.storeRefreshToken("late-token")
+		mgr.storeRefreshToken("late-token", true)
 	}()
 	<-started
 
@@ -590,9 +592,8 @@ func TestStoreRefreshToken_LateWriteLosesToLogout(t *testing.T) {
 	}
 }
 
-// Regression: the epoch used to be bumped before the server revoke, so the refresh
-// that revoke triggers stored its rotated token under the new epoch and survived
-// the delete that followed.
+// Regression: the epoch was bumped before the server revoke, so the refresh that revoke
+// triggers stored its rotated token under the new epoch and survived the delete after it.
 func TestLogout_BumpsEpochAfterServerRevoke(t *testing.T) {
 	keyring.MockInit()
 	db := setupTestDB(t)
@@ -621,7 +622,7 @@ func TestLogout_BumpsEpochAfterServerRevoke(t *testing.T) {
 	var epochAtStore atomic.Uint64
 	epochAtStore.Store(^uint64(0))
 	mgr.keyringSet = func(service, account, token string) error {
-		epochAtStore.Store(mgr.logoutEpoch.Load())
+		epochAtStore.Store(mgr.sessionEpoch.Load())
 		return keyring.Set(service, account, token)
 	}
 
@@ -635,13 +636,404 @@ func TestLogout_BumpsEpochAfterServerRevoke(t *testing.T) {
 	if got := epochAtStore.Load(); got != 0 {
 		t.Errorf("epoch seen by the revoke's own store = %d, want 0", got)
 	}
-	if got := mgr.logoutEpoch.Load(); got != 1 {
-		t.Errorf("logoutEpoch after Logout = %d, want 1", got)
+	if got := mgr.sessionEpoch.Load(); got != 1 {
+		t.Errorf("sessionEpoch after Logout = %d, want 1", got)
 	}
 	if got := mgr.loadRefreshTokenDB(); got != "" {
 		t.Errorf("sync_config.refresh_token = %q, want empty", got)
 	}
 	if got, err := keyring.Get(keyringService, keyringKeyFor("client-1")); err == nil {
 		t.Errorf("keychain still holds %q after Logout", got)
+	}
+}
+
+// countingConfigRepo watches the writes AdoptSignIn makes: the commit budget
+// allows exactly one, and a failing or slow one must not reach the keychain.
+type countingConfigRepo struct {
+	sqlite.SyncConfigRepository
+	mu        gosync.Mutex
+	updates   int
+	updateErr error
+	delay     time.Duration
+}
+
+func (r *countingConfigRepo) Update(ctx context.Context, cfg *sqlite.SyncConfig) error {
+	r.mu.Lock()
+	r.updates++
+	delay, updateErr := r.delay, r.updateErr
+	r.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if updateErr != nil {
+		return updateErr
+	}
+	return r.SyncConfigRepository.Update(ctx, cfg)
+}
+
+func (r *countingConfigRepo) updateCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.updates
+}
+
+func adoptTokens() auth.SignInTokens {
+	return auth.SignInTokens{
+		AccessToken:  "access-new",
+		RefreshToken: "refresh-new",
+		ActiveOrgID:  "org-new",
+		Email:        "new@example.com",
+	}
+}
+
+func TestAdoptSignIn_WritesConfigOnce(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := &countingConfigRepo{SyncConfigRepository: newTestSyncConfigRepo(db)}
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.ReauthRequired = true
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	before := repo.updateCount()
+
+	mgr := NewSyncAuthManager(repo)
+	res, err := mgr.AdoptSignIn(ctx, "sync.example.com:443", adoptTokens())
+	if err != nil {
+		t.Fatalf("AdoptSignIn: %v", err)
+	}
+
+	if res.Email != "new@example.com" {
+		t.Errorf("res.Email = %q, want %q", res.Email, "new@example.com")
+	}
+	if got := repo.updateCount() - before; got != 1 {
+		t.Errorf("config writes during AdoptSignIn = %d, want 1", got)
+	}
+
+	stored, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.ServerURL != "sync.example.com:443" {
+		t.Errorf("ServerURL = %q", stored.ServerURL)
+	}
+	if stored.UserEmail != "new@example.com" {
+		t.Errorf("UserEmail = %q", stored.UserEmail)
+	}
+	if !stored.Enabled {
+		t.Error("Enabled should be true after AdoptSignIn")
+	}
+	if stored.RefreshToken != "refresh-new" {
+		t.Errorf("RefreshToken = %q, want %q", stored.RefreshToken, "refresh-new")
+	}
+	if stored.AuthGeneration != CurrentAuthGeneration {
+		t.Errorf("AuthGeneration = %d, want %d", stored.AuthGeneration, CurrentAuthGeneration)
+	}
+	if stored.ReauthRequired {
+		t.Error("AdoptSignIn must clear reauth_required")
+	}
+
+	if got, err := keyring.Get(keyringService, keyringKeyFor(cfg.ClientID)); err != nil || got != "refresh-new" {
+		t.Errorf("keychain holds %q (err %v), want %q", got, err, "refresh-new")
+	}
+	if !mgr.IsLoggedIn() {
+		t.Error("expected IsLoggedIn() == true after AdoptSignIn")
+	}
+	if mgr.GetActiveOrgID() != "org-new" {
+		t.Errorf("GetActiveOrgID() = %q, want %q", mgr.GetActiveOrgID(), "org-new")
+	}
+}
+
+func TestAdoptSignIn_ConfigWriteFails_LeavesNothingBehind(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := &countingConfigRepo{SyncConfigRepository: newTestSyncConfigRepo(db)}
+	ctx := context.Background()
+
+	if _, err := repo.GetOrCreate(ctx); err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	repo.updateErr = errors.New("database is locked")
+
+	mgr := NewSyncAuthManager(repo)
+	if _, err := mgr.AdoptSignIn(ctx, "sync.example.com:443", adoptTokens()); err == nil {
+		t.Fatal("expected AdoptSignIn to fail when the config write fails")
+	}
+
+	if mgr.IsLoggedIn() {
+		t.Error("memory must be untouched when the config write fails")
+	}
+	if got := mgr.loadRefreshToken(); got != "" {
+		t.Errorf("refresh token = %q, want empty", got)
+	}
+}
+
+func TestAdoptSignIn_SlowConfigWriteStaysInsideBudget(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := &countingConfigRepo{SyncConfigRepository: newTestSyncConfigRepo(db), delay: 10 * time.Second}
+	ctx := context.Background()
+
+	if _, err := repo.GetOrCreate(ctx); err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	mgr := NewSyncAuthManager(repo)
+	start := time.Now()
+	_, err := mgr.AdoptSignIn(ctx, "sync.example.com:443", adoptTokens())
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("AdoptSignIn error = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("AdoptSignIn took %s, must stay inside the commit budget", elapsed)
+	}
+	if mgr.IsLoggedIn() {
+		t.Error("memory must be untouched when the config write times out")
+	}
+}
+
+// A refresh of the previous session that answers after another was adopted must
+// throw its tokens away: memory, keychain and sync_config belong to the new one.
+func TestAdoptSignIn_DropsRefreshOfReplacedSession(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.Enabled = true
+	cfg.RefreshToken = "refresh-old"
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stub := &stubAuthClient{
+		refreshEntered: make(chan struct{}, 1),
+		refreshGate:    make(chan struct{}),
+		refreshResp: authv1.RefreshResponse_builder{
+			AccessToken:  "access-old-2",
+			RefreshToken: "refresh-old-2",
+			ActiveOrgId:  "org-old",
+		}.Build(),
+	}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.SetClientID(cfg.ClientID)
+
+	refreshErr := make(chan error, 1)
+	go func() {
+		_, err := mgr.GetAccessToken(ctx, NewGRPCClientWithStubs(stub, nil))
+		refreshErr <- err
+	}()
+	<-stub.refreshEntered
+
+	if _, err := mgr.AdoptSignIn(ctx, "sync.example.com:443", adoptTokens()); err != nil {
+		t.Fatalf("AdoptSignIn: %v", err)
+	}
+
+	close(stub.refreshGate)
+	if err := <-refreshErr; !errors.Is(err, ErrSessionReplaced) {
+		t.Fatalf("GetAccessToken error = %v, want ErrSessionReplaced", err)
+	}
+
+	mgr.mu.RLock()
+	access, org := mgr.accessToken, mgr.activeOrgID
+	mgr.mu.RUnlock()
+	if access != "access-new" {
+		t.Errorf("in-memory access token = %q, want %q", access, "access-new")
+	}
+	if org != "org-new" {
+		t.Errorf("active org = %q, want %q", org, "org-new")
+	}
+	if got, err := keyring.Get(keyringService, keyringKeyFor(cfg.ClientID)); err != nil || got != "refresh-new" {
+		t.Errorf("keychain holds %q (err %v), want %q", got, err, "refresh-new")
+	}
+	if got := mgr.loadRefreshTokenDB(); got != "refresh-new" {
+		t.Errorf("sync_config.refresh_token = %q, want %q", got, "refresh-new")
+	}
+}
+
+// The narrowest overlap: the refresh is already past its epoch check and waiting
+// for the lock when the adoption lands, so the guard has to sit inside the write.
+func TestGetAccessToken_RefreshDropsTheAnswerAdoptedOverAtTheLastMoment(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.Enabled = true
+	cfg.RefreshToken = "refresh-old"
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stub := &stubAuthClient{
+		refreshEntered: make(chan struct{}, 1),
+		refreshGate:    make(chan struct{}),
+		refreshResp: authv1.RefreshResponse_builder{
+			AccessToken:  "access-old-2",
+			RefreshToken: "refresh-old-2",
+			ActiveOrgId:  "org-old",
+		}.Build(),
+	}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.SetClientID(cfg.ClientID)
+
+	refreshErr := make(chan error, 1)
+	go func() {
+		_, err := mgr.GetAccessToken(ctx, NewGRPCClientWithStubs(stub, nil))
+		refreshErr <- err
+	}()
+	<-stub.refreshEntered
+
+	// Held so the refresh gets past its epoch check and stops at the write; the
+	// adoption is then replayed field by field, exactly as AdoptSignIn does it.
+	mgr.mu.Lock()
+	close(stub.refreshGate)
+	time.Sleep(50 * time.Millisecond)
+	mgr.sessionEpoch.Add(1)
+	mgr.accessToken = "access-new"
+	mgr.activeOrgID = "org-new"
+	mgr.mu.Unlock()
+
+	if err := <-refreshErr; !errors.Is(err, ErrSessionReplaced) {
+		t.Fatalf("GetAccessToken error = %v, want ErrSessionReplaced", err)
+	}
+
+	mgr.mu.RLock()
+	access, org := mgr.accessToken, mgr.activeOrgID
+	mgr.mu.RUnlock()
+	if access != "access-new" {
+		t.Errorf("in-memory access token = %q, want %q", access, "access-new")
+	}
+	if org != "org-new" {
+		t.Errorf("active org = %q, want %q", org, "org-new")
+	}
+	if got, err := keyring.Get(keyringService, keyringKeyFor(cfg.ClientID)); err == nil && got == "refresh-old-2" {
+		t.Error("the replaced session's refresh token reached the keychain")
+	}
+}
+
+// The narrower overlap: the previous session's store is still inside the keychain
+// write when the adoption lands, so its self-undo runs afterwards.
+func TestStoreRefreshToken_LateWriteKeepsAdoptedSession(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	mgr := NewSyncAuthManager(repo)
+	mgr.SetClientID(cfg.ClientID)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	mgr.keyringSet = func(service, account, token string) error {
+		if token == "refresh-old" {
+			close(started)
+			<-release
+		}
+		return keyring.Set(service, account, token)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		mgr.storeRefreshToken("refresh-old", true)
+	}()
+	<-started
+
+	if _, err := mgr.AdoptSignIn(ctx, "sync.example.com:443", adoptTokens()); err != nil {
+		t.Fatalf("AdoptSignIn: %v", err)
+	}
+	close(release)
+	<-done
+
+	if got := mgr.loadRefreshTokenDB(); got != "refresh-new" {
+		t.Errorf("sync_config.refresh_token = %q, want %q", got, "refresh-new")
+	}
+	// Asserted on the keychain itself: reading through loadRefreshToken would pass
+	// on the sync_config fallback alone.
+	if got, err := keyring.Get(keyringService, keyringKeyFor(cfg.ClientID)); err != nil || got != "refresh-new" {
+		t.Errorf("keychain holds %q (err %v), want %q", got, err, "refresh-new")
+	}
+	if got := mgr.loadRefreshToken(); got != "refresh-new" {
+		t.Errorf("refresh token = %q, want %q", got, "refresh-new")
+	}
+}
+
+func TestLogin_StampsAuthGenerationAndClearsReauth(t *testing.T) {
+	keyring.MockInit()
+	db := setupTestDB(t)
+	repo := newTestSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	cfg.ReauthRequired = true
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	stub := &stubAuthClient{loginResp: authv1.LoginResponse_builder{
+		AccessToken:  "access-1",
+		RefreshToken: "refresh-1",
+		ActiveOrgId:  "org-1",
+	}.Build()}
+
+	mgr := NewSyncAuthManager(repo)
+	if _, err := mgr.Login(ctx, NewGRPCClientWithStubs(stub, nil), "a@b.c", "pw"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	stored, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.AuthGeneration != CurrentAuthGeneration {
+		t.Errorf("AuthGeneration = %d, want %d", stored.AuthGeneration, CurrentAuthGeneration)
+	}
+	if stored.ReauthRequired {
+		t.Error("a successful sign-in must clear reauth_required")
+	}
+
+	// The refresh that follows rewrites only the token; the flags must survive it.
+	mgr.storeRefreshTokenDB("refresh-2")
+
+	after, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if after.RefreshToken != "refresh-2" {
+		t.Errorf("RefreshToken = %q, want %q", after.RefreshToken, "refresh-2")
+	}
+	if after.AuthGeneration != CurrentAuthGeneration || after.ReauthRequired {
+		t.Errorf("flags after a refresh: generation=%d reauth=%v", after.AuthGeneration, after.ReauthRequired)
 	}
 }

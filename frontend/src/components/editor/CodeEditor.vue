@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { EditorView, keymap, drawSelection, ViewPlugin, Decoration } from '@codemirror/view'
+import { EditorView, keymap, drawSelection, placeholder as cmPlaceholder, ViewPlugin, Decoration } from '@codemirror/view'
 import type { ViewUpdate, DecorationSet } from '@codemirror/view'
 import { EditorState, RangeSetBuilder, Compartment } from '@codemirror/state'
 import type { ChangeSpec } from '@codemirror/state'
@@ -23,6 +23,7 @@ const props = defineProps<{
   language?: 'json' | 'xml' | 'text' | 'javascript'
   resolvedVariables?: Record<string, string>
   secretKeys?: Set<string>
+  placeholder?: string
 }>()
 
 const emit = defineEmits<{
@@ -205,6 +206,7 @@ function createEditor() {
     keymap.of([...defaultKeymap, ...historyKeymap]),
     search({ top: true, createPanel: () => ({ dom: document.createElement('span') }) }),
     highlightCompartment.of(activeHighlight()),
+    props.placeholder ? cmPlaceholder(props.placeholder) : [],
     getLanguageExtension(props.language),
     variableHighlightPlugin(() => props.resolvedVariables ?? {}),
     variableHoverTooltip(() => props.resolvedVariables ?? {}, () => props.secretKeys ?? new Set<string>()),

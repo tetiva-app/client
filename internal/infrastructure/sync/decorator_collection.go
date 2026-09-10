@@ -21,7 +21,6 @@ type SyncedCollectionRepo struct {
 	engine    *SyncEngine
 }
 
-// NewSyncedCollectionRepo creates a new SyncedCollectionRepo.
 func NewSyncedCollectionRepo(inner collection.Repository, syncQueue sqlite.SyncQueueRepository, db *sql.DB, engine *SyncEngine) *SyncedCollectionRepo {
 	return &SyncedCollectionRepo{
 		inner:     inner,
@@ -61,12 +60,10 @@ func (r *SyncedCollectionRepo) Create(ctx context.Context, c *entities.Collectio
 	return err
 }
 
-// GetByID delegates to the inner repository.
 func (r *SyncedCollectionRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
 	return r.inner.GetByID(ctx, id)
 }
 
-// List delegates to the inner repository.
 func (r *SyncedCollectionRepo) List(ctx context.Context, filter collection.Filter) ([]*entities.Collection, error) {
 	return r.inner.List(ctx, filter)
 }
@@ -101,13 +98,12 @@ func (r *SyncedCollectionRepo) Update(ctx context.Context, c *entities.Collectio
 	return err
 }
 
-// UpdateSortOrder delegates to the inner repository (not a sync-relevant operation).
+// UpdateSortOrder is not sync-relevant, so nothing is enqueued.
 func (r *SyncedCollectionRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	return r.inner.UpdateSortOrder(ctx, id, sortOrder)
 }
 
-// SoftDeleteDescendants recursively soft-deletes descendants and enqueues a "delete" entry per
-// descendant that belongs to a sync-enabled workspace.
+// SoftDeleteDescendants enqueues a "delete" entry per descendant in a sync-enabled workspace.
 func (r *SyncedCollectionRepo) SoftDeleteDescendants(ctx context.Context, parentID uuid.UUID, updatedBy string, updatedAt time.Time) error {
 	var notifyWorkspaces []string
 	err := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -156,7 +152,6 @@ type descendantRow struct {
 	workspaceID string
 }
 
-// selectDescendants queries all descendant collection IDs and workspace_ids for the given parent.
 func (r *SyncedCollectionRepo) selectDescendants(ctx context.Context, parentID uuid.UUID) ([]descendantRow, error) {
 	const funcName = "SyncedCollectionRepo.selectDescendants"
 

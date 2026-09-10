@@ -26,7 +26,6 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// SyncState represents the current synchronization state for a workspace.
 type SyncState string
 
 const (
@@ -43,15 +42,17 @@ const (
 	StateAuthExpired SyncState = "auth_expired"
 	// StatePlanLimit means the server refuses pushes until the org's plan changes.
 	StatePlanLimit SyncState = "plan_limit"
+	// StateUpdateRequired means a peer sent an entity this build cannot represent.
+	// The syncer stops, keeps its outbox, and resumes after the app is updated.
+	StateUpdateRequired SyncState = "update_required"
 )
 
 const (
-	pushBatchSize        = 100
-	pullBatchSize        = 100
-	heartbeatTimeout     = 60 * time.Second
-	fallbackPollInterval = 15 * time.Minute
-	maxBackoff           = 5 * time.Minute
-	initialBackoff       = 5 * time.Second
+	pushBatchSize    = 100
+	pullBatchSize    = 100
+	heartbeatTimeout = 60 * time.Second
+	maxBackoff       = 5 * time.Minute
+	initialBackoff   = 5 * time.Second
 	// rejectEventInterval throttles the id-conflict event: one refused push can
 	// carry a whole batch of rejected items.
 	rejectEventInterval = 5 * time.Minute
@@ -71,13 +72,32 @@ var requeueDelay = quotaRetryDelay
 // stored with second precision, so a past-due value only ever misses by a fraction.
 const requeueFloor = 250 * time.Millisecond
 
+// stopAllTimeout bounds the barrier: a syncer wedged in a Push must not hold
+// sign-in or shutdown hostage.
+const stopAllTimeout = 5 * time.Second
+
 // EventEmitter is a function that emits events to the frontend via Wails.
 type EventEmitter func(name string, data any)
 
-// SyncEngine manages sync lifecycle for all workspaces.
+// TokenCleaner invalidates locally stored OAuth 2.0 tokens: inbound sync writes go straight
+// to the repositories and bypass the usecase hooks, so the engine keeps the store in step.
+type TokenCleaner interface {
+	Clear(ctx context.Context, owner entities.AuthOwner) error
+	DeleteOrphans(ctx context.Context) (int, error)
+}
+
+// noopTokenCleaner stands in for engines built without a token store.
+type noopTokenCleaner struct{}
+
+func (noopTokenCleaner) Clear(context.Context, entities.AuthOwner) error { return nil }
+
+func (noopTokenCleaner) DeleteOrphans(context.Context) (int, error) { return 0, nil }
+
 type SyncEngine struct {
-	auth       *SyncAuthManager
-	grpcClient *GRPCClient
+	auth *SyncAuthManager
+	// grpcClient is swapped while syncers run: a browser sign-in adopts another
+	// session and hands the engine the connection it was made on.
+	grpcClient atomic.Pointer[GRPCClient]
 	syncQueue  sqlite.SyncQueueRepository
 	configRepo sqlite.SyncConfigRepository
 	db         *sql.DB
@@ -86,15 +106,69 @@ type SyncEngine struct {
 	requests          request.Repository
 	environments      environment.Repository
 	variables         environment.VariableRepository
+	tokens            TokenCleaner
 	eventEmitter      EventEmitter
 	workspaces        gosync.Map // workspaceID string → *workspaceSyncer
 	enabledWorkspaces gosync.Map // workspaceID string → bool
 	// planLimit marks an open plan-limit episode; the freeze is org-wide, so the
 	// stamp lives here and not on every workspace syncer.
 	planLimit atomic.Bool
+	// syncers counts live run goroutines, replaced ones included: StopWorkspace, ForcePull,
+	// ForceResync and Resume drop the map entry and start a successor.
+	syncers syncerCount
+	// startBarrier serializes starts against stopAll: a start landing after the
+	// cancel sweep would outlive the barrier the client swap relies on.
+	startBarrier gosync.RWMutex
 }
 
-// NewSyncEngine creates a new SyncEngine instance.
+// syncerCount tracks the live run goroutines. A WaitGroup cannot serve here: the
+// barrier gives up on wedged syncers, and a later start would reuse a parked Wait.
+type syncerCount struct {
+	mu gosync.Mutex
+	n  int
+	// idle closes when the count falls back to zero; the next add opens a fresh one.
+	idle chan struct{}
+}
+
+func (c *syncerCount) add() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == 0 {
+		c.idle = make(chan struct{})
+	}
+	c.n++
+}
+
+func (c *syncerCount) done() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n--
+	if c.n == 0 && c.idle != nil {
+		close(c.idle)
+	}
+}
+
+// wait reports whether every counted goroutine exited before the timeout. A
+// timed-out wait leaves nothing behind, so the count stays usable afterwards.
+func (c *syncerCount) wait(timeout time.Duration) bool {
+	c.mu.Lock()
+	if c.n == 0 {
+		c.mu.Unlock()
+		return true
+	}
+	idle := c.idle
+	c.mu.Unlock()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-idle:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 func NewSyncEngine(
 	auth *SyncAuthManager,
 	syncQueue sqlite.SyncQueueRepository,
@@ -104,6 +178,7 @@ func NewSyncEngine(
 	requests request.Repository,
 	environments environment.Repository,
 	variables environment.VariableRepository,
+	tokens TokenCleaner,
 ) *SyncEngine {
 	return &SyncEngine{
 		auth:         auth,
@@ -114,18 +189,30 @@ func NewSyncEngine(
 		requests:     requests,
 		environments: environments,
 		variables:    variables,
+		tokens:       tokens,
 		eventEmitter: func(string, any) {}, // no-op until set
 	}
 }
 
-// SetEventEmitter sets the Wails event emitter function.
+func (e *SyncEngine) tokenCleaner() TokenCleaner {
+	if e.tokens == nil {
+		return noopTokenCleaner{}
+	}
+	return e.tokens
+}
+
 func (e *SyncEngine) SetEventEmitter(fn EventEmitter) {
 	e.eventEmitter = fn
 }
 
-// SetGRPCClient sets the gRPC client (allows late binding during DI setup).
+// SetGRPCClient allows late binding during DI setup.
 func (e *SyncEngine) SetGRPCClient(client *GRPCClient) {
-	e.grpcClient = client
+	e.grpcClient.Store(client)
+}
+
+// GRPCClient is exported because the sign-in commit must be verifiable from the adapters package.
+func (e *SyncEngine) GRPCClient() *GRPCClient {
+	return e.grpcClient.Load()
 }
 
 // startPlanLimitEpisode reports whether the org has just entered a plan-limit
@@ -139,8 +226,7 @@ func (e *SyncEngine) clearPlanLimit() {
 	e.planLimit.Store(false)
 }
 
-// IsEnabledForWorkspace returns true if sync is enabled for the given workspace.
-// Used by decorator repos to decide whether to enqueue operations.
+// IsEnabledForWorkspace is used by decorator repos to decide whether to enqueue operations.
 func (e *SyncEngine) IsEnabledForWorkspace(workspaceID string) bool {
 	v, ok := e.enabledWorkspaces.Load(workspaceID)
 	if !ok {
@@ -149,8 +235,11 @@ func (e *SyncEngine) IsEnabledForWorkspace(workspaceID string) bool {
 	return v.(bool)
 }
 
-// StartWorkspace starts the sync goroutine for a workspace.
+// StartWorkspace waits out a running StopAll instead of slipping a syncer past its barrier.
 func (e *SyncEngine) StartWorkspace(localWorkspaceID, remoteWorkspaceID string, lastSyncSeq int64) {
+	e.startBarrier.RLock()
+	defer e.startBarrier.RUnlock()
+
 	e.enabledWorkspaces.Store(localWorkspaceID, true)
 
 	ws := &workspaceSyncer{
@@ -166,10 +255,10 @@ func (e *SyncEngine) StartWorkspace(localWorkspaceID, remoteWorkspaceID string, 
 	ws.cancel = cancel
 	e.workspaces.Store(localWorkspaceID, ws)
 
+	e.syncers.add()
 	go ws.run(ctx)
 }
 
-// StopWorkspace cancels the sync goroutine for a workspace.
 func (e *SyncEngine) StopWorkspace(localWorkspaceID string) {
 	e.enabledWorkspaces.Delete(localWorkspaceID)
 	if v, ok := e.workspaces.LoadAndDelete(localWorkspaceID); ok {
@@ -178,8 +267,17 @@ func (e *SyncEngine) StopWorkspace(localWorkspaceID string) {
 	}
 }
 
-// StopAll cancels all running workspace syncers.
-func (e *SyncEngine) StopAll() {
+// StopAll cancels every workspace syncer, replaced ones included, and reports
+// whether they all joined — a false barrier must not pass for a held one.
+func (e *SyncEngine) StopAll() bool {
+	return e.stopAll(stopAllTimeout)
+}
+
+// stopAll takes the barrier's ceiling so a test need not wait out the real one.
+func (e *SyncEngine) stopAll(timeout time.Duration) bool {
+	e.startBarrier.Lock()
+	defer e.startBarrier.Unlock()
+
 	e.workspaces.Range(func(key, value any) bool {
 		ws := value.(*workspaceSyncer)
 		ws.stop()
@@ -187,10 +285,18 @@ func (e *SyncEngine) StopAll() {
 		e.enabledWorkspaces.Delete(key)
 		return true
 	})
+
+	if !e.syncers.wait(timeout) {
+		// The count has no names: the log says a syncer is wedged, not which.
+		slog.Warn("sync: StopAll timed out waiting for syncers", "after", timeout)
+
+		return false
+	}
+
+	return true
 }
 
-// NotifyWrite signals the workspace syncer that a write has occurred.
-// Called by decorator repos (or Wails service) after any entity write.
+// NotifyWrite is called by decorator repos (or the Wails service) after any entity write.
 func (e *SyncEngine) NotifyWrite(workspaceID string) {
 	if v, ok := e.workspaces.Load(workspaceID); ok {
 		ws := v.(*workspaceSyncer)
@@ -201,7 +307,6 @@ func (e *SyncEngine) NotifyWrite(workspaceID string) {
 	}
 }
 
-// GetWorkspaceState returns the current sync state for a workspace.
 func (e *SyncEngine) GetWorkspaceState(localWorkspaceID string) SyncState {
 	if v, ok := e.workspaces.Load(localWorkspaceID); ok {
 		ws := v.(*workspaceSyncer)
@@ -216,14 +321,12 @@ func (e *SyncEngine) GetPendingCount(ctx context.Context, workspaceID string) (i
 	return e.syncQueue.CountPendingOrFailed(ctx, workspaceID)
 }
 
-// GetParkedCount returns how many entries the server refused over the plan quota
-// and that wait in the outbox for a retry.
+// GetParkedCount returns how many entries the server refused over the plan quota.
 func (e *SyncEngine) GetParkedCount(ctx context.Context, workspaceID string) (int, error) {
 	return e.syncQueue.CountParked(ctx, workspaceID)
 }
 
-// ForcePush triggers an immediate push for the given workspace.
-// Returns the number of pending entries before the push signal was sent.
+// ForcePush returns the number of pending entries seen before the push signal was sent.
 func (e *SyncEngine) ForcePush(ctx context.Context, workspaceID string) (int, error) {
 	count, err := e.GetPendingCount(ctx, workspaceID)
 	if err != nil {
@@ -233,8 +336,7 @@ func (e *SyncEngine) ForcePush(ctx context.Context, workspaceID string) (int, er
 	return count, nil
 }
 
-// ForcePull restarts the workspace syncer preserving current seq
-// (performs push + incremental pull + subscribe).
+// ForcePull restarts the workspace syncer preserving current seq: push + incremental pull + subscribe.
 func (e *SyncEngine) ForcePull(workspaceID string) error {
 	v, ok := e.workspaces.Load(workspaceID)
 	if !ok {
@@ -249,8 +351,7 @@ func (e *SyncEngine) ForcePull(workspaceID string) error {
 	return nil
 }
 
-// ForceResync stops the workspace syncer, resets last_sync_seq to 0,
-// clears the outbox queue, and restarts the full sync cycle.
+// ForceResync resets last_sync_seq to 0, clears the outbox queue and restarts the full cycle.
 func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error {
 	v, ok := e.workspaces.Load(workspaceID)
 	if !ok {
@@ -269,8 +370,7 @@ func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error 
 	return nil
 }
 
-// InjectRawSyncer inserts a minimal workspaceSyncer into the engine without
-// starting a goroutine. Intended for use in tests only.
+// InjectRawSyncer inserts a workspaceSyncer without starting a goroutine. Tests only.
 func (e *SyncEngine) InjectRawSyncer(localWorkspaceID, remoteWorkspaceID string, cancel context.CancelFunc) {
 	ws := &workspaceSyncer{
 		engine:            e,
@@ -458,6 +558,9 @@ func (ws *workspaceSyncer) setState(s SyncState) {
 
 // run performs push → pull → subscribe for the workspace goroutine.
 func (ws *workspaceSyncer) run(ctx context.Context) {
+	// Registered first so it runs last: StopAll's barrier must also clear after a
+	// panic the recover below turns into a reconnect.
+	defer ws.engine.syncers.done()
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("sync: goroutine panic recovered", "panic", r, "stack", string(debug.Stack()), "workspace", ws.localWorkspaceID)
@@ -473,6 +576,9 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 		if ws.handleAuthErr(err) {
 			return
 		}
+		if ws.parkForUpdate(err) {
+			return
+		}
 		ws.retryLoop(ctx, ws.retryAfterSyncErr(err, initialBackoff))
 		return
 	}
@@ -481,6 +587,9 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 	if err := ws.pullAll(ctx); err != nil {
 		slog.Error("sync pull failed", "workspace", ws.localWorkspaceID, "err", err)
 		if ws.handleAuthErr(err) {
+			return
+		}
+		if ws.parkForUpdate(err) {
 			return
 		}
 		ws.goOffline(ctx)
@@ -582,7 +691,7 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 		// Parents must be pushed before children.
 		sortByEntityType(protoEntities, entryIDs)
 
-		token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.grpcClient)
+		token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.GRPCClient())
 		if err != nil {
 			return fmt.Errorf("get access token: %w", err)
 		}
@@ -599,20 +708,33 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 			Entities:    protoEntities,
 		}.Build()
 
-		resp, err := ws.engine.grpcClient.Sync().Push(authCtx, pushReq)
+		resp, err := ws.engine.GRPCClient().Sync().Push(authCtx, pushReq)
 		if err != nil {
 			return fmt.Errorf("push rpc: %w", err)
 		}
 		ws.engine.clearPlanLimit()
 
-		var quotaRejected []int64
+		var quotaRejected, updateRejected []int64
+		needsUpdate := false
 		for _, result := range resp.GetResults() {
 			switch result.GetStatus() {
 			case syncv1.PushStatus_PUSH_STATUS_ACCEPTED, syncv1.PushStatus_PUSH_STATUS_DUPLICATE:
 				ws.markSynced(ctx, result.GetEntityId(), entries)
 			case syncv1.PushStatus_PUSH_STATUS_CONFLICT_RESOLVED:
 				if result.GetWinner() != nil {
-					if err := ws.applyEntity(ctx, result.GetWinner()); err != nil {
+					err := ws.applyEntity(ctx, result.GetWinner())
+					switch {
+					case err == nil:
+						ws.sweepTokens(ctx)
+					case errors.Is(err, ErrUpdateRequired):
+						// Nothing changed locally, so no event; the outbox entry stays
+						// parked instead of deleted or the local edit would be lost.
+						needsUpdate = true
+						if id, ok := entryIDOf(result.GetEntityId(), entries); ok {
+							updateRejected = append(updateRejected, id)
+						}
+						continue
+					default:
 						slog.Warn("sync: apply conflict winner failed", "entityId", result.GetEntityId(), "err", err)
 					}
 					ws.engine.eventEmitter("sync:entity_updated", map[string]any{
@@ -630,13 +752,20 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 			}
 		}
 
-		entryIDs = ws.deferQuotaRejected(ctx, entryIDs, quotaRejected)
+		entryIDs = ws.parkEntries(ctx, entryIDs, quotaRejected)
+		entryIDs = ws.parkEntries(ctx, entryIDs, updateRejected)
 
 		if err := ws.engine.syncQueue.Delete(ctx, entryIDs); err != nil {
 			return fmt.Errorf("delete queue entries: %w", err)
 		}
 
 		ws.refreshParked(ctx)
+
+		// Reported only after the batch is accounted for: the rest of the results
+		// are ordinary work and must not be lost with the batch.
+		if needsUpdate {
+			return fmt.Errorf("apply conflict winner: %w", ErrUpdateRequired)
+		}
 	}
 }
 
@@ -759,10 +888,9 @@ func (ws *workspaceSyncer) handleRejected(result *syncv1.PushResult, entries []*
 	}
 }
 
-// deferQuotaRejected parks quota-rejected entries in the outbox instead of dropping
-// them: 'failed' hides them from the pending queries until their retry window elapses.
-// Returns the entry IDs the caller may still delete.
-func (ws *workspaceSyncer) deferQuotaRejected(ctx context.Context, entryIDs, rejected []int64) []int64 {
+// parkEntries keeps entries instead of dropping them: 'failed' hides them from the pending
+// queries until their retry window elapses. Returns the IDs the caller may still delete.
+func (ws *workspaceSyncer) parkEntries(ctx context.Context, entryIDs, rejected []int64) []int64 {
 	if len(rejected) == 0 {
 		return entryIDs
 	}
@@ -771,7 +899,7 @@ func (ws *workspaceSyncer) deferQuotaRejected(ctx context.Context, entryIDs, rej
 	kept := make(map[int64]bool, len(rejected))
 	for _, id := range rejected {
 		if err := ws.engine.syncQueue.MarkFailed(ctx, id, retryAt); err != nil {
-			slog.Warn("sync: failed to defer quota-rejected queue entry", "entry", id, "workspace", ws.localWorkspaceID, "err", err)
+			slog.Warn("sync: failed to park queue entry", "entry", id, "workspace", ws.localWorkspaceID, "err", err)
 			continue
 		}
 		kept[id] = true
@@ -839,7 +967,7 @@ func (ws *workspaceSyncer) emitThrottled(name string, last *time.Time, data map[
 // pullAll fetches all remote changes since lastSyncSeq and applies them.
 func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 	for {
-		token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.grpcClient)
+		token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.GRPCClient())
 		if err != nil {
 			return fmt.Errorf("get access token: %w", err)
 		}
@@ -851,7 +979,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 			Limit:       pullBatchSize,
 		}.Build()
 
-		resp, err := ws.engine.grpcClient.Sync().Pull(authCtx, pullReq)
+		resp, err := ws.engine.GRPCClient().Sync().Pull(authCtx, pullReq)
 		if err != nil {
 			return fmt.Errorf("pull rpc: %w", err)
 		}
@@ -864,9 +992,15 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 			err = sqlite.WithTx(ctx, ws.engine.db, func(txCtx context.Context) error {
 				for _, change := range resp.GetChanges() {
 					if err := ws.applyChange(txCtx, change); err != nil {
+						// A compatibility failure rolls the batch back: skipping would
+						// advance the cursor past an entity this build cannot store.
+						if errors.Is(err, ErrUpdateRequired) {
+							return err
+						}
 						slog.Warn("sync: skip change apply", "entityId", change.GetEntityId(), "err", err)
 					}
 				}
+				ws.sweepTokens(txCtx)
 				_, err := sqlite.DBTXFromContext(txCtx, ws.engine.db).ExecContext(txCtx,
 					`UPDATE workspaces SET last_sync_seq = ? WHERE id = ?`,
 					resp.GetNextSyncSeq(), ws.localWorkspaceID)
@@ -909,13 +1043,33 @@ func (ws *workspaceSyncer) applyEntity(ctx context.Context, entity *syncv1.SyncE
 		if err != nil {
 			return err
 		}
-		return ws.upsertCollection(ctx, c)
+		prev, err := ws.readLocalAuth(ctx, "collections", c.ID.String())
+		if err != nil {
+			return err
+		}
+		if err := ws.upsertCollection(ctx, c); err != nil {
+			return err
+		}
+		ws.clearTokenOnAuthChange(ctx,
+			entities.AuthOwner{WorkspaceID: wsID, Kind: entities.AuthOwnerKindCollection, ID: c.ID},
+			prev, string(c.AuthType), c.AuthData)
+		return nil
 	case syncv1.EntityType_ENTITY_TYPE_REQUEST:
 		r, err := RequestFromProto(entity)
 		if err != nil {
 			return err
 		}
-		return ws.upsertRequest(ctx, r)
+		prev, err := ws.readLocalAuth(ctx, "requests", r.ID.String())
+		if err != nil {
+			return err
+		}
+		if err := ws.upsertRequest(ctx, r); err != nil {
+			return err
+		}
+		ws.clearTokenOnAuthChange(ctx,
+			entities.AuthOwner{WorkspaceID: wsID, Kind: entities.AuthOwnerKindRequest, ID: r.ID},
+			prev, string(r.AuthType), r.AuthData)
+		return nil
 	case syncv1.EntityType_ENTITY_TYPE_ENVIRONMENT:
 		e, err := EnvironmentFromProto(entity, wsID)
 		if err != nil {
@@ -950,10 +1104,20 @@ func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Reques
 	if err != nil {
 		return err
 	}
-	if exists {
-		return ws.engine.requests.Update(ctx, r)
+	if !exists {
+		return ws.engine.requests.Create(ctx, r)
 	}
-	return ws.engine.requests.Create(ctx, r)
+
+	// A field outside the sync contract must not be wiped by sync data.
+	if r.Description == "" {
+		local, err := ws.engine.requests.GetDescriptionByID(ctx, r.ID)
+		if err != nil {
+			return err
+		}
+		r.Description = local
+	}
+
+	return ws.engine.requests.Update(ctx, r)
 }
 
 func (ws *workspaceSyncer) upsertEnvironment(ctx context.Context, e *entities.Environment) error {
@@ -989,6 +1153,56 @@ func (ws *workspaceSyncer) entityExists(ctx context.Context, table, id string) (
 	return count > 0, nil
 }
 
+// localAuthState is the auth of the row an inbound entity replaces.
+type localAuthState struct {
+	authType string
+	authData string
+	found    bool
+}
+
+// readLocalAuth reads the auth columns of the row an inbound entity is about to
+// overwrite, soft-deleted rows included.
+func (ws *workspaceSyncer) readLocalAuth(ctx context.Context, table, id string) (localAuthState, error) {
+	var prev localAuthState
+	err := sqlite.DBTXFromContext(ctx, ws.engine.db).QueryRowContext(ctx,
+		fmt.Sprintf("SELECT auth_type, auth_data FROM %s WHERE id = ?", table), id).
+		Scan(&prev.authType, &prev.authData)
+	if errors.Is(err, sql.ErrNoRows) {
+		return localAuthState{}, nil
+	}
+	if err != nil {
+		return localAuthState{}, err
+	}
+	prev.found = true
+	return prev, nil
+}
+
+// clearTokenOnAuthChange drops the owner's token whenever an inbound edit touched auth_data,
+// cosmetic edits included: a needless re-fetch costs less than serving a foreign token.
+func (ws *workspaceSyncer) clearTokenOnAuthChange(ctx context.Context, owner entities.AuthOwner, prev localAuthState, newType, newData string) {
+	if !prev.found {
+		return
+	}
+	oauth2 := string(entities.AuthTypeOAuth2)
+	if prev.authType != oauth2 && newType != oauth2 {
+		return
+	}
+	if prev.authType == newType && prev.authData == newData {
+		return
+	}
+	if err := ws.engine.tokenCleaner().Clear(ctx, owner); err != nil {
+		slog.Warn("sync: clear token after inbound auth change", "entityId", owner.ID, "err", err)
+	}
+}
+
+// sweepTokens drops token rows whose owner an inbound batch removed, moved or
+// rewrote. Housekeeping: a failure is logged, never propagated into the batch.
+func (ws *workspaceSyncer) sweepTokens(ctx context.Context) {
+	if _, err := ws.engine.tokenCleaner().DeleteOrphans(ctx); err != nil {
+		slog.Warn("sync: token sweep failed", "workspaceId", ws.localWorkspaceID, "err", err)
+	}
+}
+
 // isUnauthenticatedErr walks the wrap chain because engine errors wrap RPC
 // status errors via fmt.Errorf("...: %w", err).
 func isUnauthenticatedErr(err error) bool {
@@ -1015,6 +1229,18 @@ func (ws *workspaceSyncer) handleAuthErr(err error) (stop bool) {
 	return false
 }
 
+// parkForUpdate stops the syncer on a compatibility failure: the peer sent an
+// entity this build cannot represent, so retrying repeats the same failure.
+func (ws *workspaceSyncer) parkForUpdate(err error) (stop bool) {
+	if !errors.Is(err, ErrUpdateRequired) {
+		return false
+	}
+	slog.Warn("sync stopped — the workspace holds entities this version cannot read",
+		"workspace", ws.localWorkspaceID, "err", err)
+	ws.setState(StateUpdateRequired)
+	return true
+}
+
 // grpcStatusOf walks the wrap chain like isUnauthenticatedErr.
 func grpcStatusOf(err error) (codes.Code, string, bool) {
 	for e := err; e != nil; e = errors.Unwrap(e) {
@@ -1025,10 +1251,8 @@ func grpcStatusOf(err error) (codes.Code, string, bool) {
 	return codes.OK, "", false
 }
 
-// retryAfterSyncErr moves the syncer into the state it waits in and returns the delay
-// before the next attempt, for both push and subscribe failures. A plan limit is not a
-// connectivity problem: the server keeps refusing until the plan changes, so it waits
-// at the slowest interval.
+// A plan limit is not a connectivity problem: the server keeps refusing until the
+// plan changes, so it waits at the slowest interval.
 func (ws *workspaceSyncer) retryAfterSyncErr(err error, next time.Duration) time.Duration {
 	if code, msg, ok := grpcStatusOf(err); ok && code == codes.ResourceExhausted {
 		if strings.Contains(msg, planLimitMarker) {
@@ -1074,6 +1298,9 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 			if ws.handleAuthErr(err) {
 				return
 			}
+			if ws.parkForUpdate(err) {
+				return
+			}
 		}
 
 		backoff := ws.retryAfterSyncErr(err, initialBackoff)
@@ -1091,6 +1318,9 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 				if ws.handleAuthErr(err) {
 					return
 				}
+				if ws.parkForUpdate(err) {
+					return
+				}
 				backoff = ws.retryAfterSyncErr(err, min(backoff*2, maxBackoff))
 				continue
 			}
@@ -1098,6 +1328,9 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 			if err := ws.pullAll(ctx); err != nil {
 				slog.Error("sync reconnect pull failed", "err", err)
 				if ws.handleAuthErr(err) {
+					return
+				}
+				if ws.parkForUpdate(err) {
 					return
 				}
 				backoff = min(backoff*2, maxBackoff)
@@ -1110,10 +1343,9 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 	}
 }
 
-// subscribe opens a gRPC subscribe stream and handles incoming events.
-// Returns when the stream ends (disconnect, error, ctx cancel).
+// subscribe returns when the stream ends (disconnect, error, ctx cancel).
 func (ws *workspaceSyncer) subscribe(ctx context.Context) error {
-	token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.grpcClient)
+	token, err := ws.engine.auth.GetAccessToken(ctx, ws.engine.GRPCClient())
 	if err != nil {
 		return fmt.Errorf("get access token: %w", err)
 	}
@@ -1143,7 +1375,7 @@ func (ws *workspaceSyncer) subscribe(ctx context.Context) error {
 		ClientId:    cfg.ClientID,
 	}.Build()
 
-	stream, err := ws.engine.grpcClient.Sync().Subscribe(authCtx, subReq)
+	stream, err := ws.engine.GRPCClient().Sync().Subscribe(authCtx, subReq)
 	if err != nil {
 		return fmt.Errorf("subscribe rpc: %w", err)
 	}
@@ -1204,7 +1436,12 @@ func (ws *workspaceSyncer) subscribe(ctx context.Context) error {
 			if resp.HasChange() {
 				change := resp.GetChange()
 				if err := ws.applyChange(ctx, change); err != nil {
+					if errors.Is(err, ErrUpdateRequired) {
+						return fmt.Errorf("apply subscribe change: %w", err)
+					}
 					slog.Warn("sync: apply subscribe change failed", "err", err)
+				} else {
+					ws.sweepTokens(ctx)
 				}
 				ws.engine.eventEmitter("sync:entity_updated", map[string]any{
 					"workspaceId": ws.localWorkspaceID,
@@ -1275,12 +1512,18 @@ func (ws *workspaceSyncer) retryLoop(ctx context.Context, backoff time.Duration)
 			if ws.handleAuthErr(err) {
 				return
 			}
+			if ws.parkForUpdate(err) {
+				return
+			}
 			backoff = ws.retryAfterSyncErr(err, min(backoff*2, maxBackoff))
 			continue
 		}
 		ws.setState(StatePulling)
 		if err := ws.pullAll(ctx); err != nil {
 			if ws.handleAuthErr(err) {
+				return
+			}
+			if ws.parkForUpdate(err) {
 				return
 			}
 			backoff = min(backoff*2, maxBackoff)

@@ -11,18 +11,15 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Create holds the data required to create a new environment.
 type Create struct {
 	Name string
 }
 
-// CreateOpt holds contextual options for the Create operation.
 type CreateOpt struct {
 	UserID      string
 	WorkspaceID uuid.UUID
 }
 
-// Validate checks that all required fields are present.
 func (c *Create) Validate() error {
 	errs := make(map[string]string)
 	if c.Name == "" {
@@ -34,7 +31,6 @@ func (c *Create) Validate() error {
 	return nil
 }
 
-// Create validates input, builds an Environment entity and persists it.
 func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Environment, error) {
 	const funcName = "environment.Create"
 
@@ -63,7 +59,6 @@ func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*ent
 	return e, nil
 }
 
-// DuplicateOpt holds contextual options for the Duplicate operation.
 type DuplicateOpt struct {
 	SourceID    uuid.UUID
 	NewName     string
@@ -134,7 +129,6 @@ func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.En
 	return newEnv, nil
 }
 
-// AddVariable holds the data required to add a variable to an environment.
 type AddVariable struct {
 	EnvironmentID uuid.UUID
 	Key           string
@@ -142,12 +136,10 @@ type AddVariable struct {
 	IsSecret      bool
 }
 
-// AddVariableOpt holds contextual options for AddVariable.
 type AddVariableOpt struct {
 	UserID string
 }
 
-// Validate checks that all required fields are present.
 func (a *AddVariable) Validate() error {
 	errs := make(map[string]string)
 	if a.Key == "" {
@@ -159,7 +151,6 @@ func (a *AddVariable) Validate() error {
 	return nil
 }
 
-// AddVariable creates a new variable in the given environment.
 func (u *usecase) AddVariable(ctx context.Context, input AddVariable, opt AddVariableOpt) (*entities.Variable, error) {
 	const funcName = "environment.AddVariable"
 

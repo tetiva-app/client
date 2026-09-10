@@ -19,12 +19,11 @@ type CookieService struct {
 	reader request.CookieReader
 }
 
-// NewCookieService creates a new CookieService instance.
 func NewCookieService(uc cookie.Usecase, reader request.CookieReader) *CookieService {
 	return &CookieService{uc: uc, reader: reader}
 }
 
-// List returns all cookies for the workspace, ordered by domain/path/name.
+// Ordered by domain/path/name.
 func (s *CookieService) List(workspaceIDStr string) Result[[]dto.CookieResponse] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(workspaceIDStr)
@@ -40,7 +39,6 @@ func (s *CookieService) List(workspaceIDStr string) Result[[]dto.CookieResponse]
 	return OK(dto.CookiesToResponse(cookies))
 }
 
-// GetForURL returns cookies the workspace jar would attach to rawURL.
 // Used by the response-viewer Cookies tab to render the "Sent" section.
 func (s *CookieService) GetForURL(workspaceIDStr, rawURL string) Result[[]dto.CookieResponse] {
 	ctx := context.Background()
@@ -67,7 +65,6 @@ func (s *CookieService) GetForURL(workspaceIDStr, rawURL string) Result[[]dto.Co
 	return OK(out)
 }
 
-// Add manually inserts a cookie into the jar.
 func (s *CookieService) Add(req dto.AddCookieRequest) Result[dto.CookieResponse] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(req.WorkspaceID)
@@ -93,7 +90,7 @@ func (s *CookieService) Add(req dto.AddCookieRequest) Result[dto.CookieResponse]
 	return OK(dto.CookieToResponse(c))
 }
 
-// Edit replaces an existing cookie (PUT semantics — UI must send all fields).
+// PUT semantics: the UI must send all fields.
 func (s *CookieService) Edit(req dto.EditCookieRequest) Result[dto.CookieResponse] {
 	ctx := context.Background()
 	id, err := uuid.Parse(req.ID)
@@ -119,7 +116,6 @@ func (s *CookieService) Edit(req dto.EditCookieRequest) Result[dto.CookieRespons
 	return OK(dto.CookieToResponse(c))
 }
 
-// Delete removes a cookie by ID.
 func (s *CookieService) Delete(idStr string) Result[struct{}] {
 	ctx := context.Background()
 	id, err := uuid.Parse(idStr)
@@ -134,8 +130,6 @@ func (s *CookieService) Delete(idStr string) Result[struct{}] {
 	return OK(struct{}{})
 }
 
-// DeleteByDomain removes all cookies for a given domain in the workspace.
-// Returns the number of rows deleted.
 func (s *CookieService) DeleteByDomain(workspaceIDStr, domainStr string) Result[int] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(workspaceIDStr)
@@ -151,7 +145,6 @@ func (s *CookieService) DeleteByDomain(workspaceIDStr, domainStr string) Result[
 	return OK(n)
 }
 
-// Clear removes ALL cookies in the workspace. Returns the count cleared.
 func (s *CookieService) Clear(workspaceIDStr string) Result[int] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(workspaceIDStr)

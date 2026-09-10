@@ -11,14 +11,13 @@ import (
 type StatusKind string
 
 const (
-	StatusKind2xx   StatusKind = "2xx"
+	StatusKind2xx   StatusKind = "2xx" // includes 101, the WebSocket handshake success
 	StatusKind3xx   StatusKind = "3xx"
 	StatusKind4xx   StatusKind = "4xx"
 	StatusKind5xx   StatusKind = "5xx"
 	StatusKindError StatusKind = "error" // network error, no HTTP response
 )
 
-// Filter defines criteria for listing history records.
 type Filter struct {
 	WorkspaceID uuid.UUID           // required
 	RequestID   *uuid.UUID          // optional: limit to single request
@@ -29,22 +28,18 @@ type Filter struct {
 	Offset      int
 }
 
-// ListOpt holds context for List operation.
 type ListOpt struct {
 	WorkspaceID uuid.UUID
 	Filter      Filter
 }
 
-// DeleteOpt holds context for Delete operation.
 type DeleteOpt struct {
 	HistoryID   uuid.UUID
 	WorkspaceID uuid.UUID // protects from cross-workspace delete
 }
 
-// ClearOpt holds context for Clear operation.
 type ClearOpt struct {
 	WorkspaceID uuid.UUID
 }
 
-// DefaultPageSize is the default Limit when none specified.
 const DefaultPageSize = 200

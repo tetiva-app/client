@@ -14,13 +14,11 @@ import (
 	wailsadapter "github.com/tetiva-app/client/internal/adapters/wails"
 	appmodule "github.com/tetiva-app/client/internal/app"
 	"github.com/tetiva-app/client/internal/constants"
+	"github.com/tetiva-app/client/migrations"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -40,10 +38,11 @@ func main() {
 	var cookieService *wailsadapter.CookieService
 	var historyService *wailsadapter.HistoryService
 	var settingsService *wailsadapter.SettingsService
+	var authService *wailsadapter.AuthService
 
 	fxApp := fx.New(
-		appmodule.NewApp(migrationsFS),
-		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService),
+		appmodule.NewApp(migrations.FS),
+		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService),
 		fx.NopLogger,
 	)
 
@@ -75,6 +74,7 @@ func main() {
 			application.NewService(cookieService),
 			application.NewService(historyService),
 			application.NewService(settingsService),
+			application.NewService(authService),
 		},
 	})
 
@@ -86,6 +86,10 @@ func main() {
 	})
 
 	websocketService.SetEventEmitter(func(name string, data any) {
+		wailsApp.Event.Emit(name, data)
+	})
+
+	authService.SetEventEmitter(func(name string, data any) {
 		wailsApp.Event.Emit(name, data)
 	})
 
@@ -115,6 +119,10 @@ func main() {
 		BackgroundColour: application.NewRGB(26, 26, 46),
 		URL:              "/",
 	})
+
+	// The sign-in loopback fires from a browser tab, so the window has to come
+	// back on its own.
+	syncService.SetFocusMain(func() { mainWindow.Focus() })
 
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		windowService.CloseAllChildWindows()

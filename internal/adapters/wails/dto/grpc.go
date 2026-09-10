@@ -46,7 +46,6 @@ type GRPCMethodInfoResponse struct {
 	ExampleJSON     string `json:"exampleJson"`
 }
 
-// GRPCSchemaToResponse converts domain GRPCSchema to DTO.
 func GRPCSchemaToResponse(schema *request.GRPCSchema) GRPCSchemaResponse {
 	resp := GRPCSchemaResponse{Source: schema.Source}
 	for _, svc := range schema.Services {

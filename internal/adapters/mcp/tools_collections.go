@@ -54,7 +54,7 @@ func (s *Server) registerCollectionTools() {
 				mcplib.Description("JavaScript post-response script inherited by descendants"),
 			),
 			mcplib.WithString("auth_type",
-				mcplib.Description("Auth type: none, basic, bearer, api_key (default: none). 'inherit' is not valid for collections."),
+				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidCollectionAuthTypes())+" (default: none). 'inherit' is not valid for collections."),
 			),
 			mcplib.WithString("auth_data",
 				mcplib.Description("Auth data as JSON string (shape depends on auth_type)"),
@@ -65,14 +65,14 @@ func (s *Server) registerCollectionTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("update_collection",
-			mcplib.WithDescription("Update an existing collection (name, description, scripts, auth). Uses optimistic locking — pass the current version."),
+			mcplib.WithDescription("Update an existing collection (name, description, scripts, auth). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking — pass the current version."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Collection UUID"),
 			),
 			mcplib.WithNumber("version", mcplib.Required(),
 				mcplib.Description("Current version for optimistic locking"),
 			),
-			mcplib.WithString("name", mcplib.Required(),
+			mcplib.WithString("name",
 				mcplib.Description("Collection name"),
 			),
 			mcplib.WithString("description",
@@ -85,7 +85,7 @@ func (s *Server) registerCollectionTools() {
 				mcplib.Description("JavaScript post-response script"),
 			),
 			mcplib.WithString("auth_type",
-				mcplib.Description("Auth type: none, basic, bearer, api_key"),
+				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidCollectionAuthTypes())),
 			),
 			mcplib.WithString("auth_data",
 				mcplib.Description("Auth data as JSON string"),
@@ -175,6 +175,11 @@ func (s *Server) handleCreateCollection(ctx context.Context, req mcplib.CallTool
 		authType = entities.AuthTypeNone
 	}
 
+	authData := stringArg(req, "auth_data", "")
+	if err := rejectRedactedValues("", authData, nil, nil); err != nil {
+		return errResult(err), nil
+	}
+
 	c, err := s.colUC.Create(ctx, collection.Create{
 		Name:        stringArg(req, "name", ""),
 		ParentID:    parentID,
@@ -182,7 +187,7 @@ func (s *Server) handleCreateCollection(ctx context.Context, req mcplib.CallTool
 		PreScript:   stringArg(req, "pre_script", ""),
 		PostScript:  stringArg(req, "post_script", ""),
 		AuthType:    authType,
-		AuthData:    stringArg(req, "auth_data", ""),
+		AuthData:    authData,
 	}, collection.CreateOpt{
 		UserID:      mcpUserID,
 		WorkspaceID: wsID,
@@ -207,19 +212,43 @@ func (s *Server) handleUpdateCollection(ctx context.Context, req mcplib.CallTool
 		return errResult(fmt.Errorf("version is required (>= 1)")), nil
 	}
 
-	authType := entities.AuthType(stringArg(req, "auth_type", ""))
-	if authType == "" {
-		authType = entities.AuthTypeNone
+	// Edit overwrites every field, so start from the stored collection: an argument
+	// the caller left out keeps its stored value instead of being blanked.
+	current, err := s.colUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
 	}
 
-	c, err := s.colUC.Edit(ctx, collection.Edit{
-		Name:        stringArg(req, "name", ""),
-		Description: stringArg(req, "description", ""),
-		PreScript:   stringArg(req, "pre_script", ""),
-		PostScript:  stringArg(req, "post_script", ""),
-		AuthType:    authType,
-		AuthData:    stringArg(req, "auth_data", ""),
-	}, collection.EditOpt{
+	input := collection.Edit{
+		Name:         current.Name,
+		Description:  current.Description,
+		PreScript:    current.PreScript,
+		PostScript:   current.PostScript,
+		AuthType:     current.AuthType,
+		AuthData:     current.AuthData,
+		GRPCMetadata: current.GRPCMetadata,
+	}
+
+	applyStringArgs(req, map[string]*string{
+		"name":        &input.Name,
+		"description": &input.Description,
+		"pre_script":  &input.PreScript,
+		"post_script": &input.PostScript,
+		"auth_data":   &input.AuthData,
+	})
+
+	if v, ok := optionalString(req, "auth_type"); ok {
+		if at := entities.AuthType(v); at.IsValid() {
+			input.AuthType = at
+		}
+	}
+	restoredAuth, err := restoreAuthData(input.AuthData, current.AuthData)
+	if err != nil {
+		return errResult(err), nil
+	}
+	input.AuthData = restoredAuth
+
+	c, err := s.colUC.Edit(ctx, input, collection.EditOpt{
 		CollectionID: id,
 		UserID:       mcpUserID,
 		Version:      version,
@@ -270,7 +299,6 @@ func (s *Server) handleDeleteCollection(ctx context.Context, req mcplib.CallTool
 		return errResult(err), nil
 	}
 
-	// Fetch current version for optimistic locking.
 	c, err := s.colUC.GetByID(ctx, id)
 	if err != nil {
 		return errResult(err), nil

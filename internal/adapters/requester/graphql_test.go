@@ -5,7 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/adapters/requester"
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -35,7 +38,7 @@ func TestGraphQLRequester_Execute_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	resp, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
 		Endpoint: server.URL,
 		Query:    "{ users { id name } }",
@@ -99,7 +102,7 @@ func TestGraphQLRequester_Execute_WithVariables(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	resp, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
 		Endpoint:      server.URL,
 		Query:         "query GetUser($id: ID!) { user(id: $id) { name } }",
@@ -118,7 +121,6 @@ func TestGraphQLRequester_Execute_WithVariables(t *testing.T) {
 }
 
 func TestGraphQLRequester_Execute_GraphQLErrors(t *testing.T) {
-	// GraphQL errors in body with HTTP 200 — should NOT return a Go error.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -126,7 +128,7 @@ func TestGraphQLRequester_Execute_GraphQLErrors(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	resp, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
 		Endpoint: server.URL,
 		Query:    "{ foo }",
@@ -164,7 +166,7 @@ func TestGraphQLRequester_Execute_CustomHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	resp, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
 		Endpoint: server.URL,
 		Query:    "{ __typename }",
@@ -189,12 +191,11 @@ func TestGraphQLRequester_Execute_HTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	resp, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
 		Endpoint: server.URL,
 		Query:    "{ __typename }",
 	})
-	// HTTP 500 should NOT return a Go error — status is reflected in resp.StatusCode.
 	if err != nil {
 		t.Fatalf("unexpected Go error for HTTP 500: %v", err)
 	}
@@ -203,5 +204,93 @@ func TestGraphQLRequester_Execute_HTTPError(t *testing.T) {
 	}
 	if resp.Protocol != entities.ProtocolGraphQL {
 		t.Errorf("expected protocol graphql, got %s", resp.Protocol)
+	}
+}
+
+func TestGraphQLRequester_Execute_SendsWorkspaceCookies(t *testing.T) {
+	var mu sync.Mutex
+	var sent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		sent = r.Header.Get("Cookie")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"me":null}}`))
+	}))
+	defer server.Close()
+
+	store := &fakeCookieStore{send: []*http.Cookie{{Name: "session", Value: "abc"}}}
+	r := requester.NewGraphQLRequester(store)
+
+	if _, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
+		Endpoint:    server.URL,
+		Query:       "{ me }",
+		WorkspaceID: uuid.New(),
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if sent != "session=abc" {
+		t.Fatalf("Cookie header = %q, want session=abc", sent)
+	}
+}
+
+func TestGraphQLRequester_Execute_StoresSetCookie(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Set-Cookie", "sid=xyz; Path=/")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"me":null}}`))
+	}))
+	defer server.Close()
+
+	store := &fakeCookieStore{}
+	wsID := uuid.New()
+	r := requester.NewGraphQLRequester(store)
+
+	if _, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{
+		Endpoint:    server.URL,
+		Query:       "{ me }",
+		WorkspaceID: wsID,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	gotWS, gotURL, cookies := store.snapshot()
+	if len(cookies) != 1 || cookies[0].Name != "sid" || cookies[0].Value != "xyz" {
+		t.Fatalf("persisted cookies = %+v, want sid=xyz", cookies)
+	}
+	if gotWS != wsID {
+		t.Fatalf("persisted for workspace %s, want %s", gotWS, wsID)
+	}
+	if gotURL == nil || gotURL.Scheme != "http" {
+		t.Fatalf("jar saw URL %v, want http scheme", gotURL)
+	}
+}
+
+func TestGraphQLRequester_Execute_NoWorkspaceNoCookies(t *testing.T) {
+	var mu sync.Mutex
+	var sent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		sent = r.Header.Get("Cookie")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"me":null}}`))
+	}))
+	defer server.Close()
+
+	store := &fakeCookieStore{send: []*http.Cookie{{Name: "session", Value: "abc"}}}
+	r := requester.NewGraphQLRequester(store)
+
+	if _, err := r.Execute(t.Context(), req.GraphQLExecuteRequest{Endpoint: server.URL, Query: "{ me }"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if sent != "" {
+		t.Fatalf("Cookie header = %q, want none without a workspace", sent)
 	}
 }

@@ -170,7 +170,6 @@ func TestWorkspaceRepo_GetActive(t *testing.T) {
 	repo := NewWorkspaceRepo(db)
 	ctx := context.Background()
 
-	// Default workspace from seed should be active
 	active, err := repo.GetActive(ctx)
 	if err != nil {
 		t.Fatalf("GetActive: %v", err)

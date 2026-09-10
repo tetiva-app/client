@@ -10,7 +10,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// mockRepo implements workspace.Repository in-memory for testing.
 type mockRepo struct {
 	workspaces map[uuid.UUID]*entities.Workspace
 }

@@ -9,19 +9,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Filter — criteria for listing cookies.
 type Filter struct {
 	WorkspaceID uuid.UUID
 	Domain      string // optional; empty = all
 }
 
-// ListOpt — options for List.
 type ListOpt struct {
 	WorkspaceID uuid.UUID
 	Domain      string
 }
 
-// DeleteOpt — options for Delete.
 type DeleteOpt struct {
 	ID uuid.UUID
 }

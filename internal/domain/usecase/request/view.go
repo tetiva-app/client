@@ -3,6 +3,7 @@ package request
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,24 +12,20 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Filter defines criteria for listing requests.
 type Filter struct {
 	CollectionID uuid.UUID
 }
 
-// ListOpt holds contextual options for the List operation.
 type ListOpt struct {
 	CollectionID uuid.UUID
 }
 
-// DeleteOpt holds contextual options for the Delete operation.
 type DeleteOpt struct {
 	RequestID uuid.UUID
 	UserID    string
 	Version   int
 }
 
-// MoveOpt holds contextual options for the Move operation.
 type MoveOpt struct {
 	RequestID          uuid.UUID
 	TargetCollectionID uuid.UUID
@@ -36,7 +33,6 @@ type MoveOpt struct {
 	Version            int
 }
 
-// Move changes the collection of a request.
 func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, error) {
 	const funcName = "request.Move"
 
@@ -60,10 +56,15 @@ func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, err
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
+	// A move can land the request in another workspace, and the sweep drops a token row whose
+	// workspace no longer matches its owner; the move is committed, so a failed sweep waits.
+	if _, err := u.tokens().DeleteOrphans(ctx); err != nil {
+		slog.Warn("request: token sweep failed", "op", funcName, "err", err)
+	}
+
 	return existing, nil
 }
 
-// GetByID retrieves a single request by its ID.
 func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
 	const funcName = "request.GetByID"
 
@@ -78,7 +79,6 @@ func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request,
 	return r, nil
 }
 
-// List returns requests matching the given options.
 func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Request, error) {
 	const funcName = "request.List"
 
@@ -92,7 +92,7 @@ func (u *usecase) List(ctx context.Context, opt ListOpt) ([]*entities.Request, e
 	return requests, nil
 }
 
-// Delete performs a soft delete on the request (sets is_delete = true).
+// Delete is a soft delete: the row stays with is_delete = true.
 func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	const funcName = "request.Delete"
 
@@ -116,10 +116,14 @@ func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
 
+	// A deleted request must not leave a usable token behind.
+	if err := u.tokens().ClearOwners(ctx, entities.AuthOwnerKindRequest, []uuid.UUID{opt.RequestID}); err != nil {
+		return fmt.Errorf("%s: clear tokens: %w", funcName, err)
+	}
+
 	return nil
 }
 
-// Reorder updates the sort order of a request.
 func (u *usecase) Reorder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	const funcName = "request.Reorder"
 

@@ -3,6 +3,7 @@ package requester
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
@@ -249,5 +251,111 @@ func TestHTTPRequester_ContextCancelled(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestHTTPRequester_SigV4_SignsTheSentRequest(t *testing.T) {
+	var gotAuth, gotDate, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		gotAuth = r.Header.Get("Authorization")
+		gotDate = r.Header.Get("X-Amz-Date")
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	requester := NewHTTPRequester(nil)
+	resp, err := requester.Execute(context.Background(), request.HTTPExecuteRequest{
+		Method:  entities.MethodPOST,
+		URL:     server.URL + "/things",
+		Headers: map[string][]string{"Content-Type": {"application/json"}},
+		Body:    `{"a":1}`,
+		Auth: &request.RequestAuth{
+			Type: entities.AuthTypeAWSSigV4,
+			Fields: map[string]any{
+				"accessKeyId": "AKIDEXAMPLE", "secretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+				"region": "us-east-1", "service": "execute-api",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if !strings.HasPrefix(gotAuth, "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") {
+		t.Errorf("unexpected Authorization: %q", gotAuth)
+	}
+	if !strings.Contains(gotAuth, "SignedHeaders=content-type;host;x-amz-date") {
+		t.Errorf("unexpected signed headers: %q", gotAuth)
+	}
+	if gotDate == "" {
+		t.Error("expected X-Amz-Date on the wire")
+	}
+	if gotBody != `{"a":1}` {
+		t.Errorf("body not sent: %q", gotBody)
+	}
+}
+
+func TestHTTPRequester_SigV4_MissingCredentials(t *testing.T) {
+	requester := NewHTTPRequester(nil)
+	_, err := requester.Execute(context.Background(), request.HTTPExecuteRequest{
+		Method: entities.MethodGET,
+		URL:    "https://example.amazonaws.com/",
+		Auth: &request.RequestAuth{
+			Type:   entities.AuthTypeAWSSigV4,
+			Fields: map[string]any{"accessKeyId": "AKIDEXAMPLE"},
+		},
+	})
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
+	}
+}
+
+func TestHTTPRequester_Redirects(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("landed"))
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	sigv4 := &request.RequestAuth{
+		Type: entities.AuthTypeAWSSigV4,
+		Fields: map[string]any{
+			"accessKeyId": "AKIDEXAMPLE", "secretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+			"region": "us-east-1", "service": "service",
+		},
+	}
+	tests := []struct {
+		name       string
+		auth       *request.RequestAuth
+		wantStatus int
+	}{
+		{name: "no auth follows", auth: nil, wantStatus: 200},
+		{name: "bearer follows", auth: &request.RequestAuth{Type: entities.AuthTypeBearer}, wantStatus: 200},
+		{name: "sigv4 stops", auth: sigv4, wantStatus: 302},
+		{name: "digest stops", auth: digestAuth("neo", "trinity"), wantStatus: 302},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			requester := NewHTTPRequester(nil)
+			resp, err := requester.Execute(context.Background(), request.HTTPExecuteRequest{
+				Method: entities.MethodGET,
+				URL:    redirector.URL,
+				Auth:   tc.auth,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("expected %d, got %d", tc.wantStatus, resp.StatusCode)
+			}
+		})
 	}
 }

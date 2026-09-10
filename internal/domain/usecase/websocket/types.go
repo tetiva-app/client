@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// ConnectionID identifies a live WebSocket connection within the registry.
 type ConnectionID = uuid.UUID
 
 // MessageType distinguishes text and binary WebSocket frames. The values have no
@@ -58,7 +59,6 @@ func (s ConnState) String() string {
 // GoingAway); readPump maps it — and cancellation — to StateClosed, not StateError.
 var ErrClosed = errors.New("websocket: connection closed")
 
-// Message is a frame read from or written to a connection.
 type Message struct {
 	Type MessageType
 	Data []byte
@@ -71,7 +71,6 @@ type InboundMessage struct {
 	At   time.Time
 }
 
-// OutgoingMessage is a frame the user sends.
 type OutgoingMessage struct {
 	Type MessageType
 	Data []byte
@@ -81,12 +80,49 @@ type OutgoingMessage struct {
 type DialParams struct {
 	URL          string
 	Headers      map[string][]string
-	Subprotocols []string // empty in MVP
+	Subprotocols []string
+	// WorkspaceID selects the cookie jar used for the handshake; uuid.Nil = no jar.
+	WorkspaceID uuid.UUID
 }
 
-// ConnectOpt carries the request reference and caller identity.
+// DialInfo is the handshake response, filled on both outcomes so a rejected
+// upgrade still reports why.
+type DialInfo struct {
+	StatusCode      int
+	ResponseHeaders map[string][]string
+	Subprotocol     string
+}
+
+// ResolvedDial is the handshake input a stored request resolves to, plus the
+// outcome of the pre-connect script.
+type ResolvedDial struct {
+	URL          string
+	Headers      map[string][]string
+	Subprotocols []string
+	PingInterval time.Duration
+	Script       *entities.ScriptResult // nil when no pre-connect script ran
+	// AuthQueryKeys names the query parameters auth injected into the URL, recorded
+	// with the history row so a replay draft can strip them.
+	AuthQueryKeys []string
+	// Failed is a preparation failure after the script stage (scheme guard, auth);
+	// it rides in ConnectResult so the script output explaining it survives.
+	Failed string
+}
+
+// ConnectOpt carries a client-chosen id: the UI generates it so it can subscribe before the handshake.
 type ConnectOpt struct {
-	RequestID   uuid.UUID
-	WorkspaceID uuid.UUID
-	UserID      string
+	ConnectionID ConnectionID
+	RequestID    uuid.UUID
+	WorkspaceID  uuid.UUID
+	UserID       string
+}
+
+// ConnectResult reports every failure after the pre-connect script instead of a Go error,
+// so the script output explaining that failure survives the trip to the UI.
+type ConnectResult struct {
+	Connected   bool
+	Error       string
+	Status      int
+	Subprotocol string
+	Script      *entities.ScriptResult
 }

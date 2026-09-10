@@ -3,6 +3,7 @@ package wails
 import (
 	"encoding/base64"
 	"sync"
+	"time"
 
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	ws "github.com/tetiva-app/client/internal/domain/usecase/websocket"
@@ -15,10 +16,8 @@ type WebSocketEventSink struct {
 	emit func(name string, data any)
 }
 
-// NewWebSocketEventSink creates a sink with no emitter yet.
 func NewWebSocketEventSink() *WebSocketEventSink { return &WebSocketEventSink{} }
 
-// SetEmit wires the Wails event emitter.
 func (s *WebSocketEventSink) SetEmit(fn func(name string, data any)) {
 	s.mu.Lock()
 	s.emit = fn
@@ -48,6 +47,20 @@ func (s *WebSocketEventSink) OnMessage(connID ws.ConnectionID, m ws.InboundMessa
 		Data: data,
 		Type: m.Type.String(),
 		At:   m.At.UnixMilli(),
+	})
+}
+
+// OnSystem emits a client-side notice as a system row on the message channel.
+func (s *WebSocketEventSink) OnSystem(connID ws.ConnectionID, text string) {
+	emit := s.emitter()
+	if emit == nil {
+		return
+	}
+	emit("ws:message:"+connID.String(), dto.WSMessageDTO{
+		Dir:  "system",
+		Data: text,
+		Type: "text",
+		At:   time.Now().UnixMilli(),
 	})
 }
 

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -17,6 +16,7 @@ import (
 
 	mcpadapter "github.com/tetiva-app/client/internal/adapters/mcp"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
@@ -24,6 +24,8 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
+	"github.com/tetiva-app/client/migrations"
+	"github.com/tetiva-app/client/pkg/migrate"
 )
 
 func main() {
@@ -42,8 +44,9 @@ func main() {
 	wsRepo := sqlite.NewWorkspaceRepo(db)
 	syncQueueRepo := sqlite.NewSyncQueueRepo(db)
 	syncConfigRepo := sqlite.NewSyncConfigRepo(db)
+	tokenRepo := sqlite.NewAuthTokenRepo(db)
 
-	colUC := collection.NewUsecase(colRepo)
+	colUC := collection.NewUsecase(colRepo, tokenRepo)
 	envUC := environment.NewUsecase(envRepo, varRepo)
 	wsUC := workspace.NewUsecase(wsRepo)
 	reqUC := request.NewUsecase(
@@ -51,14 +54,20 @@ func main() {
 		&noopGRPCRequester{}, &noopGraphQLRequester{},
 		&noopEnvResolver{}, &noopScriptEngine{},
 		&noopScriptResolver{}, &noopVarPersister{},
-		&noopAuthResolver{}, &noopCookieReader{}, nil,
+		request.NewAuthResolver(collectionReader{repo: colRepo}),
+		&noopCookieReader{}, nil, tokenRepo, auth.NewProvider(tokenRepo, nil, nil),
 	)
 
-	auth := syncsvc.NewSyncAuthManager(syncConfigRepo)
-	engine := syncsvc.NewSyncEngine(auth, syncQueueRepo, syncConfigRepo, db,
-		colRepo, reqRepo, envRepo, varRepo)
+	syncAuth := syncsvc.NewSyncAuthManager(syncConfigRepo)
+	engine := syncsvc.NewSyncEngine(syncAuth, syncQueueRepo, syncConfigRepo, db,
+		colRepo, reqRepo, envRepo, varRepo, tokenRepo)
 
-	srv := mcpadapter.NewServer(engine, syncQueueRepo, colUC, reqUC, envUC, wsUC, addr)
+	// Debug binary: no UI to copy a token from, so MCP_TOKEN is the only source
+	// and an empty one leaves the server open.
+	token := os.Getenv("MCP_TOKEN")
+	mcpAuth := mcpadapter.NewTokenAuth(token, token != "")
+
+	srv := mcpadapter.NewServer(engine, syncQueueRepo, colUC, reqUC, envUC, wsUC, addr, mcpAuth)
 	ctx, cancel := signal.NotifyContext(
 		signalContext(), syscall.SIGINT, syscall.SIGTERM,
 	)
@@ -79,9 +88,15 @@ func openDB() *sql.DB {
 	if dbPath == "" {
 		dbPath = ":memory:"
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	// The shared DSN carries busy_timeout to every pooled connection; ":memory:"
+	// comes back unchanged, so the single-connection branch below still applies.
+	db, err := sql.Open("sqlite", sqlite.DSN(dbPath))
 	if err != nil {
 		log.Fatalf("open db: %v", err)
+	}
+	if dbPath == ":memory:" {
+		// every extra pooled connection would open its own empty in-memory database
+		db.SetMaxOpenConns(1)
 	}
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		log.Fatalf("pragma: %v", err)
@@ -90,37 +105,20 @@ func openDB() *sql.DB {
 }
 
 func applyMigrations(db *sql.DB) {
-	migrationsDir := filepath.Join(getMigrationsDir(), "migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		log.Fatalf("read migrations dir %s: %v", migrationsDir, err)
+	// Databases created by the old per-file loop have no schema_migrations rows;
+	// the runner would replay every migration on top of an existing schema.
+	var legacy int
+	if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='collections')
+		AND NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations')`).Scan(&legacy); err != nil {
+		log.Fatalf("probe schema: %v", err)
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(migrationsDir, e.Name()))
-		if err != nil {
-			log.Fatalf("read migration %s: %v", e.Name(), err)
-		}
-		if _, err := db.Exec(string(data)); err != nil {
-			log.Fatalf("apply migration %s: %v", e.Name(), err)
-		}
+	if legacy == 1 {
+		log.Fatal("this database predates schema_migrations: delete it or point MCP_DB at a fresh path")
+	}
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		log.Fatalf("apply migrations: %v", err)
 	}
 	slog.Info("migrations applied")
-}
-
-func getMigrationsDir() string {
-	if _, err := os.Stat("migrations"); err == nil {
-		return "."
-	}
-	exe, _ := os.Executable()
-	dir := filepath.Dir(exe)
-	if _, err := os.Stat(filepath.Join(dir, "migrations")); err == nil {
-		return dir
-	}
-	log.Fatal("cannot find migrations directory")
-	return ""
 }
 
 func signalContext() context.Context {
@@ -193,14 +191,20 @@ func (n *noopVarPersister) PersistVariableChanges(_ context.Context, _ uuid.UUID
 	return nil
 }
 
-type noopAuthResolver struct{}
-
-func (n *noopAuthResolver) ResolveAuth(_ context.Context, _ *entities.Request) (entities.AuthType, string, error) {
-	return entities.AuthTypeNone, "{}", nil
-}
-
 type noopCookieReader struct{}
 
 func (noopCookieReader) CookiesFor(_ context.Context, _ uuid.UUID, _ string) []*http.Cookie {
 	return nil
+}
+
+// collectionReader adapts the collection repo to request.CollectionReader; kept
+// local so this dev binary stays free of the fx/Wails graph.
+type collectionReader struct{ repo collection.Repository }
+
+func (c collectionReader) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
+	return c.repo.GetByID(ctx, id)
+}
+
+func (c collectionReader) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Collection, error) {
+	return c.repo.List(ctx, collection.Filter{WorkspaceID: workspaceID})
 }

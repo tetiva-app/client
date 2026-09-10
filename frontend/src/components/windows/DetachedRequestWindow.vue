@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, defineAsyncComponent } from 'vue'
 import { useRequestStore } from '@/stores/tabs'
+import { useAuthTokenStore } from '@/stores/auth-tokens'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -62,11 +63,19 @@ async function autoSave() {
   }
 }
 
+// beforeunload cannot await a binding, but the cancel RPC is fire-and-forget:
+// a browser flow started in this window must not outlive it on the Go side.
+function releaseFlow() {
+  useAuthTokenStore().forget('request', props.requestId)
+}
+
 onMounted(() => {
   window.addEventListener('beforeunload', autoSave)
+  window.addEventListener('beforeunload', releaseFlow)
 })
 onUnmounted(() => {
   window.removeEventListener('beforeunload', autoSave)
+  window.removeEventListener('beforeunload', releaseFlow)
 })
 
 useWindowEvents({

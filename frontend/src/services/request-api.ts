@@ -1,13 +1,14 @@
 import type { Request, HeaderItem } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
-import type { GenerateCurlResponse } from '@/types/curl'
+import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 
 export interface CreateRequestReq {
   collectionId: string
   name: string
+  description: string
   protocol: string
   method: string
   url: string
@@ -31,6 +32,9 @@ export interface CreateRequestReq {
 export interface EditRequestReq {
   id: string
   name: string
+  // Required, not optional: edit.go assigns every field unconditionally, so a
+  // caller that omits the description wipes it.
+  description: string
   method: string
   url: string
   headers: HeaderItem[]
@@ -84,6 +88,7 @@ export interface RequestServiceAPI {
   reorder(req: ReorderRequestReq): Promise<Result<boolean>>
   execute(req: { requestId: string; workspaceId: string }): Promise<Result<ExecuteResponse>>
   generateCurl(req: { requestId: string; workspaceId: string }): Promise<Result<GenerateCurlResponse>>
+  parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>>
   move(req: MoveRequestReq): Promise<Result<Request>>
   promoteDraft(req: PromoteDraftReq): Promise<Result<Request>>
   saveResponseToFile(tempPath: string, destPath: string): Promise<Result<string>>

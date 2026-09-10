@@ -14,12 +14,10 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/cookie"
 )
 
-// CookieRepo implements cookie.Repository using SQLite.
 type CookieRepo struct {
 	db *sql.DB
 }
 
-// NewCookieRepo creates a new CookieRepo instance.
 func NewCookieRepo(db *sql.DB) cookie.Repository {
 	return &CookieRepo{db: db}
 }
@@ -132,8 +130,7 @@ func (r *CookieRepo) Clear(ctx context.Context, workspaceID uuid.UUID) (int, err
 	return int(n), nil
 }
 
-// MatchForRequest returns non-expired cookies eligible for the given URL,
-// applying RFC 6265 domain, path, and secure matching rules.
+// Non-expired cookies only, matched per RFC 6265 domain, path and secure rules.
 func (r *CookieRepo) MatchForRequest(ctx context.Context, workspaceID uuid.UUID, u *url.URL) ([]*entities.Cookie, error) {
 	const funcName = "CookieRepo.MatchForRequest"
 	const q = `SELECT id, workspace_id, domain, host_only, path, name, value, expires_at,
@@ -174,8 +171,7 @@ func (r *CookieRepo) MatchForRequest(ctx context.Context, workspaceID uuid.UUID,
 	return out, rows.Err()
 }
 
-// domainMatches implements RFC 6265 §5.1.3: host-only cookies match only their
-// origin host; otherwise the stored domain also matches any subdomain.
+// RFC 6265 §5.1.3: host-only cookies match their origin host, others also match subdomains.
 func domainMatches(stored string, hostOnly bool, host string) bool {
 	stored = strings.ToLower(stored)
 	if hostOnly {
@@ -184,7 +180,7 @@ func domainMatches(stored string, hostOnly bool, host string) bool {
 	return host == stored || strings.HasSuffix(host, "."+stored)
 }
 
-// pathMatches implements RFC 6265 §5.1.4 path-match.
+// RFC 6265 §5.1.4 path-match.
 func pathMatches(stored, urlPath string) bool {
 	if stored == "" || stored == "/" {
 		return true

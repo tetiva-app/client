@@ -4,14 +4,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// HeaderItemDTO represents a single header with enabled/disabled state.
 type HeaderItemDTO struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`
 	Enabled bool   `json:"enabled"`
 }
 
-// HeaderItemsToEntity converts DTOs to domain entities.
 func HeaderItemsToEntity(dtos []HeaderItemDTO) []entities.HeaderItem {
 	result := make([]entities.HeaderItem, len(dtos))
 	for i, d := range dtos {
@@ -20,7 +18,6 @@ func HeaderItemsToEntity(dtos []HeaderItemDTO) []entities.HeaderItem {
 	return result
 }
 
-// HeaderItemsToDTO converts domain entities to DTOs.
 func HeaderItemsToDTO(items []entities.HeaderItem) []HeaderItemDTO {
 	result := make([]HeaderItemDTO, len(items))
 	for i, item := range items {
@@ -29,10 +26,10 @@ func HeaderItemsToDTO(items []entities.HeaderItem) []HeaderItemDTO {
 	return result
 }
 
-// CreateRequestRequest is the frontend request to create a request.
 type CreateRequestRequest struct {
 	CollectionID      string              `json:"collectionId"`
 	Name              string              `json:"name"`
+	Description       string              `json:"description"`
 	Protocol          string              `json:"protocol"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
@@ -53,10 +50,10 @@ type CreateRequestRequest struct {
 	GraphQLOperation  string              `json:"graphqlOperation"`
 }
 
-// EditRequestRequest is the frontend request to edit a request.
 type EditRequestRequest struct {
 	ID                string              `json:"id"`
 	Name              string              `json:"name"`
+	Description       string              `json:"description"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
 	Headers           []HeaderItemDTO     `json:"headers"`
@@ -77,36 +74,32 @@ type EditRequestRequest struct {
 	GraphQLOperation  string              `json:"graphqlOperation"`
 }
 
-// DeleteRequestRequest is the frontend request to delete a request.
 type DeleteRequestRequest struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
 }
 
-// ReorderRequestRequest is the frontend request to reorder a request.
 type ReorderRequestRequest struct {
 	ID        string `json:"id"`
 	SortOrder int    `json:"sortOrder"`
 }
 
-// MoveRequestRequest is the frontend request to move a request to a new collection.
 type MoveRequestRequest struct {
 	ID                 string `json:"id"`
 	TargetCollectionID string `json:"targetCollectionId"`
 	Version            int    `json:"version"`
 }
 
-// ExecuteRequestRequest is the frontend request to execute a request.
 type ExecuteRequestRequest struct {
 	RequestID   string `json:"requestId"`
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// RequestResponse is the frontend response representing a request.
 type RequestResponse struct {
 	ID                string              `json:"id"`
 	CollectionID      string              `json:"collectionId"`
 	Name              string              `json:"name"`
+	Description       string              `json:"description"`
 	Protocol          string              `json:"protocol"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
@@ -132,7 +125,6 @@ type RequestResponse struct {
 	UpdatedAt         string              `json:"updatedAt"`
 }
 
-// RequestToResponse maps a domain Request entity to a RequestResponse DTO.
 func RequestToResponse(r *entities.Request) RequestResponse {
 	headers := HeaderItemsToDTO(r.Headers)
 	if headers == nil {
@@ -148,6 +140,7 @@ func RequestToResponse(r *entities.Request) RequestResponse {
 		ID:                r.ID.String(),
 		CollectionID:      r.CollectionID.String(),
 		Name:              r.Name,
+		Description:       r.Description,
 		Protocol:          string(r.Protocol),
 		Method:            string(r.Method),
 		URL:               r.URL,
@@ -174,7 +167,6 @@ func RequestToResponse(r *entities.Request) RequestResponse {
 	}
 }
 
-// RequestsToResponse maps a slice of domain Request entities to RequestResponse DTOs.
 func RequestsToResponse(requests []*entities.Request) []RequestResponse {
 	result := make([]RequestResponse, 0, len(requests))
 	for _, r := range requests {
@@ -183,7 +175,6 @@ func RequestsToResponse(requests []*entities.Request) []RequestResponse {
 	return result
 }
 
-// ScriptResultDTO aggregates test results and console output from scripts.
 type ScriptResultDTO struct {
 	PreConsole  []string         `json:"preConsole"`
 	PostConsole []string         `json:"postConsole"`
@@ -191,20 +182,18 @@ type ScriptResultDTO struct {
 	Errors      []ScriptErrorDTO `json:"errors"`
 }
 
-// TestResultDTO represents a single test assertion result.
 type TestResultDTO struct {
 	Name   string `json:"name"`
 	Passed bool   `json:"passed"`
 	Error  string `json:"error,omitempty"`
 }
 
-// ScriptErrorDTO represents a script execution error.
 type ScriptErrorDTO struct {
 	Phase   string `json:"phase"`
 	Message string `json:"message"`
 }
 
-// ScriptResultToDTO maps a domain ScriptResult to its DTO. Returns nil if input is nil.
+// Returns nil if input is nil.
 func ScriptResultToDTO(sr *entities.ScriptResult) *ScriptResultDTO {
 	if sr == nil {
 		return nil
@@ -232,7 +221,6 @@ func ScriptResultToDTO(sr *entities.ScriptResult) *ScriptResultDTO {
 	return out
 }
 
-// ExecuteResponseDTO is the frontend response after executing a request.
 type ExecuteResponseDTO struct {
 	StatusCode        int                 `json:"statusCode"`
 	StatusText        string              `json:"statusText"`
@@ -248,7 +236,6 @@ type ExecuteResponseDTO struct {
 	ScriptResult      *ScriptResultDTO    `json:"scriptResult,omitempty"`
 }
 
-// ResponseToExecuteDTO maps a domain Response entity to ExecuteResponseDTO.
 func ResponseToExecuteDTO(r *entities.Response) ExecuteResponseDTO {
 	headers := r.Headers
 	if headers == nil {
@@ -271,12 +258,10 @@ func ResponseToExecuteDTO(r *entities.Response) ExecuteResponseDTO {
 	return dto
 }
 
-// DeleteDraftRequest is the frontend request to hard-delete a draft request.
 type DeleteDraftRequest struct {
 	ID string `json:"id"`
 }
 
-// PromoteDraftRequest is the frontend request to convert a draft into a regular request.
 type PromoteDraftRequest struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
@@ -284,14 +269,30 @@ type PromoteDraftRequest struct {
 	Version            int    `json:"version"`
 }
 
-// GenerateCurlRequest is the input from the frontend for the GenerateCurl Wails method.
 type GenerateCurlRequest struct {
 	RequestID   string `json:"requestId"`
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// GenerateCurlResponse is the output of the GenerateCurl Wails method.
+// Warnings name what the command could not carry, such as a missing OAuth 2.0 token.
 type GenerateCurlResponse struct {
 	Command      string           `json:"command"`
+	Warnings     []string         `json:"warnings"`
 	ScriptResult *ScriptResultDTO `json:"scriptResult,omitempty"`
+}
+
+type ParseCurlRequest struct {
+	Text string `json:"text"`
+}
+
+// Warnings list what the parser dropped or could not honour.
+type ParseCurlResponse struct {
+	Method   string          `json:"method"`
+	URL      string          `json:"url"`
+	Headers  []HeaderItemDTO `json:"headers"`
+	BodyType string          `json:"bodyType"`
+	Body     string          `json:"body"`
+	AuthType string          `json:"authType"`
+	AuthData string          `json:"authData"`
+	Warnings []string        `json:"warnings"`
 }

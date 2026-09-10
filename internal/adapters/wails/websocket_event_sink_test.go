@@ -47,7 +47,32 @@ func TestEventSinkEmitsState(t *testing.T) {
 func TestEventSinkNilEmitSafe(t *testing.T) {
 	sink := NewWebSocketEventSink() // emit never set
 	sink.OnMessage(uuid.New(), ws.InboundMessage{Data: []byte("x")})
+	sink.OnSystem(uuid.New(), "note")
 	sink.OnStateChange(uuid.New(), ws.StateClosed, nil) // must not panic
+}
+
+func TestEventSinkEmitsSystemRow(t *testing.T) {
+	var name string
+	var captured any
+	sink := NewWebSocketEventSink()
+	sink.SetEmit(func(n string, data any) { name, captured = n, data })
+
+	id := uuid.New()
+	sink.OnSystem(id, "keepalive ping timed out")
+
+	if name != "ws:message:"+id.String() {
+		t.Fatalf("event name = %q", name)
+	}
+	msg, ok := captured.(dto.WSMessageDTO)
+	if !ok {
+		t.Fatalf("expected WSMessageDTO, got %T", captured)
+	}
+	if msg.Dir != "system" || msg.Type != "text" || msg.Data != "keepalive ping timed out" {
+		t.Fatalf("system row = %+v", msg)
+	}
+	if msg.At == 0 {
+		t.Fatal("expected a timestamp on the system row")
+	}
 }
 
 func TestEventSinkBase64EncodesBinary(t *testing.T) {

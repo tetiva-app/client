@@ -4,7 +4,7 @@ import type { Protocol } from '@/types/request'
 import type { StatusKind } from '@/types/history'
 
 const store = useHistoryStore()
-const protocols: Protocol[] = ['http', 'grpc', 'graphql']
+const protocols: Protocol[] = ['http', 'grpc', 'graphql', 'websocket']
 const kinds: StatusKind[] = ['2xx', '3xx', '4xx', '5xx', 'error']
 
 function toggleProtocol(p: Protocol) {
@@ -24,6 +24,7 @@ function toggleKind(k: StatusKind) {
 function protocolLabel(p: Protocol): string {
   if (p === 'grpc') return 'gRPC'
   if (p === 'graphql') return 'GraphQL'
+  if (p === 'websocket') return 'WS'
   return 'HTTP'
 }
 </script>

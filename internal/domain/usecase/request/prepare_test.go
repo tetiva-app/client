@@ -10,17 +10,18 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// captureScriptEngine records calls and returns scripted output.
 type captureScriptEngine struct {
-	preCalls   int
-	preHeaders map[string][]string
-	preVars    map[string]string
-	preConsole []string
-	preErr     error
+	preCalls    int
+	preHeaders  map[string][]string
+	preVars     map[string]string
+	preConsole  []string
+	preErr      error
+	seenHeaders map[string][]string // headers the script was given
 }
 
 func (c *captureScriptEngine) RunPreScript(_ context.Context, _ string, sctx request.ScriptContext) (*request.PreScriptResult, error) {
 	c.preCalls++
+	c.seenHeaders = sctx.RequestHeaders
 	if c.preErr != nil {
 		return nil, c.preErr
 	}
@@ -39,7 +40,6 @@ func (c *captureScriptEngine) RunPostScript(_ context.Context, _ string, _ reque
 	return &request.PostScriptResult{}, nil
 }
 
-// scriptResolverWithPre returns a fixed pre-script.
 type scriptResolverWithPre struct{ pre string }
 
 func (s *scriptResolverWithPre) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
@@ -58,16 +58,17 @@ func TestExecute_HTTPParity_PlainGET(t *testing.T) {
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodGET,
-		URL:      "https://api.example.com/x",
-		BodyType: entities.BodyTypeNone,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		URL:          "https://api.example.com/x",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
 	}
 	requester.response = &entities.Response{StatusCode: 200}
 
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if requester.lastRequest.URL != "https://api.example.com/x" {
@@ -84,17 +85,18 @@ func TestExecute_HTTPParity_JSONPostAddsContentType(t *testing.T) {
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodPOST,
-		URL:      "https://api.example.com/users",
-		Body:     `{"name":"Alice"}`,
-		BodyType: entities.BodyTypeJSON,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodPOST,
+		URL:          "https://api.example.com/users",
+		Body:         `{"name":"Alice"}`,
+		BodyType:     entities.BodyTypeJSON,
+		AuthType:     entities.AuthTypeNone,
 	}
 	requester.response = &entities.Response{StatusCode: 201}
 
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if got := requester.lastRequest.Headers["Content-Type"]; len(got) != 1 || got[0] != "application/json" {
@@ -111,17 +113,18 @@ func TestExecute_HTTPParity_BearerAuthHeader(t *testing.T) {
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodGET,
-		URL:      "https://api.example.com/me",
-		BodyType: entities.BodyTypeNone,
-		AuthType: entities.AuthTypeBearer,
-		AuthData: `{"token":"xyz"}`,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		URL:          "https://api.example.com/me",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeBearer,
+		AuthData:     `{"token":"xyz"}`,
 	}
 	requester.response = &entities.Response{StatusCode: 200}
 
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if got := requester.lastRequest.Headers["Authorization"]; len(got) != 1 || got[0] != "Bearer xyz" {
@@ -137,20 +140,21 @@ func TestExecute_HTTPParity_PreScriptInjectsHeader(t *testing.T) {
 		preHeaders: map[string][]string{"X-Trace": {"abc"}},
 		preVars:    map[string]string{},
 	}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"}, &noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodGET,
-		URL:      "https://api.example.com/x",
-		BodyType: entities.BodyTypeNone,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		URL:          "https://api.example.com/x",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
 	}
 
 	ctx := context.Background()
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if cap.preCalls != 1 {

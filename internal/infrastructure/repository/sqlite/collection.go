@@ -13,22 +13,18 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 )
 
-// scannable abstracts *sql.Row and *sql.Rows so scanning logic can be shared.
 type scannable interface {
 	Scan(dest ...any) error
 }
 
-// CollectionRepo implements collection.Repository using SQLite.
 type CollectionRepo struct {
 	db *sql.DB
 }
 
-// NewCollectionRepo creates a new CollectionRepo instance.
 func NewCollectionRepo(db *sql.DB) collection.Repository {
 	return &CollectionRepo{db: db}
 }
 
-// Create inserts a new collection into the database.
 func (r *CollectionRepo) Create(ctx context.Context, c *entities.Collection) error {
 	const funcName = "CollectionRepo.Create"
 
@@ -66,7 +62,7 @@ func (r *CollectionRepo) Create(ctx context.Context, c *entities.Collection) err
 	return nil
 }
 
-// GetByID retrieves a collection by ID, returning nil if not found or soft-deleted.
+// Returns nil when the row is missing or soft-deleted.
 func (r *CollectionRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
 	const funcName = "CollectionRepo.GetByID"
 
@@ -86,7 +82,7 @@ func (r *CollectionRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.C
 	return c, nil
 }
 
-// List returns collections matching the given filter, ordered by sort_order ASC, created_at ASC.
+// Ordered by sort_order ASC, created_at ASC.
 func (r *CollectionRepo) List(ctx context.Context, filter collection.Filter) ([]*entities.Collection, error) {
 	const funcName = "CollectionRepo.List"
 
@@ -122,8 +118,7 @@ func (r *CollectionRepo) List(ctx context.Context, filter collection.Filter) ([]
 	return result, nil
 }
 
-// Update persists all fields matched by id only — last-write-wins, no version guard:
-// the sync engine applies server changes; the UI enforces optimistic locking one layer up.
+// No version guard — sync applies server changes; the UI does optimistic locking one layer up.
 func (r *CollectionRepo) Update(ctx context.Context, c *entities.Collection) error {
 	const funcName = "CollectionRepo.Update"
 
@@ -161,7 +156,6 @@ func (r *CollectionRepo) Update(ctx context.Context, c *entities.Collection) err
 	return nil
 }
 
-// UpdateSortOrder updates only the sort_order field of a collection.
 func (r *CollectionRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	const funcName = "CollectionRepo.UpdateSortOrder"
 
@@ -175,7 +169,6 @@ func (r *CollectionRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sort
 	return nil
 }
 
-// SoftDeleteDescendants recursively soft-deletes all descendant collections of the given parent.
 func (r *CollectionRepo) SoftDeleteDescendants(ctx context.Context, parentID uuid.UUID, updatedBy string, updatedAt time.Time) error {
 	const funcName = "CollectionRepo.SoftDeleteDescendants"
 
@@ -263,7 +256,6 @@ func scanCollection(s scannable) (*entities.Collection, error) {
 	return &c, nil
 }
 
-// parseTime parses a time string in RFC3339 or SQLite datetime format.
 func parseTime(s string) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339, s)
 	if err == nil {
@@ -280,7 +272,7 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// uuidPtrToString returns nil (SQL NULL) for a nil pointer, otherwise the UUID string.
+// A nil pointer becomes SQL NULL.
 func uuidPtrToString(id *uuid.UUID) any {
 	if id == nil {
 		return nil

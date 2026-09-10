@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// History represents an immutable record of a request execution.
+// History is an immutable record of one request execution.
 type History struct {
 	ID              uuid.UUID
 	RequestID       uuid.UUID
@@ -22,5 +22,8 @@ type History struct {
 	ResponseSize    int64
 	DurationMs      int64
 	ErrorMessage    string
-	CreatedAt       time.Time
+	// AuthQueryKeys names the query parameters auth injected into the URL, so a
+	// replay draft can strip them instead of persisting a token.
+	AuthQueryKeys []string
+	CreatedAt     time.Time
 }

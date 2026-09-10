@@ -15,6 +15,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
 type stubCollectionUC struct {
@@ -65,8 +66,8 @@ func (s *stubRequestUC) Reorder(context.Context, uuid.UUID, int) error   { retur
 func (s *stubRequestUC) Execute(context.Context, uuid.UUID, request.ExecuteOpt) (*entities.Response, error) {
 	return nil, nil
 }
-func (s *stubRequestUC) BuildCurl(context.Context, uuid.UUID, request.BuildCurlOpt) (string, *entities.ScriptResult, error) {
-	return "", nil, nil
+func (s *stubRequestUC) BuildCurl(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
+	return request.CurlResult{}, nil
 }
 func (s *stubRequestUC) Move(context.Context, request.MoveOpt) (*entities.Request, error) {
 	return nil, nil
@@ -101,8 +102,12 @@ func (s *stubRequestUC) PromoteDraft(context.Context, request.PromoteDraftOpt) (
 
 func (s *stubRequestUC) CleanupDrafts(context.Context) (int, error) { return 0, nil }
 
-func (s *stubRequestUC) ResolveWebSocket(_ context.Context, _, _ uuid.UUID, _ string) (string, map[string][]string, error) {
-	return "", nil, nil
+func (s *stubRequestUC) ResolveWebSocket(_ context.Context, _, _ uuid.UUID, _ string) (websocket.ResolvedDial, error) {
+	return websocket.ResolvedDial{}, nil
+}
+
+func (s *stubRequestUC) SubstituteMessage(_ context.Context, _ uuid.UUID, text string) (string, error) {
+	return text, nil
 }
 
 func TestImportCollection_SimpleStructure(t *testing.T) {
@@ -319,7 +324,7 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 		},
 		Auth: &postman.PostmanAuth{
 			Type:   "bearer",
-			Bearer: []postman.PostmanKV{{Key: "token", Value: "root-token"}},
+			Bearer: authKVs(map[string]string{"token": "root-token"}),
 		},
 		Item: []postman.PostmanItem{
 			{
@@ -327,7 +332,7 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 				Description: "Admin folder",
 				Auth: &postman.PostmanAuth{
 					Type:  "basic",
-					Basic: []postman.PostmanKV{{Key: "username", Value: "admin"}, {Key: "password", Value: "pass"}},
+					Basic: authKVs(map[string]string{"username": "admin", "password": "pass"}),
 				},
 				Item: []postman.PostmanItem{
 					{Name: "Users", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/users"}}},
@@ -355,6 +360,35 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 	assert.Equal(t, "Admin folder", collUC.created[1].Description)
 	assert.Equal(t, entities.AuthTypeBasic, collUC.created[1].AuthType)
 	assert.Contains(t, collUC.created[1].AuthData, "admin")
+}
+
+func TestImportCollection_RequestLevelDescription(t *testing.T) {
+	data, err := os.ReadFile("testdata/request-description.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC := &stubCollectionUC{}
+	reqUC := &stubRequestUC{}
+
+	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err)
+
+	byName := make(map[string]request.Create, len(reqUC.created))
+	for _, r := range reqUC.created {
+		byName[r.Name] = r
+	}
+	require.Len(t, byName, 4)
+
+	assert.Equal(t, "Returns pong.", byName["Ping"].Description)
+	assert.Equal(t, "Item level only.", byName["Health"].Description,
+		"an item-level description is still the fallback")
+	assert.Equal(t, "Request level wins.", byName["Status"].Description)
+	assert.Equal(t, "Rebuilds the search index.", byName["Reindex"].Description)
+
+	require.Len(t, collUC.created, 2)
+	assert.Equal(t, "# Docs API\nCollection level.", collUC.created[0].Description)
+	assert.Equal(t, "Folder documentation.", collUC.created[1].Description)
 }
 
 func TestImportCollection_RealPostmanFile(t *testing.T) {
@@ -461,4 +495,39 @@ func TestImportCollection_GraphQL(t *testing.T) {
 	assert.Equal(t, entities.ProtocolGraphQL, r1.Protocol)
 	assert.Equal(t, "mutation CreateUser($name: String!) { createUser(name: $name) { id } }", r1.GraphQLQuery)
 	assert.Equal(t, "", r1.GraphQLVariables)
+}
+
+func TestImportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
+	data := postman.PostmanCollection{
+		Info: postman.PostmanInfo{Name: "Docs", Schema: postman.SchemaV21},
+		Item: []postman.PostmanItem{
+			{
+				Name:        "Ping",
+				Description: "# Ping\nReturns pong.",
+				Request: &postman.PostmanRequest{
+					Method: "GET",
+					URL:    postman.PostmanURL{Raw: "https://api.example.com/ping"},
+					Auth: &postman.PostmanAuth{
+						Type:   "apikey",
+						APIKey: authKVs(map[string]string{"key": "api_key", "value": "sk_live", "in": "query"}),
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	reqUC := &stubRequestUC{}
+	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, &stubCollectionUC{}, reqUC)
+	require.NoError(t, err)
+
+	require.Len(t, reqUC.created, 1)
+	assert.Equal(t, "# Ping\nReturns pong.", reqUC.created[0].Description)
+	assert.Equal(t, entities.AuthTypeAPIKey, reqUC.created[0].AuthType)
+	assert.Contains(t, reqUC.created[0].AuthData, `"addTo":"query"`,
+		"the executor reads addTo, not Postman's in")
 }

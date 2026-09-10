@@ -144,7 +144,6 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, req mcplib.CallToo
 		return errResult(err), nil
 	}
 
-	// Fetch current version for optimistic locking.
 	e, err := s.envUC.GetByID(ctx, id)
 	if err != nil {
 		return errResult(err), nil

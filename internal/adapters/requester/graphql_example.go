@@ -10,8 +10,6 @@ import (
 
 const maxQueryDepth = 3
 
-// GenerateExampleQuery generates an example GraphQL query string and variables JSON
-// for the given operation name found in the provided schema.
 func (r *GraphQLRequester) GenerateExampleQuery(schema *request.GraphQLSchema, operationName string) (*request.GraphQLExampleResponse, error) {
 	const funcName = "GraphQLRequester.GenerateExampleQuery"
 
@@ -95,8 +93,7 @@ func buildTypeIndex(schema *request.GraphQLSchema) map[string]request.GraphQLTyp
 	return idx
 }
 
-// buildArgParts returns parallel slices: varDecls "$name: Type" for the
-// operation signature and callArgs "name: $name" for the call site.
+// Parallel slices: varDecls "$name: Type" for the signature, callArgs "name: $name" for the call.
 func buildArgParts(args []request.GraphQLArg) (varDecls, callArgs []string) {
 	for _, arg := range args {
 		varDecls = append(varDecls, "$"+arg.Name+": "+arg.Type)
@@ -105,8 +102,7 @@ func buildArgParts(args []request.GraphQLArg) (varDecls, callArgs []string) {
 	return varDecls, callArgs
 }
 
-// buildSelectionSet builds a selection set bounded by maxQueryDepth and
-// cycle-protected via visited. Returns "" for scalars and unknown types.
+// Bounded by maxQueryDepth, cycle-protected via visited; "" for scalars and unknown types.
 func buildSelectionSet(typeName string, typeIndex map[string]request.GraphQLType, depth int, visited map[string]bool) string {
 	t, ok := typeIndex[typeName]
 	if !ok {
@@ -226,7 +222,6 @@ func buildUnionSelectionSet(t request.GraphQLType, typeIndex map[string]request.
 	return sb.String()
 }
 
-// stripModifiers removes GraphQL type modifiers (!, [, ]) to get the base type name.
 // e.g. "[User!]!" → "User", "ID!" → "ID"
 func stripModifiers(t string) string {
 	t = strings.ReplaceAll(t, "!", "")

@@ -2,7 +2,6 @@ package request
 
 import "context"
 
-// ScriptContext provides data to scripts during execution.
 type ScriptContext struct {
 	Variables          map[string]string
 	RequestMethod      string
@@ -23,7 +22,6 @@ type ScriptContext struct {
 	GraphQLOperation string
 }
 
-// PreScriptResult holds the output of a pre-request script.
 type PreScriptResult struct {
 	Headers       map[string][]string
 	Metadata      map[string][]string // gRPC metadata after the script; never the caller's map
@@ -31,7 +29,6 @@ type PreScriptResult struct {
 	ConsoleOutput []string
 }
 
-// PostScriptResult holds the output of a post-response script.
 type PostScriptResult struct {
 	TestResults   []TestResult
 	Variables     map[string]string

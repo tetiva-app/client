@@ -18,6 +18,7 @@ func newTestRequest(name string, collectionID uuid.UUID) *entities.Request {
 		ID:            uuid.New(),
 		CollectionID:  collectionID,
 		Name:          name,
+		Description:   "",
 		Protocol:      entities.ProtocolHTTP,
 		Method:        entities.MethodGET,
 		URL:           "https://example.com/api",
@@ -48,7 +49,6 @@ func TestRequestRepo_CreateAndGetByID(t *testing.T) {
 	reqRepo := NewRequestRepo(db)
 	ctx := context.Background()
 
-	// Create parent collection (FK requirement)
 	coll := newTestCollection("Test Collection", nil)
 	if err := collRepo.Create(ctx, coll); err != nil {
 		t.Fatalf("Create collection failed: %v", err)
@@ -625,5 +625,87 @@ func TestRequestRepo_Create_AcceptsDraftDefaults(t *testing.T) {
 	}
 	if !got.IsDraft {
 		t.Error("persisted record should be flagged IsDraft")
+	}
+}
+
+func TestRequestRepo_DescriptionRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	collRepo := NewCollectionRepo(db)
+	reqRepo := NewRequestRepo(db)
+	ctx := context.Background()
+
+	coll := newTestCollection("Docs Collection", nil)
+	if err := collRepo.Create(ctx, coll); err != nil {
+		t.Fatalf("Create collection failed: %v", err)
+	}
+
+	req := newTestRequest("Documented", coll.ID)
+	req.Description = "# Ping\n\nReturns `pong`."
+	if err := reqRepo.Create(ctx, req); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	got, err := reqRepo.GetByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.Description != req.Description {
+		t.Errorf("description after create: got %q, want %q", got.Description, req.Description)
+	}
+
+	got.Description = "updated docs"
+	if err := reqRepo.Update(ctx, got); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	got, err = reqRepo.GetByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update failed: %v", err)
+	}
+	if got.Description != "updated docs" {
+		t.Errorf("description after update: got %q", got.Description)
+	}
+
+	listed, err := reqRepo.List(ctx, request.Filter{CollectionID: coll.ID})
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Description != "updated docs" {
+		t.Errorf("List lost the description: %+v", listed)
+	}
+}
+
+func TestRequestRepo_GetDescriptionByID_SeesSoftDeleted(t *testing.T) {
+	db := setupTestDB(t)
+	collRepo := NewCollectionRepo(db)
+	reqRepo := NewRequestRepo(db)
+	ctx := context.Background()
+
+	coll := newTestCollection("Docs Collection", nil)
+	if err := collRepo.Create(ctx, coll); err != nil {
+		t.Fatalf("Create collection failed: %v", err)
+	}
+
+	req := newTestRequest("Documented", coll.ID)
+	req.Description = "still here"
+	req.IsDelete = true
+	if err := reqRepo.Create(ctx, req); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	desc, err := reqRepo.GetDescriptionByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("GetDescriptionByID failed: %v", err)
+	}
+	if desc != "still here" {
+		t.Errorf("got %q, want %q", desc, "still here")
+	}
+
+	desc, err = reqRepo.GetDescriptionByID(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("GetDescriptionByID for missing row failed: %v", err)
+	}
+	if desc != "" {
+		t.Errorf("missing row should yield empty description, got %q", desc)
 	}
 }

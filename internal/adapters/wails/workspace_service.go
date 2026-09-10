@@ -15,12 +15,10 @@ type WorkspaceService struct {
 	uc workspace.Usecase
 }
 
-// NewWorkspaceService creates a new WorkspaceService instance.
 func NewWorkspaceService(uc workspace.Usecase) *WorkspaceService {
 	return &WorkspaceService{uc: uc}
 }
 
-// List returns all non-deleted workspaces.
 func (s *WorkspaceService) List() Result[[]dto.WorkspaceResponse] {
 	ctx := context.Background()
 
@@ -32,7 +30,6 @@ func (s *WorkspaceService) List() Result[[]dto.WorkspaceResponse] {
 	return OK(dto.WorkspacesToResponse(workspaces))
 }
 
-// Create creates a new workspace.
 func (s *WorkspaceService) Create(req dto.CreateWorkspaceRequest) Result[dto.WorkspaceResponse] {
 	ctx := context.Background()
 
@@ -47,7 +44,6 @@ func (s *WorkspaceService) Create(req dto.CreateWorkspaceRequest) Result[dto.Wor
 	return OK(dto.WorkspaceToResponse(w))
 }
 
-// Edit updates an existing workspace.
 func (s *WorkspaceService) Edit(req dto.EditWorkspaceRequest) Result[dto.WorkspaceResponse] {
 	ctx := context.Background()
 
@@ -73,7 +69,6 @@ func (s *WorkspaceService) Edit(req dto.EditWorkspaceRequest) Result[dto.Workspa
 	return OK(dto.WorkspaceToResponse(w))
 }
 
-// Delete soft-deletes a workspace.
 func (s *WorkspaceService) Delete(req dto.DeleteWorkspaceRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -97,7 +92,6 @@ func (s *WorkspaceService) Delete(req dto.DeleteWorkspaceRequest) Result[Empty] 
 	return OK(Empty{})
 }
 
-// GetActive returns the currently active workspace.
 func (s *WorkspaceService) GetActive() Result[dto.WorkspaceResponse] {
 	ctx := context.Background()
 
@@ -109,7 +103,6 @@ func (s *WorkspaceService) GetActive() Result[dto.WorkspaceResponse] {
 	return OK(dto.WorkspaceToResponse(w))
 }
 
-// SetActive sets the active workspace.
 func (s *WorkspaceService) SetActive(req dto.SetActiveWorkspaceRequest) Result[Empty] {
 	ctx := context.Background()
 

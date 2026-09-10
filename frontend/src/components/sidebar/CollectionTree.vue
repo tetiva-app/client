@@ -8,6 +8,7 @@ import { useSidebarSearchStore } from '@/stores/sidebarSearch'
 import { getPortabilityService } from '@/services'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useToast } from '@/composables/useToast'
+import { warningsToastMessage } from '@/lib/auth-warnings'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
 import type { Collection } from '@/types/collection'
 import type { Request } from '@/types/request'
@@ -267,6 +268,8 @@ async function handleFileSelected(event: Event) {
     toast.error(result.error.message)
   } else {
     toast.success(`Imported: ${result.data.foldersCreated} folders, ${result.data.requestsCreated} requests`)
+    const warning = warningsToastMessage(result.data.warnings)
+    if (warning) toast.info(warning, undefined, { sticky: true })
     await store.fetchAll()
   }
 

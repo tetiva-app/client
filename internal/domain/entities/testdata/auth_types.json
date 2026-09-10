@@ -1,0 +1,23 @@
+{
+  "authTypes": [
+    "none",
+    "basic",
+    "bearer",
+    "api_key",
+    "inherit",
+    "oauth2",
+    "jwt",
+    "digest",
+    "aws_sigv4"
+  ],
+  "collectionAuthTypes": [
+    "none",
+    "basic",
+    "bearer",
+    "api_key",
+    "oauth2",
+    "jwt",
+    "digest",
+    "aws_sigv4"
+  ]
+}

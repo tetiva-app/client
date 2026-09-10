@@ -21,7 +21,6 @@ type SyncedVariableRepo struct {
 	engine    *SyncEngine
 }
 
-// NewSyncedVariableRepo creates a new SyncedVariableRepo.
 func NewSyncedVariableRepo(inner environment.VariableRepository, syncQueue sqlite.SyncQueueRepository, db *sql.DB, engine *SyncEngine) *SyncedVariableRepo {
 	return &SyncedVariableRepo{
 		inner:     inner,
@@ -61,12 +60,10 @@ func (r *SyncedVariableRepo) Create(ctx context.Context, v *entities.Variable) e
 	return txErr
 }
 
-// GetByID delegates to the inner repository.
 func (r *SyncedVariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Variable, error) {
 	return r.inner.GetByID(ctx, id)
 }
 
-// List delegates to the inner repository.
 func (r *SyncedVariableRepo) List(ctx context.Context, environmentID uuid.UUID) ([]*entities.Variable, error) {
 	return r.inner.List(ctx, environmentID)
 }

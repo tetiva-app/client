@@ -1,7 +1,7 @@
 import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
-import type { GenerateCurlResponse } from '@/types/curl'
+import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 import type {
@@ -46,6 +46,7 @@ export class MockRequestService implements RequestServiceAPI {
       id: crypto.randomUUID(),
       collectionId: req.collectionId,
       name: req.name,
+      description: req.description || '',
       protocol: (req.protocol as Request['protocol']) || 'http',
       method: (req.method as Request['method']) || 'GET',
       url: req.url || '',
@@ -89,6 +90,7 @@ export class MockRequestService implements RequestServiceAPI {
     const updated: Request = {
       ...existing,
       name: req.name,
+      description: req.description,
       method: (req.method as Request['method']) || existing.method,
       url: req.url,
       headers: req.headers,
@@ -278,7 +280,35 @@ export class MockRequestService implements RequestServiceAPI {
       return makeError<GenerateCurlResponse>('not_found', `request not found: ${req.requestId}`)
     }
     const cmd = `curl \\\n  '${r.url}'`
-    return { data: { command: cmd, scriptResult: null } }
+    return { data: { command: cmd, warnings: [], scriptResult: null } }
+  }
+
+  // Browser mode has no Go parser. Recognise the shape of the command, hand back
+  // a canned result and say so in the warnings — never a second parser.
+  async parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>> {
+    const text = req.text.trim()
+    if (!text) {
+      return makeError<ParseCurlResponse>('validation', 'Nothing to import: the pasted text is empty')
+    }
+    if (!/^curl(\s|$)/i.test(text)) {
+      return makeError<ParseCurlResponse>('validation', 'Not a cURL command: it has to start with curl')
+    }
+    const url = /https?:\/\/[^\s'"]+/.exec(text)?.[0]
+    if (!url) {
+      return makeError<ParseCurlResponse>('validation', 'This cURL command has no URL')
+    }
+    return {
+      data: {
+        method: /-X\s+([A-Za-z]+)/.exec(text)?.[1].toUpperCase() ?? 'GET',
+        url,
+        headers: [{ key: 'Accept', value: 'application/json', enabled: true }],
+        bodyType: 'none',
+        body: '',
+        authType: 'none',
+        authData: '{}',
+        warnings: ['Browser mock: only the method and URL come from the pasted command'],
+      },
+    }
   }
 
   async grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {

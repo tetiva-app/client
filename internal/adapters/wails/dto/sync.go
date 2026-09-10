@@ -1,13 +1,11 @@
 package dto
 
-// ConnectRequest holds sync server connection parameters.
 type ConnectRequest struct {
 	ServerURL string `json:"serverUrl"`
 	Email     string `json:"email"`
 	Password  string `json:"password"`
 }
 
-// RegisterRequest holds sync server registration parameters.
 type RegisterRequest struct {
 	ServerURL string `json:"serverUrl"`
 	Email     string `json:"email"`
@@ -16,19 +14,16 @@ type RegisterRequest struct {
 	Locale    string `json:"locale"`
 }
 
-// AuthStateResult reports the account state right after connect or register.
 type AuthStateResult struct {
 	Email                     string `json:"email"`
 	RequiresEmailVerification bool   `json:"requiresEmailVerification"`
 }
 
-// MeResult reports the account behind the stored credentials.
 type MeResult struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"emailVerified"`
 }
 
-// SessionInfo is one device signed in to the account.
 type SessionInfo struct {
 	ID         string `json:"id"`
 	ClientID   string `json:"clientId"`
@@ -38,17 +33,14 @@ type SessionInfo struct {
 	IsCurrent  bool   `json:"isCurrent"`
 }
 
-// RevokeSessionRequest names the session to sign out.
 type RevokeSessionRequest struct {
 	SessionID string `json:"sessionId"`
 }
 
-// LogoutAllResult reports how many other devices were signed out.
 type LogoutAllResult struct {
 	RevokedCount int `json:"revokedCount"`
 }
 
-// SyncStatusResponse reports overall sync status.
 type SyncStatusResponse struct {
 	Enabled              bool   `json:"enabled"`
 	State                string `json:"state"`
@@ -57,9 +49,10 @@ type SyncStatusResponse struct {
 	Pending              int    `json:"pending"`
 	Parked               int    `json:"parked"`
 	AwaitingVerification bool   `json:"awaitingVerification"`
+	// ReauthRequired is the one-shot ask after an update dropped the session.
+	ReauthRequired bool `json:"reauthRequired"`
 }
 
-// WorkspaceMapping maps a local workspace to a remote one.
 type WorkspaceMapping struct {
 	LocalID    string `json:"localId"`
 	RemoteID   string `json:"remoteId"`
@@ -67,19 +60,72 @@ type WorkspaceMapping struct {
 	State      string `json:"state"`
 }
 
-// RemoteWorkspace represents a workspace on the sync server.
 type RemoteWorkspace struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// LinkWorkspaceRequest maps a local workspace to a remote one.
 type LinkWorkspaceRequest struct {
 	LocalWorkspaceID  string `json:"localWorkspaceId"`
 	RemoteWorkspaceID string `json:"remoteWorkspaceId"`
 }
 
-// UnlinkWorkspaceRequest removes a workspace mapping.
 type UnlinkWorkspaceRequest struct {
 	LocalWorkspaceID string `json:"localWorkspaceId"`
+}
+
+type ServerCapabilitiesRequest struct {
+	ServerURL string `json:"serverUrl"`
+}
+
+// ServerCapabilities is the discovery answer the modal branches on. SignInHost is
+// the hostname of the cabinet page, for the "Opens {host} in your browser" line.
+type ServerCapabilities struct {
+	ServerVersion    string `json:"serverVersion"`
+	DesktopSignIn    bool   `json:"desktopSignIn"`
+	SignInHost       string `json:"signInHost"`
+	RegistrationOpen bool   `json:"registrationOpen"`
+}
+
+// flowId is minted by the frontend so it can subscribe before the RPC runs.
+type StartBrowserSignInRequest struct {
+	FlowID    string `json:"flowId"`
+	ServerURL string `json:"serverUrl"`
+	Intent    string `json:"intent"` // "" | "signin" | "register"
+	Locale    string `json:"locale"`
+}
+
+// LoginURL carries the claim secret in its fragment and never leaves this process
+// except through openExternal and the clipboard, both at the user's request.
+type BrowserSignInInfo struct {
+	FlowID    string `json:"flowId"`
+	LoginURL  string `json:"loginUrl"`
+	Host      string `json:"host"`
+	ExpiresAt string `json:"expiresAt"` // RFC 3339, empty when unknown
+}
+
+// Mirrors FlowStatusDTO for the sign-in manager. State is empty when the manager
+// never had the id: "gone", not "still pending". Auth is set only with done.
+type BrowserSignInStatus struct {
+	State                    string            `json:"state"`
+	Error                    string            `json:"error"`
+	Info                     BrowserSignInInfo `json:"info"`
+	EmailVerificationPending bool              `json:"emailVerificationPending"`
+	// No omitempty: a nil pointer has to reach the frontend as an explicit null,
+	// or the Wails path yields undefined where the mock returns null.
+	Auth *AuthStateResult `json:"auth"`
+}
+
+// Carried on sync:signin:<flowId>. Info is not sent (the frontend holds it from the
+// start call), but the deadline is: the server extends it while the user confirms.
+type BrowserSignInEvent struct {
+	State                    string `json:"state"`
+	Error                    string `json:"error"`
+	EmailVerificationPending bool   `json:"emailVerificationPending"`
+	ExpiresAt                string `json:"expiresAt"` // RFC 3339, empty when unknown
+}
+
+// FlowIDRequest addresses a running or retained browser sign-in.
+type FlowIDRequest struct {
+	FlowID string `json:"flowId"`
 }

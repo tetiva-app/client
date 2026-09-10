@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Environment groups variables for a specific deployment target (dev, staging, prod).
 type Environment struct {
 	ID          uuid.UUID
 	WorkspaceID uuid.UUID
@@ -20,7 +19,6 @@ type Environment struct {
 	UpdatedAt   time.Time
 }
 
-// Variable is a key-value pair within an environment.
 type Variable struct {
 	ID            uuid.UUID
 	EnvironmentID uuid.UUID

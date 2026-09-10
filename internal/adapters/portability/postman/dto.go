@@ -1,6 +1,37 @@
 package postman
 
-// PostmanCollection represents a Postman Collection v2.1 JSON structure.
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// PostmanDescription is a description as Collection v2.1 allows it to be written:
+// a plain string or a {content, type} object. It always goes back out as a string.
+type PostmanDescription string
+
+func (d *PostmanDescription) UnmarshalJSON(b []byte) error {
+	const funcName = "postman.PostmanDescription.UnmarshalJSON"
+
+	if string(b) == "null" {
+		*d = ""
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*d = PostmanDescription(s)
+		return nil
+	}
+	var obj struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	*d = PostmanDescription(obj.Content)
+	return nil
+}
+
 type PostmanCollection struct {
 	Info  PostmanInfo    `json:"info"`
 	Item  []PostmanItem  `json:"item"`
@@ -8,40 +39,37 @@ type PostmanCollection struct {
 	Event []PostmanEvent `json:"event,omitempty"`
 }
 
-// PostmanInfo contains collection metadata.
 type PostmanInfo struct {
-	PostmanID   string `json:"_postman_id,omitempty"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Schema      string `json:"schema"`
-	ExporterID  string `json:"_exporter_id,omitempty"`
+	PostmanID   string             `json:"_postman_id,omitempty"`
+	Name        string             `json:"name"`
+	Description PostmanDescription `json:"description,omitempty"`
+	Schema      string             `json:"schema"`
+	ExporterID  string             `json:"_exporter_id,omitempty"`
 }
 
 // PostmanItem represents either a folder (has Item) or a request (has Request).
 type PostmanItem struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Item        []PostmanItem   `json:"item,omitempty"`
-	Request     *PostmanRequest `json:"request,omitempty"`
-	Auth        *PostmanAuth    `json:"auth,omitempty"`
-	Event       []PostmanEvent  `json:"event,omitempty"`
+	Name        string             `json:"name"`
+	Description PostmanDescription `json:"description,omitempty"`
+	Item        []PostmanItem      `json:"item,omitempty"`
+	Request     *PostmanRequest    `json:"request,omitempty"`
+	Auth        *PostmanAuth       `json:"auth,omitempty"`
+	Event       []PostmanEvent     `json:"event,omitempty"`
 }
 
-// IsFolder returns true if the item is a folder (has nested items).
 func (i *PostmanItem) IsFolder() bool {
 	return i.Item != nil
 }
 
-// PostmanRequest represents a Postman request.
 type PostmanRequest struct {
-	Method string       `json:"method"`
-	Header []PostmanKV  `json:"header"`
-	Body   *PostmanBody `json:"body,omitempty"`
-	URL    PostmanURL   `json:"url"`
-	Auth   *PostmanAuth `json:"auth,omitempty"`
+	Method      string             `json:"method"`
+	Header      []PostmanKV        `json:"header"`
+	Body        *PostmanBody       `json:"body,omitempty"`
+	URL         PostmanURL         `json:"url"`
+	Auth        *PostmanAuth       `json:"auth,omitempty"`
+	Description PostmanDescription `json:"description,omitempty"`
 }
 
-// PostmanURL represents a Postman URL.
 type PostmanURL struct {
 	Raw   string      `json:"raw"`
 	Host  []string    `json:"host,omitempty"`
@@ -57,7 +85,6 @@ type PostmanKV struct {
 	Type     string `json:"type,omitempty"`
 }
 
-// PostmanBody represents the request body.
 type PostmanBody struct {
 	Mode     string              `json:"mode"`
 	Raw      string              `json:"raw,omitempty"`
@@ -72,22 +99,74 @@ type PostmanGraphQLBody struct {
 	Variables string `json:"variables,omitempty"`
 }
 
-// PostmanBodyOpt contains body options (language etc).
 type PostmanBodyOpt struct {
 	Raw *PostmanRawOpt `json:"raw,omitempty"`
 }
 
-// PostmanRawOpt specifies the raw body language.
 type PostmanRawOpt struct {
 	Language string `json:"language,omitempty"`
 }
 
-// PostmanAuth represents authentication configuration.
 type PostmanAuth struct {
-	Type   string      `json:"type"`
-	Bearer []PostmanKV `json:"bearer,omitempty"`
-	Basic  []PostmanKV `json:"basic,omitempty"`
-	APIKey []PostmanKV `json:"apikey,omitempty"`
+	Type   string          `json:"type"`
+	Bearer []PostmanAuthKV `json:"bearer,omitempty"`
+	Basic  []PostmanAuthKV `json:"basic,omitempty"`
+	APIKey []PostmanAuthKV `json:"apikey,omitempty"`
+	OAuth2 []PostmanAuthKV `json:"oauth2,omitempty"`
+	JWT    []PostmanAuthKV `json:"jwt,omitempty"`
+	Digest []PostmanAuthKV `json:"digest,omitempty"`
+	AWSV4  []PostmanAuthKV `json:"awsv4,omitempty"`
+}
+
+// Real v2.1 exports put booleans and arrays in an auth value (isSecretBase64Encoded,
+// authRequestParams), so it stays raw and is coerced on read instead of failing the import.
+type PostmanAuthKV struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value,omitempty"`
+	Type  string          `json:"type,omitempty"`
+}
+
+// String coerces a scalar value to text; arrays and objects have no text form here.
+func (kv PostmanAuthKV) String() string {
+	raw := strings.TrimSpace(string(kv.Value))
+	if raw == "" || raw == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(kv.Value, &s); err == nil {
+		return s
+	}
+	if raw[0] == '[' || raw[0] == '{' {
+		return ""
+	}
+	return raw
+}
+
+// Extension keys carry auth fields Postman's format cannot express, so an
+// export of our own collection reads back unchanged. Postman ignores them.
+const (
+	// Postman's client_authentication has no value for a public client
+	// (clientAuth "none"), and a missing one reads back as the basic default.
+	clientAuthExtKey = "tetivaClientAuth"
+	// Postman names the JWT query parameter but not the OAuth 2.0 one.
+	queryParamExtKey = "tetivaQueryParam"
+	// Loopback port and device endpoint: Postman runs neither flow our way.
+	redirectPortExtKey  = "tetivaRedirectPort"
+	deviceAuthURLExtKey = "tetivaDeviceAuthUrl"
+	// Postman wants a literal exp claim instead of a lifetime.
+	expiresInExtKey = "tetivaExpiresIn"
+)
+
+// authKV builds the string-valued pair the exporter writes.
+func authKV(key, value string) PostmanAuthKV {
+	raw, _ := json.Marshal(value)
+	return PostmanAuthKV{Key: key, Value: raw}
+}
+
+// boolAuthKV writes a real JSON boolean; Postman reads the string "false" as true.
+func boolAuthKV(key string, value bool) PostmanAuthKV {
+	raw, _ := json.Marshal(value)
+	return PostmanAuthKV{Key: key, Value: raw}
 }
 
 // PostmanEvent represents a pre-request or test script.
@@ -96,13 +175,11 @@ type PostmanEvent struct {
 	Script PostmanScript `json:"script"`
 }
 
-// PostmanScript holds script content.
 type PostmanScript struct {
 	Type string   `json:"type"`
 	Exec []string `json:"exec"`
 }
 
-// PostmanEnvironment represents a Postman Environment JSON structure.
 type PostmanEnvironment struct {
 	ID     string            `json:"id"`
 	Name   string            `json:"name"`
@@ -110,7 +187,6 @@ type PostmanEnvironment struct {
 	Scope  string            `json:"_postman_variable_scope,omitempty"`
 }
 
-// PostmanEnvValue is a single environment variable.
 type PostmanEnvValue struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`
@@ -118,5 +194,4 @@ type PostmanEnvValue struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// SchemaV21 is the schema URL for Postman Collection v2.1.
 const SchemaV21 = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

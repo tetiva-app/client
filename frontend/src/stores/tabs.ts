@@ -71,8 +71,11 @@ export const useRequestStore = defineStore('requests', () => {
         console.error('Failed to fetch requests:', result.error.message)
         return
       }
+      // Replay drafts are hidden from list() (is_draft = 1), so a refresh must
+      // not evict them: the open replay tab would render nothing and the close
+      // path could no longer find the draft to hard-delete it.
       for (const [id, req] of requestsMap.value) {
-        if (req.collectionId === collectionId) {
+        if (req.collectionId === collectionId && !req.isDraft) {
           requestsMap.value.delete(id)
           savedSnapshots.value.delete(id)
         }
@@ -93,11 +96,19 @@ export const useRequestStore = defineStore('requests', () => {
   async function create(collectionId: string, name: string, options?: { protocol?: Protocol }): Promise<Request | null> {
     const protocol = options?.protocol ?? DEFAULT_PROTOCOL
     const method = (protocol === 'grpc' || protocol === 'graphql') ? 'POST' as const : DEFAULT_METHOD
-    const bodyType = protocol === 'grpc' ? 'json' as const : protocol === 'graphql' ? 'none' as const : DEFAULT_BODY_TYPE
+    // websocket keeps its settings document in the body
+    const bodyType = protocol === 'grpc'
+      ? 'json' as const
+      : protocol === 'graphql'
+        ? 'none' as const
+        : protocol === 'websocket'
+          ? 'raw' as const
+          : DEFAULT_BODY_TYPE
     const data = await runMutation('Failed to create request', () =>
       getRequestService().then(s => s.create({
         collectionId,
         name,
+        description: '',
         protocol,
         method,
         url: '',
@@ -162,6 +173,7 @@ export const useRequestStore = defineStore('requests', () => {
       const result = await service.edit({
         id: current.id,
         name: current.name,
+        description: current.description,
         method: current.method,
         url: current.url,
         headers: current.headers,
@@ -204,6 +216,17 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
+  // flush persists everything typed so far: saveToBackend may hand back an
+  // in-flight save that started before the last edit, so it loops until the
+  // snapshot matches. Three dirty rounds and the caller is told it failed.
+  async function flush(requestId: string): Promise<boolean> {
+    for (let round = 0; round < 3; round++) {
+      if (!isRequestDirty(requestId)) return true
+      if (!(await saveToBackend(requestId))) return false
+    }
+    return !isRequestDirty(requestId)
+  }
+
   async function rename(id: string, newName: string, version: number): Promise<boolean> {
     const current = requestsMap.value.get(id)
     if (!current) return false
@@ -213,6 +236,8 @@ export const useRequestStore = defineStore('requests', () => {
       const result = await service.edit({
         id: current.id,
         name: newName,
+        // edit.go assigns every field, so anything not sent here is erased
+        description: current.description,
         method: current.method,
         url: current.url,
         headers: current.headers,
@@ -276,6 +301,7 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.delete(id)
     useResponseStore().deleteResponse(id)
     clearDrafts(id)
+    await forgetTokenStatus([{ kind: 'request', id }])
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
   }
@@ -310,18 +336,29 @@ export const useRequestStore = defineStore('requests', () => {
     activeTabId.value = `request:${requestId}`
   }
 
-  async function closeTab(tabId: string) {
-    const tab = openTabs.value.find(t => t.id === tabId)
-    if (!tab) return
-    // WebSocket tabs are ephemeral: close the connection and drop the log before
-    // the tab goes. Dynamic import avoids a static store cycle at module load.
+  // The one path out of a tab: a failed save keeps it open, and no socket nor
+  // browser flow may outlive the tab that owns it. Returns false when the tab
+  // must stay.
+  async function releaseTab(tab: Tab): Promise<boolean> {
+    if (!(await saveTabBeforeClose(tab))) return false
+    // WebSocket tabs are ephemeral: the connection and the log go with the tab.
+    // Dynamic import avoids a static store cycle at module load.
     if (tab.type === 'request' && tab.protocol === 'websocket') {
       const { useWebSocketStore } = await import('./websocket')
       await useWebSocketStore().teardown(tab.requestId)
     }
-    // Keep the tab open if the save failed
-    if (!(await saveTabBeforeClose(tab))) return
+    await forgetTokenStatus([tab.type === 'request'
+      ? { kind: 'request', id: tab.requestId }
+      : { kind: 'collection', id: tab.collectionId }])
+    return true
+  }
+
+  async function closeTab(tabId: string) {
+    const tab = openTabs.value.find(t => t.id === tabId)
+    if (!tab) return
+    if (!(await releaseTab(tab))) return
     const idx = openTabs.value.findIndex(t => t.id === tabId)
+    if (idx === -1) return
     openTabs.value.splice(idx, 1)
     if (activeTabId.value === tabId) {
       const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
@@ -370,7 +407,7 @@ export const useRequestStore = defineStore('requests', () => {
   async function closeAllTabs() {
     const kept: Tab[] = []
     for (const tab of [...openTabs.value]) {
-      if (!(await saveTabBeforeClose(tab))) kept.push(tab)
+      if (!(await releaseTab(tab))) kept.push(tab)
     }
     openTabs.value = kept
     activeTabId.value = kept[0]?.id ?? null
@@ -381,7 +418,7 @@ export const useRequestStore = defineStore('requests', () => {
     if (!keep) return
     const kept: Tab[] = [keep]
     for (const tab of openTabs.value.filter(t => t.id !== tabId)) {
-      if (!(await saveTabBeforeClose(tab))) kept.push(tab)
+      if (!(await releaseTab(tab))) kept.push(tab)
     }
     openTabs.value = kept
     activeTabId.value = tabId
@@ -503,15 +540,25 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
+  // Dead code today — releaseTab is the live close path — but a tab that leaves
+  // the strip must not leave a running flow behind whichever way it goes.
   function closeCollectionTab(collectionId: string) {
     const tabId = `collection:${collectionId}`
     const idx = openTabs.value.findIndex(t => t.id === tabId)
     if (idx === -1) return
+    void forgetTokenStatus([{ kind: 'collection', id: collectionId }])
     openTabs.value.splice(idx, 1)
     if (activeTabId.value === tabId) {
       const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
       activeTabId.value = next?.id ?? null
     }
+  }
+
+  // Token status is per owner, so a deleted owner's entry is dead weight.
+  async function forgetTokenStatus(owners: { kind: string; id: string }[]) {
+    const { useAuthTokenStore } = await import('./auth-tokens')
+    const tokens = useAuthTokenStore()
+    for (const owner of owners) tokens.forget(owner.kind, owner.id)
   }
 
   // Close tabs and drop cached data for backend-deleted collections. Never saves.
@@ -529,6 +576,10 @@ export const useRequestStore = defineStore('requests', () => {
       clearDrafts(req.id)
     }
     const doomedRequestIds = new Set(doomed.map(r => r.id))
+    await forgetTokenStatus([
+      ...collectionIds.map(id => ({ kind: 'collection', id })),
+      ...doomed.map(r => ({ kind: 'request', id: r.id })),
+    ])
     openTabs.value = openTabs.value.filter(t => {
       if (t.type === 'request') return !doomedRequestIds.has(t.requestId)
       return !idSet.has(t.collectionId)
@@ -561,6 +612,7 @@ export const useRequestStore = defineStore('requests', () => {
     updateLocal,
     isRequestDirty,
     saveToBackend,
+    flush,
     remove,
     rename,
     move,
@@ -577,5 +629,6 @@ export const useRequestStore = defineStore('requests', () => {
     syncCollectionTabName,
     closeCollectionTab,
     purgeCollectionSubtree,
+    forgetTokenStatus,
   }
 })

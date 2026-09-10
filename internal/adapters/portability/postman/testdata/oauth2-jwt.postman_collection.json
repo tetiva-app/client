@@ -1,0 +1,290 @@
+{
+	"info": {
+		"_postman_id": "3f6c1a52-9b0e-4f2e-8f1a-7c1d0a6b5e44",
+		"name": "Auth Schemes",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "127401"
+	},
+	"auth": {
+		"type": "oauth2",
+		"oauth2": [
+			{
+				"key": "authRequestParams",
+				"value": [
+					{
+						"key": "audience",
+						"value": "https://api.example.com",
+						"enabled": true,
+						"send_as": "request_url"
+					}
+				],
+				"type": "any"
+			},
+			{
+				"key": "tokenRequestParams",
+				"value": [],
+				"type": "any"
+			},
+			{
+				"key": "grant_type",
+				"value": "client_credentials",
+				"type": "string"
+			},
+			{
+				"key": "accessTokenUrl",
+				"value": "https://idp.example.com/oauth2/token",
+				"type": "string"
+			},
+			{
+				"key": "clientId",
+				"value": "{{client_id}}",
+				"type": "string"
+			},
+			{
+				"key": "clientSecret",
+				"value": "{{client_secret}}",
+				"type": "string"
+			},
+			{
+				"key": "scope",
+				"value": "read:orders write:orders",
+				"type": "string"
+			},
+			{
+				"key": "client_authentication",
+				"value": "body",
+				"type": "string"
+			},
+			{
+				"key": "addTokenTo",
+				"value": "header",
+				"type": "string"
+			},
+			{
+				"key": "tokenName",
+				"value": "orders token",
+				"type": "string"
+			},
+			{
+				"key": "redirect_uri",
+				"value": "https://oauth.pstmn.io/v1/callback",
+				"type": "string"
+			},
+			{
+				"key": "useBrowser",
+				"value": false,
+				"type": "boolean"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Signed report",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "secret",
+							"value": "a-string-secret-at-least-256-bits-long",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "payload",
+							"value": "{\n  \"sub\": \"1234567890\",\n  \"role\": \"reporting\"\n}",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{\n  \"kid\": \"2026-09\"\n}",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "https://api.example.com/reports",
+					"protocol": "https",
+					"host": [
+						"api",
+						"example",
+						"com"
+					],
+					"path": [
+						"reports"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Bucket upload",
+			"request": {
+				"auth": {
+					"type": "awsv4",
+					"awsv4": [
+						{
+							"key": "accessKey",
+							"value": "AKIDEXAMPLE",
+							"type": "string"
+						},
+						{
+							"key": "secretKey",
+							"value": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+							"type": "string"
+						},
+						{
+							"key": "sessionToken",
+							"value": "FQoDYXdzEJr",
+							"type": "string"
+						},
+						{
+							"key": "region",
+							"value": "us-east-1",
+							"type": "string"
+						},
+						{
+							"key": "service",
+							"value": "s3",
+							"type": "string"
+						}
+					]
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "hello"
+				},
+				"url": {
+					"raw": "https://examplebucket.s3.amazonaws.com/report.txt"
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Digest resource",
+			"request": {
+				"auth": {
+					"type": "digest",
+					"digest": [
+						{
+							"key": "username",
+							"value": "Mufasa",
+							"type": "string"
+						},
+						{
+							"key": "password",
+							"value": "Circle Of Life",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "MD5",
+							"type": "string"
+						},
+						{
+							"key": "disableRetryRequest",
+							"value": false,
+							"type": "boolean"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/dir/index.html"
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Legacy service",
+			"request": {
+				"auth": {
+					"type": "ntlm",
+					"ntlm": [
+						{
+							"key": "username",
+							"value": "domain\\user",
+							"type": "string"
+						},
+						{
+							"key": "password",
+							"value": "secret",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://legacy.example.com/api"
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Pasted token",
+			"request": {
+				"auth": {
+					"type": "oauth2",
+					"oauth2": [
+						{
+							"key": "accessToken",
+							"value": "ya29.a0AfB_pasted",
+							"type": "string"
+						},
+						{
+							"key": "tokenType",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/me"
+				}
+			},
+			"response": []
+		}
+	]
+}

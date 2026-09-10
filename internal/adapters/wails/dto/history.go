@@ -8,7 +8,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// ListHistoryRequest is the frontend request to list history records with filtering.
 type ListHistoryRequest struct {
 	WorkspaceID string   `json:"workspaceId"`
 	RequestID   string   `json:"requestId,omitempty"`
@@ -19,30 +18,25 @@ type ListHistoryRequest struct {
 	Offset      int      `json:"offset"`
 }
 
-// ListHistoryResponse is the frontend response with the page of items + total count.
 type ListHistoryResponse struct {
 	Items      []HistoryRecord `json:"items"`
 	TotalCount int             `json:"totalCount"`
 }
 
-// DeleteHistoryRequest is the frontend request to delete a single history record.
 type DeleteHistoryRequest struct {
 	HistoryID   string `json:"historyId"`
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// ClearHistoryRequest is the frontend request to clear all history in a workspace.
 type ClearHistoryRequest struct {
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// ReplayHistoryRequest is the frontend request to replay a history record as a draft.
 type ReplayHistoryRequest struct {
 	HistoryID   string `json:"historyId"`
 	WorkspaceID string `json:"workspaceId"`
 }
 
-// HistoryRecord is the DTO representation of a domain History entity.
 type HistoryRecord struct {
 	ID              string              `json:"id"`
 	RequestID       string              `json:"requestId,omitempty"`
@@ -61,7 +55,6 @@ type HistoryRecord struct {
 	CreatedAt       string              `json:"createdAt"`
 }
 
-// HistoryToRecord maps a domain History entity to a HistoryRecord DTO.
 func HistoryToRecord(h *entities.History) HistoryRecord {
 	var requestID string
 	if h.RequestID != uuid.Nil {
@@ -94,7 +87,6 @@ func HistoryToRecord(h *entities.History) HistoryRecord {
 	}
 }
 
-// HistoryToRecords maps a slice of domain History entities to HistoryRecord DTOs.
 func HistoryToRecords(items []*entities.History) []HistoryRecord {
 	out := make([]HistoryRecord, 0, len(items))
 	for _, h := range items {

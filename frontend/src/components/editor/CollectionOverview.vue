@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { Textarea } from '@/components/ui/textarea'
+import { computed } from 'vue'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
-import { FileText, Folder, Package, Eye, Pencil } from 'lucide-vue-next'
-import MarkdownIt from 'markdown-it'
-
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+import { FileText, Folder, Package } from 'lucide-vue-next'
+import MarkdownDescription from './MarkdownDescription.vue'
 
 const props = defineProps<{
   collectionId: string
@@ -36,10 +33,6 @@ const requestCount = computed(() => {
 })
 
 const isEmpty = computed(() => folderCount.value === 0 && requestCount.value === 0)
-
-const editMode = ref(!props.description)
-
-const renderedMarkdown = computed(() => md.render(props.description || ''))
 </script>
 
 <template>
@@ -65,33 +58,11 @@ const renderedMarkdown = computed(() => md.render(props.description || ''))
       </p>
     </div>
 
-    <div>
-      <div class="flex items-center justify-between mb-1.5">
-        <label class="block text-xs text-muted-foreground">Description</label>
-        <button
-          v-if="description"
-          class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          @click="editMode = !editMode"
-        >
-          <component :is="editMode ? Eye : Pencil" class="size-3" />
-          {{ editMode ? 'Preview' : 'Edit' }}
-        </button>
-      </div>
-
-      <Textarea
-        v-if="editMode || !description"
-        :model-value="description"
-        placeholder="Add a description for this collection (supports Markdown)..."
-        class="min-h-[120px] resize-y text-sm"
-        @update:model-value="emit('update:description', $event as string)"
-      />
-
-      <div
-        v-else
-        class="prose prose-sm dark:prose-invert max-w-none rounded-md border border-border p-3 min-h-[120px] cursor-pointer"
-        @click="editMode = true"
-        v-html="renderedMarkdown"
-      />
-    </div>
+    <MarkdownDescription
+      :description="description"
+      placeholder="Add a description for this collection (supports Markdown)..."
+      min-height="120px"
+      @update:description="emit('update:description', $event)"
+    />
   </div>
 </template>

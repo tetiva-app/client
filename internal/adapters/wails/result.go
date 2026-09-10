@@ -12,14 +12,12 @@ import (
 // Empty is a typed placeholder for operations that return no data (Delete, Reorder).
 type Empty struct{}
 
-// Result is a generic wrapper for Wails service responses.
-// It bridges Go domain errors to structured JSON for the frontend.
+// Result bridges Go domain errors to structured JSON for the frontend.
 type Result[T any] struct {
 	Data  T            `json:"data"`
 	Error *ResultError `json:"error,omitempty"`
 }
 
-// ResultError represents a structured error returned to the frontend.
 type ResultError struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
@@ -32,19 +30,24 @@ const (
 	ErrCodeConflict     = "conflict"
 	ErrCodeRateLimited  = "rate_limited"
 	ErrCodeNotConnected = "not_connected"
-	ErrCodeInternal     = "internal"
+	// ErrCodeServerUnreachable lets the connect modal offer Retry instead of
+	// falling back to the in-app form.
+	ErrCodeServerUnreachable = "server_unreachable"
+	ErrCodeInternal          = "internal"
 )
 
 // ErrNotConnected marks the sync RPCs the UI has to explain differently:
 // the account is signed in, the transport is not up.
 var ErrNotConnected = errors.New("not connected to sync server")
 
-// OK creates a successful Result with the given data.
+// ErrServerUnreachable is discovery that never reached a usable server.
+var ErrServerUnreachable = errors.New("cannot reach the sync server")
+
 func OK[T any](data T) Result[T] {
 	return Result[T]{Data: data}
 }
 
-// Err creates a failed Result by mapping domain errors to ResultError codes.
+// Err maps domain errors to ResultError codes.
 func Err[T any](err error) Result[T] {
 	var zero T
 
@@ -72,6 +75,13 @@ func Err[T any](err error) Result[T] {
 	case errors.Is(err, ErrNotConnected):
 		return Result[T]{Data: zero, Error: &ResultError{
 			Code:    ErrCodeNotConnected,
+			Message: err.Error(),
+		}}
+	// Above ResourceExhausted on purpose: discovery refused by a rate limit is
+	// still "no answer to branch on", and rate_limited would hide the Retry.
+	case errors.Is(err, ErrServerUnreachable):
+		return Result[T]{Data: zero, Error: &ResultError{
+			Code:    ErrCodeServerUnreachable,
 			Message: err.Error(),
 		}}
 	case status.Code(err) == codes.ResourceExhausted:

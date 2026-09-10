@@ -15,7 +15,6 @@ import (
 
 var testWorkspaceID = uuid.MustParse("00000000-0000-4000-a000-000000000001")
 
-// mockRepo is an in-memory implementation of collection.Repository for testing.
 type mockRepo struct {
 	collections map[uuid.UUID]*entities.Collection
 }
@@ -100,7 +99,7 @@ func (m *mockRepo) SoftDeleteDescendants(_ context.Context, parentID uuid.UUID, 
 
 func newTestUsecase() (collection.Usecase, *mockRepo) {
 	repo := newMockRepo()
-	uc := collection.NewUsecase(repo)
+	uc := collection.NewUsecase(repo, nil)
 	return uc, repo
 }
 

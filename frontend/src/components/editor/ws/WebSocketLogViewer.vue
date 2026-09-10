@@ -21,7 +21,7 @@ watch(() => props.messages.length, async () => {
 </script>
 
 <template>
-  <div ref="scroller" class="h-full overflow-y-auto font-mono text-xs">
+  <div ref="scroller" class="h-full overflow-y-auto font-mono text-xs" data-testid="ws-log">
     <div
       v-if="messages.length === 0"
       class="flex h-full items-center justify-center text-muted-foreground"
@@ -34,8 +34,9 @@ watch(() => props.messages.length, async () => {
         v-for="m in messages"
         :key="m.id"
         class="flex cursor-pointer gap-2 px-2 py-1 hover:bg-black/5 dark:hover:bg-white/10"
-        :class="{ 'opacity-60': m.failed }"
+        :class="{ 'opacity-60': m.failed, 'text-muted-foreground': m.dir === 'system' && m.level !== 'error' }"
         :data-dir="m.dir"
+        :data-level="m.level"
         @click="toggle(m.id)"
       >
         <span
@@ -43,14 +44,21 @@ watch(() => props.messages.length, async () => {
           :class="{
             'text-emerald-500': m.dir === 'in',
             'text-violet-400': m.dir === 'out' && !m.failed,
-            'text-red-500': m.failed,
-            'text-muted-foreground': m.dir === 'system',
+            'text-destructive-text': m.failed || m.level === 'error',
+            'text-muted-foreground': m.dir === 'system' && m.level !== 'error',
           }"
         >{{ m.failed ? '⚠' : dirArrow(m.dir) }}</span>
         <span class="shrink-0 text-muted-foreground">{{ fmtTime(m.ts) }}</span>
         <span
+          v-if="m.format === 'binary'"
+          class="shrink-0 rounded border border-border px-1 text-[10px] uppercase text-muted-foreground"
+        >bin</span>
+        <span
           class="min-w-0 flex-1"
-          :class="expanded.has(m.id) ? 'whitespace-pre-wrap break-all' : 'truncate'"
+          :class="[
+            expanded.has(m.id) ? 'whitespace-pre-wrap break-all' : 'truncate',
+            m.level === 'error' ? 'text-destructive-text' : '',
+          ]"
         >{{ m.data }}</span>
       </li>
     </ul>

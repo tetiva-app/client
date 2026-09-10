@@ -10,13 +10,11 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// collectionReaderAdapter bridges collection.Repository to request.CollectionReader:
-// both share GetByID, but the request layer lists by workspace instead of a Filter.
+// collectionReaderAdapter narrows collection.Repository: the request layer lists by workspace, not by Filter.
 type collectionReaderAdapter struct {
 	cr collection.Repository
 }
 
-// NewCollectionReaderAdapter adapts a collection.Repository to request.CollectionReader.
 func NewCollectionReaderAdapter(cr collection.Repository) request.CollectionReader {
 	return &collectionReaderAdapter{cr: cr}
 }

@@ -20,8 +20,11 @@ type stubAuthClient struct {
 	loginResp    *authv1.LoginResponse
 	getMeResp    *authv1.GetMeResponse
 	getMeErr     error
+	refreshResp  *authv1.RefreshResponse
 	refreshErr   error
 	resendErr    error
+	infoResp     *authv1.GetServerInfoResponse
+	infoErr      error
 	meResp       *authv1.MeResponse
 	logoutAllN   int32
 
@@ -41,15 +44,36 @@ func (s *stubAuthClient) setRefreshErr(err error) {
 	s.refreshErr = err
 }
 
+func (s *stubAuthClient) setRefresh(resp *authv1.RefreshResponse) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshResp = resp
+}
+
 func (s *stubAuthClient) Refresh(context.Context, *authv1.RefreshRequest, ...grpc.CallOption) (*authv1.RefreshResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.refreshErr != nil {
 		return nil, s.refreshErr
 	}
+	if s.refreshResp != nil {
+		return s.refreshResp, nil
+	}
 	return authv1.RefreshResponse_builder{
 		AccessToken: "access-2", RefreshToken: "refresh-2", ActiveOrgId: "org-1",
 	}.Build(), nil
+}
+
+func (s *stubAuthClient) setServerInfo(resp *authv1.GetServerInfoResponse, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.infoResp, s.infoErr = resp, err
+}
+
+func (s *stubAuthClient) GetServerInfo(context.Context, *authv1.GetServerInfoRequest, ...grpc.CallOption) (*authv1.GetServerInfoResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.infoResp, s.infoErr
 }
 
 func (s *stubAuthClient) Register(context.Context, *authv1.RegisterRequest, ...grpc.CallOption) (*authv1.RegisterResponse, error) {
@@ -80,9 +104,13 @@ func (s *stubAuthClient) ResendVerification(context.Context, *authv1.ResendVerif
 type stubWorkspaceClient struct {
 	workspacev1.WorkspaceServiceClient
 
-	mu        sync.Mutex
-	listCalls int
-	remoteID  string
+	mu          sync.Mutex
+	listCalls   int
+	remoteID    string
+	createID    string
+	createErr   error
+	createName  string
+	createOrgID string
 }
 
 func (s *stubWorkspaceClient) ListByOrg(context.Context, *workspacev1.ListByOrgRequest, ...grpc.CallOption) (*workspacev1.ListByOrgResponse, error) {
@@ -96,10 +124,39 @@ func (s *stubWorkspaceClient) ListByOrg(context.Context, *workspacev1.ListByOrgR
 	}.Build(), nil
 }
 
-func (s *stubWorkspaceClient) Create(context.Context, *workspacev1.CreateRequest, ...grpc.CallOption) (*workspacev1.CreateResponse, error) {
+func (s *stubWorkspaceClient) Create(_ context.Context, req *workspacev1.CreateRequest, _ ...grpc.CallOption) (*workspacev1.CreateResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createName = req.GetName()
+	s.createOrgID = req.GetOrgId()
+	if s.createErr != nil {
+		return nil, s.createErr
+	}
+	id := s.createID
+	if id == "" {
+		id = "remote-linked"
+	}
 	return workspacev1.CreateResponse_builder{
-		Workspace: workspacev1.Workspace_builder{Id: "remote-linked", Name: "Default Workspace"}.Build(),
+		Workspace: workspacev1.Workspace_builder{Id: id, Name: req.GetName()}.Build(),
 	}.Build(), nil
+}
+
+func (s *stubWorkspaceClient) setCreate(id string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createID, s.createErr = id, err
+}
+
+func (s *stubWorkspaceClient) createdName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createName
+}
+
+func (s *stubWorkspaceClient) createdOrgID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createOrgID
 }
 
 func (s *stubWorkspaceClient) calls() int {

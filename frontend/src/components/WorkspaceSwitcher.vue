@@ -14,8 +14,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import { useToast } from '@/composables/useToast'
 
 const store = useWorkspaceStore()
+const toast = useToast()
 
 const dropdownOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -79,8 +81,9 @@ function handleClickOutside(event: MouseEvent) {
   overflowMenuId.value = null
 }
 
-onMounted(async () => {
-  document.addEventListener('mousedown', handleClickOutside)
+// Read again on every create dialog: the account can be connected while the
+// switcher is mounted (browser sign-in runs beside the app).
+async function refreshSyncConnected() {
   try {
     const { getSyncService } = await import('@/services')
     const svc = await getSyncService()
@@ -89,6 +92,11 @@ onMounted(async () => {
       syncConnected.value = !!status.data?.enabled
     }
   } catch { /* sync service may not be available */ }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside)
+  void refreshSyncConnected()
 })
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside)
@@ -133,40 +141,59 @@ function openDelete(ws: Workspace) {
   })
 }
 
-function openCreate() {
+async function openCreate() {
   createName.value = ''
-  createSynced.value = syncConnected.value
   overflowMenuId.value = null
   dropdownOpen.value = false
+  await refreshSyncConnected()
+  createSynced.value = syncConnected.value
   createOpen.value = true
   nextTick(() => createInputRef.value?.focus())
 }
 
 async function handleCreate() {
-  if (!createName.value.trim()) return
+  const name = createName.value.trim()
+  if (!name) return
+  createOpen.value = false
+
   if (createSynced.value && syncConnected.value) {
-    try {
-      const { getSyncService } = await import('@/services')
-      const svc = await getSyncService()
-      if (svc) {
-        const result = await svc.createRemoteWorkspace({ name: createName.value.trim() })
-        if (result.error) {
-          console.error('Failed to create remote workspace:', result.error.message)
-          return
-        }
-        await store.fetchAll()
-        if (result.data) {
-          await store.switchWorkspace(result.data.id)
-        }
-      }
-    } catch (err) {
-      console.error('Failed to create remote workspace:', err)
+    await createSyncedWorkspace(name)
+  } else {
+    await store.createWorkspace(name)
+  }
+}
+
+// A cloud refusal costs the sync link, not the workspace: it exists locally
+// either way, so the list is refreshed and the reason goes to a toast.
+async function createSyncedWorkspace(name: string) {
+  try {
+    const { getSyncService } = await import('@/services')
+    const svc = await getSyncService()
+    if (!svc) {
+      await store.createWorkspace(name)
       return
     }
-  } else {
-    await store.createWorkspace(createName.value.trim())
+
+    const result = await svc.createRemoteWorkspace({ name })
+    if (result.error) {
+      toast.error(`Failed to create workspace: ${result.error.message}`)
+      await store.fetchAll()
+      return
+    }
+
+    await store.fetchAll()
+    await store.switchWorkspace(result.data.workspace.id)
+    if (result.data.syncWarning) {
+      // Sticky, not error: the workspace was created — only its cloud copy was
+      // not, and that consequence outlives the four seconds of a plain toast.
+      toast.info(result.data.syncWarning, undefined, { sticky: true })
+    } else {
+      toast.success(`Workspace '${name}' created and synced`)
+    }
+  } catch (err) {
+    await store.fetchAll()
+    toast.error(`Failed to create workspace: ${err instanceof Error ? err.message : String(err)}`)
   }
-  createOpen.value = false
 }
 
 function openOverflowAt(id: string, x: number, y: number) {

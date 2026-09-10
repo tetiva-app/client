@@ -33,7 +33,7 @@ func TestGraphQL_GenerateExample_SimpleQuery(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "getUser")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -110,7 +110,7 @@ func TestGraphQL_GenerateExample_NestedFields(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "getUser")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -162,7 +162,7 @@ func TestGraphQL_GenerateExample_CycleProtection(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "getA")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -203,7 +203,7 @@ func TestGraphQL_GenerateExample_EnumArgs(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "listItems")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -250,7 +250,7 @@ func TestGraphQL_GenerateExample_InputTypeArgs(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "createUser")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -307,7 +307,7 @@ func TestGraphQL_GenerateExample_UnionType(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "search")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -340,7 +340,7 @@ func TestGraphQL_GenerateExample_MutationQuery(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "deletePost")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -369,7 +369,7 @@ func TestGraphQL_GenerateExample_OperationNotFound(t *testing.T) {
 		},
 	}
 
-	r := requester.NewGraphQLRequester()
+	r := requester.NewGraphQLRequester(nil)
 	result, err := r.GenerateExampleQuery(schema, "nonExistentOperation")
 	if err == nil {
 		t.Fatalf("expected error for unknown operation, got result: %+v", result)

@@ -9,20 +9,34 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// GraphQLRequester implements request.GraphQLRequester.
+// GraphQLRequester implements request.GraphQLRequester with a per-workspace
+// cookie jar: every call clones the jar-less base client for that request.
 type GraphQLRequester struct {
-	client *http.Client
+	base  *http.Client
+	store CookieStore
 }
 
-// NewGraphQLRequester creates a new GraphQL requester.
-func NewGraphQLRequester() *GraphQLRequester {
+// store may be nil only in tests.
+func NewGraphQLRequester(store CookieStore) *GraphQLRequester {
 	return &GraphQLRequester{
-		client: &http.Client{Timeout: 30 * time.Second},
+		base:  &http.Client{Timeout: 30 * time.Second},
+		store: store,
 	}
+}
+
+// clientFor clones the base client, attaching the workspace jar when there is one.
+func (r *GraphQLRequester) clientFor(ctx context.Context, workspaceID uuid.UUID) *http.Client {
+	c := *r.base
+	if r.store != nil && workspaceID != uuid.Nil {
+		c.Jar = newWorkspaceJar(ctx, r.store, workspaceID)
+	}
+	return &c
 }
 
 type graphqlRequestBody struct {
@@ -31,7 +45,6 @@ type graphqlRequestBody struct {
 	OperationName string          `json:"operationName,omitempty"`
 }
 
-// Execute sends a GraphQL query/mutation via HTTP POST.
 func (r *GraphQLRequester) Execute(ctx context.Context, req request.GraphQLExecuteRequest) (*entities.Response, error) {
 	const funcName = "GraphQLRequester.Execute"
 
@@ -64,7 +77,7 @@ func (r *GraphQLRequester) Execute(ctx context.Context, req request.GraphQLExecu
 	}
 
 	start := time.Now()
-	httpResp, err := r.client.Do(httpReq)
+	httpResp, err := r.clientFor(ctx, req.WorkspaceID).Do(httpReq)
 	elapsed := time.Since(start)
 	if err != nil {
 		return nil, fmt.Errorf("%s: request failed: %w", funcName, err)

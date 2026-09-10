@@ -3,43 +3,47 @@ package websocket
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Usecase is the public API for WebSocket connection management.
 type Usecase interface {
-	Connect(ctx context.Context, opt ConnectOpt) (ConnectionID, error)
+	// Connect returns an error only for failures before the pre-connect script
+	// (bad or duplicate id, request not found); everything later is in ConnectResult.
+	Connect(ctx context.Context, opt ConnectOpt) (ConnectResult, error)
 	Send(ctx context.Context, connID ConnectionID, msg OutgoingMessage) error
 	Disconnect(ctx context.Context, connID ConnectionID) error
 	DisconnectAll(ctx context.Context) error
 }
 
-// Dialer opens a connection. Implemented by adapters/requester.
+// Dialer is implemented by adapters/requester; DialInfo carries the handshake response on both outcomes.
 type Dialer interface {
-	Dial(ctx context.Context, p DialParams) (Conn, error)
+	Dial(ctx context.Context, p DialParams) (Conn, DialInfo, error)
 }
 
 // Conn is a single live connection. Implemented by adapters/requester.
 type Conn interface {
 	Read(ctx context.Context) (Message, error) // blocks until a frame, error, or close
 	Write(ctx context.Context, m Message) error
+	Ping(ctx context.Context) error // blocks until the pong is read by the read pump
 	Close(code int, reason string) error
 }
 
-// MessageSink receives inbound frames and state changes for the UI.
-// Implemented by adapters/wails (emits Wails events).
+// MessageSink is called with the registry lock held: implementations must not call back into the usecase.
 type MessageSink interface {
 	OnMessage(connID ConnectionID, m InboundMessage)
+	OnSystem(connID ConnectionID, text string) // client-side notice, e.g. a keepalive failure
 	OnStateChange(connID ConnectionID, st ConnState, err error)
 }
 
-// RequestResolver resolves the final handshake URL + headers from a stored request
-// (env substitution + auth). Returns primitives to avoid a dependency on request.
+// RequestResolver turns a stored request into handshake input (env substitution, pre-connect script,
+// auth) and resolves variables in outgoing messages; an error means the attempt never started.
 type RequestResolver interface {
-	ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, userID string) (url string, headers map[string][]string, err error)
+	ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, userID string) (ResolvedDial, error)
+	SubstituteMessage(ctx context.Context, workspaceID uuid.UUID, text string) (string, error)
 }
 
 // HistoryRepository persists the connection fact (append-only).
@@ -47,19 +51,32 @@ type HistoryRepository interface {
 	Create(ctx context.Context, h *entities.History) error
 }
 
-// activeConn is a registry entry for one live connection.
-type activeConn struct {
-	conn    Conn
-	cancel  context.CancelFunc
-	writeMu sync.Mutex // coder/websocket allows one Write at a time
+// entryState separates a connection attempt from a live connection: a pending
+// entry has no conn yet, so Send and DisconnectAll must not dereference it.
+type entryState int
+
+const (
+	entryPending entryState = iota
+	entryLive
+)
+
+// entry is a registry slot for one connection, reserved before the handshake.
+type entry struct {
+	state        entryState
+	cancel       context.CancelFunc
+	conn         Conn
+	writeMu      sync.Mutex // coder/websocket allows one Write at a time
+	workspaceID  uuid.UUID
+	pingInterval time.Duration
+	done         chan struct{} // closed by finalize; stops the ping loop
 }
 
 type usecase struct {
 	mu       sync.Mutex
-	conns    map[ConnectionID]*activeConn
+	conns    map[ConnectionID]*entry
 	dialer   Dialer
 	resolver RequestResolver
 	sink     MessageSink
 	history  HistoryRepository
-	newID    func() ConnectionID
+	now      func() time.Time
 }

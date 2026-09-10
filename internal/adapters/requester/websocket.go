@@ -6,22 +6,25 @@ import (
 	"net/http"
 
 	cw "github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	ws "github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// maxWSReadBytes raises the per-message read limit above the 32KiB default
-// so larger JSON frames aren't truncated.
+// maxWSReadBytes lifts the per-message read limit above the 32KiB library default.
 const maxWSReadBytes = 8 << 20 // 8 MiB
 
 // WebSocketRequester dials Raw WebSocket connections via coder/websocket.
-type WebSocketRequester struct{}
+type WebSocketRequester struct {
+	store CookieStore
+}
 
-// NewWebSocketRequester creates a WebSocketRequester.
-func NewWebSocketRequester() *WebSocketRequester { return &WebSocketRequester{} }
+func NewWebSocketRequester(store CookieStore) *WebSocketRequester {
+	return &WebSocketRequester{store: store}
+}
 
-// Dial opens a connection and returns a ws.Conn wrapper.
-func (r *WebSocketRequester) Dial(ctx context.Context, p ws.DialParams) (ws.Conn, error) {
+// The handshake response is returned even when the upgrade was rejected.
+func (r *WebSocketRequester) Dial(ctx context.Context, p ws.DialParams) (ws.Conn, ws.DialInfo, error) {
 	const funcName = "requester.WebSocketRequester.Dial"
 	opts := &cw.DialOptions{}
 	if len(p.Headers) > 0 {
@@ -30,12 +33,35 @@ func (r *WebSocketRequester) Dial(ctx context.Context, p ws.DialParams) (ws.Conn
 	if len(p.Subprotocols) > 0 {
 		opts.Subprotocols = p.Subprotocols
 	}
-	c, _, err := cw.Dial(ctx, p.URL, opts)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", funcName, err)
+	// coder/websocket rewrites ws→http / wss→https before HTTPClient.Do, so the jar
+	// matches Secure cookies and http.Client persists Set-Cookie from the 101 itself.
+	if r.store != nil && p.WorkspaceID != uuid.Nil {
+		opts.HTTPClient = &http.Client{Jar: newWorkspaceJar(ctx, r.store, p.WorkspaceID)}
 	}
+	c, resp, err := cw.Dial(ctx, p.URL, opts)
+	info := dialInfo(resp)
+	if err != nil {
+		return nil, info, fmt.Errorf("%s: %w", funcName, err)
+	}
+	// On success the library nils resp.Body; never close it.
+	info.Subprotocol = c.Subprotocol()
 	c.SetReadLimit(maxWSReadBytes)
-	return &wsConn{c: c}, nil
+	return &wsConn{c: c}, info, nil
+}
+
+func dialInfo(resp *http.Response) ws.DialInfo {
+	if resp == nil {
+		return ws.DialInfo{}
+	}
+	headers := make(map[string][]string, len(resp.Header))
+	for k, v := range resp.Header {
+		headers[k] = v
+	}
+	return ws.DialInfo{
+		StatusCode:      resp.StatusCode,
+		ResponseHeaders: headers,
+		Subprotocol:     resp.Header.Get("Sec-WebSocket-Protocol"),
+	}
 }
 
 // wsConn adapts *coder/websocket.Conn to the ws.Conn interface.
@@ -59,6 +85,10 @@ func (w *wsConn) Read(ctx context.Context) (ws.Message, error) {
 
 func (w *wsConn) Write(ctx context.Context, m ws.Message) error {
 	return w.c.Write(ctx, toCoderType(m.Type), m.Data)
+}
+
+func (w *wsConn) Ping(ctx context.Context) error {
+	return w.c.Ping(ctx)
 }
 
 func (w *wsConn) Close(code int, reason string) error {

@@ -12,7 +12,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// mockCollectionReader is a test double for CollectionReader.
 type mockCollectionReader struct {
 	collections map[uuid.UUID]*entities.Collection
 	byWorkspace map[uuid.UUID][]*entities.Collection // nil → ListByWorkspace returns empty

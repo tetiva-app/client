@@ -18,11 +18,11 @@ import (
 type SettingsService struct {
 	uc     settings.Usecase
 	status *mcpadapter.RuntimeStatus
+	auth   *mcpadapter.TokenAuth
 }
 
-// NewSettingsService creates a new SettingsService instance.
-func NewSettingsService(uc settings.Usecase, status *mcpadapter.RuntimeStatus) *SettingsService {
-	return &SettingsService{uc: uc, status: status}
+func NewSettingsService(uc settings.Usecase, status *mcpadapter.RuntimeStatus, auth *mcpadapter.TokenAuth) *SettingsService {
+	return &SettingsService{uc: uc, status: status, auth: auth}
 }
 
 // GetMCPSettings returns the desired MCP settings (DB config, or env when
@@ -48,6 +48,16 @@ func (s *SettingsService) GetMCPSettings() Result[dto.MCPSettingsResponse] {
 	}
 	restart := desiredEnabled != s.status.Running ||
 		(s.status.Running && desiredAddr != s.status.Addr)
+
+	token, err := s.uc.EnsureMCPToken(context.Background())
+	if err != nil {
+		return Err[dto.MCPSettingsResponse](err)
+	}
+	requireToken, err := s.uc.GetMCPRequireToken(context.Background())
+	if err != nil {
+		return Err[dto.MCPSettingsResponse](err)
+	}
+
 	return OK(dto.MCPSettingsResponse{
 		Enabled:         desiredEnabled,
 		Addr:            desiredAddr,
@@ -55,11 +65,12 @@ func (s *SettingsService) GetMCPSettings() Result[dto.MCPSettingsResponse] {
 		Running:         s.status.Running,
 		SSEURL:          buildSSEURL(urlAddr),
 		RestartRequired: restart,
+		Token:           token,
+		RequireToken:    requireToken,
 	})
 }
 
-// SetMCPSettings persists MCP settings. It does NOT restart the server — the
-// change takes effect on the next app launch. Rejected when env-managed.
+// Takes effect on the next app launch, not immediately; rejected when env-managed.
 func (s *SettingsService) SetMCPSettings(req dto.SetMCPSettingsRequest) Result[dto.MCPSettingsResponse] {
 	if s.status.EnvManaged {
 		return Err[dto.MCPSettingsResponse](&domain.ValidationError{
@@ -72,10 +83,67 @@ func (s *SettingsService) SetMCPSettings(req dto.SetMCPSettingsRequest) Result[d
 			Fields: map[string]string{"addr": err.Error()},
 		})
 	}
-	if err := s.uc.SetMCPConfig(context.Background(), settings.MCPConfig{Enabled: req.Enabled, Addr: addr}); err != nil {
+	ctx := context.Background()
+	requireToken, err := s.resolveRequireToken(ctx, req.RequireToken)
+	if err != nil {
 		return Err[dto.MCPSettingsResponse](err)
 	}
+
+	if err := s.uc.SetMCPConfig(ctx, settings.MCPConfig{
+		Enabled:      req.Enabled,
+		Addr:         addr,
+		RequireToken: requireToken,
+	}); err != nil {
+		return Err[dto.MCPSettingsResponse](err)
+	}
+
+	// Live auth only after the write committed, so the running guard never
+	// enforces a requirement that the next launch will not find persisted.
+	token, err := s.uc.EnsureMCPToken(ctx)
+	if err != nil {
+		return Err[dto.MCPSettingsResponse](err)
+	}
+	s.setAuth(token, requireToken)
 	return s.GetMCPSettings()
+}
+
+// resolveRequireToken carries the stored flag into the single config write when
+// the caller omitted it; omission means "leave it alone", not "turn it off".
+func (s *SettingsService) resolveRequireToken(ctx context.Context, requested *bool) (bool, error) {
+	if requested != nil {
+		return *requested, nil
+	}
+	return s.uc.GetMCPRequireToken(ctx)
+}
+
+// RegenerateMCPToken issues a new token and invalidates every client config
+// that carries the old one. Takes effect immediately on the running server.
+func (s *SettingsService) RegenerateMCPToken() Result[dto.MCPSettingsResponse] {
+	ctx := context.Background()
+	token, err := s.uc.RegenerateMCPToken(ctx)
+	if err != nil {
+		return Err[dto.MCPSettingsResponse](err)
+	}
+
+	require, err := s.uc.GetMCPRequireToken(ctx)
+	if err != nil {
+		// The old token is already dead in storage, so revoke it on the running server
+		// too and fail closed instead of reporting a rotation the caller cannot trust.
+		s.setAuth(token, true)
+		return Err[dto.MCPSettingsResponse](
+			fmt.Errorf("mcp token rotated but its requirement flag could not be read: %w", err))
+	}
+	s.setAuth(token, require)
+	return s.GetMCPSettings()
+}
+
+// setAuth pushes credentials into the already-running server. The token is the
+// value just persisted, not a re-read, so a rotation cannot half apply.
+func (s *SettingsService) setAuth(token string, require bool) {
+	if s.auth == nil {
+		return
+	}
+	s.auth.Set(token, require)
 }
 
 func validateAddr(addr string) error {

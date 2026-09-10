@@ -1,7 +1,7 @@
 export type Protocol = 'http' | 'grpc' | 'graphql' | 'websocket'
 export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD'
 export type BodyType = 'none' | 'json' | 'xml' | 'form' | 'binary' | 'raw'
-export type AuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'inherit'
+export type AuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'inherit' | 'oauth2' | 'jwt' | 'digest' | 'aws_sigv4'
 
 export interface HeaderItem {
   key: string
@@ -13,6 +13,7 @@ export interface Request {
   id: string
   collectionId: string
   name: string
+  description: string
   protocol: Protocol
   method: HTTPMethod
   url: string

@@ -11,14 +11,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// DeleteOpt holds contextual options for workspace deletion.
 type DeleteOpt struct {
 	WorkspaceID uuid.UUID
 	UserID      string
 	Version     int
 }
 
-// SetActiveOpt holds contextual options for setting active workspace.
 type SetActiveOpt struct {
 	WorkspaceID uuid.UUID
 }

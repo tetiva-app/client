@@ -8,7 +8,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Repository defines the persistence contract for Workspace usecase (ISP).
 type Repository interface {
 	Create(ctx context.Context, w *entities.Workspace) error
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Workspace, error)
@@ -20,7 +19,6 @@ type Repository interface {
 	GetByRemoteID(ctx context.Context, remoteID string) (*entities.Workspace, error)
 }
 
-// Usecase defines the public API for Workspace operations.
 type Usecase interface {
 	Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Workspace, error)
 	Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.Workspace, error)
@@ -35,7 +33,6 @@ type usecase struct {
 	repo Repository
 }
 
-// NewUsecase creates a new Workspace usecase instance.
 func NewUsecase(repo Repository) Usecase {
 	return &usecase{repo: repo}
 }

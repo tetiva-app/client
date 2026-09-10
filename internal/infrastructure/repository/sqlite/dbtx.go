@@ -6,7 +6,6 @@ import (
 	"fmt"
 )
 
-// DBTX abstracts *sql.DB and *sql.Tx for query execution.
 type DBTX interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -15,12 +14,11 @@ type DBTX interface {
 
 type txKey struct{}
 
-// ContextWithTx stores a *sql.Tx in context.
 func ContextWithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
-// DBTXFromContext returns the *sql.Tx from context if present, otherwise returns db.
+// Falls back to db when ctx carries no transaction.
 func DBTXFromContext(ctx context.Context, db *sql.DB) DBTX {
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		return tx
@@ -28,9 +26,8 @@ func DBTXFromContext(ctx context.Context, db *sql.DB) DBTX {
 	return db
 }
 
-// WithTx executes fn within a transaction. If ctx already has a TX, reuses it (nested).
+// If ctx already has a TX, reuses it — SQLite has no nested transactions.
 func WithTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context) error) error {
-	// If already in a TX, just call fn (no nested TX in SQLite).
 	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		return fn(ctx)
 	}

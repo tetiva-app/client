@@ -11,19 +11,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Edit holds data for editing a workspace.
 type Edit struct {
 	Name string
 }
 
-// EditOpt holds contextual options for workspace editing.
 type EditOpt struct {
 	WorkspaceID uuid.UUID
 	UserID      string
 	Version     int
 }
 
-// Validate checks the Edit input.
 func (e *Edit) Validate() error {
 	errs := make(map[string]string)
 	if e.Name == "" {

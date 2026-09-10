@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import type { AuthState, SessionInfo, SyncServiceAPI } from '@/services/sync-api'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import type {
+  AuthState,
+  ServerCapabilities,
+  SessionInfo,
+  SignInIntent,
+  SyncServiceAPI,
+} from '@/services/sync-api'
 import type { SyncModalTab } from '@/stores/syncModalUi'
+import { useBrowserSignInStore } from '@/stores/browserSignIn'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { Cloud, ChevronRight, MailCheck, Laptop } from 'lucide-vue-next'
 import {
   DEFAULT_SYNC_SERVER,
   DEFAULT_SYNC_SERVER_LABEL,
+  isServerAddress,
   normalizeServerUrl,
 } from '@/constants/sync'
 import { PRICING_URL } from '@/constants/pricing'
@@ -15,7 +23,7 @@ import { openExternal } from '@/lib/open-external'
 import { guarded, TRANSPORT_ERROR_CODE, TRANSPORT_ERROR_MESSAGE } from '@/lib/service-call'
 import { formatRelativeTime } from '@/lib/time'
 import { pickLocale } from '@/whats-new/notes'
-import { onboardingCopy } from '@/onboarding/copy'
+import { ONBOARDING_COPY } from '@/onboarding/copy'
 import { useToast } from '@/composables/useToast'
 import { useResendCooldown, useVerificationPolling } from '@/composables/useVerificationPolling'
 import { useSyncStatus } from '@/composables/useSyncStatus'
@@ -47,7 +55,19 @@ const emit = defineEmits<{
 
 const workspaceStore = useWorkspaceStore()
 const toast = useToast()
-const verify = onboardingCopy(navigator.language).verify
+const signIn = useBrowserSignInStore()
+// The sync modal is English throughout; only the onboarding wizard is localized,
+// and a translated block beside the modal's own English buttons reads as a bug.
+const verify = ONBOARDING_COPY.en.verify
+
+const CAPS_DEBOUNCE_MS = 400
+const COPIED_MS = 1500
+
+type CapsState = 'idle' | 'checking' | 'ready' | 'unreachable'
+const capsState = ref<CapsState>('idle')
+const caps = ref<ServerCapabilities | null>(null)
+const signInIntent = ref<SignInIntent>('signin')
+const copiedLink = ref(false)
 
 const serverUrl = ref('')
 const customOpen = ref(false)
@@ -84,10 +104,14 @@ const syncedWorkspaces = computed(() =>
 const otherDevices = computed(() => sessions.value.filter(s => !s.isCurrent))
 
 // A member-limit stop holds the whole workspace, so it outranks the parked count.
+// An update-required park also parks outbox entries, but no upgrade clears it.
 const planNotice = computed(() => {
   if (syncStatus.state.value === 'plan_limit') {
     return "Sync paused — the team exceeds its plan's member limit."
       + ' Ask the owner to update the plan or remove members.'
+  }
+  if (syncStatus.state.value === 'update_required') {
+    return 'Sync stopped — update the app to read the newest changes from your team.'
   }
   const n = syncStatus.parked.value
   if (n > 0) {
@@ -96,6 +120,8 @@ const planNotice = computed(() => {
   }
   return ''
 })
+
+const showPlansLink = computed(() => syncStatus.state.value !== 'update_required')
 
 const devicesBusy = computed(
   () => revokingId.value !== '' || loggingOutAll.value || devicesRefreshing.value
@@ -126,12 +152,127 @@ const displayServerName = computed(() =>
   serverUrl.value === DEFAULT_SYNC_SERVER ? DEFAULT_SYNC_SERVER_LABEL : serverUrl.value
 )
 
+const isCloud = computed(() => effectiveServerUrl.value === DEFAULT_SYNC_SERVER)
+
+// Half of an address the user is still typing: discovery would only reach the
+// network to be told nobody is there.
+const addressIncomplete = computed(
+  () => customOpen.value && customUrl.value.trim() !== '' && !isServerAddress(customUrl.value)
+)
+
+// The in-app form survives only where a server cannot complete a browser sign-in;
+// the cloud never falls back to it, so each of its answers is a state of its own.
+const showBrowserSignIn = computed(
+  () => capsState.value === 'ready' && caps.value?.desktopSignIn === true
+)
+const showLegacyForm = computed(
+  () => capsState.value === 'ready' && !caps.value?.desktopSignIn && !isCloud.value
+)
+const showCloudUnreachable = computed(() => capsState.value === 'unreachable' && isCloud.value)
+// A cloud answering without the capability is older than this build — a downgrade
+// that should not happen, and nothing here can sign the user in without it.
+const showCloudOutdated = computed(
+  () => capsState.value === 'ready' && !caps.value?.desktopSignIn && isCloud.value
+)
+// A custom server discovery could not reach may still serve Login/Register: only
+// the discovery RPC is new, so the form stays beside the warning.
+const showCustomUnreachable = computed(() => capsState.value === 'unreachable' && !isCloud.value)
+
+const showTabs = computed(() => showLegacyForm.value || showCustomUnreachable.value)
+
+const pendingSignIn = computed(() => signIn.state === 'starting' || signIn.state === 'pending')
+const signInPanel = computed(
+  () => pendingSignIn.value || signIn.state === 'error' || signIn.state === 'cancelled'
+)
+const signInHostLabel = computed(() => caps.value?.signInHost || effectiveServerUrl.value)
+// A flow that has not reached the server yet knows no host of its own.
+const panelHost = computed(() => signIn.host || signInHostLabel.value)
+
+// A pure computed over signIn.expiresAt would freeze: its only dependency does
+// not change while the deadline counts down.
+const now = ref(Date.now())
+let tick: ReturnType<typeof setInterval> | null = null
+
+function startTick() {
+  if (!tick) tick = setInterval(() => { now.value = Date.now() }, 1000)
+}
+
+function stopTick() {
+  if (tick) {
+    clearInterval(tick)
+    tick = null
+  }
+}
+
+const signInExpiresIn = computed(() => {
+  const until = Date.parse(signIn.expiresAt)
+  if (Number.isNaN(until)) return ''
+  const left = Math.max(0, Math.floor((until - now.value) / 1000))
+  return `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`
+})
+
+// The interval is the only thing that moves `now`, so a flow started on a
+// long-open modal would render its first frame off a stale clock.
+watch([pendingSignIn, () => signIn.expiresAt], ([waiting]) => {
+  now.value = Date.now()
+  if (waiting) startTick()
+  else stopTick()
+}, { immediate: true })
+
+// A failed attempt lives in the store, not in the dialog, and its panel hides both
+// the browser buttons and the form — a reopen would offer nothing but "Try again".
+function dropFinishedSignIn() {
+  if (signIn.state === 'error' || signIn.state === 'cancelled') signIn.reset()
+}
+
 // The modal stays mounted for the whole session, so the requested tab has to be
 // applied on every open rather than once at setup.
-watch(() => props.open, (open) => {
+watch(() => props.open, async (open) => {
   if (!open) return
   activeTab.value = props.initialTab ?? 'login'
+  syncService = await servicePromise
+  await applyStatus()
+  dropFinishedSignIn()
+  await signIn.adopt()
   void syncStatus.refresh()
+  void loadCapabilities()
+})
+
+// Discovery is per server address, so the custom field re-runs it — debounced,
+// because the address is typed character by character.
+watch(effectiveServerUrl, () => {
+  if (!props.open) return
+  dropFinishedSignIn()
+  if (capsTimer) clearTimeout(capsTimer)
+  if (addressIncomplete.value) {
+    // The previous answer belongs to an address that is gone; a discovery still
+    // in flight for it is dropped by the sequence number.
+    capsSeq++
+    caps.value = null
+    capsState.value = 'idle'
+    return
+  }
+  capsTimer = setTimeout(() => {
+    capsTimer = null
+    void loadCapabilities()
+  }, CAPS_DEBOUNCE_MS)
+})
+
+// The account is legitimately absent when the status read behind `done` failed;
+// the persisted config then carries the address and the email.
+watch(() => signIn.state, async (state) => {
+  if (state !== 'done') return
+  const account = signIn.auth
+  serverUrl.value = signIn.serverUrl
+  if (account) {
+    email.value = account.email
+    if (account.requiresEmailVerification) awaiting.value = true
+    else connected.value = true
+  } else {
+    await applyStatus()
+  }
+  await workspaceStore.fetchAll()
+  signIn.reset()
 })
 
 watch([() => props.open, awaiting], ([open, waiting]) => {
@@ -144,13 +285,28 @@ watch([() => props.open, connected], ([open, isConnected]) => {
   if (open && isConnected) void loadSessions()
 })
 
+// One promise, awaited by every entry point: the dynamic import may still be in
+// flight when the dialog opens.
+const servicePromise = import('@/services').then(m => m.getSyncService())
 let syncService: SyncServiceAPI | null = null
+let capsSeq = 0
+let capsTimer: ReturnType<typeof setTimeout> | null = null
+let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
-  const { getSyncService } = await import('@/services')
-  syncService = await getSyncService()
+  syncService = await servicePromise
+})
+
+onUnmounted(() => {
+  stopTick()
+  if (capsTimer) clearTimeout(capsTimer)
+  if (copiedTimer) clearTimeout(copiedTimer)
+})
+
+async function applyStatus(): Promise<void> {
+  syncService = await servicePromise
   if (!syncService) return
-  const status = await syncService.getStatus()
+  const status = await guarded(syncService.getStatus())
   if (status.data?.awaitingVerification) {
     awaiting.value = true
     serverUrl.value = status.data.serverUrl
@@ -164,7 +320,55 @@ onMounted(async () => {
     customOpen.value = true
     customUrl.value = status.data.serverUrl
   }
-})
+}
+
+// capsSeq drops a slow answer for a previous address: a five-second dial to the
+// old host must not overwrite a fast answer for the new one.
+async function loadCapabilities(): Promise<void> {
+  const seq = ++capsSeq
+  capsState.value = 'checking'
+  const target = effectiveServerUrl.value
+  const svc = await servicePromise
+  if (seq !== capsSeq) return
+  if (!svc) {
+    capsState.value = 'unreachable'
+    return
+  }
+  let result = await guarded(svc.getServerCapabilities(target))
+  if (seq !== capsSeq) return
+  // A cold first dial (DNS + TLS) can miss the discovery budget on its own;
+  // one silent retry keeps the error screen for servers that are really down.
+  if (result.error) {
+    result = await guarded(svc.getServerCapabilities(target))
+    if (seq !== capsSeq) return
+  }
+  if (result.error) {
+    caps.value = null
+    capsState.value = 'unreachable'
+    return
+  }
+  caps.value = result.data
+  capsState.value = 'ready'
+}
+
+async function startSignIn(intent: SignInIntent) {
+  signInIntent.value = intent
+  error.value = ''
+  await signIn.start(effectiveServerUrl.value, intent, pickLocale(navigator.language))
+}
+
+// A refused, expired or cancelled request is dead on the server too, so the way
+// back is always a new one.
+function retrySignIn() {
+  void startSignIn(signInIntent.value)
+}
+
+async function handleCopyLink() {
+  if (!await signIn.copyLink()) return
+  copiedLink.value = true
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedLink.value = false }, COPIED_MS)
+}
 
 function openPlans() {
   openExternal(PRICING_URL).catch(() => {})
@@ -387,6 +591,7 @@ async function handleDisconnect() {
         >
           {{ planNotice }}
           <button
+            v-if="showPlansLink"
             type="button"
             class="cursor-pointer font-medium underline underline-offset-2"
             @click="openPlans"
@@ -558,7 +763,156 @@ async function handleDisconnect() {
       </div>
 
       <div v-else class="space-y-4">
-        <Tabs v-model="activeTab">
+        <div
+          v-if="pendingSignIn"
+          class="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-2"
+          role="status"
+          data-testid="signin-browser-pending"
+        >
+          <p v-if="signIn.state === 'starting'" class="text-[11px] text-muted-foreground">
+            Contacting {{ panelHost }}…
+          </p>
+          <template v-else>
+            <p class="text-[11px] text-muted-foreground">
+              Waiting for you to finish in the browser — approve the request there, then come back.
+            </p>
+            <p
+              v-if="signIn.emailVerificationPending"
+              class="text-[11px] text-amber-700 dark:text-amber-300"
+              data-testid="signin-browser-verify-hint"
+            >
+              Confirm your email in the browser to finish signing in.
+            </p>
+            <!-- Outside the panel's live region: a screen reader would read the
+                 whole panel out again on every tick. -->
+            <p v-if="signInExpiresIn" aria-live="off" class="text-[11px] text-muted-foreground">
+              Expires in {{ signInExpiresIn }}
+            </p>
+          </template>
+
+          <div class="flex items-center gap-2">
+            <template v-if="signIn.state === 'pending'">
+              <button
+                type="button"
+                class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                data-testid="signin-browser-open-again"
+                @click="signIn.openAgain()"
+              >
+                Open again
+              </button>
+              <button
+                type="button"
+                class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                data-testid="signin-browser-copy"
+                @click="handleCopyLink"
+              >
+                {{ copiedLink ? 'Copied' : 'Copy link' }}
+              </button>
+            </template>
+            <button
+              type="button"
+              class="h-7 px-2.5 text-xs rounded-md text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              data-testid="signin-browser-cancel"
+              @click="signIn.cancel()"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <p v-if="signIn.state === 'pending'" class="text-[11px] text-muted-foreground">
+            Anyone with this link can approve the sign-in.
+          </p>
+        </div>
+
+        <div
+          v-else-if="signInPanel"
+          class="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-2"
+          role="status"
+        >
+          <p
+            v-if="signIn.state === 'error'"
+            class="text-sm text-destructive"
+            data-testid="signin-browser-error"
+          >
+            {{ signIn.error }}
+          </p>
+          <p v-else class="text-sm text-muted-foreground">Sign-in cancelled.</p>
+          <button
+            type="button"
+            class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+            data-testid="signin-browser-retry"
+            @click="retrySignIn"
+          >
+            Try again
+          </button>
+        </div>
+
+        <template v-else>
+          <div
+            v-if="showCloudUnreachable || showCustomUnreachable"
+            class="space-y-2"
+            data-testid="signin-caps-unreachable"
+          >
+            <p class="text-sm text-destructive">
+              {{ showCloudUnreachable ? 'Cannot reach Tetiva Cloud.' : 'Cannot reach this server.' }}
+            </p>
+            <button
+              type="button"
+              class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+              data-testid="signin-caps-retry"
+              @click="loadCapabilities"
+            >
+              Retry
+            </button>
+          </div>
+
+          <p
+            v-else-if="capsState === 'checking'"
+            class="text-sm text-muted-foreground"
+            data-testid="signin-caps-checking"
+          >
+            Checking the server…
+          </p>
+
+          <div v-else-if="showBrowserSignIn" class="space-y-2">
+            <Button
+              class="w-full h-8"
+              :variant="activeTab === 'register' ? 'outline' : 'default'"
+              data-testid="signin-browser"
+              @click="startSignIn('signin')"
+            >
+              Sign in with browser
+            </Button>
+            <Button
+              v-if="caps?.registrationOpen"
+              class="w-full h-8"
+              :variant="activeTab === 'register' ? 'default' : 'outline'"
+              data-testid="signin-browser-register"
+              @click="startSignIn('register')"
+            >
+              Create account
+            </Button>
+            <p class="text-center text-[11px] text-muted-foreground" data-testid="signin-browser-host">
+              Opens {{ signInHostLabel }} in your browser
+            </p>
+          </div>
+
+          <div v-else-if="showCloudOutdated" class="space-y-2" data-testid="signin-caps-outdated">
+            <p class="text-sm text-destructive">
+              This app needs a newer Tetiva Cloud to sign in.
+            </p>
+            <button
+              type="button"
+              class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
+              data-testid="signin-caps-retry"
+              @click="loadCapabilities"
+            >
+              Retry
+            </button>
+          </div>
+        </template>
+
+        <Tabs v-if="showTabs && !signInPanel" v-model="activeTab">
           <TabsList class="w-full">
             <TabsTrigger value="login" class="flex-1">Login</TabsTrigger>
             <TabsTrigger value="register" class="flex-1">Register</TabsTrigger>
@@ -621,7 +975,14 @@ async function handleDisconnect() {
               placeholder="host:port — e.g. localhost:50051"
               class="h-8"
             />
-            <p class="text-[11px] text-muted-foreground">
+            <p
+              v-if="addressIncomplete"
+              class="text-[11px] text-muted-foreground"
+              data-testid="signin-caps-incomplete"
+            >
+              Enter host:port to check this server.
+            </p>
+            <p v-else class="text-[11px] text-muted-foreground">
               Leave empty to use {{ DEFAULT_SYNC_SERVER_LABEL }}.
             </p>
           </div>

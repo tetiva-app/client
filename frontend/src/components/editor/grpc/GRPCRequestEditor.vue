@@ -10,6 +10,7 @@ import type { GRPCSchema, GRPCConnectRequest } from '@/types/grpc'
 import GRPCUrlBar from './GRPCUrlBar.vue'
 import ServiceMethodSelect from './ServiceMethodSelect.vue'
 import GRPCResponseViewer from './GRPCResponseViewer.vue'
+import RequestDocs from '../RequestDocs.vue'
 import HelpLink from '@/components/ui/HelpLink.vue'
 import { isInsideOverlay } from '@/lib/shortcut-guards'
 import {
@@ -45,7 +46,7 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.request.id,
 )
 
-const activeTab = ref<'body' | 'metadata' | 'schema' | 'scripts'>('body')
+const activeTab = ref<'body' | 'metadata' | 'schema' | 'scripts' | 'docs'>('body')
 
 const schema = ref<GRPCSchema | null>(null)
 const schemaLoading = ref(false)
@@ -309,6 +310,7 @@ const tabs = computed(() => [
   { id: 'metadata' as const, label: 'Metadata', badge: metadataBadge.value },
   { id: 'schema' as const, label: 'Schema', badge: protoDefinition.value ? '1' : '' },
   { id: 'scripts' as const, label: 'Scripts', badge: scriptsBadge.value },
+  { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
 ])
 </script>
 
@@ -496,6 +498,12 @@ const tabs = computed(() => [
               :secret-keys="secretKeys"
               @update:pre-script="(v) => updateField('preScript', v)"
               @update:post-script="(v) => updateField('postScript', v)"
+            />
+
+            <RequestDocs
+              v-else-if="activeTab === 'docs'"
+              :description="request.description"
+              @update:description="(v) => updateField('description', v)"
             />
           </div>
         </div>

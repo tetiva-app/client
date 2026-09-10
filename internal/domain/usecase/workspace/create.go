@@ -11,18 +11,15 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Create holds data for creating a new workspace.
 type Create struct {
 	Name              string
 	RemoteWorkspaceID *string
 }
 
-// CreateOpt holds contextual options for workspace creation.
 type CreateOpt struct {
 	UserID string
 }
 
-// Validate checks the Create input.
 func (c *Create) Validate() error {
 	errs := make(map[string]string)
 	if c.Name == "" {

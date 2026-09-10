@@ -9,12 +9,13 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// Create holds the data required to create a new request.
 type Create struct {
 	CollectionID      uuid.UUID
 	Name              string
+	Description       string
 	Protocol          entities.Protocol
 	Method            entities.HTTPMethod
 	URL               string
@@ -35,12 +36,10 @@ type Create struct {
 	GraphQLOperation  string
 }
 
-// CreateOpt holds contextual options for the Create operation.
 type CreateOpt struct {
 	UserID string
 }
 
-// Validate checks that all required fields are present and valid.
 func (c *Create) Validate() error {
 	errs := make(map[string]string)
 
@@ -69,12 +68,19 @@ func (c *Create) Validate() error {
 	return nil
 }
 
-// Create validates input, builds a Request entity and persists it.
 func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Request, error) {
 	const funcName = "request.Create"
 
 	if err := input.Validate(); err != nil {
 		return nil, err
+	}
+
+	if input.Protocol == entities.ProtocolWebSocket {
+		if err := websocket.ValidateSettings(input.Body); err != nil {
+			return nil, err
+		}
+		// The body of a WS request is never sent: it carries the settings document.
+		input.BodyType = entities.BodyTypeRaw
 	}
 
 	headers := input.Headers
@@ -97,6 +103,7 @@ func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*ent
 		ID:                uuid.New(),
 		CollectionID:      input.CollectionID,
 		Name:              input.Name,
+		Description:       input.Description,
 		Protocol:          input.Protocol,
 		Method:            input.Method,
 		URL:               input.URL,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/google/uuid"
@@ -15,14 +16,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain"
 )
 
-// WindowInfo tracks an open child window.
 type WindowInfo struct {
 	Window   *application.WebviewWindow
 	Type     string // "detached-request" or "schema-viewer"
 	EntityID string // requestID or schemaID
 }
 
-// SchemaData holds definition content for schema viewer windows.
 type SchemaData struct {
 	Definition string `json:"definition"`
 	Source     string `json:"source"`
@@ -30,13 +29,23 @@ type SchemaData struct {
 	SchemaJSON string `json:"schemaJSON"` // serialized GraphQLSchema for interactive browse (GraphQL only)
 }
 
-// WindowPrefs stores size/position for a window type.
 type WindowPrefs struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
-	X      int `json:"x"`
-	Y      int `json:"y"`
+	Width       int  `json:"width"`
+	Height      int  `json:"height"`
+	X           int  `json:"x"`
+	Y           int  `json:"y"`
+	HasPosition bool `json:"hasPosition"`
 }
+
+const windowPrefsVersion = 2
+
+type windowPrefsFile struct {
+	Version int                     `json:"version"`
+	Windows map[string]*WindowPrefs `json:"windows"`
+}
+
+// Wails v3 beta changed the macOS coordinate space; positions saved by older builds are garbage there.
+var legacyPositionsStale = runtime.GOOS == "darwin"
 
 // WindowService manages detachable child windows.
 type WindowService struct {
@@ -49,7 +58,6 @@ type WindowService struct {
 	prefs            map[string]*WindowPrefs // windowType → size/position
 }
 
-// NewWindowService creates a new WindowService instance.
 func NewWindowService() *WindowService {
 	ws := &WindowService{
 		windows:          make(map[string]*WindowInfo),
@@ -61,7 +69,7 @@ func NewWindowService() *WindowService {
 	return ws
 }
 
-// SetApp sets the Wails application instance (called after app creation in main.go).
+// Called after app creation in main.go.
 func (ws *WindowService) SetApp(app *application.App) {
 	ws.app = app
 }
@@ -72,22 +80,71 @@ func prefsFilePath() string {
 }
 
 func (ws *WindowService) loadPrefs() {
-	data, err := os.ReadFile(prefsFilePath())
+	ws.prefs = readPrefs(prefsFilePath())
+}
+
+// Beyond this the prefs file is corrupt, not a display arrangement.
+const coordLimit = 32767
+
+func validGeometry(w, h, x, y int) bool {
+	if w <= 0 || h <= 0 || w > coordLimit || h > coordLimit {
+		return false
+	}
+	return x >= -coordLimit && x <= coordLimit && y >= -coordLimit && y <= coordLimit
+}
+
+// A destroyed window reads back as 0x0; that must not be persisted.
+func prefsFromWindow(w, h, x, y int) (*WindowPrefs, bool) {
+	if !validGeometry(w, h, x, y) {
+		return nil, false
+	}
+	return &WindowPrefs{Width: w, Height: h, X: x, Y: y, HasPosition: true}, true
+}
+
+// Never returns nil: a missing, corrupt or newer file means defaults.
+func readPrefs(path string) map[string]*WindowPrefs {
+	prefs := make(map[string]*WindowPrefs)
+
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return // File doesn't exist yet — use defaults
+		return prefs
 	}
 
-	var prefs map[string]*WindowPrefs
-	if err := json.Unmarshal(data, &prefs); err != nil {
-		return
+	var file windowPrefsFile
+	if err := json.Unmarshal(data, &file); err == nil && file.Version != 0 {
+		if file.Version != windowPrefsVersion {
+			return prefs
+		}
+		for name, p := range file.Windows {
+			if p == nil || !validGeometry(p.Width, p.Height, p.X, p.Y) {
+				continue
+			}
+			prefs[name] = p
+		}
+		return prefs
 	}
 
-	ws.prefs = prefs
+	var legacy map[string]*WindowPrefs
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return prefs
+	}
+	for name, p := range legacy {
+		if p == nil || !validGeometry(p.Width, p.Height, p.X, p.Y) {
+			continue
+		}
+		if legacyPositionsStale {
+			p.X, p.Y, p.HasPosition = 0, 0, false
+		} else {
+			p.HasPosition = p.X != 0 || p.Y != 0
+		}
+		prefs[name] = p
+	}
+	return prefs
 }
 
 func (ws *WindowService) savePrefs() {
 	ws.mu.RLock()
-	data, err := json.MarshalIndent(ws.prefs, "", "  ")
+	data, err := json.MarshalIndent(windowPrefsFile{Version: windowPrefsVersion, Windows: ws.prefs}, "", "  ")
 	ws.mu.RUnlock()
 
 	if err != nil {
@@ -108,7 +165,7 @@ func (ws *WindowService) getPrefsOrDefaults(windowType string) *WindowPrefs {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
 
-	if p, ok := ws.prefs[windowType]; ok {
+	if p, ok := ws.prefs[windowType]; ok && p != nil {
 		return p
 	}
 	if p, ok := defaultPrefs[windowType]; ok {
@@ -117,8 +174,8 @@ func (ws *WindowService) getPrefsOrDefaults(windowType string) *WindowPrefs {
 	return &WindowPrefs{Width: 800, Height: 600}
 }
 
-// buildWindowOptions applies saved prefs; without a saved position Wails centers the window.
-func buildWindowOptions(name, title, url string, prefs *WindowPrefs) application.WebviewWindowOptions {
+// Without a usable saved position Wails centers the window.
+func buildWindowOptions(name, title, url string, prefs *WindowPrefs, areas []application.Rect) application.WebviewWindowOptions {
 	opts := application.WebviewWindowOptions{
 		Name:             name,
 		Title:            title,
@@ -127,7 +184,7 @@ func buildWindowOptions(name, title, url string, prefs *WindowPrefs) application
 		URL:              url,
 		BackgroundColour: application.NewRGB(26, 26, 46),
 	}
-	if prefs.X != 0 || prefs.Y != 0 {
+	if prefs.HasPosition && positionOnScreen(prefs.X, prefs.Y, prefs.Width, areas) {
 		opts.InitialPosition = application.WindowXY
 		opts.X = prefs.X
 		opts.Y = prefs.Y
@@ -135,20 +192,52 @@ func buildWindowOptions(name, title, url string, prefs *WindowPrefs) application
 	return opts
 }
 
-func (ws *WindowService) saveWindowPrefs(window *application.WebviewWindow, windowType string) {
-	x, y := window.Position()
-	ws.mu.Lock()
-	ws.prefs[windowType] = &WindowPrefs{
-		Width:  window.Width(),
-		Height: window.Height(),
-		X:      x,
-		Y:      y,
+// grabMargin is how much of the title bar must stay inside a work area to remain draggable.
+const grabMargin = 100
+
+func positionOnScreen(x, y, w int, areas []application.Rect) bool {
+	for _, a := range areas {
+		if y < a.Y || y >= a.Y+a.Height {
+			continue
+		}
+		if min(x+w, a.X+a.Width)-max(x, a.X) >= min(w, grabMargin) {
+			return true
+		}
 	}
+	return false
+}
+
+// GetAll releases Wails' lock on return, so a display change can tear this read; the worst case is a misplaced window.
+func (ws *WindowService) workAreas() []application.Rect {
+	if ws.app == nil || ws.app.Screen == nil {
+		return nil
+	}
+	screens := ws.app.Screen.GetAll()
+	areas := make([]application.Rect, 0, len(screens))
+	for _, s := range screens {
+		if s == nil {
+			continue
+		}
+		areas = append(areas, s.WorkArea)
+	}
+	return areas
+}
+
+func (ws *WindowService) saveWindowPrefs(window *application.WebviewWindow, windowType string) {
+	if window == nil {
+		return
+	}
+	x, y := window.Position()
+	prefs, ok := prefsFromWindow(window.Width(), window.Height(), x, y)
+	if !ok {
+		return
+	}
+	ws.mu.Lock()
+	ws.prefs[windowType] = prefs
 	ws.mu.Unlock()
 	ws.savePrefs()
 }
 
-// DetachRequest opens a request in a separate native window.
 func (ws *WindowService) DetachRequest(requestID, protocol, title string) Result[Empty] {
 	const funcName = "WindowService.DetachRequest"
 
@@ -167,7 +256,7 @@ func (ws *WindowService) DetachRequest(requestID, protocol, title string) Result
 	windowName := fmt.Sprintf("detached-request-%s", requestID)
 	url := fmt.Sprintf("/?mode=detached-request&requestId=%s", requestID)
 
-	window := ws.app.Window.NewWithOptions(buildWindowOptions(windowName, title, url, prefs))
+	window := ws.app.Window.NewWithOptions(buildWindowOptions(windowName, title, url, prefs, ws.workAreas()))
 
 	ws.mu.Lock()
 	ws.windows[windowName] = &WindowInfo{
@@ -215,7 +304,7 @@ func (ws *WindowService) OpenSchemaViewer(definition, source, title, language, s
 	}
 	ws.mu.Unlock()
 
-	window := ws.app.Window.NewWithOptions(buildWindowOptions(windowName, title, url, prefs))
+	window := ws.app.Window.NewWithOptions(buildWindowOptions(windowName, title, url, prefs, ws.workAreas()))
 
 	ws.mu.Lock()
 	ws.windows[windowName] = &WindowInfo{
@@ -237,7 +326,6 @@ func (ws *WindowService) OpenSchemaViewer(definition, source, title, language, s
 	return OK(Empty{})
 }
 
-// IsDetached checks if a request is currently open in a detached window.
 func (ws *WindowService) IsDetached(requestID string) Result[bool] {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
@@ -246,7 +334,6 @@ func (ws *WindowService) IsDetached(requestID string) Result[bool] {
 	return OK(exists)
 }
 
-// FocusDetachedWindow brings the detached window for a request to the front.
 func (ws *WindowService) FocusDetachedWindow(requestID string) Result[Empty] {
 	ws.mu.RLock()
 	windowName, exists := ws.detachedRequests[requestID]
@@ -263,7 +350,6 @@ func (ws *WindowService) FocusDetachedWindow(requestID string) Result[Empty] {
 	return OK(Empty{})
 }
 
-// GetSchemaContent returns the proto schema data for a schema viewer window.
 func (ws *WindowService) GetSchemaContent(schemaID string) Result[SchemaData] {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
@@ -278,21 +364,21 @@ func (ws *WindowService) GetSchemaContent(schemaID string) Result[SchemaData] {
 	return OK(*data)
 }
 
-// CloseAllChildWindows closes all detached windows (called on main window close).
+// Called on main window close.
 func (ws *WindowService) CloseAllChildWindows() {
 	ws.mu.RLock()
-	names := make([]string, 0, len(ws.windows))
-	for name := range ws.windows {
-		names = append(names, name)
+	infos := make([]*WindowInfo, 0, len(ws.windows))
+	for _, info := range ws.windows {
+		infos = append(infos, info)
 	}
 	ws.mu.RUnlock()
 
-	for _, name := range names {
-		ws.mu.RLock()
-		info, ok := ws.windows[name]
-		ws.mu.RUnlock()
-		if ok && info.Window != nil {
-			info.Window.Close()
+	for _, info := range infos {
+		if info == nil || info.Window == nil {
+			continue
 		}
+		// The per-window WindowClosing hooks queue behind this one, and quit usually wins that race.
+		ws.saveWindowPrefs(info.Window, info.Type)
+		info.Window.Close()
 	}
 }

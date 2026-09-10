@@ -16,6 +16,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
 // stubRequestUsecase is a configurable request.Usecase double; unset function
@@ -28,7 +29,7 @@ type stubRequestUsecase struct {
 	deleteFn                   func(context.Context, request.DeleteOpt) error
 	reorderFn                  func(context.Context, uuid.UUID, int) error
 	executeFn                  func(context.Context, uuid.UUID, request.ExecuteOpt) (*entities.Response, error)
-	buildCurlFn                func(context.Context, uuid.UUID, request.BuildCurlOpt) (string, *entities.ScriptResult, error)
+	buildCurlFn                func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error)
 	moveFn                     func(context.Context, request.MoveOpt) (*entities.Request, error)
 	grpcListServicesFn         func(context.Context, request.GRPCConnectRequest) (*request.GRPCSchema, error)
 	grpcGenerateExampleFn      func(context.Context, request.GRPCConnectRequest, string, string) (string, error)
@@ -90,7 +91,7 @@ func (s *stubRequestUsecase) Execute(ctx context.Context, id uuid.UUID, opt requ
 	return s.executeFn(ctx, id, opt)
 }
 
-func (s *stubRequestUsecase) BuildCurl(ctx context.Context, id uuid.UUID, opt request.BuildCurlOpt) (string, *entities.ScriptResult, error) {
+func (s *stubRequestUsecase) BuildCurl(ctx context.Context, id uuid.UUID, opt request.BuildCurlOpt) (request.CurlResult, error) {
 	if s.buildCurlFn == nil {
 		panic("buildCurlFn not set")
 	}
@@ -171,8 +172,12 @@ func (s *stubRequestUsecase) CleanupDrafts(_ context.Context) (int, error) {
 	panic("not implemented")
 }
 
-func (s *stubRequestUsecase) ResolveWebSocket(_ context.Context, _, _ uuid.UUID, _ string) (string, map[string][]string, error) {
-	return "", nil, nil
+func (s *stubRequestUsecase) ResolveWebSocket(_ context.Context, _, _ uuid.UUID, _ string) (websocket.ResolvedDial, error) {
+	return websocket.ResolvedDial{}, nil
+}
+
+func (s *stubRequestUsecase) SubstituteMessage(_ context.Context, _ uuid.UUID, text string) (string, error) {
+	return text, nil
 }
 
 func fixtureRequest(name string, version int) *entities.Request {
@@ -294,10 +299,10 @@ func TestRequestService_GenerateCurl_Happy(t *testing.T) {
 	id := uuid.New()
 	wsID := uuid.New()
 	stub := &stubRequestUsecase{
-		buildCurlFn: func(_ context.Context, gotID uuid.UUID, opt request.BuildCurlOpt) (string, *entities.ScriptResult, error) {
+		buildCurlFn: func(_ context.Context, gotID uuid.UUID, opt request.BuildCurlOpt) (request.CurlResult, error) {
 			assert.Equal(t, id, gotID)
 			assert.Equal(t, wsID, opt.WorkspaceID)
-			return "curl 'https://example.com'", nil, nil
+			return request.CurlResult{Command: "curl 'https://example.com'"}, nil
 		},
 	}
 	svc := NewRequestService(stub)
@@ -310,6 +315,23 @@ func TestRequestService_GenerateCurl_Happy(t *testing.T) {
 	require.Nil(t, res.Error)
 	assert.Equal(t, "curl 'https://example.com'", res.Data.Command)
 	assert.Nil(t, res.Data.ScriptResult, "scriptResult should be nil when usecase returns nil")
+}
+
+func TestRequestService_GenerateCurl_PassesWarningsThrough(t *testing.T) {
+	stub := &stubRequestUsecase{
+		buildCurlFn: func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
+			return request.CurlResult{Command: "curl 'x'", Warnings: []string{"no cached OAuth 2.0 token"}}, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.GenerateCurl(dto.GenerateCurlRequest{
+		RequestID:   uuid.New().String(),
+		WorkspaceID: uuid.New().String(),
+	})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, []string{"no cached OAuth 2.0 token"}, res.Data.Warnings)
 }
 
 func TestRequestService_GenerateCurl_Error_InvalidRequestUUID(t *testing.T) {
@@ -334,8 +356,8 @@ func TestRequestService_GenerateCurl_Error_InvalidWorkspaceUUID(t *testing.T) {
 
 func TestRequestService_GenerateCurl_Error_PropagatesUsecaseError(t *testing.T) {
 	stub := &stubRequestUsecase{
-		buildCurlFn: func(context.Context, uuid.UUID, request.BuildCurlOpt) (string, *entities.ScriptResult, error) {
-			return "", nil, &domain.ValidationError{Fields: map[string]string{"protocol": "Copy as cURL is only supported for HTTP requests"}}
+		buildCurlFn: func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
+			return request.CurlResult{}, &domain.ValidationError{Fields: map[string]string{"protocol": "Copy as cURL is only supported for HTTP requests"}}
 		},
 	}
 	svc := NewRequestService(stub)
@@ -351,10 +373,13 @@ func TestRequestService_GenerateCurl_Error_PropagatesUsecaseError(t *testing.T) 
 
 func TestRequestService_GenerateCurl_Happy_PassesScriptResultThrough(t *testing.T) {
 	stub := &stubRequestUsecase{
-		buildCurlFn: func(context.Context, uuid.UUID, request.BuildCurlOpt) (string, *entities.ScriptResult, error) {
-			return "curl 'x'", &entities.ScriptResult{
-				PreConsole: []string{"hello"},
-				Errors:     []entities.ScriptError{{Phase: "pre-script", Message: "boom"}},
+		buildCurlFn: func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
+			return request.CurlResult{
+				Command: "curl 'x'",
+				ScriptResult: &entities.ScriptResult{
+					PreConsole: []string{"hello"},
+					Errors:     []entities.ScriptError{{Phase: "pre-script", Message: "boom"}},
+				},
 			}, nil
 		},
 	}
@@ -763,10 +788,12 @@ func TestRequestService_GRPCGetProtoDefinition_Error_UsecaseFailure(t *testing.T
 }
 
 func TestRequestService_GraphQLIntrospect_Happy(t *testing.T) {
+	wsID := uuid.New()
 	stub := &stubRequestUsecase{
 		graphqlIntrospectFn: func(_ context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
 			assert.Equal(t, "https://api/graphql", req.Endpoint)
 			assert.Equal(t, []string{"Bearer t"}, req.Headers["Authorization"])
+			assert.Equal(t, wsID, req.WorkspaceID)
 			return &request.GraphQLSchema{
 				Source:  "introspection",
 				Queries: []request.GraphQLOperation{{Name: "users"}},
@@ -776,8 +803,9 @@ func TestRequestService_GraphQLIntrospect_Happy(t *testing.T) {
 	svc := NewRequestService(stub)
 
 	res := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{
-		Endpoint: "https://api/graphql",
-		Headers:  map[string]string{"Authorization": "Bearer t"},
+		Endpoint:    "https://api/graphql",
+		Headers:     map[string]string{"Authorization": "Bearer t"},
+		WorkspaceID: wsID.String(),
 	})
 
 	require.Nil(t, res.Error)
@@ -793,16 +821,18 @@ func TestRequestService_GraphQLIntrospect_Error_UsecaseFailure(t *testing.T) {
 	}
 	svc := NewRequestService(stub)
 
-	res := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{Endpoint: "x"})
+	res := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{Endpoint: "x", WorkspaceID: uuid.NewString()})
 
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeInternal, res.Error.Code)
 }
 
 func TestRequestService_GraphQLGenerateExample_Happy(t *testing.T) {
+	wsID := uuid.New()
 	stub := &stubRequestUsecase{
 		graphqlGenerateExampleFn: func(_ context.Context, req request.GraphQLIntrospectRequest, op string) (*request.GraphQLExampleResponse, error) {
 			assert.Equal(t, "https://api/graphql", req.Endpoint)
+			assert.Equal(t, wsID, req.WorkspaceID)
 			assert.Equal(t, "users", op)
 			return &request.GraphQLExampleResponse{
 				Query:     "query { users { id } }",
@@ -815,6 +845,7 @@ func TestRequestService_GraphQLGenerateExample_Happy(t *testing.T) {
 	res := svc.GraphQLGenerateExample(dto.GraphQLGenerateExampleRequest{
 		Endpoint:      "https://api/graphql",
 		OperationName: "users",
+		WorkspaceID:   wsID.String(),
 	})
 
 	require.Nil(t, res.Error)
@@ -830,16 +861,18 @@ func TestRequestService_GraphQLGenerateExample_Error_UsecaseFailure(t *testing.T
 	}
 	svc := NewRequestService(stub)
 
-	res := svc.GraphQLGenerateExample(dto.GraphQLGenerateExampleRequest{Endpoint: "x"})
+	res := svc.GraphQLGenerateExample(dto.GraphQLGenerateExampleRequest{Endpoint: "x", WorkspaceID: uuid.NewString()})
 
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeInternal, res.Error.Code)
 }
 
 func TestRequestService_GraphQLGetTypeDefinition_Happy(t *testing.T) {
+	wsID := uuid.New()
 	stub := &stubRequestUsecase{
 		graphqlGetTypeDefinitionFn: func(_ context.Context, req request.GraphQLIntrospectRequest, typeName string) (string, error) {
 			assert.Equal(t, "https://api/graphql", req.Endpoint)
+			assert.Equal(t, wsID, req.WorkspaceID)
 			assert.Equal(t, "User", typeName)
 			return "type User { id: ID! }", nil
 		},
@@ -847,8 +880,9 @@ func TestRequestService_GraphQLGetTypeDefinition_Happy(t *testing.T) {
 	svc := NewRequestService(stub)
 
 	res := svc.GraphQLGetTypeDefinition(dto.GraphQLGetTypeDefinitionRequest{
-		Endpoint: "https://api/graphql",
-		TypeName: "User",
+		Endpoint:    "https://api/graphql",
+		TypeName:    "User",
+		WorkspaceID: wsID.String(),
 	})
 
 	require.Nil(t, res.Error)
@@ -863,7 +897,7 @@ func TestRequestService_GraphQLGetTypeDefinition_Error_UsecaseFailure(t *testing
 	}
 	svc := NewRequestService(stub)
 
-	res := svc.GraphQLGetTypeDefinition(dto.GraphQLGetTypeDefinitionRequest{Endpoint: "x"})
+	res := svc.GraphQLGetTypeDefinition(dto.GraphQLGetTypeDefinitionRequest{Endpoint: "x", WorkspaceID: uuid.NewString()})
 
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeInternal, res.Error.Code)
@@ -951,4 +985,176 @@ func TestRequestService_PromoteDraft_InvalidCollection(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeValidation, res.Error.Code)
 	assert.Contains(t, res.Error.Fields, "targetCollectionId")
+}
+
+func TestRequestService_Description_CrossesTheWailsBoundary(t *testing.T) {
+	collID := uuid.New()
+	id := uuid.New()
+
+	created := fixtureRequest("documented", 1)
+	created.CollectionID = collID
+	created.Description = "# Docs"
+
+	edited := fixtureRequest("documented", 2)
+	edited.ID = id
+	edited.Description = "# Docs v2"
+
+	stub := &stubRequestUsecase{
+		createFn: func(_ context.Context, in request.Create, _ request.CreateOpt) (*entities.Request, error) {
+			assert.Equal(t, "# Docs", in.Description)
+			return created, nil
+		},
+		editFn: func(_ context.Context, in request.Edit, _ request.EditOpt) (*entities.Request, error) {
+			assert.Equal(t, "# Docs v2", in.Description)
+			return edited, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.Create(dto.CreateRequestRequest{
+		CollectionID: collID.String(),
+		Name:         "documented",
+		Description:  "# Docs",
+		Protocol:     "http",
+		Method:       "GET",
+	})
+	require.Nil(t, res.Error)
+	assert.Equal(t, "# Docs", res.Data.Description)
+
+	editRes := svc.Edit(dto.EditRequestRequest{
+		ID:          id.String(),
+		Name:        "documented",
+		Description: "# Docs v2",
+		Method:      "GET",
+		Version:     1,
+	})
+	require.Nil(t, editRes.Error)
+	assert.Equal(t, "# Docs v2", editRes.Data.Description)
+}
+
+func TestRequestService_ParseCurl_Happy(t *testing.T) {
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.ParseCurl(dto.ParseCurlRequest{
+		Text: `curl -X POST 'https://api.example.com/v1/users' -H 'Content-Type: application/json' -H 'Authorization: Bearer tok123' -d '{"name":"Alice"}'`,
+	})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, "POST", res.Data.Method)
+	assert.Equal(t, "https://api.example.com/v1/users", res.Data.URL)
+	assert.Equal(t, `{"name":"Alice"}`, res.Data.Body)
+	assert.Equal(t, string(entities.BodyTypeJSON), res.Data.BodyType)
+	assert.Equal(t, string(entities.AuthTypeBearer), res.Data.AuthType)
+	assert.Contains(t, res.Data.AuthData, "tok123")
+
+	var keys []string
+	for _, h := range res.Data.Headers {
+		keys = append(keys, h.Key)
+	}
+	assert.Contains(t, keys, "Content-Type")
+	assert.NotContains(t, keys, "Authorization", "bearer auth moves out of the header list")
+}
+
+// Nil slices would reach the frontend as null and break `.length` there.
+func TestRequestService_ParseCurl_Happy_EmptySlicesAreNotNil(t *testing.T) {
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.ParseCurl(dto.ParseCurlRequest{Text: "curl https://example.com"})
+
+	require.Nil(t, res.Error)
+	assert.NotNil(t, res.Data.Headers)
+	assert.NotNil(t, res.Data.Warnings)
+	assert.Equal(t, "GET", res.Data.Method)
+}
+
+func TestRequestService_ParseCurl_Error_Empty(t *testing.T) {
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.ParseCurl(dto.ParseCurlRequest{Text: "   "})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "Nothing to import: the pasted text is empty", res.Error.Message)
+}
+
+func TestRequestService_ParseCurl_Error_NotCurl(t *testing.T) {
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.ParseCurl(dto.ParseCurlRequest{Text: "wget https://example.com"})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "Not a cURL command: it has to start with curl", res.Error.Message)
+}
+
+func TestRequestService_ParseCurl_Error_NoURL(t *testing.T) {
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.ParseCurl(dto.ParseCurlRequest{Text: "curl -X POST -H 'Accept: application/json'"})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "This cURL command has no URL", res.Error.Message)
+}
+
+func TestRequestService_GraphQLIntrospect_Error_InvalidWorkspaceID(t *testing.T) {
+	stub := &stubRequestUsecase{
+		graphqlIntrospectFn: func(context.Context, request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
+			t.Fatal("usecase must not be called with a malformed workspaceId")
+			return nil, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{Endpoint: "x", WorkspaceID: "not-a-uuid"})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+}
+
+func TestRequestService_GraphQLSchemaCalls_RejectEndpointWithoutWorkspace(t *testing.T) {
+	fail := func(t *testing.T) *stubRequestUsecase {
+		return &stubRequestUsecase{
+			graphqlIntrospectFn: func(context.Context, request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
+				t.Fatal("endpoint introspection must not run without a workspace jar")
+				return nil, nil
+			},
+			graphqlGenerateExampleFn: func(context.Context, request.GraphQLIntrospectRequest, string) (*request.GraphQLExampleResponse, error) {
+				t.Fatal("endpoint introspection must not run without a workspace jar")
+				return nil, nil
+			},
+			graphqlGetTypeDefinitionFn: func(context.Context, request.GraphQLIntrospectRequest, string) (string, error) {
+				t.Fatal("endpoint introspection must not run without a workspace jar")
+				return "", nil
+			},
+		}
+	}
+
+	for _, ws := range []string{"", uuid.Nil.String()} {
+		svc := NewRequestService(fail(t))
+
+		introspect := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{Endpoint: "https://api/graphql", WorkspaceID: ws})
+		require.NotNil(t, introspect.Error)
+		assert.Equal(t, ErrCodeValidation, introspect.Error.Code)
+		assert.Contains(t, introspect.Error.Fields, "workspaceId")
+
+		example := svc.GraphQLGenerateExample(dto.GraphQLGenerateExampleRequest{Endpoint: "https://api/graphql", OperationName: "users", WorkspaceID: ws})
+		require.NotNil(t, example.Error)
+		assert.Equal(t, ErrCodeValidation, example.Error.Code)
+
+		typeDef := svc.GraphQLGetTypeDefinition(dto.GraphQLGetTypeDefinitionRequest{Endpoint: "https://api/graphql", TypeName: "User", WorkspaceID: ws})
+		require.NotNil(t, typeDef.Error)
+		assert.Equal(t, ErrCodeValidation, typeDef.Error.Code)
+	}
+}
+
+func TestRequestService_GraphQLIntrospect_SchemaFileNeedsNoWorkspace(t *testing.T) {
+	stub := &stubRequestUsecase{
+		graphqlIntrospectFn: func(_ context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
+			assert.Equal(t, uuid.Nil, req.WorkspaceID)
+			return &request.GraphQLSchema{Source: "schema_file"}, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.GraphQLIntrospect(dto.GraphQLIntrospectRequest{SchemaPath: "/tmp/schema.graphql"})
+
+	require.Nil(t, res.Error)
 }

@@ -47,6 +47,12 @@ export class MockWorkspaceService implements WorkspaceServiceAPI {
     })
   }
 
+  // Mock-only: the sync mock links a freshly created workspace to a fake remote.
+  markSynced(id: string, remoteWorkspaceId: string) {
+    const ws = this.workspaces.get(id)
+    if (ws) ws.remoteWorkspaceId = remoteWorkspaceId
+  }
+
   async list(): Promise<Result<Workspace[]>> {
     return { data: Array.from(this.workspaces.values()) }
   }

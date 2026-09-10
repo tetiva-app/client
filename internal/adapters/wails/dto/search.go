@@ -2,7 +2,6 @@ package dto
 
 import "github.com/tetiva-app/client/internal/domain/entities"
 
-// SearchHitDTO is the wire format of a single search match.
 type SearchHitDTO struct {
 	ID       string  `json:"id"`
 	Kind     string  `json:"kind"`
@@ -12,13 +11,11 @@ type SearchHitDTO struct {
 	Method   *string `json:"method,omitempty"`
 }
 
-// SearchResponse is the wire format of search results.
 type SearchResponse struct {
 	Hits         []SearchHitDTO `json:"hits"`
 	LimitReached bool           `json:"limitReached"`
 }
 
-// ToSearchResponse converts the domain result into a wire DTO.
 func ToSearchResponse(r entities.SearchResult) SearchResponse {
 	hits := make([]SearchHitDTO, len(r.Hits))
 	for i, h := range r.Hits {

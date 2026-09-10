@@ -9,50 +9,89 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
+	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// ResolveWebSocket loads the request and returns the final handshake URL and
-// headers, applying env-var substitution and auth (no scripts, no body).
-func (u *usecase) ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, _ string) (string, map[string][]string, error) {
+// ResolveWebSocket builds the handshake input from a stored request. A failure
+// after the script stage lands in ResolvedDial.Failed, not in the error.
+func (u *usecase) ResolveWebSocket(ctx context.Context, requestID, workspaceID uuid.UUID, userID string) (websocket.ResolvedDial, error) {
 	const funcName = "request.ResolveWebSocket"
 
 	req, err := u.repo.GetByID(ctx, requestID)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, err)
+		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 	if req == nil {
-		return "", nil, &domain.NotFoundError{Entity: "request", ID: requestID.String()}
+		return websocket.ResolvedDial{}, &domain.NotFoundError{Entity: "request", ID: requestID.String()}
 	}
 	if req.Protocol != entities.ProtocolWebSocket {
-		return "", nil, &domain.ValidationError{Fields: map[string]string{"protocol": "not a websocket request"}}
+		return websocket.ResolvedDial{}, &domain.ValidationError{Fields: map[string]string{"protocol": "not a websocket request"}}
+	}
+
+	resolvedAuth, err := u.resolveAuthFor(ctx, req, workspaceID)
+	if err != nil {
+		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+	if authErr := rejectNonHTTPAuth(resolvedAuth.Type); authErr != nil {
+		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, authErr)
 	}
 
 	vars, err := u.envResolver.ResolveVariables(ctx, workspaceID)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, err)
+		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	headers := entities.EnabledHeadersToMap(req.Headers)
-	execURL := substituteVariables(req.URL, vars)
-	headers = substituteHeaders(headers, vars)
+	pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+	settings := websocket.ParseSettings(req.Body)
+	dial := websocket.ResolvedDial{
+		URL:          pre.URL,
+		Headers:      pre.Headers,
+		Subprotocols: settings.Subprotocols,
+		PingInterval: settings.PingInterval,
+		Script:       pre.ScriptResult,
+	}
+
+	if u.varPersister != nil && pre.ScriptResult != nil && len(pre.Vars) > 0 {
+		if persistErr := u.varPersister.PersistVariableChanges(ctx, workspaceID, userID, pre.Vars); persistErr != nil {
+			pre.ScriptResult.Errors = append(pre.ScriptResult.Errors, entities.ScriptError{
+				Phase: "variable-persist", Message: persistErr.Error(),
+			})
+		}
+	}
 
 	// Enforce ws:// or wss:// — coder/websocket.Dial would otherwise accept
 	// http(s):// schemes, contradicting the WebSocket protocol (spec).
-	if !strings.HasPrefix(execURL, "ws://") && !strings.HasPrefix(execURL, "wss://") {
-		return "", nil, &domain.ValidationError{Fields: map[string]string{"url": "must start with ws:// or wss://"}}
+	if !strings.HasPrefix(dial.URL, "ws://") && !strings.HasPrefix(dial.URL, "wss://") {
+		dial.Failed = "url must start with ws:// or wss://"
+		return dial, nil
 	}
 
-	resolvedAuthType, resolvedAuthData, authErr := u.authResolver.ResolveAuth(ctx, req)
-	if authErr != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, authErr)
+	authFields, fieldsErr := auth.ParseFields(resolvedAuth.Data)
+	if fieldsErr != nil {
+		dial.Failed = fieldsErr.Error()
+		return dial, nil
 	}
-	if resolvedAuthData != "" && resolvedAuthData != "{}" {
-		resolvedAuthData = substituteVariables(resolvedAuthData, vars)
-	}
-	headers, execURL, err = applyAuth(resolvedAuthType, resolvedAuthData, headers, execURL)
+	headers, execURL, queryKeys, _, err := u.applyResolvedAuth(
+		ctx, resolvedAuth, auth.Substitute(authFields, pre.Vars), dial.Headers, dial.URL, prepareOpt{UserID: userID},
+	)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s: %w", funcName, err)
+		dial.Failed = err.Error()
+		return dial, nil
 	}
+	dial.Headers, dial.URL, dial.AuthQueryKeys = headers, execURL, queryKeys
 
-	return execURL, headers, nil
+	return dial, nil
+}
+
+// SubstituteMessage resolves {{variables}} at send time, so a token refreshed by
+// another request is picked up without reconnecting.
+func (u *usecase) SubstituteMessage(ctx context.Context, workspaceID uuid.UUID, text string) (string, error) {
+	const funcName = "request.SubstituteMessage"
+
+	vars, err := u.envResolver.ResolveVariables(ctx, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", funcName, err)
+	}
+	return substituteVariables(text, vars), nil
 }

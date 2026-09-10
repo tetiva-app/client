@@ -4,20 +4,25 @@ import HelpLink from '@/components/ui/HelpLink.vue'
 
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   entityId: string
   preScript: string
   postScript: string
   resolvedVariables?: Record<string, string>
   secretKeys?: Set<string>
-}>()
+  phases?: Array<'pre' | 'post'>
+  preLabel?: string
+}>(), {
+  phases: () => ['pre', 'post'],
+  preLabel: 'Pre-request',
+})
 
 const emit = defineEmits<{
   (e: 'update:preScript', value: string): void
   (e: 'update:postScript', value: string): void
 }>()
 
-const activePhase = ref<'pre' | 'post'>('pre')
+const activePhase = ref<'pre' | 'post'>(props.phases[0] ?? 'pre')
 
 const preContent = ref(props.preScript)
 const postContent = ref(props.postScript)
@@ -30,15 +35,17 @@ watch(() => props.postScript, (val) => { postContent.value = val })
   <div class="flex flex-col h-full">
     <div class="flex items-center gap-1 px-3 py-2 border-b border-border">
       <button
+        v-if="phases.includes('pre')"
         class="px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer"
         :class="activePhase === 'pre'
           ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
         @click="activePhase = 'pre'"
       >
-        Pre-request
+        {{ preLabel }}
       </button>
       <button
+        v-if="phases.includes('post')"
         class="px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer"
         :class="activePhase === 'post'
           ? 'bg-primary/10 text-primary'
@@ -55,7 +62,7 @@ watch(() => props.postScript, (val) => { postContent.value = val })
 
     <!-- Editors — both mounted, toggled via v-show to preserve undo history -->
     <div class="flex-1 min-h-0 overflow-auto relative">
-      <div v-show="activePhase === 'pre'" class="absolute inset-0">
+      <div v-if="phases.includes('pre')" v-show="activePhase === 'pre'" class="absolute inset-0">
         <CodeEditor
           :key="entityId + '-pre'"
           :content="preContent"
@@ -65,7 +72,7 @@ watch(() => props.postScript, (val) => { postContent.value = val })
           @update:content="(v) => emit('update:preScript', v)"
         />
       </div>
-      <div v-show="activePhase === 'post'" class="absolute inset-0">
+      <div v-if="phases.includes('post')" v-show="activePhase === 'post'" class="absolute inset-0">
         <CodeEditor
           :key="entityId + '-post'"
           :content="postContent"

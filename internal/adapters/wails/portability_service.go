@@ -25,7 +25,6 @@ type PortabilityService struct {
 	environmentUC environment.Usecase
 }
 
-// NewPortabilityService creates a new PortabilityService instance.
 func NewPortabilityService(
 	collectionUC collection.Usecase,
 	requestUC request.Usecase,
@@ -38,7 +37,7 @@ func NewPortabilityService(
 	}
 }
 
-// SetApp sets the Wails application instance (called after app creation in main.go).
+// Called after app creation in main.go.
 func (s *PortabilityService) SetApp(app *application.App) {
 	s.app = app
 }
@@ -77,6 +76,7 @@ func (s *PortabilityService) ImportCollection(req dto.ImportCollectionRequest) R
 	return OK(dto.ImportCollectionResponse{
 		FoldersCreated:  result.FoldersCreated,
 		RequestsCreated: result.RequestsCreated,
+		Warnings:        result.Warnings,
 	})
 }
 
@@ -199,7 +199,6 @@ func (s *PortabilityService) buildEnvironmentExport(req dto.ExportEnvironmentReq
 	return data, env.Name + ".postman_environment.json", nil
 }
 
-// promptAndWrite shows a native Save File dialog and writes the data to the chosen path.
 // Returns Canceled=true if the user dismisses the dialog.
 func (s *PortabilityService) promptAndWrite(funcName string, data []byte, suggestedName string) Result[dto.ExportResponse] {
 	if s.app == nil {

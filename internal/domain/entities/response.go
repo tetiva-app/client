@@ -2,7 +2,6 @@ package entities
 
 import "time"
 
-// Response represents the result of executing an HTTP or gRPC request.
 type Response struct {
 	StatusCode        int
 	StatusText        string
@@ -18,7 +17,6 @@ type Response struct {
 	SuggestedFilename string
 }
 
-// ScriptResult aggregates results from pre/post script execution.
 type ScriptResult struct {
 	PreConsole  []string
 	PostConsole []string
@@ -26,14 +24,12 @@ type ScriptResult struct {
 	Errors      []ScriptError
 }
 
-// ScriptTestResult represents a single test assertion result.
 type ScriptTestResult struct {
 	Name   string
 	Passed bool
 	Error  string
 }
 
-// ScriptError represents a script execution error.
 type ScriptError struct {
 	Phase   string
 	Message string

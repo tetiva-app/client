@@ -12,8 +12,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// WebSocketModule provides the WebSocket vertical slice: requester, event sink,
-// usecase, Wails service, and graceful shutdown of live connections.
 func WebSocketModule() fx.Option {
 	return fx.Module("websocket",
 		fx.Provide(requester.NewWebSocketRequester),

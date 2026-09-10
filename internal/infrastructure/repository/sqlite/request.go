@@ -13,24 +13,20 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// headerItemJSON is a local DTO for JSON serialization of HeaderItem.
 type headerItemJSON struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`
 	Enabled bool   `json:"enabled"`
 }
 
-// RequestRepo implements request.Repository using SQLite.
 type RequestRepo struct {
 	db *sql.DB
 }
 
-// NewRequestRepo creates a new RequestRepo instance.
 func NewRequestRepo(db *sql.DB) request.Repository {
 	return &RequestRepo{db: db}
 }
 
-// Create inserts a new request into the database.
 func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 	const funcName = "RequestRepo.Create"
 
@@ -44,17 +40,18 @@ func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 		return fmt.Errorf("%s: marshal grpc_metadata: %w", funcName, err)
 	}
 
-	query := `INSERT INTO requests (id, collection_id, name, protocol, method, url, headers, body, body_type,
+	query := `INSERT INTO requests (id, collection_id, name, description, protocol, method, url, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
 		pre_script, post_script, sort_order, version, is_delete, is_draft, created_by, created_at, updated_by, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = DBTXFromContext(ctx, r.db).ExecContext(ctx, query,
 		req.ID.String(),
 		req.CollectionID.String(),
 		req.Name,
+		req.Description,
 		string(req.Protocol),
 		string(req.Method),
 		req.URL,
@@ -89,11 +86,11 @@ func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 	return nil
 }
 
-// GetByID retrieves a request by ID, returning nil if not found or soft-deleted.
+// Returns nil when the row is missing or soft-deleted.
 func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
 	const funcName = "RequestRepo.GetByID"
 
-	query := `SELECT id, collection_id, name, protocol, method, url, headers, body, body_type,
+	query := `SELECT id, collection_id, name, description, protocol, method, url, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
@@ -113,11 +110,11 @@ func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Requ
 	return req, nil
 }
 
-// List returns requests matching the given filter, ordered by sort_order ASC, created_at ASC.
+// Ordered by sort_order ASC, created_at ASC.
 func (r *RequestRepo) List(ctx context.Context, filter request.Filter) ([]*entities.Request, error) {
 	const funcName = "RequestRepo.List"
 
-	query := `SELECT id, collection_id, name, protocol, method, url, headers, body, body_type,
+	query := `SELECT id, collection_id, name, description, protocol, method, url, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
@@ -146,8 +143,7 @@ func (r *RequestRepo) List(ctx context.Context, filter request.Filter) ([]*entit
 	return result, nil
 }
 
-// Update persists all fields matched by id only — last-write-wins, no version guard:
-// the sync engine applies server changes; the UI enforces optimistic locking one layer up.
+// No version guard — sync applies server changes; the UI does optimistic locking one layer up.
 func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 	const funcName = "RequestRepo.Update"
 
@@ -161,7 +157,7 @@ func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 		return fmt.Errorf("%s: marshal grpc_metadata: %w", funcName, err)
 	}
 
-	query := `UPDATE requests SET collection_id = ?, name = ?, protocol = ?, method = ?, url = ?,
+	query := `UPDATE requests SET collection_id = ?, name = ?, description = ?, protocol = ?, method = ?, url = ?,
 		headers = ?, body = ?, body_type = ?,
 		auth_type = ?, auth_data = ?,
 		grpc_service = ?, grpc_method = ?, grpc_proto_path = ?, grpc_metadata = ?,
@@ -173,6 +169,7 @@ func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 	_, err = DBTXFromContext(ctx, r.db).ExecContext(ctx, query,
 		req.CollectionID.String(),
 		req.Name,
+		req.Description,
 		string(req.Protocol),
 		string(req.Method),
 		req.URL,
@@ -208,7 +205,24 @@ func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 	return nil
 }
 
-// DeleteHard removes a request row entirely. Used only for drafts.
+// Ignores is_delete: sync has to preserve the field on soft-deleted rows too.
+func (r *RequestRepo) GetDescriptionByID(ctx context.Context, id uuid.UUID) (string, error) {
+	const funcName = "RequestRepo.GetDescriptionByID"
+
+	var description string
+	err := DBTXFromContext(ctx, r.db).QueryRowContext(ctx,
+		"SELECT description FROM requests WHERE id = ?", id.String()).Scan(&description)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return description, nil
+}
+
+// Used only for drafts.
 func (r *RequestRepo) DeleteHard(ctx context.Context, id uuid.UUID) error {
 	const funcName = "RequestRepo.DeleteHard"
 	_, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, "DELETE FROM requests WHERE id = ?", id.String())
@@ -218,7 +232,6 @@ func (r *RequestRepo) DeleteHard(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// CleanupDrafts removes all rows with is_draft = 1. Returns count deleted.
 // Called on app startup to clean drafts left over from previous crashes.
 func (r *RequestRepo) CleanupDrafts(ctx context.Context) (int, error) {
 	const funcName = "RequestRepo.CleanupDrafts"
@@ -233,7 +246,6 @@ func (r *RequestRepo) CleanupDrafts(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
-// UpdateSortOrder updates only the sort_order field of a request.
 func (r *RequestRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	const funcName = "RequestRepo.UpdateSortOrder"
 
@@ -269,6 +281,7 @@ func scanRequest(s scannable) (*entities.Request, error) {
 		&idStr,
 		&collectionID,
 		&req.Name,
+		&req.Description,
 		&protocol,
 		&method,
 		&req.URL,

@@ -26,7 +26,6 @@ func TestCookieRepo_UpsertAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upsert same key — value updates, no new row
 	c2 := *c
 	c2.Value = "v2"
 	c2.UpdatedAt = c.UpdatedAt.Add(time.Second)

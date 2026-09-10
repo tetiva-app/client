@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Cookie represents a stored HTTP cookie scoped to a workspace.
 type Cookie struct {
 	ID          uuid.UUID
 	WorkspaceID uuid.UUID

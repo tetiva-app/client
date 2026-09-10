@@ -4,13 +4,17 @@ import { Loader2, RefreshCw, X } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { getRequestService } from '@/services'
+import { useToast } from '@/composables/useToast'
 import type { Request } from '@/types/request'
 import type { GraphQLSchema, GraphQLIntrospectRequest } from '@/types/graphql'
 import GraphQLUrlBar from './GraphQLUrlBar.vue'
 import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 import GraphQLResponseViewer from './GraphQLResponseViewer.vue'
+import RequestDocs from '../RequestDocs.vue'
 import { isInsideOverlay } from '@/lib/shortcut-guards'
+import { authBadgeLabel } from '@/constants/auth'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -30,6 +34,7 @@ const props = defineProps<{
 const store = useRequestStore()
 const responseStore = useResponseStore()
 const envStore = useEnvironmentStore()
+const workspaceStore = useWorkspaceStore()
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -45,7 +50,7 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.request.id,
 )
 
-const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts'>('query')
+const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs'>('query')
 
 const schema = ref<GraphQLSchema | null>(null)
 const schemaLoading = ref(false)
@@ -72,6 +77,7 @@ function buildIntrospectReq(): GraphQLIntrospectRequest {
     endpoint: props.request.url,
     schemaPath: props.request.graphqlSchemaPath || '',
     headers: hdrs,
+    workspaceId: workspaceStore.activeWorkspace?.id ?? '',
   }
 }
 
@@ -107,6 +113,10 @@ async function handleOperationSelect(opName: string) {
       ...buildIntrospectReq(),
       operationName: opName,
     })
+    if (result.error) {
+      useToast().error(`Could not build an example: ${result.error.message}`)
+      return
+    }
     if (result.data) {
       if (result.data.query) {
         updateField('graphqlQuery', result.data.query)
@@ -117,6 +127,7 @@ async function handleOperationSelect(opName: string) {
     }
   } catch (err) {
     console.error('Failed to generate GraphQL example:', err)
+    useToast().error('Could not build an example for this operation')
   }
 }
 
@@ -158,11 +169,7 @@ function handleShowInDocs(typeName: string) {
 
 const queryBadge = computed(() => props.request.graphqlQuery ? '1' : '')
 const headersBadge = computed(() => props.request.headers.length > 0 ? String(props.request.headers.length) : '')
-const authBadge = computed(() => {
-  const t = props.request.authType
-  const labels: Record<string, string> = { basic: 'Basic', bearer: 'Bearer', api_key: 'API Key' }
-  return t && t !== 'none' ? labels[t] ?? '' : ''
-})
+const authBadge = computed(() => authBadgeLabel(props.request.authType))
 const schemaBadge = computed(() => schema.value ? '1' : '')
 const scriptsBadge = computed(() => {
   const count = (props.request.preScript ? 1 : 0) + (props.request.postScript ? 1 : 0)
@@ -175,6 +182,7 @@ const tabs = computed(() => [
   { id: 'auth' as const, label: 'Auth', badge: authBadge.value },
   { id: 'schema' as const, label: 'Schema', badge: schemaBadge.value },
   { id: 'scripts' as const, label: 'Scripts', badge: scriptsBadge.value },
+  { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -321,6 +329,10 @@ onUnmounted(() => {
               v-else-if="activeTab === 'auth'"
               :auth-type="request.authType"
               :auth-data="request.authData"
+              owner-kind="request"
+              :owner-id="request.id"
+              :owner-version="request.version"
+              :protocol="request.protocol"
               @update:auth-type="(v) => updateField('authType', v)"
               @update:auth-data="(v) => updateField('authData', v)"
             />
@@ -342,6 +354,12 @@ onUnmounted(() => {
               :secret-keys="secretKeys"
               @update:pre-script="(v) => updateField('preScript', v)"
               @update:post-script="(v) => updateField('postScript', v)"
+            />
+
+            <RequestDocs
+              v-else-if="activeTab === 'docs'"
+              :description="request.description"
+              @update:description="(v) => updateField('description', v)"
             />
           </div>
         </div>

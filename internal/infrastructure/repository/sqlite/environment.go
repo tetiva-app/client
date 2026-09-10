@@ -12,17 +12,14 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
 
-// EnvironmentRepo implements environment.Repository using SQLite.
 type EnvironmentRepo struct {
 	db *sql.DB
 }
 
-// NewEnvironmentRepo creates a new EnvironmentRepo instance.
 func NewEnvironmentRepo(db *sql.DB) environment.Repository {
 	return &EnvironmentRepo{db: db}
 }
 
-// Create inserts a new environment into the database.
 func (r *EnvironmentRepo) Create(ctx context.Context, e *entities.Environment) error {
 	const funcName = "EnvironmentRepo.Create"
 
@@ -48,7 +45,7 @@ func (r *EnvironmentRepo) Create(ctx context.Context, e *entities.Environment) e
 	return nil
 }
 
-// GetByID retrieves an environment by ID, returning nil if not found or soft-deleted.
+// Returns nil when the row is missing or soft-deleted.
 func (r *EnvironmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Environment, error) {
 	const funcName = "EnvironmentRepo.GetByID"
 
@@ -68,7 +65,6 @@ func (r *EnvironmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.
 	return e, nil
 }
 
-// List returns environments matching the given filter.
 func (r *EnvironmentRepo) List(ctx context.Context, filter environment.Filter) ([]*entities.Environment, error) {
 	const funcName = "EnvironmentRepo.List"
 
@@ -96,8 +92,7 @@ func (r *EnvironmentRepo) List(ctx context.Context, filter environment.Filter) (
 	return result, nil
 }
 
-// Update persists all fields matched by id only — last-write-wins, no version guard:
-// the sync engine applies server changes; the UI enforces optimistic locking one layer up.
+// No version guard — sync applies server changes; the UI does optimistic locking one layer up.
 func (r *EnvironmentRepo) Update(ctx context.Context, e *entities.Environment) error {
 	const funcName = "EnvironmentRepo.Update"
 
@@ -123,7 +118,7 @@ func (r *EnvironmentRepo) Update(ctx context.Context, e *entities.Environment) e
 	return nil
 }
 
-// GetActive returns the active environment for a workspace, or nil if none.
+// Returns nil when none is active.
 func (r *EnvironmentRepo) GetActive(ctx context.Context, workspaceID uuid.UUID) (*entities.Environment, error) {
 	const funcName = "EnvironmentRepo.GetActive"
 
@@ -143,7 +138,7 @@ func (r *EnvironmentRepo) GetActive(ctx context.Context, workspaceID uuid.UUID) 
 	return e, nil
 }
 
-// SetActive deactivates all environments in a workspace and activates the given one.
+// Deactivates all environments in the workspace first.
 func (r *EnvironmentRepo) SetActive(ctx context.Context, workspaceID uuid.UUID, environmentID uuid.UUID) error {
 	const funcName = "EnvironmentRepo.SetActive"
 

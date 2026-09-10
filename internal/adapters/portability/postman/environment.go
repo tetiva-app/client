@@ -11,20 +11,16 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
 
-// ImportEnvOpts provides options for environment import.
 type ImportEnvOpts struct {
 	WorkspaceID uuid.UUID
 	UserID      string
 }
 
-// ImportEnvResult reports what was created during environment import.
 type ImportEnvResult struct {
 	EnvironmentName  string
 	VariablesCreated int
 }
 
-// ImportEnvironment parses a Postman Environment JSON and creates
-// an environment with variables using the provided usecase.
 func ImportEnvironment(
 	ctx context.Context,
 	data []byte,
@@ -72,7 +68,6 @@ func ImportEnvironment(
 	return result, nil
 }
 
-// ExportEnvironment builds a Postman Environment JSON from domain entities.
 func ExportEnvironment(env *entities.Environment, vars []*entities.Variable) ([]byte, error) {
 	const funcName = "postman.ExportEnvironment"
 

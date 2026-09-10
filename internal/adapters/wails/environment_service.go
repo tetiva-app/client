@@ -15,12 +15,10 @@ type EnvironmentService struct {
 	uc environment.Usecase
 }
 
-// NewEnvironmentService creates a new EnvironmentService instance.
 func NewEnvironmentService(uc environment.Usecase) *EnvironmentService {
 	return &EnvironmentService{uc: uc}
 }
 
-// List returns all environments for the given workspace.
 func (s *EnvironmentService) List(workspaceIDStr string) Result[[]dto.EnvironmentResponse] {
 	ctx := context.Background()
 
@@ -40,7 +38,6 @@ func (s *EnvironmentService) List(workspaceIDStr string) Result[[]dto.Environmen
 	return OK(dto.EnvironmentsToResponse(envs))
 }
 
-// Create creates a new environment.
 func (s *EnvironmentService) Create(req dto.CreateEnvironmentRequest) Result[dto.EnvironmentResponse] {
 	ctx := context.Background()
 
@@ -65,7 +62,6 @@ func (s *EnvironmentService) Create(req dto.CreateEnvironmentRequest) Result[dto
 	return OK(dto.EnvironmentToResponse(env))
 }
 
-// Duplicate creates a copy of an environment with all its variables.
 func (s *EnvironmentService) Duplicate(req dto.DuplicateEnvironmentRequest) Result[dto.EnvironmentResponse] {
 	ctx := context.Background()
 
@@ -98,7 +94,6 @@ func (s *EnvironmentService) Duplicate(req dto.DuplicateEnvironmentRequest) Resu
 	return OK(dto.EnvironmentToResponse(env))
 }
 
-// Edit updates an existing environment.
 func (s *EnvironmentService) Edit(req dto.EditEnvironmentRequest) Result[dto.EnvironmentResponse] {
 	ctx := context.Background()
 
@@ -124,7 +119,6 @@ func (s *EnvironmentService) Edit(req dto.EditEnvironmentRequest) Result[dto.Env
 	return OK(dto.EnvironmentToResponse(env))
 }
 
-// Delete soft-deletes an environment.
 func (s *EnvironmentService) Delete(req dto.DeleteEnvironmentRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -148,7 +142,6 @@ func (s *EnvironmentService) Delete(req dto.DeleteEnvironmentRequest) Result[Emp
 	return OK(Empty{})
 }
 
-// SetActive sets the active environment for a workspace.
 func (s *EnvironmentService) SetActive(workspaceIDStr string, req dto.SetActiveEnvironmentRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -178,7 +171,6 @@ func (s *EnvironmentService) SetActive(workspaceIDStr string, req dto.SetActiveE
 	return OK(Empty{})
 }
 
-// ListVariables returns all variables for an environment.
 func (s *EnvironmentService) ListVariables(environmentID string) Result[[]dto.VariableResponse] {
 	ctx := context.Background()
 
@@ -197,7 +189,6 @@ func (s *EnvironmentService) ListVariables(environmentID string) Result[[]dto.Va
 	return OK(dto.VariablesToResponse(vars))
 }
 
-// AddVariable adds a new variable to an environment.
 func (s *EnvironmentService) AddVariable(req dto.AddVariableRequest) Result[dto.VariableResponse] {
 	ctx := context.Background()
 
@@ -224,7 +215,6 @@ func (s *EnvironmentService) AddVariable(req dto.AddVariableRequest) Result[dto.
 	return OK(dto.VariableToResponse(v))
 }
 
-// EditVariable updates an existing variable.
 func (s *EnvironmentService) EditVariable(req dto.EditVariableRequest) Result[dto.VariableResponse] {
 	ctx := context.Background()
 
@@ -255,7 +245,6 @@ func (s *EnvironmentService) EditVariable(req dto.EditVariableRequest) Result[dt
 	return OK(dto.VariableToResponse(v))
 }
 
-// DeleteVariable removes a variable.
 func (s *EnvironmentService) DeleteVariable(req dto.DeleteVariableRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -275,7 +264,6 @@ func (s *EnvironmentService) DeleteVariable(req dto.DeleteVariableRequest) Resul
 	return OK(Empty{})
 }
 
-// ResolveVariables returns the active environment's variables as a key-value map.
 func (s *EnvironmentService) ResolveVariables(workspaceIDStr string) Result[map[string]string] {
 	ctx := context.Background()
 

@@ -18,9 +18,26 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-var testCollectionID = uuid.MustParse("00000000-0000-4000-a000-000000000010")
+var (
+	testCollectionID = uuid.MustParse("00000000-0000-4000-a000-000000000010")
+	testWorkspaceID  = uuid.MustParse("00000000-0000-4000-a000-000000000001")
+)
 
-// mockRepo is an in-memory implementation of request.Repository for testing.
+// fixtureCollections holds the collection every test request lives in; auth
+// resolution loads it on every execution path to learn the workspace.
+func fixtureCollections() *mockCollectionReader {
+	return &mockCollectionReader{
+		collections: map[uuid.UUID]*entities.Collection{
+			testCollectionID: {
+				ID:          testCollectionID,
+				WorkspaceID: testWorkspaceID,
+				AuthType:    entities.AuthTypeNone,
+				AuthData:    "{}",
+			},
+		},
+	}
+}
+
 type mockRepo struct {
 	requests       map[uuid.UUID]*entities.Request
 	hardDeletedIDs map[uuid.UUID]bool
@@ -34,12 +51,10 @@ func newMockRepo() *mockRepo {
 	}
 }
 
-// hardDeleted returns true if DeleteHard was called for the given id.
 func (m *mockRepo) hardDeleted(id uuid.UUID) bool {
 	return m.hardDeletedIDs[id]
 }
 
-// copyStringSliceMap performs a deep copy of map[string][]string.
 func copyStringSliceMap(src map[string][]string) map[string][]string {
 	if src == nil {
 		return nil
@@ -53,7 +68,6 @@ func copyStringSliceMap(src map[string][]string) map[string][]string {
 	return dst
 }
 
-// copyHeaderItems performs a deep copy of []entities.HeaderItem.
 func copyHeaderItems(src []entities.HeaderItem) []entities.HeaderItem {
 	if src == nil {
 		return nil
@@ -78,6 +92,14 @@ func (m *mockRepo) GetByID(_ context.Context, id uuid.UUID) (*entities.Request, 
 	cp.Headers = copyHeaderItems(r.Headers)
 	cp.GRPCMetadata = copyStringSliceMap(r.GRPCMetadata)
 	return &cp, nil
+}
+
+func (m *mockRepo) GetDescriptionByID(_ context.Context, id uuid.UUID) (string, error) {
+	r, ok := m.requests[id]
+	if !ok {
+		return "", nil
+	}
+	return r.Description, nil
 }
 
 func (m *mockRepo) List(_ context.Context, filter request.Filter) ([]*entities.Request, error) {
@@ -132,7 +154,6 @@ func (m *mockRepo) CleanupDrafts(_ context.Context) (int, error) {
 	return n, nil
 }
 
-// mockHistoryRepo is a no-op implementation of request.HistoryRepository for testing.
 type mockHistoryRepo struct {
 	entries []*entities.History
 	byID    map[uuid.UUID]*entities.History
@@ -154,7 +175,6 @@ func (m *mockHistoryRepo) GetByID(_ context.Context, id uuid.UUID) (*entities.Hi
 	return m.byID[id], nil
 }
 
-// mockRequester is a stub implementation of request.HTTPRequester for testing.
 type mockRequester struct {
 	response    *entities.Response
 	err         error
@@ -166,19 +186,19 @@ func (m *mockRequester) Execute(_ context.Context, req request.HTTPExecuteReques
 	return m.response, m.err
 }
 
-// mockEnvResolver is a no-op environment resolver that returns empty vars.
 type mockEnvResolver struct {
-	vars map[string]string
+	vars  map[string]string
+	calls int
 }
 
 func (m *mockEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[string]string, error) {
+	m.calls++
 	if m.vars != nil {
 		return m.vars, nil
 	}
 	return map[string]string{}, nil
 }
 
-// noopScriptEngine is a no-op ScriptEngine for tests that don't need scripts.
 type noopScriptEngine struct{}
 
 func (n *noopScriptEngine) RunPreScript(_ context.Context, _ string, _ request.ScriptContext) (*request.PreScriptResult, error) {
@@ -189,14 +209,12 @@ func (n *noopScriptEngine) RunPostScript(_ context.Context, _ string, _ request.
 	return &request.PostScriptResult{}, nil
 }
 
-// noopVarPersister is a no-op VariablePersister for tests.
 type noopVarPersister struct{}
 
 func (n *noopVarPersister) PersistVariableChanges(_ context.Context, _ uuid.UUID, _ string, _ map[string]string) error {
 	return nil
 }
 
-// noopScriptResolver is a no-op ScriptResolver that returns empty scripts.
 type noopScriptResolver struct{}
 
 func (n *noopScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
@@ -207,12 +225,11 @@ func (n *noopScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Re
 	return "", nil
 }
 
-// newTestUsecase creates a usecase with a fresh mock repository.
 func newTestUsecase() (request.Usecase, *mockRepo, *mockHistoryRepo, *mockRequester) {
 	repo := newMockRepo()
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 	return uc, repo, historyRepo, requester
 }
 
@@ -700,7 +717,7 @@ func TestExecute_Success(t *testing.T) {
 
 	opt := request.ExecuteOpt{
 		UserID:      "user-1",
-		WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001"),
+		WorkspaceID: testWorkspaceID,
 	}
 
 	resp, err := uc.Execute(ctx, created.ID, opt)
@@ -754,7 +771,7 @@ func TestExecute_NetworkError(t *testing.T) {
 
 	opt := request.ExecuteOpt{
 		UserID:      "user-1",
-		WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001"),
+		WorkspaceID: testWorkspaceID,
 	}
 
 	resp, err := uc.Execute(ctx, created.ID, opt)
@@ -783,7 +800,7 @@ func TestExecute_NotFound(t *testing.T) {
 
 	opt := request.ExecuteOpt{
 		UserID:      "user-1",
-		WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001"),
+		WorkspaceID: testWorkspaceID,
 	}
 
 	resp, err := uc.Execute(ctx, uuid.New(), opt)
@@ -838,7 +855,7 @@ func TestCreate_ValidationError_InvalidAuthType(t *testing.T) {
 		Protocol:     entities.ProtocolHTTP,
 		Method:       entities.MethodGET,
 		BodyType:     entities.BodyTypeNone,
-		AuthType:     entities.AuthType("oauth2"),
+		AuthType:     entities.AuthType("hawk"),
 	}
 	opt := request.CreateOpt{UserID: "user-1"}
 
@@ -910,7 +927,7 @@ func TestExecute_BasicAuth_HeaderApplied(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -947,7 +964,7 @@ func TestExecute_APIKey_Query(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -978,7 +995,7 @@ func TestExecute_AutoContentType_JSON(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1010,7 +1027,7 @@ func TestExecute_BinaryBody_RejectsPathTraversal(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err == nil {
@@ -1040,7 +1057,7 @@ func TestExecute_FormBody(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1077,7 +1094,7 @@ func TestExecute_BearerAuth_EmptyPrefix(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1114,7 +1131,7 @@ func TestExecute_BearerAuth_DefaultPrefix(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1154,7 +1171,7 @@ func TestExecute_APIKey_RejectsReservedHeaders(t *testing.T) {
 			}
 
 			requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-			opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+			opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 			_, err = uc.Execute(ctx, created.ID, opt)
 			if err == nil {
@@ -1171,7 +1188,7 @@ func newTestUsecaseWithVars(vars map[string]string) (request.Usecase, *mockRepo,
 	repo := newMockRepo()
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{vars: vars}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{vars: vars}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 	return uc, repo, historyRepo, requester
 }
 
@@ -1191,7 +1208,7 @@ func TestExecute_SubstitutesURL(t *testing.T) {
 	}, request.CreateOpt{UserID: "user-1"})
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err := uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1220,7 +1237,7 @@ func TestExecute_SubstitutesHeaders(t *testing.T) {
 	}, request.CreateOpt{UserID: "user-1"})
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err := uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1250,7 +1267,7 @@ func TestExecute_SubstitutesBody(t *testing.T) {
 	}, request.CreateOpt{UserID: "user-1"})
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err := uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1277,7 +1294,7 @@ func TestExecute_UnresolvedVarsLeftAsIs(t *testing.T) {
 	}, request.CreateOpt{UserID: "user-1"})
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err := uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1306,7 +1323,7 @@ func TestExecute_SubstitutesAuthData(t *testing.T) {
 	}, request.CreateOpt{UserID: "user-1"})
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err := uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1434,7 +1451,7 @@ func TestExecute_DisabledHeadersNotSent(t *testing.T) {
 	}
 
 	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
-	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001")}
+	opt := request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}
 
 	_, err = uc.Execute(ctx, created.ID, opt)
 	if err != nil {
@@ -1486,17 +1503,18 @@ func TestExecute_HistoryRecordsRawFormBody(t *testing.T) {
 	id := uuid.New()
 	rawBody := `[{"key":"user","value":"alice","type":"text","enabled":true}]`
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodPOST,
-		URL:      "https://api.example.com/login",
-		Body:     rawBody,
-		BodyType: entities.BodyTypeForm,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodPOST,
+		URL:          "https://api.example.com/login",
+		Body:         rawBody,
+		BodyType:     entities.BodyTypeForm,
+		AuthType:     entities.AuthTypeNone,
 	}
 	requester.response = &entities.Response{StatusCode: 200, Headers: map[string][]string{}}
 
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(historyRepo.entries) != 1 {
@@ -1520,17 +1538,18 @@ func TestExecute_StripsJSONCCommentsFromWireBody(t *testing.T) {
   "age": 30
 }`
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodPOST,
-		URL:      "https://api.example.com/users",
-		Body:     rawBody,
-		BodyType: entities.BodyTypeJSON,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodPOST,
+		URL:          "https://api.example.com/users",
+		Body:         rawBody,
+		BodyType:     entities.BodyTypeJSON,
+		AuthType:     entities.AuthTypeNone,
 	}
 	requester.response = &entities.Response{StatusCode: 200, Headers: map[string][]string{}}
 
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 
@@ -1566,21 +1585,22 @@ func TestExecute_HistoryRecordsBinaryWithSubstitutedPath(t *testing.T) {
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{response: &entities.Response{StatusCode: 200, Headers: map[string][]string{}}}
 	envResolver := &mockEnvResolver{vars: map[string]string{"root": tempDir}}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, envResolver, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(&mockCollectionReader{}), nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, envResolver, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
-		ID:       id,
-		Protocol: entities.ProtocolHTTP,
-		Method:   entities.MethodPOST,
-		URL:      "https://api.example.com/upload",
-		Body:     "{{root}}/payload.bin",
-		BodyType: entities.BodyTypeBinary,
-		AuthType: entities.AuthTypeNone,
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodPOST,
+		URL:          "https://api.example.com/upload",
+		Body:         "{{root}}/payload.bin",
+		BodyType:     entities.BodyTypeBinary,
+		AuthType:     entities.AuthTypeNone,
 	}
 
 	ctx := context.Background()
-	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: uuid.New()}); err != nil {
+	if _, err := uc.Execute(ctx, id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(historyRepo.entries) != 1 {
@@ -1589,5 +1609,405 @@ func TestExecute_HistoryRecordsBinaryWithSubstitutedPath(t *testing.T) {
 	want := "[binary: " + binPath + "]"
 	if got := historyRepo.entries[0].RequestBody; got != want {
 		t.Errorf("history binary body: got %q, want %q", got, want)
+	}
+}
+
+func TestCreate_PersistsDescription(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Documented",
+		Description:  "# Ping\n\nReturns `pong`.",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Description != "# Ping\n\nReturns `pong`." {
+		t.Errorf("description: got %q", created.Description)
+	}
+
+	got, err := uc.GetByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Description != created.Description {
+		t.Errorf("description after reload: got %q, want %q", got.Description, created.Description)
+	}
+}
+
+func TestEdit_UpdatesDescription(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Documented",
+		Description:  "old docs",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	edited, err := uc.Edit(ctx, request.Edit{
+		Name:        "Documented",
+		Description: "new docs",
+		Method:      entities.MethodGET,
+		BodyType:    entities.BodyTypeNone,
+		AuthType:    entities.AuthTypeNone,
+	}, request.EditOpt{RequestID: created.ID, UserID: "user-1", Version: created.Version})
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if edited.Description != "new docs" {
+		t.Errorf("description: got %q, want %q", edited.Description, "new docs")
+	}
+}
+
+const wsSettingsDoc = `{"version":1,"pingIntervalSec":20,"subprotocols":["json"],"messages":[{"id":"m1","name":"Login","format":"json","data":"{}"}]}`
+
+func TestCreate_WebSocket_KeepsSettingsAndForcesRawBody(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Feed",
+		Protocol:     entities.ProtocolWebSocket,
+		URL:          "wss://example.com/ws",
+		Body:         wsSettingsDoc,
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.Body != wsSettingsDoc {
+		t.Errorf("body: got %q, want %q", created.Body, wsSettingsDoc)
+	}
+	if created.BodyType != entities.BodyTypeRaw {
+		t.Errorf("bodyType: got %q, want %q", created.BodyType, entities.BodyTypeRaw)
+	}
+}
+
+func TestCreate_WebSocket_RejectsMalformedSettings(t *testing.T) {
+	uc, repo, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Feed",
+		Protocol:     entities.ProtocolWebSocket,
+		URL:          "wss://example.com/ws",
+		Body:         "not a document",
+		BodyType:     entities.BodyTypeRaw,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if created != nil {
+		t.Fatal("expected no request on a validation error")
+	}
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected *domain.ValidationError, got %T (%v)", err, err)
+	}
+	if verr.Fields["body"] == "" {
+		t.Errorf("expected a reason under the body field, got %v", verr.Fields)
+	}
+	if len(repo.requests) != 0 {
+		t.Errorf("expected nothing persisted, got %d requests", len(repo.requests))
+	}
+}
+
+func TestEdit_WebSocket_KeepsSettingsAndForcesRawBody(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Feed",
+		Protocol:     entities.ProtocolWebSocket,
+		URL:          "wss://example.com/ws",
+		BodyType:     entities.BodyTypeRaw,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	edited, err := uc.Edit(ctx, request.Edit{
+		Name:     "Feed",
+		URL:      "wss://example.com/ws",
+		Body:     wsSettingsDoc,
+		BodyType: entities.BodyTypeJSON,
+		AuthType: entities.AuthTypeNone,
+	}, request.EditOpt{RequestID: created.ID, UserID: "user-1", Version: created.Version})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if edited.Body != wsSettingsDoc {
+		t.Errorf("body: got %q, want %q", edited.Body, wsSettingsDoc)
+	}
+	if edited.BodyType != entities.BodyTypeRaw {
+		t.Errorf("bodyType: got %q, want %q", edited.BodyType, entities.BodyTypeRaw)
+	}
+}
+
+func TestEdit_WebSocket_RejectsMalformedSettings(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Feed",
+		Protocol:     entities.ProtocolWebSocket,
+		URL:          "wss://example.com/ws",
+		Body:         wsSettingsDoc,
+		BodyType:     entities.BodyTypeRaw,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	edited, err := uc.Edit(ctx, request.Edit{
+		Name:     "Feed",
+		URL:      "wss://example.com/ws",
+		Body:     `{"version":9}`,
+		BodyType: entities.BodyTypeRaw,
+		AuthType: entities.AuthTypeNone,
+	}, request.EditOpt{RequestID: created.ID, UserID: "user-1", Version: created.Version})
+	if edited != nil {
+		t.Fatal("expected no request on a validation error")
+	}
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected *domain.ValidationError, got %T (%v)", err, err)
+	}
+
+	stored, err := uc.GetByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if stored.Body != wsSettingsDoc {
+		t.Errorf("stored body changed: got %q", stored.Body)
+	}
+}
+
+func TestCreateEdit_HTTPBodyNotValidatedAsSettings(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Plain",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodPOST,
+		URL:          "https://api.example.com/users",
+		Body:         "not a document",
+		BodyType:     entities.BodyTypeRaw,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Body != "not a document" || created.BodyType != entities.BodyTypeRaw {
+		t.Errorf("http body altered: %q / %q", created.Body, created.BodyType)
+	}
+
+	edited, err := uc.Edit(ctx, request.Edit{
+		Name:     "Plain",
+		Method:   entities.MethodPOST,
+		URL:      "https://api.example.com/users",
+		Body:     `{"still":"free-form"}`,
+		BodyType: entities.BodyTypeJSON,
+		AuthType: entities.AuthTypeNone,
+	}, request.EditOpt{RequestID: created.ID, UserID: "user-1", Version: created.Version})
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if edited.BodyType != entities.BodyTypeJSON {
+		t.Errorf("http bodyType altered: %q", edited.BodyType)
+	}
+}
+
+type mockGraphQLRequester struct {
+	response *entities.Response
+	last     request.GraphQLExecuteRequest
+}
+
+func (m *mockGraphQLRequester) Execute(_ context.Context, req request.GraphQLExecuteRequest) (*entities.Response, error) {
+	m.last = req
+	return m.response, nil
+}
+
+func (m *mockGraphQLRequester) Introspect(_ context.Context, _ request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
+	return nil, nil
+}
+
+func (m *mockGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ string) (*request.GraphQLExampleResponse, error) {
+	return nil, nil
+}
+
+func ucWithPreScript(repo *mockRepo, vars map[string]string, engine request.ScriptEngine, httpReq *mockRequester, gqlReq *mockGraphQLRequester) request.Usecase {
+	return request.NewUsecase(repo, &mockHistoryRepo{}, httpReq, nil, gqlReq,
+		&mockEnvResolver{vars: vars}, engine, &scriptResolverWithPre{pre: "// script"},
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+}
+
+func TestExecute_HTTP_ScriptHeaderPlaceholderIsResolved(t *testing.T) {
+	repo := newMockRepo()
+	requester := &mockRequester{response: &entities.Response{StatusCode: 200}}
+	engine := &captureScriptEngine{preHeaders: map[string][]string{"X-Token": {"{{token}}"}}}
+	uc := ucWithPreScript(repo, map[string]string{"token": "secret"}, engine, requester, nil)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
+	}
+
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got := requester.lastRequest.Headers["X-Token"]; len(got) != 1 || got[0] != "secret" {
+		t.Fatalf("X-Token: got %v, want [secret]", got)
+	}
+}
+
+func TestExecute_HTTP_ScriptSeesRawHeadersAndNewVariableApplies(t *testing.T) {
+	repo := newMockRepo()
+	requester := &mockRequester{response: &entities.Response{StatusCode: 200}}
+	engine := &captureScriptEngine{preVars: map[string]string{"v": "new"}}
+	uc := ucWithPreScript(repo, map[string]string{"v": "old"}, engine, requester, nil)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL:      "https://api.example.com/x",
+		Headers:  []entities.HeaderItem{{Key: "X-Test", Value: "{{v}}", Enabled: true}},
+		BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone,
+	}
+
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got := engine.seenHeaders["X-Test"]; len(got) != 1 || got[0] != "{{v}}" {
+		t.Fatalf("script saw X-Test = %v, want the raw placeholder", got)
+	}
+	if got := requester.lastRequest.Headers["X-Test"]; len(got) != 1 || got[0] != "new" {
+		t.Fatalf("X-Test: got %v, want [new]", got)
+	}
+}
+
+func TestExecute_GraphQL_ScriptHeaderPlaceholderIsResolved(t *testing.T) {
+	repo := newMockRepo()
+	gql := &mockGraphQLRequester{response: &entities.Response{StatusCode: 200}}
+	engine := &captureScriptEngine{preHeaders: map[string][]string{"X-Token": {"{{token}}"}}}
+	uc := ucWithPreScript(repo, map[string]string{"token": "secret"}, engine, &mockRequester{}, gql)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolGraphQL, URL: "https://api.example.com/graphql",
+		GraphQLQuery: "{ me }", AuthType: entities.AuthTypeNone,
+	}
+
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got := gql.last.Headers["X-Token"]; len(got) != 1 || got[0] != "secret" {
+		t.Fatalf("X-Token: got %v, want [secret]", got)
+	}
+}
+
+func TestExecute_GraphQL_ScriptSeesRawHeadersAndNewVariableApplies(t *testing.T) {
+	repo := newMockRepo()
+	gql := &mockGraphQLRequester{response: &entities.Response{StatusCode: 200}}
+	engine := &captureScriptEngine{preVars: map[string]string{"v": "new"}}
+	uc := ucWithPreScript(repo, map[string]string{"v": "old"}, engine, &mockRequester{}, gql)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolGraphQL, URL: "https://api.example.com/graphql",
+		Headers:      []entities.HeaderItem{{Key: "X-Test", Value: "{{v}}", Enabled: true}},
+		GraphQLQuery: "{ me }", AuthType: entities.AuthTypeNone,
+	}
+
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got := engine.seenHeaders["X-Test"]; len(got) != 1 || got[0] != "{{v}}" {
+		t.Fatalf("script saw X-Test = %v, want the raw placeholder", got)
+	}
+	if got := gql.last.Headers["X-Test"]; len(got) != 1 || got[0] != "new" {
+		t.Fatalf("X-Test: got %v, want [new]", got)
+	}
+}
+
+func TestExecute_GraphQL_PassesWorkspaceIDForCookieJar(t *testing.T) {
+	repo := newMockRepo()
+	gql := &mockGraphQLRequester{response: &entities.Response{StatusCode: 200}}
+	uc := ucWithPreScript(repo, nil, &captureScriptEngine{}, &mockRequester{}, gql)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolGraphQL, URL: "https://api.example.com/graphql",
+		GraphQLQuery: "{ me }", AuthType: entities.AuthTypeNone,
+	}
+
+	wsID := testWorkspaceID
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: wsID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gql.last.WorkspaceID != wsID {
+		t.Fatalf("WorkspaceID: got %s, want %s", gql.last.WorkspaceID, wsID)
+	}
+}
+
+// digest and aws_sigv4 reach the requester as HTTPExecuteRequest.Auth: only the
+// final request can carry a challenge response or a signature.
+func TestExecute_WireAuth_HandedToTheRequester(t *testing.T) {
+	uc, _, _, requester := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Digest",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		URL:          "https://api.example.com",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeDigest,
+		AuthData:     `{"username":"neo","password":"trinity"}`,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	requester.response = &entities.Response{StatusCode: 200, StatusText: "OK", Headers: map[string][]string{}, Duration: 10 * time.Millisecond}
+	if _, err = uc.Execute(ctx, created.ID, request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	auth := requester.lastRequest.Auth
+	if auth == nil {
+		t.Fatal("expected the requester to receive the auth scheme")
+	}
+	if auth.Type != entities.AuthTypeDigest {
+		t.Errorf("auth type: got %q, want digest", auth.Type)
+	}
+	if auth.Fields["username"] != "neo" || auth.Fields["password"] != "trinity" {
+		t.Errorf("unexpected auth fields: %v", auth.Fields)
+	}
+	if _, ok := requester.lastRequest.Headers["Authorization"]; ok {
+		t.Errorf("digest must not set a header up front: %v", requester.lastRequest.Headers)
 	}
 }

@@ -1,11 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Mock build: MockSyncService returns three fixed devices, one of them current.
+// The cloud has no credentials form left, so the connected view is reached through
+// a self-hosted server that cannot complete a browser sign-in.
 test.describe('Sync devices', () => {
   async function connect(page: Page, scenario = '') {
     await page.goto('/' + scenario);
     await page.getByRole('button', { name: 'Sync', exact: true }).click();
     const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Use custom server' }).click();
+    await dialog.locator('#server-url').fill('sync.corp.local');
     await dialog.locator('#login-email').fill('test@example.com');
     await dialog.locator('#login-password').fill('secret123');
     await dialog.getByRole('button', { name: 'Connect', exact: true }).click();

@@ -43,6 +43,10 @@ async function detachTab(tab: Tab) {
 
   await svc.detachRequest(tab.requestId, req?.protocol ?? 'http', title)
 
+  // The detached window owns the request now; a flow started here must not
+  // outlive the tab. This path bypasses releaseTab, so it forgets by hand.
+  await store.forgetTokenStatus([{ kind: 'request', id: tab.requestId }])
+
   // Request data stays in the map for sidebar display.
   const idx = store.openTabs.findIndex(t => t.id === tab.id)
   if (idx >= 0) {

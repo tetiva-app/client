@@ -8,36 +8,35 @@ import (
 	"github.com/google/uuid"
 )
 
-// SyncConfig holds sync server configuration.
 type SyncConfig struct {
-	ClientID     string
-	ServerURL    string
-	UserEmail    string
-	Enabled      bool
-	RefreshToken string
+	ClientID       string
+	ServerURL      string
+	UserEmail      string
+	Enabled        bool
+	RefreshToken   string
+	AuthGeneration int
+	// ReauthRequired survives restarts: the cleanup repeats until a sign-in clears it.
+	ReauthRequired bool
 }
 
-// SyncConfigRepository manages the sync configuration singleton.
+// Manages the sync configuration singleton.
 type SyncConfigRepository interface {
-	// GetOrCreate returns the existing config or creates one with a new UUID client_id.
+	// Creates the row with a new UUID client_id when absent.
 	GetOrCreate(ctx context.Context) (*SyncConfig, error)
-	// Update persists server_url, user_email and enabled fields.
+	// A partial write would zero the columns the caller did not read.
 	Update(ctx context.Context, cfg *SyncConfig) error
-	// Get returns the config or nil if not yet created.
+	// Returns nil when no config exists yet.
 	Get(ctx context.Context) (*SyncConfig, error)
 }
 
-// SyncConfigRepo implements SyncConfigRepository using SQLite.
 type SyncConfigRepo struct {
 	db *sql.DB
 }
 
-// NewSyncConfigRepo creates a new SyncConfigRepo instance.
 func NewSyncConfigRepo(db *sql.DB) SyncConfigRepository {
 	return &SyncConfigRepo{db: db}
 }
 
-// GetOrCreate returns the existing sync config or creates one with a new UUID client_id.
 func (r *SyncConfigRepo) GetOrCreate(ctx context.Context) (*SyncConfig, error) {
 	const funcName = "SyncConfigRepo.GetOrCreate"
 
@@ -50,27 +49,25 @@ func (r *SyncConfigRepo) GetOrCreate(ctx context.Context) (*SyncConfig, error) {
 	}
 
 	clientID := uuid.New().String()
-	query := `INSERT INTO sync_config (id, client_id, server_url, user_email, enabled) VALUES (1, ?, '', '', 0)`
+	query := `INSERT INTO sync_config (id, client_id, server_url, user_email, enabled, refresh_token, auth_generation, reauth_required)
+		VALUES (1, ?, '', '', 0, '', 0, 0)`
 	_, err = r.db.ExecContext(ctx, query, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: insert: %w", funcName, err)
 	}
 
-	return &SyncConfig{
-		ClientID:  clientID,
-		ServerURL: "",
-		UserEmail: "",
-		Enabled:   false,
-	}, nil
+	return &SyncConfig{ClientID: clientID}, nil
 }
 
-// Update persists server_url, user_email and enabled fields (client_id is immutable).
+// client_id is immutable.
 func (r *SyncConfigRepo) Update(ctx context.Context, cfg *SyncConfig) error {
 	const funcName = "SyncConfigRepo.Update"
 
-	query := `UPDATE sync_config SET server_url = ?, user_email = ?, enabled = ?, refresh_token = ? WHERE id = 1`
+	query := `UPDATE sync_config SET server_url = ?, user_email = ?, enabled = ?, refresh_token = ?,
+		auth_generation = ?, reauth_required = ? WHERE id = 1`
 
-	_, err := r.db.ExecContext(ctx, query, cfg.ServerURL, cfg.UserEmail, boolToInt(cfg.Enabled), cfg.RefreshToken)
+	_, err := r.db.ExecContext(ctx, query, cfg.ServerURL, cfg.UserEmail, boolToInt(cfg.Enabled), cfg.RefreshToken,
+		cfg.AuthGeneration, boolToInt(cfg.ReauthRequired))
 	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
@@ -78,15 +75,16 @@ func (r *SyncConfigRepo) Update(ctx context.Context, cfg *SyncConfig) error {
 	return nil
 }
 
-// Get returns the sync config, or nil if no config has been created yet.
 func (r *SyncConfigRepo) Get(ctx context.Context) (*SyncConfig, error) {
 	const funcName = "SyncConfigRepo.Get"
 
-	query := `SELECT client_id, server_url, user_email, enabled, COALESCE(refresh_token, '') FROM sync_config WHERE id = 1`
+	query := `SELECT client_id, server_url, user_email, enabled, COALESCE(refresh_token, ''), auth_generation, reauth_required
+		FROM sync_config WHERE id = 1`
 
 	var (
 		cfg     SyncConfig
 		enabled int
+		reauth  int
 	)
 
 	err := r.db.QueryRowContext(ctx, query).Scan(
@@ -95,6 +93,8 @@ func (r *SyncConfigRepo) Get(ctx context.Context) (*SyncConfig, error) {
 		&cfg.UserEmail,
 		&enabled,
 		&cfg.RefreshToken,
+		&cfg.AuthGeneration,
+		&reauth,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -104,5 +104,6 @@ func (r *SyncConfigRepo) Get(ctx context.Context) (*SyncConfig, error) {
 	}
 
 	cfg.Enabled = enabled != 0
+	cfg.ReauthRequired = reauth != 0
 	return &cfg, nil
 }

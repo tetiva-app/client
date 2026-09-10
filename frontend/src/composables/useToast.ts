@@ -20,25 +20,33 @@ export interface ToastItem {
 const toasts = ref<ToastItem[]>([])
 let nextId = 1
 
-function push(kind: ToastKind, message: string, durationMs = 4000, action?: ToastAction, sticky = false) {
-  if (sticky && toasts.value.some(t => t.sticky && t.message === message)) return
+// The id comes back so a caller can retract a toast whose action went stale.
+function push(kind: ToastKind, message: string, durationMs = 4000, action?: ToastAction, sticky = false): number {
+  // A repeated sticky notice replaces its twin instead of stacking or being
+  // dropped: the newer one carries the action bound to the newer event.
+  if (sticky) {
+    toasts.value = toasts.value.filter(t => !(t.sticky && t.message === message))
+  }
 
   const id = nextId++
   toasts.value.push({ id, kind, message, action, sticky })
-  if (sticky) return
+  if (sticky) return id
 
   setTimeout(() => {
     toasts.value = toasts.value.filter(t => t.id !== id)
   }, durationMs)
+  return id
 }
 
 export function useToast() {
   return {
     toasts: readonly(toasts),
-    success: (message: string) => push('success', message),
+    success: (message: string, action?: ToastAction, opts?: { sticky?: boolean }) =>
+      push('success', message, 4000, action, opts?.sticky === true),
     error: (message: string, action?: ToastAction, opts?: { sticky?: boolean }) =>
       push('error', message, 6000, action, opts?.sticky === true),
-    info: (message: string) => push('info', message),
+    info: (message: string, action?: ToastAction, opts?: { sticky?: boolean }) =>
+      push('info', message, 4000, action, opts?.sticky === true),
     dismiss: (id: number) => {
       toasts.value = toasts.value.filter(t => t.id !== id)
     },

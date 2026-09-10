@@ -9,6 +9,7 @@ import type { SearchServiceAPI } from './search-api'
 import type { CookieServiceAPI } from './cookie-api'
 import type { HistoryServiceAPI } from './history-api'
 import type { SettingsServiceAPI } from './settings-api'
+import type { AuthServiceAPI } from './auth-api'
 
 export type { CollectionServiceAPI }
 export type {
@@ -66,7 +67,15 @@ export type {
   RemoteWorkspace,
   LinkWorkspaceRequest,
   UnlinkWorkspaceRequest,
+  ServerCapabilities,
+  SignInIntent,
+  StartBrowserSignInRequest,
+  BrowserSignInInfo,
+  BrowserSignInState,
+  BrowserSignInStatus,
+  BrowserSignInEvent,
 } from './sync-api'
+export { emptyBrowserSignInInfo } from './sync-api'
 
 export type { SearchServiceAPI, SearchHitDTO, SearchResponseDTO } from './search-api'
 
@@ -83,6 +92,15 @@ export type { MCPSettings, SetMCPSettingsRequest, SettingsServiceAPI } from './s
 
 export type { WebSocketServiceAPI } from './websocket-api'
 
+export type { AuthServiceAPI }
+export type {
+  AuthConfigReq,
+  AuthOwnerKind,
+  ResolvedOwner,
+  TokenState,
+  TokenStatus,
+} from './auth-api'
+
 function detectWailsEnvironment(): boolean {
   if (typeof window === 'undefined') return false
   // Wails v3: runtime sets window._wails
@@ -94,6 +112,9 @@ function detectWailsEnvironment(): boolean {
   if ((window as any).chrome?.webview?.postMessage) return true
   // Wails v2 fallback
   if ('__wails_runtime__' in window || '__wails__' in window) return true
+  // Server build (-tags server): nothing is injected into the HTML, the bundled
+  // runtime sets window._wails only after this module ran, so opt in via URL
+  if (new URLSearchParams(window.location?.search ?? '').get('wails') === '1') return true
   return false
 }
 
@@ -106,186 +127,134 @@ export function isWailsEnvironment(): boolean {
   return IS_WAILS_ENVIRONMENT
 }
 
-let collectionService: CollectionServiceAPI | null = null
-
-export async function getCollectionService(): Promise<CollectionServiceAPI> {
-  if (!collectionService) {
-    if (isWailsEnvironment()) {
-      const { WailsCollectionService } = await import('./wails-collection')
-      collectionService = new WailsCollectionService()
-    } else {
-      const { MockCollectionService } = await import('./mock-collection')
-      collectionService = new MockCollectionService()
-      console.info('[Tetiva] Running in browser mode with mock services')
+// Every getter memoizes the promise, not the instance: two callers racing the dynamic
+// import would each build a service and fork the mock's session. Rejections aren't cached.
+function memoize<T>(load: () => Promise<T>): () => Promise<T> {
+  let cached: Promise<T> | null = null
+  return () => {
+    if (!cached) {
+      const pending = load()
+      cached = pending
+      pending.catch(() => {
+        if (cached === pending) cached = null
+      })
     }
+    return cached
   }
-  return collectionService
 }
 
-let requestService: RequestServiceAPI | null = null
-
-export async function getRequestService(): Promise<RequestServiceAPI> {
-  if (!requestService) {
-    if (isWailsEnvironment()) {
-      const { WailsRequestService } = await import('./wails-request')
-      requestService = new WailsRequestService()
-    } else {
-      const { MockRequestService } = await import('./mock-request')
-      requestService = new MockRequestService()
-    }
+export const getCollectionService = memoize<CollectionServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsCollectionService } = await import('./wails-collection')
+    return new WailsCollectionService()
   }
-  return requestService
-}
+  const { MockCollectionService } = await import('./mock-collection')
+  console.info('[Tetiva] Running in browser mode with mock services')
+  return new MockCollectionService()
+})
 
-let environmentService: EnvironmentServiceAPI | null = null
-
-export async function getEnvironmentService(): Promise<EnvironmentServiceAPI> {
-  if (!environmentService) {
-    if (isWailsEnvironment()) {
-      const { WailsEnvironmentService } = await import('./wails-environment')
-      environmentService = new WailsEnvironmentService()
-    } else {
-      const { MockEnvironmentService } = await import('./mock-environment')
-      environmentService = new MockEnvironmentService()
-    }
+export const getRequestService = memoize<RequestServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsRequestService } = await import('./wails-request')
+    return new WailsRequestService()
   }
-  return environmentService
-}
+  const { MockRequestService } = await import('./mock-request')
+  return new MockRequestService()
+})
 
-let portabilityService: PortabilityServiceAPI | null = null
-
-export async function getPortabilityService(): Promise<PortabilityServiceAPI> {
-  if (!portabilityService) {
-    if (isWailsEnvironment()) {
-      const { WailsPortabilityService } = await import('./wails-portability')
-      portabilityService = new WailsPortabilityService()
-    } else {
-      const { MockPortabilityService } = await import('./mock-portability')
-      portabilityService = new MockPortabilityService()
-    }
+export const getEnvironmentService = memoize<EnvironmentServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsEnvironmentService } = await import('./wails-environment')
+    return new WailsEnvironmentService()
   }
-  return portabilityService
-}
+  const { MockEnvironmentService } = await import('./mock-environment')
+  return new MockEnvironmentService()
+})
 
-let workspaceService: WorkspaceServiceAPI | null = null
-
-export async function getWorkspaceService(): Promise<WorkspaceServiceAPI> {
-  if (!workspaceService) {
-    if (isWailsEnvironment()) {
-      const { WailsWorkspaceService } = await import('./wails-workspace')
-      workspaceService = new WailsWorkspaceService()
-    } else {
-      const { MockWorkspaceService } = await import('./mock-workspace')
-      workspaceService = new MockWorkspaceService()
-    }
+export const getPortabilityService = memoize<PortabilityServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsPortabilityService } = await import('./wails-portability')
+    return new WailsPortabilityService()
   }
-  return workspaceService
-}
+  const { MockPortabilityService } = await import('./mock-portability')
+  return new MockPortabilityService()
+})
 
-let windowService: WindowServiceAPI | null = null
-
-export async function getWindowService(): Promise<WindowServiceAPI | null> {
-  if (!windowService) {
-    if (isWailsEnvironment()) {
-      const { WailsWindowService } = await import('./wails-window')
-      windowService = new WailsWindowService()
-    } else {
-      // No window management in browser mode
-      return null
-    }
+export const getWorkspaceService = memoize<WorkspaceServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsWorkspaceService } = await import('./wails-workspace')
+    return new WailsWorkspaceService()
   }
-  return windowService
-}
+  const { MockWorkspaceService } = await import('./mock-workspace')
+  return new MockWorkspaceService()
+})
 
-let syncService: Promise<SyncServiceAPI | null> | null = null
+export const getWindowService = memoize<WindowServiceAPI | null>(async () => {
+  // No window management in browser mode
+  if (!isWailsEnvironment()) return null
+  const { WailsWindowService } = await import('./wails-window')
+  return new WailsWindowService()
+})
 
-// Memoize the promise, not the instance: concurrent callers would otherwise each
-// build their own service and fork the mock's in-memory session.
-export async function getSyncService(): Promise<SyncServiceAPI | null> {
-  if (!syncService) {
-    syncService = (async () => {
-      if (isWailsEnvironment()) {
-        const { WailsSyncService } = await import('./wails-sync')
-        return new WailsSyncService()
-      }
-      const { MockSyncService } = await import('./mock-sync')
-      return new MockSyncService()
-    })()
+export const getSyncService = memoize<SyncServiceAPI | null>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsSyncService } = await import('./wails-sync')
+    return new WailsSyncService()
   }
-  return syncService
-}
+  const { MockSyncService } = await import('./mock-sync')
+  return new MockSyncService()
+})
 
-let searchService: SearchServiceAPI | null = null
-
-export async function getSearchService(): Promise<SearchServiceAPI> {
-  if (!searchService) {
-    if (isWailsEnvironment()) {
-      const { WailsSearchService } = await import('./wails-search')
-      searchService = new WailsSearchService()
-    } else {
-      const { MockSearchService } = await import('./mock-search')
-      searchService = new MockSearchService()
-    }
+export const getSearchService = memoize<SearchServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsSearchService } = await import('./wails-search')
+    return new WailsSearchService()
   }
-  return searchService
-}
+  const { MockSearchService } = await import('./mock-search')
+  return new MockSearchService()
+})
 
-let cookieService: CookieServiceAPI | null = null
-
-export async function getCookieService(): Promise<CookieServiceAPI> {
-  if (!cookieService) {
-    if (isWailsEnvironment()) {
-      const { WailsCookieService } = await import('./wails-cookie')
-      cookieService = new WailsCookieService()
-    } else {
-      const { MockCookieService } = await import('./mock-cookie')
-      cookieService = new MockCookieService()
-    }
+export const getCookieService = memoize<CookieServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsCookieService } = await import('./wails-cookie')
+    return new WailsCookieService()
   }
-  return cookieService
-}
+  const { MockCookieService } = await import('./mock-cookie')
+  return new MockCookieService()
+})
 
-let historyService: HistoryServiceAPI | null = null
-
-export async function getHistoryService(): Promise<HistoryServiceAPI> {
-  if (!historyService) {
-    if (isWailsEnvironment()) {
-      const { WailsHistoryService } = await import('./wails-history')
-      historyService = new WailsHistoryService()
-    } else {
-      const { MockHistoryService } = await import('./mock-history')
-      historyService = new MockHistoryService()
-    }
+export const getHistoryService = memoize<HistoryServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsHistoryService } = await import('./wails-history')
+    return new WailsHistoryService()
   }
-  return historyService
-}
+  const { MockHistoryService } = await import('./mock-history')
+  return new MockHistoryService()
+})
 
-let settingsService: SettingsServiceAPI | null = null
-
-export async function getSettingsService(): Promise<SettingsServiceAPI> {
-  if (!settingsService) {
-    if (isWailsEnvironment()) {
-      const { WailsSettingsService } = await import('./wails-settings')
-      settingsService = new WailsSettingsService()
-    } else {
-      const { MockSettingsService } = await import('./mock-settings')
-      settingsService = new MockSettingsService()
-    }
+export const getSettingsService = memoize<SettingsServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsSettingsService } = await import('./wails-settings')
+    return new WailsSettingsService()
   }
-  return settingsService
-}
+  const { MockSettingsService } = await import('./mock-settings')
+  return new MockSettingsService()
+})
 
-let websocketService: import('./websocket-api').WebSocketServiceAPI | null = null
-
-export async function getWebSocketService(): Promise<import('./websocket-api').WebSocketServiceAPI> {
-  if (!websocketService) {
-    if (isWailsEnvironment()) {
-      const { WailsWebSocketService } = await import('./wails-websocket')
-      websocketService = new WailsWebSocketService()
-    } else {
-      const { MockWebSocketService } = await import('./mock-websocket')
-      websocketService = new MockWebSocketService()
-    }
+export const getWebSocketService = memoize<import('./websocket-api').WebSocketServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsWebSocketService } = await import('./wails-websocket')
+    return new WailsWebSocketService()
   }
-  return websocketService
-}
+  const { MockWebSocketService } = await import('./mock-websocket')
+  return new MockWebSocketService()
+})
+
+export const getAuthService = memoize<AuthServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsAuthService } = await import('./wails-auth')
+    return new WailsAuthService()
+  }
+  const { MockAuthService } = await import('./mock-auth')
+  return new MockAuthService()
+})

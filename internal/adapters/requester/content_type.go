@@ -73,8 +73,7 @@ func isAttachment(contentDisposition string) bool {
 	return lower == "attachment" || strings.HasPrefix(lower, "attachment;")
 }
 
-// suggestedFilename extracts a filename for the binary response.
-// Priority: Content-Disposition filename* (RFC 5987) > filename > fallback from Content-Type extension.
+// Priority: Content-Disposition filename* (RFC 5987) > filename > Content-Type extension.
 func suggestedFilename(contentDisposition, contentType string) string {
 	if contentDisposition != "" {
 		if name := parseContentDispositionFilename(contentDisposition); name != "" {
@@ -92,12 +91,10 @@ func suggestedFilename(contentDisposition, contentType string) string {
 	return ""
 }
 
-// parseContentDispositionFilename extracts filename from Content-Disposition header.
 // Supports both filename="..." and filename*=utf-8”... (RFC 5987).
 func parseContentDispositionFilename(header string) string {
 	_, params, err := mime.ParseMediaType(header)
 	if err == nil {
-		// RFC 5987: filename* takes priority over filename
 		if encoded, ok := params["filename*"]; ok {
 			if name := decodeRFC5987(encoded); name != "" {
 				return name

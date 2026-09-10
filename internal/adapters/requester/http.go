@@ -15,18 +15,21 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
+
+const maxResponseBody = 50 * 1024 * 1024 // 50 MB
 
 // HTTPRequester sends HTTP requests with a per-workspace cookie jar: each
 // Execute clones the jar-less base client with a workspaceJar for the request.
 type HTTPRequester struct {
-	base  *http.Client
-	store CookieStore
+	base    *http.Client
+	store   CookieStore
+	digests *digestTransports
 }
 
-// NewHTTPRequester creates the requester. store may be nil only in tests; in
-// production wiring (internal/app/usecases.go) a real CookieStore is provided.
+// store may be nil only in tests.
 func NewHTTPRequester(store CookieStore) *HTTPRequester {
 	return &HTTPRequester{
 		base: &http.Client{
@@ -38,8 +41,15 @@ func NewHTTPRequester(store CookieStore) *HTTPRequester {
 				return nil
 			},
 		},
-		store: store,
+		store:   store,
+		digests: &digestTransports{},
 	}
+}
+
+// stopAtRedirect keeps a signed or challenge-bound request on the URL it was
+// built for; the 3xx is returned to the user like any other response.
+func stopAtRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 // Execute sends an HTTP request, attaching/persisting cookies per req.WorkspaceID.
@@ -49,6 +59,23 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 		bodyReader = req.BodyReader
 	} else if req.Body != "" {
 		bodyReader = strings.NewReader(req.Body)
+	}
+
+	authType := entities.AuthTypeNone
+	var authFields auth.Fields
+	if req.Auth != nil {
+		authType = req.Auth.Type
+		authFields = auth.Fields(req.Auth.Fields)
+	}
+
+	payloadHash := emptyPayloadHash
+	if needsSpooledBody(authType) && bodyReader != nil {
+		spooled, spoolErr := spoolBody(bodyReader, maxSpooledBody)
+		if spoolErr != nil {
+			return nil, spoolErr
+		}
+		payloadHash = hashPayload(spooled)
+		bodyReader = spooled
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, string(req.Method), req.URL, bodyReader)
@@ -63,8 +90,28 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	}
 
 	clientCopy := *r.base
+	var jar *workspaceJar
 	if r.store != nil && req.WorkspaceID != uuid.Nil {
-		clientCopy.Jar = newWorkspaceJar(ctx, r.store, req.WorkspaceID)
+		jar = newWorkspaceJar(ctx, r.store, req.WorkspaceID)
+		clientCopy.Jar = jar
+	}
+
+	switch authType {
+	case entities.AuthTypeDigest:
+		username, password := authFields.Str("username"), authFields.Str("password")
+		if credErr := validateDigestCreds(username, password); credErr != nil {
+			return nil, credErr
+		}
+		// The digest transport adds jar cookies itself, so the client must not
+		// also hold the jar — the 401 with the challenge never reaches it.
+		clientCopy.Jar = nil
+		clientCopy.CheckRedirect = stopAtRedirect
+		clientCopy.Transport = r.digests.get(req.WorkspaceID, httpReq.URL, username, password, r.store)
+	case entities.AuthTypeAWSSigV4:
+		clientCopy.CheckRedirect = stopAtRedirect
+		if signErr := signSigV4(httpReq, payloadHash, sigv4CredsFromFields(authFields), time.Now()); signErr != nil {
+			return nil, signErr
+		}
 	}
 
 	start := time.Now()
@@ -76,7 +123,17 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	const maxResponseBody = 50 * 1024 * 1024 // 50 MB
+	if authType == entities.AuthTypeDigest {
+		if chalErr := unsupportedDigestChallenge(resp); chalErr != nil {
+			return nil, chalErr
+		}
+		// Only the digest transport saw the challenge response, so the cookies
+		// of the final one are persisted here.
+		if jar != nil {
+			jar.SetCookies(httpReq.URL, resp.Cookies())
+		}
+	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
@@ -131,6 +188,12 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	}, nil
 }
 
+// needsSpooledBody reports whether the scheme needs the body in memory: Digest
+// may replay it, SigV4 hashes it before signing.
+func needsSpooledBody(t entities.AuthType) bool {
+	return t == entities.AuthTypeDigest || t == entities.AuthTypeAWSSigV4
+}
+
 func classifyError(err error) error {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
@@ -153,7 +216,6 @@ func classifyError(err error) error {
 	return fmt.Errorf("request failed: %w", err)
 }
 
-// CookiesFor returns cookies the workspace jar would attach to rawURL.
 // Used by curl-builder and the response-viewer "Sent" section.
 func (r *HTTPRequester) CookiesFor(ctx context.Context, ws uuid.UUID, rawURL string) []*http.Cookie {
 	if r.store == nil || ws == uuid.Nil {

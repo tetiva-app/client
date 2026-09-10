@@ -18,13 +18,10 @@ type HistoryService struct {
 	requestUC request.Usecase
 }
 
-// NewHistoryService constructs a HistoryService.
 func NewHistoryService(historyUC history.Usecase, requestUC request.Usecase) *HistoryService {
 	return &HistoryService{historyUC: historyUC, requestUC: requestUC}
 }
 
-// List returns a filtered, paged slice of history records along with the total
-// count for pagination.
 func (s *HistoryService) List(req dto.ListHistoryRequest) Result[dto.ListHistoryResponse] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(req.WorkspaceID)
@@ -68,7 +65,6 @@ func (s *HistoryService) List(req dto.ListHistoryRequest) Result[dto.ListHistory
 	return OK(dto.ListHistoryResponse{Items: dto.HistoryToRecords(items), TotalCount: total})
 }
 
-// GetByID fetches a single history record scoped to a workspace.
 func (s *HistoryService) GetByID(historyIDStr, workspaceIDStr string) Result[dto.HistoryRecord] {
 	ctx := context.Background()
 	id, err := uuid.Parse(historyIDStr)
@@ -86,7 +82,6 @@ func (s *HistoryService) GetByID(historyIDStr, workspaceIDStr string) Result[dto
 	return OK(dto.HistoryToRecord(h))
 }
 
-// Delete removes a single history record (workspace-scoped).
 func (s *HistoryService) Delete(req dto.DeleteHistoryRequest) Result[Empty] {
 	ctx := context.Background()
 	id, err := uuid.Parse(req.HistoryID)
@@ -103,7 +98,6 @@ func (s *HistoryService) Delete(req dto.DeleteHistoryRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// Clear removes all history records for the given workspace.
 func (s *HistoryService) Clear(req dto.ClearHistoryRequest) Result[Empty] {
 	ctx := context.Background()
 	ws, err := uuid.Parse(req.WorkspaceID)
@@ -116,7 +110,7 @@ func (s *HistoryService) Clear(req dto.ClearHistoryRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// Replay creates a draft request populated from a history record and returns it.
+// Creates a draft request populated from a history record.
 func (s *HistoryService) Replay(req dto.ReplayHistoryRequest) Result[dto.RequestResponse] {
 	ctx := context.Background()
 	historyID, err := uuid.Parse(req.HistoryID)

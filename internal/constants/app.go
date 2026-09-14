@@ -2,7 +2,7 @@ package constants
 
 const (
 	AppName    = "Tetiva"
-	AppVersion = "1.1.0"
+	AppVersion = "1.1.1"
 	DBFileName = "data.db"
 	AppDir     = ".tetiva"
 	// LegacyAppDir is the pre-rebrand data directory (GopherCourier).

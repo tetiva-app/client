@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.1] — 2026-09-14 — Docs editor fixes and synced request descriptions
 
 ### Added
 

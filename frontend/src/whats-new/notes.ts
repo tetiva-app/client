@@ -9,6 +9,40 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.1.1',
+    date: '2026-09-14',
+    en: {
+      added: [
+        'Request descriptions now sync between devices and reach the server (needs server 0.18). Docs written in 1.1.0 are sent once on first launch.',
+        'Descriptions save themselves 1.5 s after you stop typing and when you switch or close a tab. Cmd+S still works.',
+        'A description is limited to 16 KiB: a byte counter shows up near the limit and a too-long text is refused with a clear message.',
+      ],
+      fixed: [
+        'Cmd+S, Cmd+F, Cmd+A, Cmd+, and Cmd+[ / ] work on Cyrillic and other non-Latin layouts; AltGr and Shift combinations no longer trigger them.',
+        'Closing a tab during a save no longer loses the edits typed meanwhile; a failed collection save keeps the tab open.',
+        'The description editor no longer skips every second update from sync, and Ctrl+Z no longer reverts synced text. Undo survives switching between Docs and the other tabs.',
+        'Tables: Enter on an empty last row leaves the table cleanly, and a pipe inside inline code no longer breaks the row. Code, code block and link buttons escape what they wrap.',
+        'Postman round trip keeps empty folders and request docs; oversized descriptions are truncated with a warning instead of failing the import.',
+        'An item the server refuses as too large is parked with its own notice instead of stalling sync.',
+      ],
+    },
+    ru: {
+      added: [
+        'Описания запросов теперь синхронизируются между устройствами и доходят до сервера (нужен сервер 0.18). Написанное в 1.1.0 отправится один раз при первом запуске.',
+        'Описания сохраняются сами через 1,5 с после остановки набора и при переключении или закрытии вкладки. Cmd+S по-прежнему работает.',
+        'Описание ограничено 16 КиБ: у границы появляется счётчик байт, слишком длинный текст отклоняется с понятным сообщением.',
+      ],
+      fixed: [
+        'Cmd+S, Cmd+F, Cmd+A, Cmd+, и Cmd+[ / ] работают в русской и других не-латинских раскладках; сочетания с AltGr и Shift их больше не запускают.',
+        'Закрытие вкладки во время сохранения больше не теряет набранное; неудачное сохранение коллекции оставляет вкладку открытой.',
+        'Редактор описания больше не пропускает каждое второе обновление из синка, а Ctrl+Z не откатывает пришедший текст. Отмена переживает переключение между Docs и другими вкладками.',
+        'Таблицы: Enter на пустой последней строке выходит из таблицы чисто, а вертикальная черта внутри инлайн-кода не ломает строку. Кнопки кода, блока кода и ссылки экранируют то, что оборачивают.',
+        'Постман-оборот сохраняет пустые папки и описания запросов; слишком длинные описания усекаются с предупреждением, а не роняют импорт.',
+        'Элемент, который сервер не принимает по размеру, откладывается с отдельным уведомлением и не останавливает синк.',
+      ],
+    },
+  },
+  {
     version: '1.1.0',
     date: '2026-09-07',
     en: {

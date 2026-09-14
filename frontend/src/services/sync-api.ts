@@ -32,6 +32,8 @@ export interface SyncStatus {
   pending: number
   // Entries the server refused over the plan quota; a subset of `pending`.
   parked: number
+  // Entries the server refused as too large; absent on an older backend, which counted them as parked.
+  tooLarge?: number
   awaitingVerification: boolean
   // Set once after an update dropped the stored session; the app asks to sign in again.
   reauthRequired: boolean

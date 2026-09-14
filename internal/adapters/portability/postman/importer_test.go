@@ -3,15 +3,18 @@ package postman_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
+	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
@@ -23,6 +26,10 @@ type stubCollectionUC struct {
 }
 
 func (s *stubCollectionUC) Create(_ context.Context, input collection.Create, _ collection.CreateOpt) (*entities.Collection, error) {
+	// Mirrors collection.Create.Validate — a nameless folder is what aborted the import.
+	if input.Name == "" {
+		return nil, errors.New("validation: name is required")
+	}
 	s.created = append(s.created, input)
 	id := uuid.New()
 	return &entities.Collection{ID: id, Name: input.Name, ParentID: input.ParentID}, nil
@@ -110,14 +117,17 @@ func (s *stubRequestUC) SubstituteMessage(_ context.Context, _ uuid.UUID, text s
 	return text, nil
 }
 
+// items builds the pointer-to-slice a folder carries, keeping [] and absent distinguishable.
+func items(v ...postman.PostmanItem) *[]postman.PostmanItem { return &v }
+
 func TestImportCollection_SimpleStructure(t *testing.T) {
 	data := postman.PostmanCollection{
 		Info: postman.PostmanInfo{Name: "My API", Schema: postman.SchemaV21},
 		Item: []postman.PostmanItem{
 			{
 				Name: "Auth",
-				Item: []postman.PostmanItem{
-					{
+				Item: items(
+					postman.PostmanItem{
 						Name: "Login",
 						Request: &postman.PostmanRequest{
 							Method: "POST",
@@ -131,7 +141,7 @@ func TestImportCollection_SimpleStructure(t *testing.T) {
 							},
 						},
 					},
-				},
+				),
 			},
 			{
 				Name: "Ping",
@@ -319,7 +329,7 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 	data := postman.PostmanCollection{
 		Info: postman.PostmanInfo{
 			Name:        "Authed API",
-			Description: "# My API\nWith auth.",
+			Description: &postman.PostmanDescription{Content: "# My API\nWith auth."},
 			Schema:      postman.SchemaV21,
 		},
 		Auth: &postman.PostmanAuth{
@@ -329,14 +339,14 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 		Item: []postman.PostmanItem{
 			{
 				Name:        "Admin",
-				Description: "Admin folder",
+				Description: &postman.PostmanDescription{Content: "Admin folder"},
 				Auth: &postman.PostmanAuth{
 					Type:  "basic",
 					Basic: authKVs(map[string]string{"username": "admin", "password": "pass"}),
 				},
-				Item: []postman.PostmanItem{
-					{Name: "Users", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/users"}}},
-				},
+				Item: items(
+					postman.PostmanItem{Name: "Users", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/users"}}},
+				),
 			},
 		},
 	}
@@ -369,7 +379,7 @@ func TestImportCollection_RequestLevelDescription(t *testing.T) {
 	collUC := &stubCollectionUC{}
 	reqUC := &stubRequestUC{}
 
-	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
 	}, collUC, reqUC)
 	require.NoError(t, err)
@@ -378,17 +388,94 @@ func TestImportCollection_RequestLevelDescription(t *testing.T) {
 	for _, r := range reqUC.created {
 		byName[r.Name] = r
 	}
-	require.Len(t, byName, 4)
+	require.Len(t, byName, 5)
 
 	assert.Equal(t, "Returns pong.", byName["Ping"].Description)
 	assert.Equal(t, "Item level only.", byName["Health"].Description,
 		"an item-level description is still the fallback")
 	assert.Equal(t, "Request level wins.", byName["Status"].Description)
 	assert.Equal(t, "Rebuilds the search index.", byName["Reindex"].Description)
+	assert.Empty(t, byName["Cleared"].Description,
+		"an explicit empty request description is a choice, not an absent one")
 
 	require.Len(t, collUC.created, 2)
 	assert.Equal(t, "# Docs API\nCollection level.", collUC.created[0].Description)
 	assert.Equal(t, "Folder documentation.", collUC.created[1].Description)
+
+	warnings := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, warnings, `"Status": item and request descriptions differ, request level kept`)
+	assert.Contains(t, warnings, `"Cleared": item and request descriptions differ, request level kept`)
+}
+
+func TestImportCollection_NestedUnderRequestAndUnnamedItem(t *testing.T) {
+	data, err := os.ReadFile("testdata/nested-under-request.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err)
+
+	var names []string
+	for _, r := range reqUC.created {
+		names = append(names, r.Name)
+	}
+	assert.Equal(t, []string{"Reports", "Ping"}, names, "the request itself is still imported")
+	assert.Len(t, collUC.created, 1, "an unnamed empty item must not become a nameless folder")
+
+	warnings := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, warnings, `request "Reports": items nested under a request were skipped`)
+	assert.Contains(t, warnings, "an unnamed item with neither a request nor children was skipped")
+}
+
+func TestImportCollection_NamelessFolders(t *testing.T) {
+	data, err := os.ReadFile("testdata/nameless-folder.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err, `an explicitly empty "item": [] under a nameless folder must not abort the import`)
+
+	var folders []string
+	for _, c := range collUC.created {
+		folders = append(folders, c.Name)
+	}
+	assert.Equal(t, []string{"Odd Names", "Untitled folder"}, folders)
+
+	require.Len(t, reqUC.created, 1, "the children of a nameless folder are still imported")
+	assert.Equal(t, "Ping", reqUC.created[0].Name)
+
+	warnings := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, warnings, "an unnamed item with neither a request nor children was skipped")
+	assert.Contains(t, warnings, `an unnamed folder with 1 item(s) was imported as "Untitled folder"`)
+}
+
+func TestImportCollection_EmptyFolderAndDescriptionTypes(t *testing.T) {
+	data, err := os.ReadFile("testdata/empty-folder.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, res.FoldersCreated, "an item with neither request nor item is an empty folder")
+	assert.Equal(t, "Legacy", collUC.created[1].Name)
+	assert.Equal(t, "Chapter", collUC.created[2].Name)
+	assert.Equal(t, "<b>Chapter docs.</b>", collUC.created[2].Description)
+
+	require.Len(t, reqUC.created, 1)
+	assert.Equal(t, "<b>x</b>", reqUC.created[0].Description, "content is kept verbatim")
+
+	warnings := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, warnings, `collection "Legacy API": description is text/html, imported as plain text`)
+	assert.Contains(t, warnings, `folder "Chapter": description is text/html, imported as plain text`)
+	assert.Contains(t, warnings, `request "Html": description is text/html, imported as plain text`)
+	assert.Contains(t, warnings, `request "Html": item and request descriptions differ, request level kept`)
 }
 
 func TestImportCollection_RealPostmanFile(t *testing.T) {
@@ -503,7 +590,7 @@ func TestImportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 		Item: []postman.PostmanItem{
 			{
 				Name:        "Ping",
-				Description: "# Ping\nReturns pong.",
+				Description: &postman.PostmanDescription{Content: "# Ping\nReturns pong."},
 				Request: &postman.PostmanRequest{
 					Method: "GET",
 					URL:    postman.PostmanURL{Raw: "https://api.example.com/ping"},
@@ -530,4 +617,41 @@ func TestImportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 	assert.Equal(t, entities.AuthTypeAPIKey, reqUC.created[0].AuthType)
 	assert.Contains(t, reqUC.created[0].AuthData, `"addTo":"query"`,
 		"the executor reads addTo, not Postman's in")
+}
+
+func TestImportCollection_TruncatesOversizedDescription(t *testing.T) {
+	long := strings.Repeat("я", domain.MaxDescriptionLen/2+5)
+	require.Greater(t, len(long), domain.MaxDescriptionLen)
+
+	data := postman.PostmanCollection{
+		Info: postman.PostmanInfo{Name: "Big Docs", Schema: postman.SchemaV21},
+		Item: []postman.PostmanItem{
+			{
+				Name:        "Ping",
+				Description: &postman.PostmanDescription{Content: long},
+				Request: &postman.PostmanRequest{
+					Method: "GET",
+					URL:    postman.PostmanURL{Raw: "https://api.example.com/ping"},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC)
+	require.NoError(t, err)
+
+	require.Len(t, reqUC.created, 1)
+	created := reqUC.created[0]
+	assert.LessOrEqual(t, len(created.Description), domain.MaxDescriptionLen)
+	assert.True(t, utf8.ValidString(created.Description), "truncation must not split a rune")
+	input := created
+	assert.NoError(t, input.Validate())
+
+	warnings := strings.Join(res.Warnings, "\n")
+	assert.Contains(t, warnings, `request "Ping": description longer than 16384 bytes was truncated`)
 }

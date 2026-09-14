@@ -42,9 +42,14 @@ export function useTreeSelection() {
     lastSelectedId.value = id
   }
 
-  function clearSelection() {
-    selectedIds.value = new Set()
+  // Anchorless on purpose: the ids come from code, not from a click to range-select from.
+  function setSelection(ids: string[]) {
+    selectedIds.value = new Set(ids)
     lastSelectedId.value = null
+  }
+
+  function clearSelection() {
+    setSelection([])
   }
 
   function isSelected(id: string): boolean {
@@ -66,6 +71,7 @@ export function useTreeSelection() {
     getSelectedIds,
     toggleSelect,
     rangeSelect,
+    setSelection,
     clearSelection,
   }
 }

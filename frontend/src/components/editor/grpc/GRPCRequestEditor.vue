@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { Wand2, Loader2, FileUp, FolderUp, X, RefreshCw } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
@@ -12,7 +12,7 @@ import ServiceMethodSelect from './ServiceMethodSelect.vue'
 import GRPCResponseViewer from './GRPCResponseViewer.vue'
 import RequestDocs from '../RequestDocs.vue'
 import HelpLink from '@/components/ui/HelpLink.vue'
-import { isInsideOverlay } from '@/lib/shortcut-guards'
+import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -47,6 +47,10 @@ const isActiveTab = computed(
 )
 
 const activeTab = ref<'body' | 'metadata' | 'schema' | 'scripts' | 'docs'>('body')
+
+// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
+const docsMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 
 const schema = ref<GRPCSchema | null>(null)
 const schemaLoading = ref(false)
@@ -258,7 +262,7 @@ async function loadProtoDefinition(service?: string, method?: string) {
 function handleKeydown(event: KeyboardEvent) {
   if (!isActiveTab.value) return
   if (isInsideOverlay(event)) return
-  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+  if (isModShortcut(event, 'KeyS', 's')) {
     event.preventDefault()
     store.saveToBackend(props.request.id)
   }
@@ -501,7 +505,8 @@ const tabs = computed(() => [
             />
 
             <RequestDocs
-              v-else-if="activeTab === 'docs'"
+              v-if="docsMounted"
+              v-show="activeTab === 'docs'"
               :description="request.description"
               @update:description="(v) => updateField('description', v)"
             />

@@ -90,7 +90,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
       set(requestId, { attemptId: undefined, connectionId: undefined })
     }
     try {
-      if (!(await useRequestStore().flush(requestId))) {
+      if (!(await useRequestStore().flushForHandoff(requestId))) {
         if (!stale()) {
           set(requestId, { status: 'error', error: 'failed to save the request' })
           system(requestId, 'not connected: the request could not be saved', 'error')
@@ -268,7 +268,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
     const previousBodyType = current.bodyType
     requests.updateLocal(requestId, { body: serializeWsSettings(next), bodyType: 'raw' })
     try {
-      if (await requests.flush(requestId)) return true
+      if (await requests.flushForHandoff(requestId)) return true
     } catch (err) {
       console.error('Failed to save websocket settings:', err)
     }

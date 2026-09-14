@@ -6,6 +6,7 @@ import {
   tableSkeleton,
   type MarkdownAction,
 } from './markdown-actions'
+import { renderMarkdown } from './markdown'
 
 interface Applied {
   doc: string
@@ -72,7 +73,18 @@ describe('inline actions', () => {
   })
 
   it('does not swallow a lone marker character', () => {
-    expect(run('code', '`', 0, 1).doc).toBe('```')
+    expect(run('code', '`', 0, 1).doc).toBe('`` ` ``')
+  })
+
+  it('wraps a backtick-bearing selection in a longer fence', () => {
+    const r = run('code', 'a`b', 0, 3)
+    expect(r.doc).toBe('`` a`b ``')
+    expect(r.selected).toBe('a`b')
+    expect(renderMarkdown(r.doc)).toContain('<code>a`b</code>')
+  })
+
+  it('pads when the selection starts or ends with a backtick', () => {
+    expect(run('code', 'a`', 0, 2).doc).toBe('`` a` ``')
   })
 
   it('does not unwrap when only one side carries the marker', () => {
@@ -106,6 +118,33 @@ describe('link', () => {
     const r = run('link', '', 0)
     expect(r.doc).toBe('[text](url)')
     expect(r.selected).toBe('text')
+  })
+
+  it('escapes brackets in the label', () => {
+    const r = run('link', 'a]b', 0, 3)
+    expect(r.doc).toBe('[a\\]b](url)')
+    expect(r.selected).toBe('url')
+    expect(renderMarkdown(r.doc.replace('url', 'https://x.dev'))).toContain('>a]b</a>')
+  })
+
+  it('escapes a backslash in the label before the bracket it protects', () => {
+    const r = run('link', 'a\\]b', 0, 4)
+    expect(r.doc).toBe('[a\\\\\\]b](url)')
+    expect(renderMarkdown(r.doc.replace('url', 'https://x.dev'))).toContain('>a\\]b</a>')
+  })
+
+  it('percent-encodes parentheses in the url instead of wrapping it', () => {
+    const r = run('link', 'https://x.com/a)b', 0, 17)
+    expect(r.doc).toBe('[text](https://x.com/a%29b)')
+    expect(r.selected).toBe('text')
+    expect(renderMarkdown(r.doc)).toContain('href="https://x.com/a%29b"')
+  })
+
+  it('keeps angle brackets in the url and still produces a link', () => {
+    const url = 'https://x.com/s?q=a>b&r=(1)'
+    const r = run('link', url, 0, url.length)
+    expect(r.doc).toBe('[text](https://x.com/s?q=a>b&r=%281%29)')
+    expect(renderMarkdown(r.doc)).toContain('<a href="https://x.com/s?q=a%3Eb&amp;r=%281%29">')
   })
 })
 
@@ -208,6 +247,14 @@ describe('block inserts', () => {
   it('starts the fence on its own line when the caret is mid-line', () => {
     expect(run('codeBlock', 'note', 4).doc).toBe('note\n```\n\n```')
     expect(run('codeBlock', 'note', 2).doc).toBe('no\n```\n\n```\nte')
+  })
+
+  it('uses a longer fence when the selection contains triple backticks', () => {
+    const body = 'x\n```\ny'
+    const r = run('codeBlock', body, 0, body.length)
+    expect(r.doc).toBe('````\n' + body + '\n````')
+    expect(r.selected).toBe(body)
+    expect((renderMarkdown(r.doc).match(/<pre>/g) ?? []).length).toBe(1)
   })
 
   it('inserts a 2×1 skeleton and selects the first header cell', () => {

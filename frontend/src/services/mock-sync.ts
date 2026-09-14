@@ -30,6 +30,8 @@ const VERIFY_PENDING_POLLS = 2
 const REVOKE_ERROR_SCENARIO = 'revoke-error'
 const PARKED_SCENARIO = 'parked'
 const PARKED_COUNT = 4
+const TOO_LARGE_SCENARIO = 'too-large'
+const TOO_LARGE_COUNT = 2
 const PLAN_LIMIT_SCENARIO = 'plan-limit'
 const UPDATE_REQUIRED_SCENARIO = 'update-required'
 const CLOUD_REFUSES_SCENARIO = 'cloud-refuses'
@@ -149,6 +151,7 @@ export class MockSyncService implements SyncServiceAPI {
     userEmail: '',
     pending: 0,
     parked: 0,
+    tooLarge: 0,
     awaitingVerification: false,
     reauthRequired: false,
   }
@@ -168,6 +171,19 @@ export class MockSyncService implements SyncServiceAPI {
         userEmail: 'free@example.com',
         pending: PARKED_COUNT,
         parked: PARKED_COUNT,
+      }
+    }
+    // One of each, so the plan limit and the oversized items must not share a line.
+    if (scenario === TOO_LARGE_SCENARIO) {
+      this.status = {
+        ...this.status,
+        enabled: true,
+        state: 'connected',
+        serverUrl: 'api.tetiva.app:443',
+        userEmail: 'free@example.com',
+        pending: TOO_LARGE_COUNT + 1,
+        parked: 1,
+        tooLarge: TOO_LARGE_COUNT,
       }
     }
     if (scenario === PLAN_LIMIT_SCENARIO) {
@@ -215,6 +231,7 @@ export class MockSyncService implements SyncServiceAPI {
       userEmail: req.email,
       pending: 0,
       parked: 0,
+      tooLarge: 0,
       awaitingVerification: this.verifyPending,
       reauthRequired: false,
     }

@@ -84,6 +84,13 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 		return nil, err
 	}
 
+	// Only growth is rejected: a description stored before the cap must not lock the entity.
+	if len(input.Description) > domain.MaxDescriptionLen && len(input.Description) > len(existing.Description) {
+		return nil, &domain.ValidationError{Fields: map[string]string{
+			"description": fmt.Sprintf("must be at most %d bytes", domain.MaxDescriptionLen),
+		}}
+	}
+
 	if input.Protocol == entities.ProtocolWebSocket {
 		if err := websocket.ValidateSettings(input.Body); err != nil {
 			return nil, err

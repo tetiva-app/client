@@ -1,0 +1,28 @@
+{
+	"info": {
+		"_postman_id": "0f3a1c88-5b2d-4a7e-9c10-3e6b8d41f7aa",
+		"name": "Odd Names",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "",
+			"item": []
+		},
+		{
+			"name": "   ",
+			"item": [
+				{
+					"name": "Ping",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.example.com/ping"
+						}
+					}
+				}
+			]
+		}
+	]
+}

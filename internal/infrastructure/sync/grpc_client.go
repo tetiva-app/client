@@ -47,7 +47,9 @@ func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 
 	slog.Info("grpc: NewGRPCClient", "input", serverURL, "target", target, "tls", useTLS)
 
-	conn, err := grpc.NewClient(target, creds, grpc.WithUserAgent(userAgent()))
+	conn, err := grpc.NewClient(target, creds, grpc.WithUserAgent(userAgent()),
+		// Pull pages of 100 entities with bodies and docs outgrow the 4 MiB default.
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16<<20)))
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}

@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
+	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
@@ -110,4 +114,96 @@ func TestLinkWorkspace_KeepsCursorForSameRemote(t *testing.T) {
 
 	require.Nil(t, res.Error)
 	assert.EqualValues(t, 42, lastSyncSeqOf(t, f.db, seededWorkspaceID))
+}
+
+func enqueueOutbox(t *testing.T, f *verificationFixture, workspaceID string, n int) {
+	t.Helper()
+	for range n {
+		require.NoError(t, f.svc.queueRepo.Enqueue(context.Background(), sqlite.SyncEntry{
+			WorkspaceID: workspaceID,
+			EntityType:  "request",
+			EntityID:    uuid.NewString(),
+			Action:      "update",
+			OperationID: uuid.NewString(),
+			Status:      "pending",
+			CreatedAt:   time.Now().Truncate(time.Second),
+		}))
+	}
+}
+
+func outboxRows(t *testing.T, db *sql.DB, workspaceID string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ?`, workspaceID).Scan(&n))
+	return n
+}
+
+func TestUnlinkWorkspace_DropsOutbox(t *testing.T) {
+	f := newVerificationFixture(t)
+	setRemoteID(t, f.db, seededWorkspaceID, "remote-1")
+	enqueueOutbox(t, f, seededWorkspaceID, 2)
+
+	res := f.svc.UnlinkWorkspace(dto.UnlinkWorkspaceRequest{LocalWorkspaceID: seededWorkspaceID})
+
+	require.Nil(t, res.Error)
+	assert.Zero(t, outboxRows(t, f.db, seededWorkspaceID),
+		"an unlinked workspace must not push its old outbox to the next account")
+	assert.False(t, remoteIDOf(t, f.db, seededWorkspaceID).Valid)
+}
+
+func TestUnlinkWorkspace_KeepsOutboxWhenMappingSurvives(t *testing.T) {
+	f := newVerificationFixture(t)
+	setRemoteID(t, f.db, seededWorkspaceID, "remote-1")
+	enqueueOutbox(t, f, seededWorkspaceID, 2)
+	f.engine.StartWorkspace(seededWorkspaceID, "remote-1", 0)
+
+	_, err := f.db.Exec(`CREATE TRIGGER block_unlink BEFORE UPDATE OF remote_workspace_id ON workspaces
+		BEGIN SELECT RAISE(ABORT, 'mapping update refused'); END`)
+	require.NoError(t, err)
+
+	res := f.svc.UnlinkWorkspace(dto.UnlinkWorkspaceRequest{LocalWorkspaceID: seededWorkspaceID})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "remote-1", remoteIDOf(t, f.db, seededWorkspaceID).String)
+	assert.Equal(t, 2, outboxRows(t, f.db, seededWorkspaceID),
+		"a workspace that stayed linked must keep the edits it still owes the cloud")
+
+	assert.NotEqual(t, syncsvc.StateDisconnected, f.engine.GetWorkspaceState(seededWorkspaceID),
+		"a workspace that stayed linked must keep its syncer")
+
+	coll := &entities.Collection{
+		ID:           uuid.New(),
+		WorkspaceID:  uuid.MustParse(seededWorkspaceID),
+		Name:         "After the failed unlink",
+		AuthType:     entities.AuthTypeNone,
+		AuthData:     "{}",
+		GRPCMetadata: []entities.HeaderItem{},
+		Version:      1,
+		CreatedBy:    "test_user",
+		CreatedAt:    time.Now().Truncate(time.Second),
+		UpdatedBy:    "test_user",
+		UpdatedAt:    time.Now().Truncate(time.Second),
+	}
+	synced := syncsvc.NewSyncedCollectionRepo(sqlite.NewCollectionRepo(f.db), f.svc.queueRepo, f.db, f.engine)
+	require.NoError(t, synced.Create(context.Background(), coll))
+
+	assert.Equal(t, 3, outboxRows(t, f.db, seededWorkspaceID),
+		"edits made after the failed unlink must still reach the outbox")
+}
+
+func TestSyncRemoteWorkspaces_DropsOutboxOfForeignWorkspace(t *testing.T) {
+	f := newVerificationFixture(t)
+	ctx := context.Background()
+
+	setRemoteID(t, f.db, seededWorkspaceID, "ws_from_previous_account")
+	enqueueOutbox(t, f, seededWorkspaceID, 2)
+
+	f.seedSession(t)
+	f.svc.grpcClient = f.client
+
+	require.NoError(t, f.svc.syncRemoteWorkspaces(ctx))
+
+	assert.Zero(t, outboxRows(t, f.db, seededWorkspaceID),
+		"the outbox of a workspace owned by another account must go with the mapping")
 }

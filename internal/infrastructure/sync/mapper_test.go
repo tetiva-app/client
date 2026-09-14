@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 )
 
@@ -127,5 +130,36 @@ func TestRequestFromProto_Valid(t *testing.T) {
 	}
 	if r.CollectionID.String() != coll {
 		t.Fatalf("collection id mismatch: got %s want %s", r.CollectionID, coll)
+	}
+}
+
+func TestRequestToProto_SetsDescription(t *testing.T) {
+	r := &entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "ok", Description: "# Docs"}
+	e := RequestToProto(r, "op")
+	if !e.GetRequest().HasDescription() || e.GetRequest().GetDescription() != "# Docs" {
+		t.Fatalf("description not carried: has=%v got=%q", e.GetRequest().HasDescription(), e.GetRequest().GetDescription())
+	}
+
+	empty := RequestToProto(&entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "ok"}, "op")
+	if !empty.GetRequest().HasDescription() {
+		t.Fatal("an empty description must still assert presence: it is a deliberate clear")
+	}
+}
+
+func TestRequestFromProto_Description(t *testing.T) {
+	e := syncv1.SyncEntity_builder{
+		EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
+		EntityId:   uuid.NewString(),
+		Request: syncv1.RequestData_builder{
+			CollectionId: uuid.NewString(), Name: "ok", Description: proto.String("x"),
+		}.Build(),
+	}.Build()
+
+	r, err := RequestFromProto(e)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.Description != "x" {
+		t.Fatalf("description: got %q, want %q", r.Description, "x")
 	}
 }

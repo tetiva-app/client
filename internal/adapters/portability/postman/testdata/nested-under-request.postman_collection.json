@@ -1,0 +1,44 @@
+{
+	"info": {
+		"_postman_id": "b71f4c2a-90de-4f3c-8a65-1d2e7c4b5a09",
+		"name": "Odd Shapes",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Reports",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/reports"
+				}
+			},
+			"item": [
+				{
+					"name": "Daily",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.example.com/reports/daily"
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": ""
+		},
+		{
+			"name": "Ping",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/ping"
+				}
+			}
+		}
+	]
+}

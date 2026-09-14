@@ -2011,3 +2011,79 @@ func TestExecute_WireAuth_HandedToTheRequester(t *testing.T) {
 		t.Errorf("digest must not set a header up front: %v", requester.lastRequest.Headers)
 	}
 }
+
+func TestCreate_RejectsOversizedDescription(t *testing.T) {
+	uc, _, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	input := request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Docs",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+		Description:  strings.Repeat("a", domain.MaxDescriptionLen+1),
+	}
+	_, err := uc.Create(ctx, input, request.CreateOpt{UserID: "user-1"})
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("expected a description validation error, got %v", err)
+	}
+
+	input.Description = strings.Repeat("a", domain.MaxDescriptionLen)
+	if _, err := uc.Create(ctx, input, request.CreateOpt{UserID: "user-1"}); err != nil {
+		t.Fatalf("exactly the limit must pass: %v", err)
+	}
+}
+
+func TestEdit_RejectsOversizedDescription(t *testing.T) {
+	uc, repo, _, _ := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "Docs",
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	edit := func(name, description string, version int) (*entities.Request, error) {
+		return uc.Edit(ctx, request.Edit{
+			Name:        name,
+			Description: description,
+			Method:      entities.MethodGET,
+			BodyType:    entities.BodyTypeNone,
+			AuthType:    entities.AuthTypeNone,
+		}, request.EditOpt{RequestID: created.ID, UserID: "user-1", Version: version})
+	}
+
+	var verr *domain.ValidationError
+	_, err = edit("Docs", strings.Repeat("a", domain.MaxDescriptionLen+1), created.Version)
+	if !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("expected a description validation error, got %v", err)
+	}
+
+	// Stored before the cap existed, or applied by the sync path, which skips Validate.
+	legacy := strings.Repeat("b", 20*1024)
+	repo.requests[created.ID].Description = legacy
+
+	renamed, err := edit("Renamed", legacy, created.Version)
+	if err != nil {
+		t.Fatalf("renaming an entity with a legacy description must pass: %v", err)
+	}
+
+	shortened, err := edit("Renamed", strings.Repeat("b", 18*1024), renamed.Version)
+	if err != nil {
+		t.Fatalf("shortening an oversized description must pass: %v", err)
+	}
+
+	if _, err := edit("Renamed", strings.Repeat("b", 21*1024), shortened.Version); !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("growing an oversized description must be rejected, got %v", err)
+	}
+}

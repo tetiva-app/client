@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -106,6 +107,7 @@ func RequestToProto(r *entities.Request, operationID string) *syncv1.SyncEntity 
 			GraphqlOperation:  r.GraphQLOperation,
 			PreScript:         r.PreScript,
 			PostScript:        r.PostScript,
+			Description:       proto.String(r.Description), // presence: "" is a clear, absence is an older peer
 		}.Build(),
 	}.Build()
 }
@@ -238,6 +240,7 @@ func RequestFromProto(e *syncv1.SyncEntity) (*entities.Request, error) {
 		GraphQLOperation:  rd.GetGraphqlOperation(),
 		PreScript:         rd.GetPreScript(),
 		PostScript:        rd.GetPostScript(),
+		Description:       rd.GetDescription(),
 		SortOrder:         int(e.GetSortOrder()),
 		Version:           int(e.GetVersion()),
 		IsDelete:          e.GetIsDeleted(),

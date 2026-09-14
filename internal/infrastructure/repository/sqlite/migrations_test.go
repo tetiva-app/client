@@ -1,14 +1,18 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
 
+	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/migrations"
 	"github.com/tetiva-app/client/pkg/migrate"
 )
@@ -171,3 +175,87 @@ func TestMigration016CascadeWouldHaveDeletedRequests(t *testing.T) {
 		t.Errorf("ON DELETE CASCADE lost in the rebuild: %d requests survived", n)
 	}
 }
+
+func TestMigration020BackfillsRequestDescriptions(t *testing.T) {
+	db := openMigrationTestDB(t)
+
+	if err := migrate.Run(db, migrationsUpTo(t, 19), "."); err != nil {
+		t.Fatalf("migrate to 019: %v", err)
+	}
+
+	seed := []string{
+		`INSERT INTO workspaces (id, name, remote_workspace_id) VALUES ('ws1', 'Synced', 'remote-1')`,
+		`INSERT INTO workspaces (id, name) VALUES ('ws2', 'Local only')`,
+		`INSERT INTO collections (id, workspace_id, name) VALUES ('col1', 'ws1', 'Root')`,
+		`INSERT INTO collections (id, workspace_id, name) VALUES ('col2', 'ws2', 'Root')`,
+		`INSERT INTO requests (id, collection_id, name, description) VALUES ('req1', 'col1', 'Documented', '# Docs')`,
+		`INSERT INTO requests (id, collection_id, name) VALUES ('req2', 'col1', 'Undocumented')`,
+		`INSERT INTO requests (id, collection_id, name, description, is_delete) VALUES ('req3', 'col1', 'Deleted', 'gone', 1)`,
+		`INSERT INTO requests (id, collection_id, name, description, is_draft) VALUES ('req4', 'col1', 'Draft', 'scratch', 1)`,
+		`INSERT INTO requests (id, collection_id, name, description) VALUES ('req5', 'col2', 'Unlinked', 'local only')`,
+		fmt.Sprintf(`INSERT INTO requests (id, collection_id, name, description) VALUES ('req6', 'col1', 'Oversized', '%s')`,
+			strings.Repeat("x", domain.MaxDescriptionLen+1)),
+	}
+	for _, stmt := range seed {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT entity_id, workspace_id, entity_type, action, status, operation_id, created_at FROM sync_queue`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var queued []string
+	for rows.Next() {
+		var entityID, wsID, entityType, action, status, opID, createdAt string
+		if err := rows.Scan(&entityID, &wsID, &entityType, &action, &status, &opID, &createdAt); err != nil {
+			t.Fatal(err)
+		}
+		queued = append(queued, entityID)
+		if wsID != "ws1" || entityType != "request" || action != "update" || status != "pending" {
+			t.Errorf("queued row: ws %q, type %q, action %q, status %q", wsID, entityType, action, status)
+		}
+		if !uuidLike.MatchString(opID) {
+			t.Errorf("operation_id %q is not a v4 UUID", opID)
+		}
+		if createdAt == "" {
+			t.Error("created_at is empty")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queued) != 1 || queued[0] != "req1" {
+		t.Errorf("queued = %v, want [req1]: only a live, non-draft request under the description cap", queued)
+	}
+
+	// The row has to survive the repo's own reader: created_at is written in SQL.
+	pending, err := NewSyncQueueRepo(db).ListPending(context.Background(), "ws1", 10)
+	if err != nil {
+		t.Fatalf("ListPending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].EntityID != "req1" || pending[0].CreatedAt.IsZero() {
+		t.Errorf("ListPending = %+v, want one readable req1 entry", pending)
+	}
+
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sync_queue`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("sync_queue rows after a second run: %d, want 1", count)
+	}
+}
+
+var uuidLike = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)

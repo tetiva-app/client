@@ -1,0 +1,42 @@
+{
+	"info": {
+		"_postman_id": "3f1c9a6e-2d47-4f0b-8c11-7a2e5b9d0c34",
+		"name": "Legacy API",
+		"description": {
+			"content": "<p>Collection docs.</p>",
+			"type": "text/html"
+		},
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Legacy"
+		},
+		{
+			"name": "Chapter",
+			"description": {
+				"content": "<b>Chapter docs.</b>",
+				"type": "text/html"
+			},
+			"item": []
+		},
+		{
+			"name": "Html",
+			"description": {
+				"content": "<i>item level</i>",
+				"type": "text/html"
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"description": {
+					"content": "<b>x</b>",
+					"type": "text/html"
+				},
+				"url": {
+					"raw": "https://e.com"
+				}
+			}
+		}
+	]
+}

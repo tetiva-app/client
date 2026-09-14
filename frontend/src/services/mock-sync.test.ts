@@ -54,6 +54,14 @@ describe('MockSyncService', () => {
     expect(status.data.pending).toBe(4)
   })
 
+  it('separates oversized items from the quota under ?mock=too-large', async () => {
+    const svc = withSearch('?mock=too-large')
+
+    const status = await svc.getStatus()
+    expect(status.data.parked).toBe(1)
+    expect(status.data.tooLarge).toBe(2)
+  })
+
   it('fails getMe and resendVerification before connecting', async () => {
     const svc = withSearch('?mock=verify-pending')
 

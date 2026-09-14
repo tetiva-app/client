@@ -34,7 +34,7 @@ import { useCookieModalUi } from '@/stores/cookieModalUi'
 import SettingsModal from '@/components/settings/SettingsModal.vue'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { ToastContainer } from '@/components/ui/toast'
-import { isEditingTarget } from '@/lib/shortcut-guards'
+import { isEditingTarget, isModShortcut } from '@/lib/shortcut-guards'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -105,7 +105,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   // Cmd/Ctrl+, opens Settings — handle before the no-tabs guard so it works
   // with zero open tabs.
-  if (event.key === ',') {
+  if (isModShortcut(event, 'Comma', ',')) {
     event.preventDefault()
     settingsModalUi.show()
     return
@@ -114,12 +114,13 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   const tabs = store.openTabs
   if (tabs.length === 0) return
 
-  if (event.key === '[' || event.key === ']') {
+  const bracket = isModShortcut(event, 'BracketLeft', '[') ? -1 : (isModShortcut(event, 'BracketRight', ']') ? 1 : 0)
+  if (bracket !== 0) {
     // CodeMirror uses Cmd+[/] for indentation
     if (isEditingTarget(event)) return
     event.preventDefault()
     const currentIdx = tabs.findIndex(t => t.id === store.activeTabId)
-    const step = event.key === ']' ? 1 : -1
+    const step = bracket
     const base = currentIdx === -1 ? 0 : currentIdx
     const nextIdx = (base + step + tabs.length) % tabs.length
     store.activeTabId = tabs[nextIdx].id
@@ -267,9 +268,15 @@ function onOnboardingClose() {
   onboardingUi.hide()
 }
 
+// Best-effort only: the process does not wait for a Wails call from beforeunload.
+function flushOnUnload() {
+  void store.flushAllDirty()
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('contextmenu', blockNativeContextMenu)
+  window.addEventListener('beforeunload', flushOnUnload)
   setupSyncEvents()
   runStartupWelcomeFlow()
   void runStartupUpdateFlow()
@@ -278,6 +285,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('contextmenu', blockNativeContextMenu)
+  window.removeEventListener('beforeunload', flushOnUnload)
   for (const unsub of syncUnsubscribers) unsub()
 })
 </script>

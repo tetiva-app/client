@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	gosync "sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 
@@ -1037,6 +1040,8 @@ type stubSyncClient struct {
 	pushErr  error
 	pushed   [][]*syncv1.SyncEntity
 	pushResp func(call int, req *syncv1.PushRequest) *syncv1.PushResponse
+	// pushErrFn fails only the calls it picks; pushErr fails every one.
+	pushErrFn func(req *syncv1.PushRequest) error
 }
 
 func (s *stubSyncClient) Push(_ context.Context, req *syncv1.PushRequest, _ ...grpc.CallOption) (*syncv1.PushResponse, error) {
@@ -1047,6 +1052,11 @@ func (s *stubSyncClient) Push(_ context.Context, req *syncv1.PushRequest, _ ...g
 
 	if s.pushErr != nil {
 		return nil, s.pushErr
+	}
+	if s.pushErrFn != nil {
+		if err := s.pushErrFn(req); err != nil {
+			return nil, err
+		}
 	}
 	if s.pushResp != nil {
 		return s.pushResp(calls, req), nil
@@ -1498,7 +1508,7 @@ func seedRequestRow(t *testing.T, db *sql.DB, requestID uuid.UUID) {
 	require.NoError(t, err)
 }
 
-func TestUpsertRequest_KeepsDescriptionWhenIncomingIsEmpty(t *testing.T) {
+func TestUpsertRequest_OldPeerKeepsLocalDescription(t *testing.T) {
 	engine := newTestEngine(t)
 	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
 	defer cancel()
@@ -1509,10 +1519,10 @@ func TestUpsertRequest_KeepsDescriptionWhenIncomingIsEmpty(t *testing.T) {
 	seedRequestRow(t, engine.db, id)
 
 	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping v2"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, false))
 
 	assert.Equal(t, "local docs", repo.data[id].Description,
-		"sync must not wipe a field its contract does not carry")
+		"a peer that never sent the field must not wipe the local docs")
 	assert.Equal(t, "Ping v2", repo.data[id].Name)
 }
 
@@ -1527,9 +1537,25 @@ func TestUpsertRequest_IncomingDescriptionWins(t *testing.T) {
 	seedRequestRow(t, engine.db, id)
 
 	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping", Description: "remote docs"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
 
 	assert.Equal(t, "remote docs", repo.data[id].Description)
+}
+
+func TestUpsertRequest_PeerClearsDescription(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	id := uuid.New()
+	repo.data[id] = &entities.Request{ID: id, Name: "Ping", Description: "local docs"}
+	seedRequestRow(t, engine.db, id)
+
+	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping", Description: ""}
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
+
+	assert.Equal(t, "", repo.data[id].Description, "a present empty value is a deliberate clear")
 }
 
 func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
@@ -1539,7 +1565,7 @@ func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
 
 	repo := engine.requests.(*stubRequestRepo)
 	incoming := &entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "New"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
 
 	assert.Equal(t, "New", repo.data[incoming.ID].Name)
 }
@@ -1853,4 +1879,599 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// requestDescriptionEntity mirrors a peer: a nil description is an old peer, "" is a clear.
+func requestDescriptionEntity(id uuid.UUID, description *string) *syncv1.SyncEntity {
+	return syncv1.SyncEntity_builder{
+		EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
+		EntityId:   id.String(),
+		Request: syncv1.RequestData_builder{
+			CollectionId: uuid.NewString(),
+			Name:         "Ping v2",
+			Method:       "GET",
+			Url:          "https://example.com",
+			Description:  description,
+		}.Build(),
+	}.Build()
+}
+
+func TestApplyEntity_RequestDescriptionPresenceThreadsThrough(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, testWorkspaceID.String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	ctx := context.Background()
+
+	absent := uuid.New()
+	repo.data[absent] = &entities.Request{ID: absent, Name: "Ping", Description: "local docs"}
+	seedRequestRow(t, engine.db, absent)
+	require.NoError(t, ws.applyEntity(ctx, requestDescriptionEntity(absent, nil)))
+	assert.Equal(t, "local docs", repo.data[absent].Description,
+		"an entity without the field must not wipe the local docs")
+	assert.Equal(t, "Ping v2", repo.data[absent].Name, "the rest of the entity still applies")
+
+	cleared := uuid.New()
+	repo.data[cleared] = &entities.Request{ID: cleared, Name: "Ping", Description: "local docs"}
+	seedRequestRow(t, engine.db, cleared)
+	require.NoError(t, ws.applyEntity(ctx, requestDescriptionEntity(cleared, proto.String(""))))
+	assert.Empty(t, repo.data[cleared].Description, "an explicit empty description clears the local docs")
+}
+
+// bigRequest seeds a request whose body alone dominates the entity size.
+func bigRequest(t *testing.T, engine *SyncEngine, ws string, bodyBytes int) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	engine.requests.(*stubRequestRepo).data[id] = &entities.Request{
+		ID:     id,
+		Name:   "Big",
+		Method: entities.MethodPOST,
+		URL:    "https://example.com",
+		Body:   strings.Repeat("x", bodyBytes),
+	}
+	require.NoError(t, engine.syncQueue.Enqueue(context.Background(), sqlite.SyncEntry{
+		WorkspaceID: ws,
+		EntityType:  "request",
+		EntityID:    id.String(),
+		Action:      "update",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+	return id
+}
+
+func batchBytes(entities []*syncv1.SyncEntity) int {
+	total := 0
+	for _, e := range entities {
+		total += proto.Size(e)
+	}
+	return total
+}
+
+func TestWorkspaceSyncer_DrainOutbox_SplitsBatchesByByteBudget(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &stubSyncClient{}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	for range 3 {
+		bigRequest(t, engine, wsID, 1500*1024)
+	}
+
+	require.NoError(t, ws.pushAll(ctx))
+
+	batches := stub.pushBatches()
+	require.GreaterOrEqual(t, len(batches), 2, "1.5 MiB entities must not share one batch past the budget")
+
+	pushed := 0
+	for i, b := range batches {
+		pushed += len(b)
+		assert.LessOrEqual(t, batchBytes(b), pushBatchBytes, "batch %d is over the byte budget", i)
+	}
+	assert.Equal(t, 3, pushed, "every entity still leaves the outbox")
+
+	remaining, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
+}
+
+func TestWorkspaceSyncer_DrainOutbox_OversizedEntityParkedAndRestPushed(t *testing.T) {
+	engine := newTestEngine(t)
+	events := captureEvents(engine)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &stubSyncClient{pushErrFn: func(req *syncv1.PushRequest) error {
+		if batchBytes(req.GetEntities()) > 4<<20 {
+			return status.Error(codes.ResourceExhausted, "grpc: received message larger than max (5242880 vs. 4194304)")
+		}
+		return nil
+	}}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	oversized := bigRequest(t, engine, wsID, 5<<20)
+	small := bigRequest(t, engine, wsID, 64)
+
+	require.NoError(t, ws.pushAll(ctx), "one oversized entity must not stall the outbox")
+
+	var sentSmall bool
+	for _, b := range stub.pushBatches() {
+		for _, e := range b {
+			if e.GetEntityId() == small.String() {
+				sentSmall = true
+			}
+		}
+	}
+	assert.True(t, sentSmall, "the entity behind the oversized one must still go out")
+
+	var queueStatus string
+	require.NoError(t, engine.db.QueryRowContext(ctx,
+		`SELECT status FROM sync_queue WHERE entity_id = ?`, oversized.String()).Scan(&queueStatus))
+	assert.Equal(t, "parked", queueStatus, "the oversized entry is parked, not retried in place")
+
+	pending, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	data, count := findEvent(*events, "sync:rejected")
+	require.Equal(t, 1, count)
+	assert.Equal(t, "too_large", data["reason"])
+	assert.Equal(t, oversized.String(), data["entityId"])
+	assert.Equal(t, "request", data["entityType"])
+	assert.Equal(t, StateConnected, ws.getState(), "a parked entity is not an offline event")
+}
+
+// oversizedSyncer builds a syncer whose stub refuses any batch over the gRPC limit.
+func oversizedSyncer(t *testing.T) (*SyncEngine, *workspaceSyncer, *stubSyncClient, func()) {
+	t.Helper()
+	engine := newTestEngine(t)
+	_, err := engine.configRepo.GetOrCreate(context.Background())
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &stubSyncClient{pushErrFn: func(req *syncv1.PushRequest) error {
+		if batchBytes(req.GetEntities()) > 4<<20 {
+			return status.Error(codes.ResourceExhausted, "grpc: received message larger than max (5242880 vs. 4194304)")
+		}
+		return nil
+	}}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	ws, cancel := newSyncer(engine, testWorkspaceID.String(), StateConnected)
+	return engine, ws, stub, cancel
+}
+
+func TestWorkspaceSyncer_ParkedOversized_NotRevivedByRequeueDue(t *testing.T) {
+	engine, ws, _, cancel := oversizedSyncer(t)
+	defer cancel()
+	ctx := context.Background()
+	wsID := ws.localWorkspaceID
+
+	oversized := bigRequest(t, engine, wsID, 5<<20)
+	require.NoError(t, ws.pushAll(ctx))
+
+	requeued, err := engine.syncQueue.RequeueDue(ctx, wsID, time.Now().Add(quotaRetryDelay+time.Hour))
+	require.NoError(t, err)
+	assert.Zero(t, requeued, "resending the same oversized entity every five minutes achieves nothing")
+
+	pending, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	var queueStatus string
+	require.NoError(t, engine.db.QueryRowContext(ctx,
+		`SELECT status FROM sync_queue WHERE entity_id = ?`, oversized.String()).Scan(&queueStatus))
+	assert.Equal(t, "parked", queueStatus)
+
+	parked, err := engine.GetParkedCount(ctx, wsID)
+	require.NoError(t, err)
+	assert.Zero(t, parked, "an oversized entity is not a plan limit")
+
+	tooLarge, err := engine.GetTooLargeCount(ctx, wsID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, tooLarge, "the user still owes the cloud this entity")
+}
+
+func TestWorkspaceSyncer_ParkedOversized_EventCarriesTooLargeCount(t *testing.T) {
+	engine, ws, _, cancel := oversizedSyncer(t)
+	defer cancel()
+	events := captureEvents(engine)
+
+	bigRequest(t, engine, ws.localWorkspaceID, 5<<20)
+	require.NoError(t, ws.pushAll(context.Background()))
+
+	data, count := findEvent(*events, "sync:parked_changed")
+	require.Equal(t, 1, count, "the badge must not wait for the five-second status poll")
+	assert.Equal(t, 1, data["tooLarge"])
+	assert.Equal(t, 0, data["parked"], "an oversized entity is not a plan limit")
+}
+
+func TestWorkspaceSyncer_ParkedOversized_SupersededByLaterWrite(t *testing.T) {
+	engine, ws, stub, cancel := oversizedSyncer(t)
+	defer cancel()
+	ctx := context.Background()
+	wsID := ws.localWorkspaceID
+
+	oversized := bigRequest(t, engine, wsID, 5<<20)
+	require.NoError(t, ws.pushAll(ctx))
+
+	engine.requests.(*stubRequestRepo).data[oversized].Body = "trimmed"
+	require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: wsID,
+		EntityType:  "request",
+		EntityID:    oversized.String(),
+		Action:      "update",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+
+	require.NoError(t, ws.pushAll(ctx))
+
+	batches := stub.pushBatches()
+	accepted := batches[len(batches)-1]
+	require.Len(t, accepted, 1)
+	assert.Equal(t, oversized.String(), accepted[0].GetEntityId(), "a trimmed entity must go out on the next push")
+	assert.LessOrEqual(t, batchBytes(accepted), 4<<20, "and this time the server takes it")
+
+	var rows int
+	require.NoError(t, engine.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sync_queue WHERE entity_id = ?`, oversized.String()).Scan(&rows))
+	assert.Zero(t, rows, "the parked row is superseded by the newer write, not kept forever")
+
+	parked, err := engine.GetParkedCount(ctx, wsID)
+	require.NoError(t, err)
+	assert.Zero(t, parked)
+}
+
+func TestWorkspaceSyncer_Resync_ReoffersDocumentedRequests(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+	stub := &stubSyncClient{}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+
+	wsID := testWorkspaceID.String()
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	documented := seedDocumentedRequest(t, engine)
+
+	require.NoError(t, ws.resync(ctx))
+
+	var pushed []string
+	for _, b := range stub.pushBatches() {
+		for _, e := range b {
+			pushed = append(pushed, e.GetEntityId())
+		}
+	}
+	assert.Contains(t, pushed, documented.String(),
+		"a resync must push the docs it re-offered, not wait for an unrelated local write")
+
+	pending, err := engine.syncQueue.ListPending(ctx, wsID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, pending, "an accepted re-offer leaves the outbox")
+}
+
+// seedDocumentedRequest puts a documented request in both the row store and the repo.
+func seedDocumentedRequest(t *testing.T, engine *SyncEngine) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	seedRequestRow(t, engine.db, id)
+	_, err := engine.db.Exec(`UPDATE requests SET description = '# Docs' WHERE id = ?`, id.String())
+	require.NoError(t, err)
+	engine.requests.(*stubRequestRepo).data[id] = &entities.Request{
+		ID:          id,
+		Name:        "Ping",
+		Method:      entities.MethodGET,
+		URL:         "https://example.com",
+		Description: "# Docs",
+	}
+	return id
+}
+
+// failingQueueRepo fails the chosen call and delegates the rest to the real repo.
+type failingQueueRepo struct {
+	sqlite.SyncQueueRepository
+	deleteErr  error
+	enqueueErr error
+}
+
+func (q *failingQueueRepo) DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error) {
+	if q.deleteErr != nil {
+		return 0, q.deleteErr
+	}
+	return q.SyncQueueRepository.DeleteByWorkspace(ctx, workspaceID)
+}
+
+func (q *failingQueueRepo) EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error) {
+	if q.enqueueErr != nil {
+		return 0, q.enqueueErr
+	}
+	return q.SyncQueueRepository.EnqueueDocumentedRequests(ctx, workspaceID)
+}
+
+func TestSyncEngine_ForceResync_PropagatesQueueErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		fail func(*failingQueueRepo)
+	}{
+		{"delete fails", func(q *failingQueueRepo) { q.deleteErr = errors.New("boom") }},
+		{"re-offer fails", func(q *failingQueueRepo) { q.enqueueErr = errors.New("boom") }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := newTestEngine(t)
+			ctx := context.Background()
+			wsID := testWorkspaceID.String()
+
+			require.NoError(t, engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+				WorkspaceID: wsID,
+				EntityType:  "collection",
+				EntityID:    uuid.NewString(),
+				Action:      "delete",
+				OperationID: uuid.NewString(),
+				Status:      "pending",
+				CreatedAt:   time.Now().Truncate(time.Second),
+			}))
+
+			failing := &failingQueueRepo{SyncQueueRepository: engine.syncQueue}
+			tc.fail(failing)
+			engine.syncQueue = failing
+
+			_, cancel := newSyncer(engine, wsID, StateConnected)
+			defer cancel()
+			defer engine.StopAll()
+
+			err := engine.ForceResync(ctx, wsID)
+			require.Error(t, err, "a half-done resync must be retried, not reported as fine")
+
+			var rows int
+			require.NoError(t, engine.db.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ?`, wsID).Scan(&rows))
+			assert.Equal(t, 1, rows, "a failed resync leaves the outbox as it was")
+
+			assert.NotEqual(t, StateDisconnected, engine.GetWorkspaceState(wsID),
+				"the workspace must keep syncing, or the retry reports it as not syncing")
+
+			failing.deleteErr = nil
+			failing.enqueueErr = nil
+			assert.NoError(t, engine.ForceResync(ctx, wsID), "the retry must go through once the repo recovers")
+		})
+	}
+}
+
+func TestWorkspaceSyncer_Resync_PropagatesReofferError(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+	engine.SetGRPCClient(&GRPCClient{sync: &stubSyncClient{}})
+	wsID := testWorkspaceID.String()
+
+	engine.syncQueue = &failingQueueRepo{
+		SyncQueueRepository: engine.syncQueue,
+		enqueueErr:          errors.New("boom"),
+	}
+
+	ws, cancel := newSyncer(engine, wsID, StateConnected)
+	defer cancel()
+
+	require.Error(t, ws.resync(ctx))
+}
+
+// parkRequestRow queues an entry for the request and parks it, as an oversized push would.
+func parkRequestRow(t *testing.T, ws *workspaceSyncer, requestID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, ws.engine.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+		WorkspaceID: ws.localWorkspaceID,
+		EntityType:  "request",
+		EntityID:    requestID.String(),
+		Action:      "update",
+		OperationID: uuid.NewString(),
+		Status:      "pending",
+		CreatedAt:   time.Now().Truncate(time.Second),
+	}))
+	pending, err := ws.engine.syncQueue.ListPending(ctx, ws.localWorkspaceID, 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, pending)
+	require.NoError(t, ws.engine.syncQueue.MarkParked(ctx, pending[len(pending)-1].ID))
+}
+
+func queueRowsFor(t *testing.T, db *sql.DB, entityID string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM sync_queue WHERE entity_id = ?`, entityID).Scan(&n))
+	return n
+}
+
+func TestApplyEntity_InboundDelete_DropsParkedRowOfTheRequest(t *testing.T) {
+	ws, db, _ := newTokenSyncer(t)
+	ctx := context.Background()
+
+	coll := hostCollection(t, db)
+	req := newLocalRequest("Oversized", coll.ID)
+	require.NoError(t, sqlite.NewRequestRepo(db).Create(ctx, req))
+	parkRequestRow(t, ws, req.ID)
+
+	require.NoError(t, ws.applyEntity(ctx, deletedRequestEntity(req.ID, coll.ID)))
+
+	assert.Zero(t, queueRowsFor(t, db, req.ID.String()),
+		"a request another device deleted must not stay unsynced forever")
+}
+
+func deletedRequestEntity(requestID, collectionID uuid.UUID) *syncv1.SyncEntity {
+	return syncv1.SyncEntity_builder{
+		EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
+		EntityId:   requestID.String(),
+		IsDeleted:  true,
+		Request: syncv1.RequestData_builder{
+			CollectionId: collectionID.String(),
+			Name:         "Oversized",
+			Method:       "GET",
+			Url:          "https://example.com",
+			AuthType:     "none",
+			AuthData:     "{}",
+		}.Build(),
+	}.Build()
+}
+
+func TestApplyEntity_InboundDelete_SweepsInsideTheCallersTransaction(t *testing.T) {
+	ws, db, _ := newTokenSyncer(t)
+	ctx := context.Background()
+
+	coll := hostCollection(t, db)
+	req := newLocalRequest("Oversized", coll.ID)
+	require.NoError(t, sqlite.NewRequestRepo(db).Create(ctx, req))
+	parkRequestRow(t, ws, req.ID)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sqlite.WithTx(ctx, db, func(txCtx context.Context) error {
+			return ws.applyEntity(txCtx, deletedRequestEntity(req.ID, coll.ID))
+		})
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sweep waited for a connection the pull transaction holds")
+	}
+
+	assert.Zero(t, queueRowsFor(t, db, req.ID.String()))
+}
+
+// countingSweepRepo counts how often a batch asks for the parked sweep.
+type countingSweepRepo struct {
+	sqlite.SyncQueueRepository
+	sweeps int
+}
+
+func (q *countingSweepRepo) DeleteParkedForMissingEntities(ctx context.Context, workspaceID string) (int, error) {
+	q.sweeps++
+	return q.SyncQueueRepository.DeleteParkedForMissingEntities(ctx, workspaceID)
+}
+
+func TestPullAll_SweepsParkedRowsOncePerBatch(t *testing.T) {
+	client := &fakeSyncClient{}
+	ws, db, _ := newInboundSyncer(t, client)
+	ctx := context.Background()
+	coll := hostCollection(t, db)
+
+	var ids []uuid.UUID
+	var changes []*syncv1.SyncChange
+	for range 3 {
+		req := newLocalRequest("Oversized", coll.ID)
+		require.NoError(t, sqlite.NewRequestRepo(db).Create(ctx, req))
+		parkRequestRow(t, ws, req.ID)
+		ids = append(ids, req.ID)
+		changes = append(changes, syncv1.SyncChange_builder{
+			EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
+			EntityId:   req.ID.String(),
+			Entity:     deletedRequestEntity(req.ID, coll.ID),
+		}.Build())
+	}
+
+	counting := &countingSweepRepo{SyncQueueRepository: ws.engine.syncQueue}
+	ws.engine.syncQueue = counting
+	client.pull = func(*syncv1.PullRequest) (*syncv1.PullResponse, error) {
+		return syncv1.PullResponse_builder{Changes: changes, NextSyncSeq: 9}.Build(), nil
+	}
+
+	require.NoError(t, ws.pullAll(ctx))
+
+	assert.Equal(t, 1, counting.sweeps, "one sweep clears the parked rows of the whole batch")
+	for _, id := range ids {
+		assert.Zero(t, queueRowsFor(t, db, id.String()))
+	}
+}
+
+func TestPushAll_DropsParkedRowsOfRequestsUnderADeletedCollection(t *testing.T) {
+	ws, db, _ := newTokenSyncer(t)
+	ctx := context.Background()
+
+	coll := hostCollection(t, db)
+	req := newLocalRequest("Oversized", coll.ID)
+	require.NoError(t, sqlite.NewRequestRepo(db).Create(ctx, req))
+	parkRequestRow(t, ws, req.ID)
+
+	coll.IsDelete = true
+	coll.Version++
+	require.NoError(t, sqlite.NewCollectionRepo(db).Update(ctx, coll))
+
+	require.NoError(t, ws.pushAll(ctx))
+
+	assert.Zero(t, queueRowsFor(t, db, req.ID.String()),
+		"a request the user deleted with its collection is not waiting for the cloud")
+}
+
+// cursorPullClient never runs out of changes, so the syncer keeps advancing lastSyncSeq.
+type cursorPullClient struct {
+	syncv1.SyncServiceClient
+	seq     atomic.Int64
+	entered chan struct{}
+}
+
+func (c *cursorPullClient) Push(_ context.Context, _ *syncv1.PushRequest, _ ...grpc.CallOption) (*syncv1.PushResponse, error) {
+	return syncv1.PushResponse_builder{}.Build(), nil
+}
+
+func (c *cursorPullClient) Pull(ctx context.Context, _ *syncv1.PullRequest, _ ...grpc.CallOption) (*syncv1.PullResponse, error) {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return syncv1.PullResponse_builder{
+		Changes:     []*syncv1.SyncChange{syncv1.SyncChange_builder{EntityId: uuid.NewString()}.Build()},
+		NextSyncSeq: c.seq.Add(1),
+		HasMore:     true,
+	}.Build(), nil
+}
+
+func (c *cursorPullClient) Subscribe(ctx context.Context, _ *syncv1.SubscribeRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[syncv1.SubscribeResponse], error) {
+	return &stubSubscribeStream{ctx: ctx}, nil
+}
+
+func TestSyncEngine_ForceResync_ReadsCursorUnderLock(t *testing.T) {
+	engine := newTestEngine(t)
+	_, err := engine.configRepo.GetOrCreate(context.Background())
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+
+	stub := &cursorPullClient{entered: make(chan struct{}, 1)}
+	engine.SetGRPCClient(&GRPCClient{sync: stub})
+	defer engine.StopAll()
+
+	wsID := testWorkspaceID.String()
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	<-stub.entered
+	// Unsynchronised on purpose: a channel or an atomic here would order the writes and hide the race.
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, engine.ForceResync(context.Background(), wsID))
 }

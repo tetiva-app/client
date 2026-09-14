@@ -64,6 +64,16 @@ function selectedLineRanges(doc: string, from: number, to: number): Array<{ from
   return ranges
 }
 
+function longestBacktickRun(text: string): number {
+  let longest = 0
+  let run = 0
+  for (const ch of text) {
+    run = ch === '`' ? run + 1 : 0
+    if (run > longest) longest = run
+  }
+  return longest
+}
+
 function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'italic' | 'code'): MarkdownEdit {
   const { marker, placeholder } = INLINE[kind]
   const m = marker.length
@@ -95,6 +105,20 @@ function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'itali
     }
   }
 
+  if (kind === 'code') {
+    // A code span needs a fence longer than any backtick run inside it, and padding spaces.
+    const fence = '`'.repeat(longestBacktickRun(selected) + 1)
+    const pad = fence.length > 1 || selected.startsWith('`') || selected.endsWith('`') ? ' ' : ''
+    const selectionFrom = from + fence.length + pad.length
+    return {
+      from,
+      to,
+      insert: fence + pad + selected + pad + fence,
+      selectionFrom,
+      selectionTo: selectionFrom + selected.length,
+    }
+  }
+
   return {
     from,
     to,
@@ -109,12 +133,17 @@ function linkEdit(doc: string, from: number, to: number): MarkdownEdit {
 
   // Nothing selected, or a URL was selected: the label is what needs typing.
   if (from === to || URL_RE.test(selected)) {
-    const insert = `[text](${from === to ? 'url' : selected})`
+    const url = from === to ? 'url' : selected
+    // A bare destination ends at the first parenthesis, so the angle form takes over.
+    const href = url.replace(/\(/g, '%28').replace(/\)/g, '%29')
+    const insert = `[text](${href})`
     return { from, to, insert, selectionFrom: from + 1, selectionTo: from + 5 }
   }
 
-  const insert = `[${selected}](url)`
-  const urlFrom = from + selected.length + 3
+  // Backslash first, or the escape added for a bracket would itself be escaped.
+  const label = selected.replace(/[\\[\]]/g, m => '\\' + m)
+  const insert = `[${label}](url)`
+  const urlFrom = from + label.length + 3
   return { from, to, insert, selectionFrom: urlFrom, selectionTo: urlFrom + 3 }
 }
 
@@ -235,7 +264,9 @@ export function blockInsert(
 
 function codeBlockEdit(doc: string, from: number, to: number): MarkdownEdit {
   const selected = doc.slice(from, to)
-  return blockEdit(doc, from, to, '```\n' + selected + '\n```', 4, 4 + selected.length)
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun(selected) + 1))
+  const cursor = fence.length + 1
+  return blockEdit(doc, from, to, fence + '\n' + selected + '\n' + fence, cursor, cursor + selected.length)
 }
 
 function clamp(value: number, min: number, max: number): number {

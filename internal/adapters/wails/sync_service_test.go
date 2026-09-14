@@ -264,11 +264,13 @@ func TestSyncService_GetStatus_ReportsParkedEntries(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pending, 2)
 	require.NoError(t, f.svc.queueRepo.MarkFailed(ctx, pending[0].ID, time.Now().Add(5*time.Minute)))
+	require.NoError(t, f.svc.queueRepo.MarkParked(ctx, pending[1].ID))
 
 	st := f.svc.GetStatus()
 	require.Nil(t, st.Error)
 	assert.Equal(t, 2, st.Data.Pending)
-	assert.Equal(t, 1, st.Data.Parked)
+	assert.Equal(t, 1, st.Data.Parked, "only the quota-held entry is a plan-limit entry")
+	assert.Equal(t, 1, st.Data.TooLarge, "an oversized entity is reported apart: no upgrade shrinks it")
 }
 
 func TestActiveWorkspaceNeedingLink(t *testing.T) {

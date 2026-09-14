@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { Cloud, CloudOff, CloudAlert, Loader2 } from 'lucide-vue-next'
 import { onboardingCopy } from '@/onboarding/copy'
 import { useSyncStatus } from '@/composables/useSyncStatus'
+import { parkedSummary } from '@/lib/sync-notices'
 import {
   Tooltip,
   TooltipContent,
@@ -15,16 +16,14 @@ const emit = defineEmits<{
 
 const verify = onboardingCopy(navigator.language).verify
 
-const { state, pending, parked, awaitingVerification } = useSyncStatus()
+const { state, pending, parked, tooLarge, awaitingVerification } = useSyncStatus()
 
-// Changes the plan quota keeps out of the cloud outlive the toast that announced
-// them, so the icon warns until they sync; the states below already say "stopped".
+// Changes held back from the cloud outlive their toast, so the icon warns until they sync.
 const parkedAlert = computed(
-  () => parked.value > 0 && !['offline', 'auth_expired', 'plan_limit', 'update_required'].includes(state.value),
+  () => (parked.value > 0 || tooLarge.value > 0)
+    && !['offline', 'auth_expired', 'plan_limit', 'update_required'].includes(state.value),
 )
-const parkedTooltip = computed(
-  () => `${parked.value} change${parked.value === 1 ? '' : 's'} not synced — plan limit`,
-)
+const parkedTooltip = computed(() => parkedSummary(parked.value, tooLarge.value))
 
 const stateLabels: Record<string, string> = {
   connected: 'Sync connected',

@@ -22,6 +22,7 @@ import { deviceLabel } from '@/lib/device-label'
 import { openExternal } from '@/lib/open-external'
 import { guarded, TRANSPORT_ERROR_CODE, TRANSPORT_ERROR_MESSAGE } from '@/lib/service-call'
 import { formatRelativeTime } from '@/lib/time'
+import { parkedQuotaNotice, parkedTooLargeNotice } from '@/lib/sync-notices'
 import { pickLocale } from '@/whats-new/notes'
 import { ONBOARDING_COPY } from '@/onboarding/copy'
 import { useToast } from '@/composables/useToast'
@@ -113,13 +114,11 @@ const planNotice = computed(() => {
   if (syncStatus.state.value === 'update_required') {
     return 'Sync stopped — update the app to read the newest changes from your team.'
   }
-  const n = syncStatus.parked.value
-  if (n > 0) {
-    return `${n} change${n === 1 ? '' : 's'} not synced — cloud collection limit reached on your plan.`
-      + ' They will sync automatically after an upgrade.'
-  }
-  return ''
+  return parkedQuotaNotice(syncStatus.parked.value)?.message ?? ''
 })
+
+// Its own line: no plan covers an oversized item, so the plans link has nothing to add.
+const tooLargeNotice = computed(() => parkedTooLargeNotice(syncStatus.tooLarge.value)?.message ?? '')
 
 const showPlansLink = computed(() => syncStatus.state.value !== 'update_required')
 
@@ -598,6 +597,14 @@ async function handleDisconnect() {
           >
             See plans
           </button>
+        </div>
+
+        <div
+          v-if="tooLargeNotice"
+          class="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs leading-relaxed text-amber-600 dark:text-amber-300"
+          data-testid="sync-too-large-notice"
+        >
+          {{ tooLargeNotice }}
         </div>
 
         <div v-if="syncedWorkspaces.length > 0" class="space-y-2">

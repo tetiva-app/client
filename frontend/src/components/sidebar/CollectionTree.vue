@@ -9,6 +9,8 @@ import { getPortabilityService } from '@/services'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useToast } from '@/composables/useToast'
 import { warningsToastMessage } from '@/lib/auth-warnings'
+import { removeEach } from '@/lib/bulk-delete'
+import { isModShortcut } from '@/lib/shortcut-guards'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
 import type { Collection } from '@/types/collection'
 import type { Request } from '@/types/request'
@@ -30,7 +32,7 @@ const emit = defineEmits<{
 const store = useCollectionStore()
 const requestStore = useRequestStore()
 const search = useSidebarSearchStore()
-const { hasSelection, clearSelection, getSelectedIds } = useTreeSelection()
+const { hasSelection, clearSelection, setSelection, getSelectedIds } = useTreeSelection()
 const toast = useToast()
 
 const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
@@ -43,7 +45,7 @@ function clearSearch() { search.reset() }
 function handleSearchEsc() { search.reset() }
 
 function handleGlobalCmdF(e: KeyboardEvent) {
-  const isCmdF = (e.metaKey || e.ctrlKey) && e.key === 'f'
+  const isCmdF = isModShortcut(e, 'KeyF', 'f')
   if (!isCmdF) return
   const active = document.activeElement as HTMLElement | null
   if (active?.closest('.cm-editor')) return
@@ -68,22 +70,28 @@ type DeleteTarget =
   | { kind: 'request'; id: string; version: number }
 
 const singleDelete = useConfirmDelete<DeleteTarget>(async (t) => {
-  if (t.kind === 'collection') await store.remove(t.id, t.version)
-  else await requestStore.remove(t.id, t.version)
+  const removed = t.kind === 'collection'
+    ? await store.remove(t.id, t.version)
+    : await requestStore.remove(t.id, t.version)
+  // The dialog closes unless this throws, and the store already said why it failed.
+  if (!removed) throw new Error('delete rejected')
 })
 
+// A cascade may have taken an item with its collection, which is not a failure.
+function removeTreeItem(id: string): Promise<boolean> {
+  const collection = store.collectionsMap.get(id)
+  if (collection) return store.remove(id, collection.version)
+  const request = requestStore.requestsMap.get(id)
+  if (request) return requestStore.remove(id, request.version)
+  return Promise.resolve(true)
+}
+
 const bulkDelete = useConfirmDelete<string[]>(async (ids) => {
-  for (const id of ids) {
-    const collection = store.collectionsMap.get(id)
-    if (collection) {
-      await store.remove(id, collection.version)
-      continue
-    }
-    const request = requestStore.requestsMap.get(id)
-    if (request) await requestStore.remove(id, request.version)
-  }
-  clearSelection()
+  const failed = await removeEach(ids, removeTreeItem)
+  setSelection(failed)
   await store.fetchAll()
+  // The dialog closes unless this throws, and the stores already said what refused.
+  if (failed.length > 0) throw new Error('delete rejected')
 })
 
 onMounted(() => {
@@ -136,8 +144,11 @@ async function handleCollectionRenameSave(newName: string) {
 }
 
 async function handleRequestRenameSave(newName: string) {
-  if (!renameRequestTarget.value) return
-  await requestStore.rename(renameRequestTarget.value.id, newName, renameRequestTarget.value.version)
+  const target = renameRequestTarget.value
+  if (!target) return
+  // Autosave can bump the version while the dialog is open
+  const version = requestStore.requestsMap.get(target.id)?.version ?? target.version
+  await requestStore.rename(target.id, newName, version)
 }
 
 function handleDeleteRequest(id: string) {

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 
@@ -48,7 +49,10 @@ const (
 )
 
 const (
-	pushBatchSize    = 100
+	pushBatchSize = 100
+	// pushBatchBytes stays under the server's 4 MiB gRPC default: a bigger batch comes
+	// back as ResourceExhausted, which sync cannot tell from a plan limit.
+	pushBatchBytes   = 3 << 20
 	pullBatchSize    = 100
 	heartbeatTimeout = 60 * time.Second
 	maxBackoff       = 5 * time.Minute
@@ -321,9 +325,14 @@ func (e *SyncEngine) GetPendingCount(ctx context.Context, workspaceID string) (i
 	return e.syncQueue.CountPendingOrFailed(ctx, workspaceID)
 }
 
-// GetParkedCount returns how many entries the server refused over the plan quota.
+// GetParkedCount returns how many entries the plan quota holds back.
 func (e *SyncEngine) GetParkedCount(ctx context.Context, workspaceID string) (int, error) {
 	return e.syncQueue.CountParked(ctx, workspaceID)
+}
+
+// GetTooLargeCount returns how many entries the server refused by size.
+func (e *SyncEngine) GetTooLargeCount(ctx context.Context, workspaceID string) (int, error) {
+	return e.syncQueue.CountTooLarge(ctx, workspaceID)
 }
 
 // ForcePush returns the number of pending entries seen before the push signal was sent.
@@ -344,7 +353,7 @@ func (e *SyncEngine) ForcePull(workspaceID string) error {
 	}
 	ws := v.(*workspaceSyncer)
 	remoteID := ws.remoteWorkspaceID
-	lastSeq := ws.lastSyncSeq
+	lastSeq := ws.cursor()
 
 	e.StopWorkspace(workspaceID)
 	e.StartWorkspace(workspaceID, remoteID, lastSeq)
@@ -359,15 +368,43 @@ func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error 
 	}
 	ws := v.(*workspaceSyncer)
 	remoteID := ws.remoteWorkspaceID
+	lastSeq := ws.cursor()
 
 	e.StopWorkspace(workspaceID)
 
-	if _, err := e.syncQueue.DeleteByWorkspace(ctx, workspaceID); err != nil {
+	if _, err := e.clearOutbox(ctx, workspaceID); err != nil {
+		// The outbox survived, so the syncer has to come back or the workspace reads as not syncing.
+		e.StartWorkspace(workspaceID, remoteID, lastSeq)
 		return fmt.Errorf("clear queue: %w", err)
 	}
 
 	e.StartWorkspace(workspaceID, remoteID, 0)
 	return nil
+}
+
+// clearOutbox drops the workspace outbox and re-offers local docs in one transaction:
+// a clear without its re-offer would drop descriptions the server does not have.
+func (e *SyncEngine) clearOutbox(ctx context.Context, workspaceID string) (int, error) {
+	var deleted, reoffered int
+
+	err := sqlite.WithTx(ctx, e.db, func(txCtx context.Context) error {
+		var err error
+		if deleted, err = e.syncQueue.DeleteByWorkspace(txCtx, workspaceID); err != nil {
+			return fmt.Errorf("delete queue: %w", err)
+		}
+		if reoffered, err = e.syncQueue.EnqueueDocumentedRequests(txCtx, workspaceID); err != nil {
+			return fmt.Errorf("re-queue documented requests: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if reoffered > 0 {
+		slog.Info("sync: re-queued documented requests after a resync", "workspace", workspaceID, "count", reoffered)
+	}
+	return deleted, nil
 }
 
 // InjectRawSyncer inserts a workspaceSyncer without starting a goroutine. Tests only.
@@ -459,7 +496,8 @@ type workspaceSyncer struct {
 	mu                gosync.RWMutex
 	cancel            context.CancelFunc
 	pushSignal        chan struct{} // buffered(1) — non-blocking send on write
-	lastSyncSeq       int64
+	// lastSyncSeq is the pull cursor, guarded by mu: readers run off the syncer goroutine.
+	lastSyncSeq int64
 	// paused: the goroutine ctx is cancelled but the entry stays in the map
 	// so Resume can restart it without losing remoteWorkspaceID / lastSyncSeq.
 	paused bool
@@ -467,9 +505,9 @@ type workspaceSyncer struct {
 	streamCancel context.CancelFunc
 	// Throttle stamp for the id-conflict rejection event, guarded by mu.
 	lastRejectEvent time.Time
-	// parked is the last published count of quota-rejected entries; quotaEpisode
-	// is open while the user still owes the cloud those changes. Guarded by mu.
+	// Last published reject counts; quotaEpisode stays open while the quota ones are owed. Guarded by mu.
 	parked       int
+	tooLarge     int
 	quotaEpisode bool
 	// requeueTimer wakes the syncer once when parked entries fall due: no local
 	// write is coming to trigger the push that would requeue them.
@@ -532,6 +570,19 @@ func (ws *workspaceSyncer) stopRequeueTimerLocked() {
 func (ws *workspaceSyncer) stop() {
 	ws.stopRequeueTimer()
 	ws.cancel()
+}
+
+// cursor reads last_sync_seq from outside the syncer goroutine that advances it.
+func (ws *workspaceSyncer) cursor() int64 {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	return ws.lastSyncSeq
+}
+
+func (ws *workspaceSyncer) setCursor(seq int64) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.lastSyncSeq = seq
 }
 
 func (ws *workspaceSyncer) getState() SyncState {
@@ -600,12 +651,18 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 	ws.subscribeLoop(ctx)
 }
 
-// pushAll requeues the parked entries that fell due, drains the outbox queue, and
+// pushAll requeues the parked entries that fell due, drains the outbox queue and
 // re-arms the wake-up for whatever is still parked.
 func (ws *workspaceSyncer) pushAll(ctx context.Context) error {
 	if _, err := ws.engine.syncQueue.RequeueDue(ctx, ws.localWorkspaceID, time.Now()); err != nil {
 		slog.Warn("sync: failed to requeue deferred entries", "workspace", ws.localWorkspaceID, "err", err)
 	}
+
+	if _, err := ws.engine.syncQueue.DeleteSupersededParked(ctx, ws.localWorkspaceID); err != nil {
+		slog.Warn("sync: failed to drop superseded parked entries", "workspace", ws.localWorkspaceID, "err", err)
+	}
+
+	ws.dropParkedForGoneEntities(ctx)
 
 	if err := ws.drainOutbox(ctx); err != nil {
 		return err
@@ -628,6 +685,7 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 
 		var protoEntities []*syncv1.SyncEntity
 		var entryIDs []int64
+		batchBytes := 0
 
 		for _, entry := range entries {
 			entity, err := ws.readEntity(ctx, entry.EntityType, entry.EntityID)
@@ -679,6 +737,12 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 			}
 
 			if protoEntity != nil {
+				size := proto.Size(protoEntity)
+				// An entity over the budget on its own still goes, alone: only the server can refuse it.
+				if len(protoEntities) > 0 && batchBytes+size > pushBatchBytes {
+					break
+				}
+				batchBytes += size
 				protoEntities = append(protoEntities, protoEntity)
 				entryIDs = append(entryIDs, entry.ID)
 			}
@@ -710,6 +774,10 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 
 		resp, err := ws.engine.GRPCClient().Sync().Push(authCtx, pushReq)
 		if err != nil {
+			if len(entryIDs) == 1 && isOversizedPushErr(err) &&
+				ws.parkOversized(ctx, entryByID(entries, entryIDs[0]), batchBytes) {
+				continue
+			}
 			return fmt.Errorf("push rpc: %w", err)
 		}
 		ws.engine.clearPlanLimit()
@@ -851,6 +919,15 @@ func entityTypeOf(entityID string, entries []*sqlite.SyncEntry) string {
 	return ""
 }
 
+func entryByID(entries []*sqlite.SyncEntry, id int64) *sqlite.SyncEntry {
+	for _, e := range entries {
+		if e.ID == id {
+			return e
+		}
+	}
+	return nil
+}
+
 func entryIDOf(entityID string, entries []*sqlite.SyncEntry) (int64, bool) {
 	for _, e := range entries {
 		if e.EntityID == entityID {
@@ -912,6 +989,34 @@ func (ws *workspaceSyncer) parkEntries(ctx context.Context, entryIDs, rejected [
 	return slices.DeleteFunc(entryIDs, func(id int64) bool { return kept[id] })
 }
 
+// isOversizedPushErr reports the transport limit: ResourceExhausted without the plan marker.
+func isOversizedPushErr(err error) bool {
+	code, msg, ok := grpcStatusOf(err)
+	return ok && code == codes.ResourceExhausted && !strings.Contains(msg, planLimitMarker)
+}
+
+// parkOversized parks an entity the server refuses so it stops wedging the outbox. Reports success.
+func (ws *workspaceSyncer) parkOversized(ctx context.Context, entry *sqlite.SyncEntry, size int) bool {
+	if entry == nil {
+		return false
+	}
+	if err := ws.engine.syncQueue.MarkParked(ctx, entry.ID); err != nil {
+		slog.Warn("sync: failed to park an oversized queue entry", "entry", entry.ID, "workspace", ws.localWorkspaceID, "err", err)
+		return false
+	}
+
+	slog.Warn("sync: entity too large for the server, parked",
+		"workspace", ws.localWorkspaceID, "type", entry.EntityType, "entityId", entry.EntityID, "bytes", size)
+	ws.emitThrottled("sync:rejected", &ws.lastRejectEvent, map[string]any{
+		"workspaceId": ws.localWorkspaceID,
+		"entityType":  entry.EntityType,
+		"entityId":    entry.EntityID,
+		"reason":      "too_large",
+	})
+	ws.refreshParked(ctx)
+	return true
+}
+
 // emitQuotaOnce notifies on the first rejection of an episode; the rest stay silent
 // until the parked entries reach the cloud and the episode ends.
 func (ws *workspaceSyncer) emitQuotaOnce(data map[string]any) {
@@ -926,18 +1031,23 @@ func (ws *workspaceSyncer) emitQuotaOnce(data map[string]any) {
 	ws.engine.eventEmitter("sync:quota_exceeded", data)
 }
 
-// refreshParked republishes the parked count when it moves: the indicator shows it,
-// and a drop to zero closes the episode so the next rejection notifies again.
+// refreshParked republishes both parked counts when either moves; a drop to zero closes the episode.
 func (ws *workspaceSyncer) refreshParked(ctx context.Context) {
 	count, err := ws.engine.syncQueue.CountParked(ctx, ws.localWorkspaceID)
 	if err != nil {
 		slog.Warn("sync: failed to count parked entries", "workspace", ws.localWorkspaceID, "err", err)
 		return
 	}
+	oversized, err := ws.engine.syncQueue.CountTooLarge(ctx, ws.localWorkspaceID)
+	if err != nil {
+		slog.Warn("sync: failed to count oversized entries", "workspace", ws.localWorkspaceID, "err", err)
+		return
+	}
 
 	ws.mu.Lock()
-	changed := ws.parked != count
+	changed := ws.parked != count || ws.tooLarge != oversized
 	ws.parked = count
+	ws.tooLarge = oversized
 	ws.quotaEpisode = count > 0
 	ws.mu.Unlock()
 
@@ -945,6 +1055,7 @@ func (ws *workspaceSyncer) refreshParked(ctx context.Context) {
 		ws.engine.eventEmitter("sync:parked_changed", map[string]any{
 			"workspaceId": ws.localWorkspaceID,
 			"parked":      count,
+			"tooLarge":    oversized,
 		})
 	}
 }
@@ -975,7 +1086,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 		authCtx := ContextWithAuth(ctx, token)
 		pullReq := syncv1.PullRequest_builder{
 			WorkspaceId: ws.remoteWorkspaceID,
-			LastSyncSeq: ws.lastSyncSeq,
+			LastSyncSeq: ws.cursor(),
 			Limit:       pullBatchSize,
 		}.Build()
 
@@ -990,15 +1101,25 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 
 		if len(resp.GetChanges()) > 0 {
 			err = sqlite.WithTx(ctx, ws.engine.db, func(txCtx context.Context) error {
+				var deleted bool
 				for _, change := range resp.GetChanges() {
-					if err := ws.applyChange(txCtx, change); err != nil {
+					entity := change.GetEntity()
+					if entity == nil {
+						continue
+					}
+					if err := ws.applyEntityData(txCtx, entity); err != nil {
 						// A compatibility failure rolls the batch back: skipping would
 						// advance the cursor past an entity this build cannot store.
 						if errors.Is(err, ErrUpdateRequired) {
 							return err
 						}
 						slog.Warn("sync: skip change apply", "entityId", change.GetEntityId(), "err", err)
+						continue
 					}
+					deleted = deleted || entity.GetIsDeleted()
+				}
+				if deleted {
+					ws.dropParkedForGoneEntities(txCtx)
 				}
 				ws.sweepTokens(txCtx)
 				_, err := sqlite.DBTXFromContext(txCtx, ws.engine.db).ExecContext(txCtx,
@@ -1010,7 +1131,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 				return fmt.Errorf("apply changes: %w", err)
 			}
 
-			ws.lastSyncSeq = resp.GetNextSyncSeq()
+			ws.setCursor(resp.GetNextSyncSeq())
 
 			ws.engine.eventEmitter("sync:changed", map[string]any{
 				"workspaceId": ws.localWorkspaceID,
@@ -1023,6 +1144,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 	}
 }
 
+// applyChange applies a single change and sweeps after it; a pull batch sweeps once per batch.
 func (ws *workspaceSyncer) applyChange(ctx context.Context, change *syncv1.SyncChange) error {
 	entity := change.GetEntity()
 	if entity == nil {
@@ -1032,9 +1154,27 @@ func (ws *workspaceSyncer) applyChange(ctx context.Context, change *syncv1.SyncC
 }
 
 func (ws *workspaceSyncer) applyEntity(ctx context.Context, entity *syncv1.SyncEntity) error {
+	if err := ws.applyEntityData(ctx, entity); err != nil {
+		return err
+	}
+	if entity.GetIsDeleted() {
+		ws.dropParkedForGoneEntities(ctx)
+	}
+	return nil
+}
+
+// dropParkedForGoneEntities clears parked entries of unreachable entities; nothing local
+// will supersede them. Joins the caller's transaction.
+func (ws *workspaceSyncer) dropParkedForGoneEntities(ctx context.Context) {
+	if _, err := ws.engine.syncQueue.DeleteParkedForMissingEntities(ctx, ws.localWorkspaceID); err != nil {
+		slog.Warn("sync: failed to drop parked entries of deleted entities", "workspace", ws.localWorkspaceID, "err", err)
+	}
+}
+
+func (ws *workspaceSyncer) applyEntityData(ctx context.Context, entity *syncv1.SyncEntity) error {
 	wsID, err := uuid.Parse(ws.localWorkspaceID)
 	if err != nil {
-		return fmt.Errorf("applyEntity: invalid workspace id %q: %w", ws.localWorkspaceID, err)
+		return fmt.Errorf("applyEntityData: invalid workspace id %q: %w", ws.localWorkspaceID, err)
 	}
 
 	switch entity.GetEntityType() {
@@ -1063,7 +1203,7 @@ func (ws *workspaceSyncer) applyEntity(ctx context.Context, entity *syncv1.SyncE
 		if err != nil {
 			return err
 		}
-		if err := ws.upsertRequest(ctx, r); err != nil {
+		if err := ws.upsertRequest(ctx, r, entity.GetRequest().HasDescription()); err != nil {
 			return err
 		}
 		ws.clearTokenOnAuthChange(ctx,
@@ -1098,7 +1238,7 @@ func (ws *workspaceSyncer) upsertCollection(ctx context.Context, c *entities.Col
 	return ws.engine.collections.Create(ctx, c)
 }
 
-func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Request) error {
+func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Request, hasDescription bool) error {
 	// Raw SQL check to detect soft-deleted records that GetByID won't return.
 	exists, err := ws.entityExists(ctx, "requests", r.ID.String())
 	if err != nil {
@@ -1108,8 +1248,8 @@ func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Reques
 		return ws.engine.requests.Create(ctx, r)
 	}
 
-	// A field outside the sync contract must not be wiped by sync data.
-	if r.Description == "" {
+	// A peer too old to know the field must not wipe the local docs; a sent "" is a clear.
+	if !hasDescription {
 		local, err := ws.engine.requests.GetDescriptionByID(ctx, r.ID)
 		if err != nil {
 			return err
@@ -1465,9 +1605,9 @@ func (ws *workspaceSyncer) subscribe(ctx context.Context) error {
 func (ws *workspaceSyncer) resync(ctx context.Context) error {
 	ws.setState(StateResyncing)
 
-	count, err := ws.engine.syncQueue.DeleteByWorkspace(ctx, ws.localWorkspaceID)
+	count, err := ws.engine.clearOutbox(ctx, ws.localWorkspaceID)
 	if err != nil {
-		return fmt.Errorf("delete queue: %w", err)
+		return fmt.Errorf("clear outbox: %w", err)
 	}
 	if count > 0 {
 		ws.engine.eventEmitter("sync:data_lost", map[string]any{
@@ -1476,7 +1616,7 @@ func (ws *workspaceSyncer) resync(ctx context.Context) error {
 		})
 	}
 
-	ws.lastSyncSeq = 0
+	ws.setCursor(0)
 	_, err = sqlite.DBTXFromContext(ctx, ws.engine.db).ExecContext(ctx,
 		`UPDATE workspaces SET last_sync_seq = 0 WHERE id = ?`, ws.localWorkspaceID)
 	if err != nil {
@@ -1485,6 +1625,11 @@ func (ws *workspaceSyncer) resync(ctx context.Context) error {
 
 	if err := ws.pullAll(ctx); err != nil {
 		return fmt.Errorf("resync pull: %w", err)
+	}
+
+	// The re-offered rows have no local write coming to carry them out.
+	if err := ws.pushAll(ctx); err != nil {
+		return fmt.Errorf("resync push: %w", err)
 	}
 
 	return nil

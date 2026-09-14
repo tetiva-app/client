@@ -47,6 +47,18 @@
 			}
 		},
 		{
+			"name": "Cleared",
+			"description": "Item level only.",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"description": "",
+				"url": {
+					"raw": "https://api.example.com/cleared"
+				}
+			}
+		},
+		{
 			"name": "Admin",
 			"description": {
 				"content": "Folder documentation.",

@@ -10,6 +10,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { isModShortcut } from '@/lib/shortcut-guards'
 
 const props = withDefaults(defineProps<{
   definition: string
@@ -108,7 +109,7 @@ function selectAll() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+  if (isModShortcut(e, 'KeyA', 'a')) {
     e.preventDefault()
     e.stopPropagation()
     selectAll()

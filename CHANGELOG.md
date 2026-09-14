@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Request descriptions sync between devices and reach the server. Needs server 0.18 or newer; an edit coming from an older client leaves your local docs untouched instead of clearing them
+- Descriptions autosave 1.5 s after you stop typing, and switching or closing a tab writes whatever is still unsaved in it — collection scripts and auth included. Closing the window tries one last save. Cmd+S still works
+- Descriptions are limited to 16 KiB; a byte counter appears near the limit and a too-long text is rejected with a clear message instead of a silent sync stall
+- Descriptions written before this version are offered to the server once on first launch and after a resync; the server keeps them unless a newer device deliberately cleared the field
+
+### Fixed
+
+- Cmd+S, Cmd+F, Cmd+A, Cmd+, and Cmd+[ / ] now work on Cyrillic and other non-Latin layouts
+- AltGr combinations (AltGr+S and friends on Windows and Linux layouts) and Cmd/Ctrl+Shift no longer trigger the plain Cmd+S, Cmd+F, Cmd+A, Cmd+, and Cmd+[ / ]
+- Closing a tab while a save was in flight could drop the edits typed during that save; a failed collection save no longer closes the tab
+- The description editor ignored every second update arriving from sync and let Ctrl+Z revert synced text as if you had typed it
+- Undo history in the Docs tab survives switching to Params and back (and Overview → Scripts on a collection); the gRPC, GraphQL and WebSocket editors keep it too
+- Enter on an empty last table row leaves a blank line, so the next paragraph is not swallowed by the table
+- Pipes inside inline code in a table are escaped when you press Tab or Enter in the table, switch to preview or leave the editor, so the preview keeps every cell
+- Inline code, code block and link commands escape backticks, brackets and parentheses in the selection
+- Postman export keeps empty folders and writes request docs where Postman reads them; import keeps HTML descriptions as text and reports when an item and its request carry different docs
+- A rejected save says which field is wrong ("description: must be at most 16384 bytes") instead of "validation failed"
+- Postman import no longer fails on a description over 16 KiB: it is truncated and the import reports it
+- Renaming a request no longer fails when an autosave was in flight
+- An item the server refuses as too large no longer stalls sync: it is parked with a notice and goes out again after your next edit to it. It is counted apart from the plan limit and shown on its own line, without an offer to upgrade that would not help
+
 ## [v1.1.0] — 2026-09-07 — Browser sign-in
 
 ### Added

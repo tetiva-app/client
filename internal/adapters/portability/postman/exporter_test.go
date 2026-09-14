@@ -73,10 +73,12 @@ func TestExportCollection(t *testing.T) {
 
 	require.NotNil(t, authFolder)
 	assert.Equal(t, "Auth", authFolder.Name)
-	require.Equal(t, 1, len(authFolder.Item))
-	assert.Equal(t, "Login", authFolder.Item[0].Name)
-	assert.Equal(t, "POST", authFolder.Item[0].Request.Method)
-	assert.Equal(t, "{{host}}/api/login", authFolder.Item[0].Request.URL.Raw)
+	require.NotNil(t, authFolder.Item)
+	subItems := *authFolder.Item
+	require.Equal(t, 1, len(subItems))
+	assert.Equal(t, "Login", subItems[0].Name)
+	assert.Equal(t, "POST", subItems[0].Request.Method)
+	assert.Equal(t, "{{host}}/api/login", subItems[0].Request.URL.Raw)
 
 	require.NotNil(t, pingReq)
 	assert.Equal(t, "Ping", pingReq.Name)
@@ -211,7 +213,7 @@ func TestExportCollection_WithDescriptionAndAuth(t *testing.T) {
 	var pc postman.PostmanCollection
 	require.NoError(t, json.Unmarshal(data, &pc))
 
-	assert.Equal(t, "# Root API", string(pc.Info.Description))
+	assert.Equal(t, "# Root API", pc.Info.Description.Text())
 
 	require.NotNil(t, pc.Auth)
 	assert.Equal(t, "bearer", pc.Auth.Type)
@@ -219,7 +221,7 @@ func TestExportCollection_WithDescriptionAndAuth(t *testing.T) {
 
 	require.Equal(t, 1, len(pc.Item))
 	assert.Equal(t, "Admin", pc.Item[0].Name)
-	assert.Equal(t, "Admin endpoints", string(pc.Item[0].Description))
+	assert.Equal(t, "Admin endpoints", pc.Item[0].Description.Text())
 	require.NotNil(t, pc.Item[0].Auth)
 	assert.Equal(t, "basic", pc.Item[0].Auth.Type)
 }
@@ -340,14 +342,12 @@ func TestExportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &pc))
 
 	require.Len(t, pc.Item, 2)
-	assert.Equal(t, "# Ping\nReturns pong.", string(pc.Item[0].Description))
+	assert.Equal(t, "# Ping\nReturns pong.", pc.Item[0].Request.Description.Text())
 	assert.Equal(t, "query", findKV(t, pc.Item[0].Request.Auth.APIKey, "in"))
 	assert.Equal(t, "query", findKV(t, pc.Item[1].Request.Auth.APIKey, "in"),
 		"collections imported before the addTo rename must still export their location")
 }
 
-// The exporter writes descriptions at item level and the importer prefers the
-// request level, so a round trip is the only proof the two still meet.
 func TestExportImportRoundTrip_KeepsDescriptions(t *testing.T) {
 	rootID := uuid.New()
 	folderID := uuid.New()
@@ -427,10 +427,59 @@ func TestExportCollection_WebSocketOmitsSettingsBody(t *testing.T) {
 	assert.NotContains(t, string(data), "pingIntervalSec")
 
 	assert.Equal(t, "Ticker", item.Name)
-	assert.Equal(t, "# Ticker\nStreams prices.", string(item.Description))
+	assert.Equal(t, "# Ticker\nStreams prices.", item.Request.Description.Text())
 	assert.Equal(t, "wss://api.example.com/ws", item.Request.URL.Raw)
 	require.Equal(t, 1, len(item.Request.Header))
 	assert.Equal(t, "X-Test", item.Request.Header[0].Key)
 	require.NotNil(t, item.Request.Auth)
 	assert.Equal(t, "bearer", item.Request.Auth.Type)
+}
+
+func TestExportImportRoundTrip_KeepsEmptyFolder(t *testing.T) {
+	rootID, emptyID := uuid.New(), uuid.New()
+	collections := []*entities.Collection{
+		{ID: rootID, Name: "API"},
+		{ID: emptyID, Name: "Empty", Description: "Chapter stub.", ParentID: &rootID},
+	}
+
+	data, err := postman.ExportCollection(rootID, collections, nil)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"item": []`)
+
+	collUC := &stubCollectionUC{}
+	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, &stubRequestUC{})
+	require.NoError(t, err)
+
+	require.Len(t, collUC.created, 2)
+	assert.Equal(t, "Empty", collUC.created[1].Name)
+	assert.Equal(t, "Chapter stub.", collUC.created[1].Description)
+}
+
+func TestExportCollection_EmptyRootWritesItemArray(t *testing.T) {
+	rootID := uuid.New()
+
+	data, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, nil)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), `"item": null`)
+}
+
+func TestExportCollection_RequestDescriptionAtRequestLevel(t *testing.T) {
+	rootID := uuid.New()
+	requests := []*entities.Request{{
+		ID: uuid.New(), CollectionID: rootID, Name: "Ping", Description: "Returns pong.",
+		Protocol: entities.ProtocolHTTP, Method: entities.MethodGET, URL: "https://api.example.com/ping",
+		BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone, AuthData: "{}",
+	}}
+
+	data, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, requests)
+	require.NoError(t, err)
+
+	var pc postman.PostmanCollection
+	require.NoError(t, json.Unmarshal(data, &pc))
+
+	require.Len(t, pc.Item, 1)
+	assert.Equal(t, "Returns pong.", pc.Item[0].Request.Description.Text())
+	assert.Nil(t, pc.Item[0].Description)
 }

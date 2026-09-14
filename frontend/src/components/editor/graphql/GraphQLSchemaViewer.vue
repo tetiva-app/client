@@ -8,6 +8,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { isModShortcut } from '@/lib/shortcut-guards'
 import { isWailsEnvironment, getWindowService } from '@/services'
 import type { GraphQLSchema, GraphQLType } from '@/types/graphql'
 
@@ -232,7 +233,7 @@ function selectAll() {
 }
 
 function handleEditorKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+  if (isModShortcut(e, 'KeyA', 'a')) {
     e.preventDefault()
     e.stopPropagation()
     selectAll()

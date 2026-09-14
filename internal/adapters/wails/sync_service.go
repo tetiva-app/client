@@ -702,7 +702,7 @@ func (s *SyncService) LogoutAll() Result[dto.LogoutAllResult] {
 	return OK(dto.LogoutAllResult{RevokedCount: revoked})
 }
 
-// Reports state, pending count and how many of those the plan quota keeps parked.
+// GetStatus reports sync state and the pending, plan-parked and size-refused counts.
 func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 	ctx := context.Background()
 
@@ -735,6 +735,11 @@ func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 		parked, err := s.engine.GetParkedCount(ctx, activeWorkspaceID)
 		if err == nil {
 			resp.Parked = parked
+		}
+
+		tooLarge, err := s.engine.GetTooLargeCount(ctx, activeWorkspaceID)
+		if err == nil {
+			resp.TooLarge = tooLarge
 		}
 	} else {
 		resp.State = string(syncsvc.StateDisconnected)
@@ -778,14 +783,45 @@ func (s *SyncService) UnlinkWorkspace(req dto.UnlinkWorkspaceRequest) Result[Emp
 
 	s.engine.StopWorkspace(req.LocalWorkspaceID)
 
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`,
-		req.LocalWorkspaceID)
+	// Mapping and outbox go together: an outbox that outlives the mapping reaches the next account.
+	err := sqlite.WithTx(ctx, s.db, func(txCtx context.Context) error {
+		if _, err := sqlite.DBTXFromContext(txCtx, s.db).ExecContext(txCtx,
+			`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`,
+			req.LocalWorkspaceID); err != nil {
+			return fmt.Errorf("clear remote mapping: %w", err)
+		}
+		if _, err := s.queueRepo.DeleteByWorkspace(txCtx, req.LocalWorkspaceID); err != nil {
+			return fmt.Errorf("drop outbox: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
+		// The mapping survived, so the workspace is still linked and needs its syncer back.
+		s.restartLinkedSyncer(ctx, req.LocalWorkspaceID)
 		return Err[Empty](err)
 	}
 
 	return OK(Empty{})
+}
+
+// restartLinkedSyncer starts the syncer again from the mapping still on the row.
+func (s *SyncService) restartLinkedSyncer(ctx context.Context, localWorkspaceID string) {
+	var (
+		remoteID    sql.NullString
+		lastSyncSeq int64
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT remote_workspace_id, last_sync_seq FROM workspaces WHERE id = ?`,
+		localWorkspaceID).Scan(&remoteID, &lastSyncSeq)
+	if err != nil {
+		slog.Warn("sync: failed to read the workspace mapping after a failed unlink",
+			"workspace", localWorkspaceID, "err", err)
+		return
+	}
+	if !remoteID.Valid || remoteID.String == "" {
+		return
+	}
+	s.engine.StartWorkspace(localWorkspaceID, remoteID.String, lastSyncSeq)
 }
 
 // ListRemoteWorkspaces fetches the workspaces visible to the user under their
@@ -878,6 +914,11 @@ func (s *SyncService) dropForeignWorkspaceMappings(ctx context.Context, remotes 
 
 	for _, localID := range stale {
 		s.engine.StopWorkspace(localID)
+		if _, err := s.queueRepo.DeleteByWorkspace(ctx, localID); err != nil {
+			// Keep the mapping so the next discovery retries this workspace.
+			slog.Warn("sync: clearing the outbox of a foreign workspace failed", "local_id", localID, "err", err)
+			continue
+		}
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`, localID); err != nil {
 			slog.Warn("sync: unlinking foreign workspace failed", "local_id", localID, "err", err)

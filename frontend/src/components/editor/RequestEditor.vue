@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue'
+import { computed, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -22,7 +22,7 @@ import {
 import type { AuthType, BodyType, HTTPMethod, Request } from '@/types/request'
 import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { isInsideOverlay } from '@/lib/shortcut-guards'
+import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import {
   curlAuthChange,
   curlImportFields,
@@ -76,6 +76,11 @@ const isActiveTab = computed(
 )
 
 const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs'>('params')
+
+// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
+const docsMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
+
 const promoteOpen = ref(false)
 const collectionsStore = useCollectionStore()
 const toast = useToast()
@@ -136,7 +141,7 @@ function handleKeydown(event: KeyboardEvent) {
   // gRPC/GraphQL editors register their own handler — avoid double save/send
   const proto = request.value?.protocol
   if (proto === 'grpc' || proto === 'graphql') return
-  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+  if (isModShortcut(event, 'KeyS', 's')) {
     event.preventDefault()
     store.saveToBackend(props.requestId)
   }
@@ -152,6 +157,16 @@ function handleKeydown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })
+
+// Leaving the tab is a handoff: the buffer must be on disk before another view owns it.
+function flushOnLeave() {
+  if (store.isSaveBlocked(props.requestId)) return
+  void store.flush(props.requestId)
+}
+
+onDeactivated(flushOnLeave)
+
+onBeforeUnmount(flushOnLeave)
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
@@ -414,7 +429,8 @@ function updateField(field: string, value: any) {
                 @update:post-script="(v) => updateField('postScript', v)"
               />
               <RequestDocs
-                v-else-if="activeTab === 'docs'"
+                v-if="docsMounted"
+                v-show="activeTab === 'docs'"
                 :description="request.description"
                 @update:description="(v) => updateField('description', v)"
               />

@@ -6,30 +6,58 @@ import (
 	"strings"
 )
 
-// PostmanDescription is a description as Collection v2.1 allows it to be written:
-// a plain string or a {content, type} object. It always goes back out as a string.
-type PostmanDescription string
+// PostmanDescription is a v2.1 description: a plain string or a {content, type} object.
+type PostmanDescription struct {
+	Content string
+	Type    string
+}
 
 func (d *PostmanDescription) UnmarshalJSON(b []byte) error {
 	const funcName = "postman.PostmanDescription.UnmarshalJSON"
 
 	if string(b) == "null" {
-		*d = ""
+		*d = PostmanDescription{}
 		return nil
 	}
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
-		*d = PostmanDescription(s)
+		*d = PostmanDescription{Content: s}
 		return nil
 	}
 	var obj struct {
 		Content string `json:"content"`
+		Type    string `json:"type"`
 	}
 	if err := json.Unmarshal(b, &obj); err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
-	*d = PostmanDescription(obj.Content)
+	*d = PostmanDescription{Content: obj.Content, Type: obj.Type}
 	return nil
+}
+
+func (d PostmanDescription) MarshalJSON() ([]byte, error) {
+	const funcName = "postman.PostmanDescription.MarshalJSON"
+
+	raw, err := json.Marshal(d.Content)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return raw, nil
+}
+
+func (d *PostmanDescription) Text() string {
+	if d == nil {
+		return ""
+	}
+	return d.Content
+}
+
+// descriptionOf is nil for an empty description so omitempty drops the key.
+func descriptionOf(s string) *PostmanDescription {
+	if s == "" {
+		return nil
+	}
+	return &PostmanDescription{Content: s, Type: "text/markdown"}
 }
 
 type PostmanCollection struct {
@@ -40,34 +68,35 @@ type PostmanCollection struct {
 }
 
 type PostmanInfo struct {
-	PostmanID   string             `json:"_postman_id,omitempty"`
-	Name        string             `json:"name"`
-	Description PostmanDescription `json:"description,omitempty"`
-	Schema      string             `json:"schema"`
-	ExporterID  string             `json:"_exporter_id,omitempty"`
+	PostmanID   string              `json:"_postman_id,omitempty"`
+	Name        string              `json:"name"`
+	Description *PostmanDescription `json:"description,omitempty"`
+	Schema      string              `json:"schema"`
+	ExporterID  string              `json:"_exporter_id,omitempty"`
 }
 
-// PostmanItem represents either a folder (has Item) or a request (has Request).
+// PostmanItem is either a folder or a request; Item is a pointer so an empty folder keeps "item": [].
 type PostmanItem struct {
-	Name        string             `json:"name"`
-	Description PostmanDescription `json:"description,omitempty"`
-	Item        []PostmanItem      `json:"item,omitempty"`
-	Request     *PostmanRequest    `json:"request,omitempty"`
-	Auth        *PostmanAuth       `json:"auth,omitempty"`
-	Event       []PostmanEvent     `json:"event,omitempty"`
+	Name        string              `json:"name"`
+	Description *PostmanDescription `json:"description,omitempty"`
+	Item        *[]PostmanItem      `json:"item,omitempty"`
+	Request     *PostmanRequest     `json:"request,omitempty"`
+	Auth        *PostmanAuth        `json:"auth,omitempty"`
+	Event       []PostmanEvent      `json:"event,omitempty"`
 }
 
+// Postman writes a childless folder without an item array, so the request is what tells them apart.
 func (i *PostmanItem) IsFolder() bool {
-	return i.Item != nil
+	return i.Request == nil
 }
 
 type PostmanRequest struct {
-	Method      string             `json:"method"`
-	Header      []PostmanKV        `json:"header"`
-	Body        *PostmanBody       `json:"body,omitempty"`
-	URL         PostmanURL         `json:"url"`
-	Auth        *PostmanAuth       `json:"auth,omitempty"`
-	Description PostmanDescription `json:"description,omitempty"`
+	Method      string              `json:"method"`
+	Header      []PostmanKV         `json:"header"`
+	Body        *PostmanBody        `json:"body,omitempty"`
+	URL         PostmanURL          `json:"url"`
+	Auth        *PostmanAuth        `json:"auth,omitempty"`
+	Description *PostmanDescription `json:"description,omitempty"`
 }
 
 type PostmanURL struct {

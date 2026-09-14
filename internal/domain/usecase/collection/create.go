@@ -32,6 +32,9 @@ func (c *Create) Validate() error {
 	if c.Name == "" {
 		errs["name"] = "required"
 	}
+	if len(c.Description) > domain.MaxDescriptionLen {
+		errs["description"] = fmt.Sprintf("must be at most %d bytes", domain.MaxDescriptionLen)
+	}
 	if c.AuthType == entities.AuthTypeInherit {
 		errs["authType"] = "inherit is not valid for collections"
 	} else if c.AuthType != "" && !c.AuthType.IsValid() {

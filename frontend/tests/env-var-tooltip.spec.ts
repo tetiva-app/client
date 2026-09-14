@@ -22,15 +22,15 @@ test.describe('Env var drill-through from script editor', () => {
     const scriptsTab = page.getByRole('tab', { name: 'Scripts' });
     await scriptsTab.click();
 
-    // the async CodeEditor mounts lazily
-    const editorContent = page.locator('.cm-content').first();
+    // Hidden sub-tabs stay mounted, so scope to the visible panel.
+    const editorContent = page.locator('[role="tabpanel"]:not([hidden]) .cm-content').first();
     await expect(editorContent).toBeVisible();
 
     await editorContent.click();
     await page.keyboard.type('const x = "{{myVar}}"');
 
     // Undefined variables get the `cm-var-unresolved` class
-    const varSpan = page.locator('.cm-var-unresolved').first();
+    const varSpan = editorContent.locator('.cm-var-unresolved').first();
     await expect(varSpan).toBeVisible();
     await varSpan.click({ modifiers: ['Meta'] });
 

@@ -7,6 +7,7 @@ import {
   CodeMirrorTextEditor, createTableEditor, isInsideCodeAtLine, isInsideCodeBlock,
   TABLE_OPTIONS, type EditorHost,
 } from './markdown-table-editor'
+import { renderMarkdown } from './markdown'
 
 export function makeHost(doc: string, cursor = 0): EditorHost & { dispatches: number } {
   let state = EditorState.create({
@@ -144,7 +145,7 @@ import { tableTab, tableShiftTab, tableEnter, inTable, tableContext, isEmptyTabl
 
 describe('tableContext', () => {
   it('locates the table and the focused cell, counting cells like the kernel', () => {
-    const doc = 'intro\n| a | b | c |\n| - | - | - |\n| 1 | `x|y` | 3 |'
+    const doc = 'intro\n| a | b | c |\n| - | - | - |\n| 1 | `x\\|y` | 3 |'
     const ctx = tableContext(makeHost(doc, doc.indexOf('`x')))!
     expect(ctx.startRow).toBe(1)
     expect(ctx.endRow).toBe(3)
@@ -220,6 +221,39 @@ describe('table keymap', () => {
     expect(host.state.sliceDoc(host.state.selection.main.from, host.state.selection.main.to)).toBe('2')
   })
 
+  it('Tab escapes a pipe inside a code span so the preview keeps every cell', () => {
+    const doc = '| a | b | c |\n| - | - | - |\n| 1 | `x|y` | 3 |'
+    const host = makeHost(doc, doc.indexOf('`x'))
+    tableTab(host)
+    const text = host.state.doc.toString()
+    expect(text).toContain('`x\\|y`')
+    expect(host.dispatches).toBe(1)
+    const sel = host.state.selection.main
+    expect(host.state.sliceDoc(sel.from, sel.to)).toBe('3')
+    const html = renderMarkdown(text)
+    expect(html).toContain('<code>x|y</code>')
+    expect((html.match(/<td>/g) ?? []).length).toBe(3)
+  })
+
+  it('Tab leaves a code span that ends with a backslash alone', () => {
+    const doc = '| a | b |\n| - | - |\n| `C:\\` | 2 |'
+    const host = makeHost(doc, doc.indexOf('2'))
+    tableTab(host)
+    const text = host.state.doc.toString()
+    expect(text).toContain('| `C:\\` |')
+    expect(text).not.toContain('``')
+    expect(renderMarkdown(text)).toContain('<code>C:\\</code>')
+  })
+
+  it('Tab keeps the caret in its cell when escaping shifts the line', () => {
+    const doc = '| a | b | c |\n| - | - | - |\n| `a|b|c` | 2 | 3 |'
+    const host = makeHost(doc, doc.indexOf('2'))
+    tableTab(host)
+    const sel = host.state.selection.main
+    expect(host.state.sliceDoc(sel.from, sel.to)).toBe('3')
+    expect(host.state.doc.toString().split('\n')).toHaveLength(3)
+  })
+
   it('Enter in a table without a delimiter row completes it and appends a row', () => {
     const doc = '| a | b |\n| 1 | 2 |'
     const host = makeHost(doc, doc.indexOf('1'))
@@ -251,9 +285,29 @@ describe('table keymap', () => {
     const doc = '| a | b |\n| - | - |\n| 1 | 2 |\n|   |   |'
     const host = makeHost(doc, doc.length - 3)
     tableEnter(host)
-    expect(host.state.doc.toString()).toBe('| a   | b   |\n| --- | --- |\n| 1   | 2   |\n')
+    expect(host.state.doc.toString()).toBe('| a   | b   |\n| --- | --- |\n| 1   | 2   |\n\n')
     expect(host.state.selection.main.head).toBe(host.state.doc.length)
     expect(host.dispatches).toBe(1)
+  })
+
+  it('Enter above a paragraph leaves a blank line between the table and the text', () => {
+    const doc = '| a | b |\n| - | - |\n| 1 | 2 |\n|   |   |\nnext para'
+    const host = makeHost(doc, doc.indexOf('|   |') + 3)
+    tableEnter(host)
+    expect(host.state.doc.toString()).toBe('| a   | b   |\n| --- | --- |\n| 1   | 2   |\n\n\nnext para')
+    expect(host.state.doc.lineAt(host.state.selection.main.head).number).toBe(5)
+    expect(renderMarkdown(host.state.doc.toString())).toContain('<p>next para</p>')
+  })
+
+  it('text typed after leaving the table is a paragraph, not a row', () => {
+    const doc = '| a | b |\n| - | - |\n| 1 | 2 |\n|   |   |'
+    const host = makeHost(doc, doc.length - 3)
+    tableEnter(host)
+    const pos = host.state.selection.main.head
+    host.dispatch({ changes: { from: pos, insert: 'next paragraph' } })
+    const html = renderMarkdown(host.state.doc.toString())
+    expect(html).toContain('<p>next paragraph</p>')
+    expect(html).not.toContain('<td>next paragraph</td>')
   })
 
   it('falls through outside tables and inside fenced code', () => {
@@ -379,5 +433,44 @@ describe('runTableCommand', () => {
   it('inserts below the delimiter row as the first body row', () => {
     const host = makeHost(T, at('-')); runTableCommand(host, 'insertRowBelow')
     expect(host.state.doc.toString()).toBe('| a   | b   |\n| --- | --- |\n|     |     |\n| 1   | 2   |\n| 3   | 4   |')
+  })
+})
+
+import { escapeCodeSpanPipes, escapeCodeSpanPipesAt, normalizeTableLines } from './markdown-table-editor'
+
+describe('escapeCodeSpanPipes', () => {
+  it('escapes pipes only inside closed code spans', () => {
+    expect(escapeCodeSpanPipes('| 1 | `x|y` | 3 |')).toBe('| 1 | `x\\|y` | 3 |')
+    expect(escapeCodeSpanPipes('| 1 | `x\\|y` | 3 |')).toBe('| 1 | `x\\|y` | 3 |')
+    expect(escapeCodeSpanPipes('| a|b | c |')).toBe('| a|b | c |')
+    expect(escapeCodeSpanPipes('| `x|y | 3 |')).toBe('| `x|y | 3 |')
+    expect(escapeCodeSpanPipes('| ``a`|b`` | c |')).toBe('| ``a`\\|b`` | c |')
+    expect(escapeCodeSpanPipes('| ``x```y|z`` | d |')).toBe('| ``x```y\\|z`` | d |')
+  })
+
+  it('leaves a backslash at the end of a code span alone', () => {
+    expect(escapeCodeSpanPipes('| `C:\\` | b |')).toBe('| `C:\\` | b |')
+    expect(escapeCodeSpanPipesAt('| `C:\\` | b |').inserted).toEqual([])
+    expect(escapeCodeSpanPipes('| `a\\|b` | c |')).toBe('| `a\\|b` | c |')
+  })
+
+  it('reports the columns where backslashes were inserted', () => {
+    expect(escapeCodeSpanPipesAt('| `x|y` | 3 |').inserted).toEqual([4])
+  })
+})
+
+describe('normalizeTableLines', () => {
+  it('escapes table rows and leaves fenced code alone', () => {
+    const doc = '| 1 | `x|y` |\n\n```\n| 1 | `x|y` |\n```\n\ntext with `a|b`'
+    expect(normalizeTableLines(doc)).toBe(
+      '| 1 | `x\\|y` |\n\n```\n| 1 | `x|y` |\n```\n\ntext with `a|b`',
+    )
+  })
+
+  it('leaves an already escaped document untouched', () => {
+    const doc = '| 1 | `x|y` |\n| - | - |\n| ``a`|b`` | 3 |'
+    const once = normalizeTableLines(doc)
+    expect(once).not.toBe(doc)
+    expect(normalizeTableLines(once)).toBe(once)
   })
 })

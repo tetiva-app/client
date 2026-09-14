@@ -271,9 +271,16 @@ test.describe('description tables', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('after');
     const lines = (await editorText(page)).trim().split('\n');
-    expect(lines).toHaveLength(3);
     expect(lines[0]).toBe('| Column 1 | Column 2 |');
-    expect(lines[2]).toBe('after');
+    expect(lines[1]).toBe('| -------- | -------- |');
+    expect(lines[lines.length - 1]).toBe('after');
+    // CodeMirror gives the blank line its own div, so innerText doubles that newline.
+    expect(lines.slice(2, -1).every((line) => line === '')).toBe(true);
+
+    await page.getByRole('button', { name: 'Preview description' }).click();
+    const preview = page.locator('.prose');
+    await expect(preview.locator('p')).toHaveText(['after']);
+    await expect(preview.locator('table tr')).toHaveCount(1);
   });
 
   test('table actions appear only inside a table and delete a column', async ({ page }) => {
@@ -480,4 +487,102 @@ test.describe('table markup contrast', () => {
       expect(contrast(fg, bg)).toBeGreaterThan(4.5);
     });
   });
+});
+
+test('request docs autosave without Cmd+S', async ({ page }) => {
+  await startDescription(page, 'Autosave Coll');
+  await page.keyboard.type('Saved by the timer');
+  const dirtyDot = page.locator('span[title="Unsaved changes"]');
+  await expect(dirtyDot.first()).toBeVisible();
+  // toHaveCount, not not.toBeVisible: two dots match, and a strict locator fails before polling.
+  await expect(dirtyDot).toHaveCount(0, { timeout: 5000 });
+});
+
+test('two consecutive external description updates both reach the editor', async ({ page }) => {
+  await startDescription(page, 'External Coll');
+  await page.keyboard.type('local');
+  const setExternal = async (value: string) => page.evaluate((v) => {
+    const app = (document.querySelector('#app') as any).__vue_app__;
+    const pinia = app.config.globalProperties.$pinia;
+    const store = pinia._s.get('requests');
+    const id = store.activeTab.requestId;
+    store.updateLocal(id, { description: v });
+  }, value);
+  // The URL bar is a CodeMirror too, so .cm-content alone is not a strict locator.
+  const docs = page.locator(DOCS_PLACEHOLDER);
+  await setExternal('first external');
+  await expect(docs).toContainText('first external');
+  await setExternal('second external');
+  await expect(docs).toContainText('second external');
+  await docs.click();
+  await page.keyboard.press('Meta+z');
+  await expect(docs).toContainText('second external');
+});
+
+test('request docs keep undo history across sub-tab switches', async ({ page }) => {
+  await startDescription(page, 'Undo Coll');
+  await page.keyboard.type('hello');
+  const docs = page.locator(DOCS_PLACEHOLDER);
+
+  await page.getByRole('button', { name: 'Params', exact: true }).click();
+  // Hidden, not unmounted: a fresh CodeMirror would start with an empty history.
+  await expect(docs).toHaveCount(1);
+  await expect(docs).not.toBeVisible();
+
+  // The tab label grows a badge ("Docs (•)") once text exists.
+  await page.getByRole('button', { name: /^Docs/ }).click();
+  await docs.click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(docs).not.toContainText('hello');
+});
+
+test('collection overview keeps undo history across section switches', async ({ page }) => {
+  const collection = await createCollection(page, 'Undo Coll 2');
+  await collection.dblclick();
+
+  await page.getByRole('button', { name: 'Add description' }).click();
+  const docs = page.locator(COLLECTION_PLACEHOLDER);
+  await docs.click();
+  await page.keyboard.type('hello');
+
+  await page.getByRole('tab', { name: 'Scripts' }).click();
+  await expect(docs).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Overview' }).click();
+
+  await docs.click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(docs).not.toContainText('hello');
+});
+
+async function setDescription(page: Page, value: string) {
+  await page.evaluate((v) => {
+    const app = (document.querySelector('#app') as any).__vue_app__;
+    const store = app.config.globalProperties.$pinia._s.get('requests');
+    store.updateLocal(store.activeTab.requestId, { description: v });
+  }, value);
+}
+
+test('the code block button refuses to nest a fence', async ({ page }) => {
+  await startDescription(page, 'Fence Guard');
+  await page.keyboard.type('inside');
+  await page.keyboard.press('ControlOrMeta+a');
+  const codeBlock = page.getByRole('button', { name: 'Code block' });
+  await codeBlock.click();
+  const fenced = await editorText(page);
+  expect(fenced).toContain('```');
+
+  await expect(codeBlock).toBeDisabled();
+  expect(await editorText(page)).toBe(fenced);
+});
+
+test('switching to preview escapes pipes inside inline code in a table', async ({ page }) => {
+  await startDescription(page, 'Normalize Coll');
+  await setDescription(page, '| a | b |\n| - | - |\n| `x|y` | 2 |');
+  await expect(page.locator(DOCS_PLACEHOLDER)).toContainText('x|y');
+
+  await page.getByRole('button', { name: 'Preview description' }).click();
+  await expect(page.locator('.prose table tbody td')).toHaveText(['x|y', '2']);
+
+  await page.getByRole('button', { name: 'Edit description' }).click();
+  expect(await editorText(page)).toContain('`x\\|y`');
 });

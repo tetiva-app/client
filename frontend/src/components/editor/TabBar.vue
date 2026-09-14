@@ -34,7 +34,9 @@ async function detachTab(tab: Tab) {
   const svc = await getWindowService()
   if (!svc) return
 
-  if (!(await store.saveToBackend(tab.requestId))) return
+  if (!(await store.flushForHandoff(tab.requestId))) return
+  // The detached window owns the version now; a pending timer here would conflict with it.
+  store.cancelAutosave(tab.requestId)
 
   const req = store.getById(tab.requestId)
   const method = req?.protocol === 'grpc' ? 'gRPC' : (req?.method ?? 'GET')

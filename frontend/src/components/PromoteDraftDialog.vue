@@ -92,12 +92,17 @@ async function handleConfirm() {
   submitting.value = true
   errorMessage.value = null
   try {
+    // Drafts are exempt from autosave, so the text typed into one is still only in memory.
+    if (!(await tabs.flushForHandoff(d.id))) {
+      errorMessage.value = 'Failed to save the draft'
+      return
+    }
     const svc = await getRequestService()
     const res = await svc.promoteDraft({
       id: d.id,
       name: newName.value.trim(),
       targetCollectionId: targetCollId.value,
-      version: d.version,
+      version: tabs.getById(d.id)?.version ?? d.version,
     })
     if (res.error || !res.data) {
       errorMessage.value = res.error?.message ?? 'Failed to save request'

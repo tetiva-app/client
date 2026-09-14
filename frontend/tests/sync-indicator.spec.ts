@@ -13,6 +13,16 @@ test.describe('Sync status indicator', () => {
     await expect(page.getByText('4 changes not synced — plan limit')).toBeVisible();
   });
 
+  test('names oversized items beside the plan limit in the tooltip', async ({ page }) => {
+    await page.goto('/?mock=too-large');
+
+    const indicator = page.getByRole('button', { name: 'Sync', exact: true });
+    await expect(indicator.getByTestId('sync-parked-alert')).toBeVisible();
+
+    await indicator.hover();
+    await expect(page.getByText('1 change not synced — plan limit · 2 items too large for the server')).toBeVisible();
+  });
+
   test('stays neutral without parked changes', async ({ page }) => {
     await page.goto('/');
 

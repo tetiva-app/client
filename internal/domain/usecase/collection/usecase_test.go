@@ -3,6 +3,7 @@ package collection_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -700,5 +701,76 @@ func TestGetByID_NotFound(t *testing.T) {
 	}
 	if notFoundErr.ID != nonExistentID.String() {
 		t.Errorf("expected ID %q, got %q", nonExistentID.String(), notFoundErr.ID)
+	}
+}
+
+func TestCreate_RejectsOversizedDescription(t *testing.T) {
+	uc, _ := newTestUsecase()
+	ctx := context.Background()
+
+	_, err := uc.Create(ctx, collection.Create{
+		Name:        "API",
+		Description: strings.Repeat("a", domain.MaxDescriptionLen+1),
+	}, collection.CreateOpt{UserID: "user-1", WorkspaceID: testWorkspaceID})
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("expected a description validation error, got %v", err)
+	}
+
+	_, err = uc.Create(ctx, collection.Create{
+		Name:        "API",
+		Description: strings.Repeat("a", domain.MaxDescriptionLen),
+	}, collection.CreateOpt{UserID: "user-1", WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("exactly the limit must pass: %v", err)
+	}
+}
+
+func TestEdit_RejectsOversizedDescription(t *testing.T) {
+	uc, repo := newTestUsecase()
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, collection.Create{Name: "API"}, collection.CreateOpt{
+		UserID:      "user-1",
+		WorkspaceID: testWorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	var verr *domain.ValidationError
+	_, err = uc.Edit(ctx, collection.Edit{
+		Name:        "API",
+		Description: strings.Repeat("a", domain.MaxDescriptionLen+1),
+	}, collection.EditOpt{CollectionID: created.ID, UserID: "user-1", Version: created.Version})
+	if !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("expected a description validation error, got %v", err)
+	}
+
+	// Stored before the cap existed, or applied by the sync path, which skips Validate.
+	legacy := strings.Repeat("b", 20*1024)
+	repo.collections[created.ID].Description = legacy
+
+	renamed, err := uc.Edit(ctx, collection.Edit{Name: "Renamed", Description: legacy}, collection.EditOpt{
+		CollectionID: created.ID, UserID: "user-1", Version: created.Version,
+	})
+	if err != nil {
+		t.Fatalf("renaming an entity with a legacy description must pass: %v", err)
+	}
+
+	shortened, err := uc.Edit(ctx, collection.Edit{
+		Name:        "Renamed",
+		Description: strings.Repeat("b", 18*1024),
+	}, collection.EditOpt{CollectionID: created.ID, UserID: "user-1", Version: renamed.Version})
+	if err != nil {
+		t.Fatalf("shortening an oversized description must pass: %v", err)
+	}
+
+	_, err = uc.Edit(ctx, collection.Edit{
+		Name:        "Renamed",
+		Description: strings.Repeat("b", 21*1024),
+	}, collection.EditOpt{CollectionID: created.ID, UserID: "user-1", Version: shortened.Version})
+	if !errors.As(err, &verr) || verr.Fields["description"] == "" {
+		t.Fatalf("growing an oversized description must be rejected, got %v", err)
 	}
 }

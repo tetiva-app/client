@@ -15,8 +15,9 @@ import TableSizePicker from './TableSizePicker.vue'
 
 const props = withDefaults(defineProps<{
   inTable?: boolean
+  insideFence?: boolean
   disabledCommands?: TableCommand[]
-}>(), { inTable: false, disabledCommands: () => [] })
+}>(), { inTable: false, insideFence: false, disabledCommands: () => [] })
 
 const emit = defineEmits<{
   action: [MarkdownAction]
@@ -52,7 +53,7 @@ const groups: ToolbarButton[][] = [
   ],
 ]
 
-const buttonClass = 'flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+const buttonClass = 'flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40'
 
 const tableGroups = [...new Set(TABLE_COMMANDS.map(item => item.group))]
   .map(group => TABLE_COMMANDS.filter(item => item.group === group))
@@ -70,6 +71,11 @@ function keepEditorFocus(event: Event) {
 
 function isDisabled(command: TableCommand): boolean {
   return props.disabledCommands.includes(command)
+}
+
+// A second fence inside one closes it and turns the rest of the document into code.
+function isActionDisabled(action: MarkdownAction): boolean {
+  return action === 'codeBlock' && props.insideFence
 }
 
 function onPickerSelect(columns: number, rows: number) {
@@ -95,6 +101,7 @@ defineExpose({
         type="button"
         class="size-7"
         :class="buttonClass"
+        :disabled="isActionDisabled(button.action)"
         :title="button.hint ? `${button.label} (${button.hint})` : button.label"
         :aria-label="button.label"
         @mousedown.prevent

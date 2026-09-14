@@ -17,6 +17,7 @@ import { variableHighlightPlugin, variableHighlightTheme, variableHoverTooltip, 
 import { scriptHintsSource } from '@/lib/codemirror-script-hints'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { externalReplace, isExternal } from '@/lib/cm-external'
 
 const props = defineProps<{
   content: string
@@ -32,7 +33,6 @@ const emit = defineEmits<{
 
 const editorRef = ref<HTMLDivElement>()
 let view: EditorView | null = null
-let ignoreNextUpdate = false
 
 const settings = useSettingsStore()
 const wrapCompartment = new Compartment()
@@ -192,7 +192,6 @@ function getLanguageExtension(lang?: string) {
 
 function createEditor() {
   if (!editorRef.value) return
-  ignoreNextUpdate = false
 
   if (view) {
     view.destroy()
@@ -213,10 +212,8 @@ function createEditor() {
     variableHighlightTheme,
     variableClickToEdit(() => props.resolvedVariables ?? {}),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        const newContent = update.state.doc.toString()
-        ignoreNextUpdate = true
-        emit('update:content', newContent)
+      if (update.docChanged && !update.transactions.some(isExternal)) {
+        emit('update:content', update.state.doc.toString())
       }
     }),
     EditorView.theme({
@@ -295,17 +292,9 @@ function createEditor() {
 
 // Update document content without recreating the editor
 watch(() => props.content, (newContent) => {
-  if (ignoreNextUpdate) {
-    ignoreNextUpdate = false
-    return
-  }
   if (!view) return
-  const currentDoc = view.state.doc.toString()
-  if (currentDoc !== newContent) {
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: newContent },
-    })
-  }
+  const spec = externalReplace(view.state, newContent)
+  if (spec) view.dispatch(spec)
 })
 
 watch(() => props.resolvedVariables, () => {
@@ -349,8 +338,6 @@ function format() {
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: formatted },
     })
-    ignoreNextUpdate = true
-    emit('update:content', formatted)
   } catch {
     // Invalid JSON — do nothing
   }

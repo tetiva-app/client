@@ -66,12 +66,15 @@ func ExportCollection(
 	}
 
 	items := buildItems(rootID, childrenMap, requestsMap)
+	if items == nil {
+		items = []PostmanItem{}
+	}
 
 	pc := PostmanCollection{
 		Info: PostmanInfo{
 			PostmanID:   uuid.New().String(),
 			Name:        root.Name,
-			Description: PostmanDescription(root.Description),
+			Description: descriptionOf(root.Description),
 			Schema:      SchemaV21,
 		},
 		Auth: buildAuth(root.AuthType, root.AuthData),
@@ -95,11 +98,15 @@ func buildItems(
 
 	for _, child := range childrenMap[parentID] {
 		subItems := buildItems(child.ID, childrenMap, requestsMap)
+		// A nil slice would be omitted and read back as a request, losing the folder.
+		if subItems == nil {
+			subItems = []PostmanItem{}
+		}
 		items = append(items, PostmanItem{
 			Name:        child.Name,
-			Description: PostmanDescription(child.Description),
+			Description: descriptionOf(child.Description),
 			Auth:        buildAuth(child.AuthType, child.AuthData),
-			Item:        subItems,
+			Item:        &subItems,
 		})
 	}
 
@@ -119,9 +126,10 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 	}
 
 	pmReq := PostmanRequest{
-		Method: method,
-		Header: buildHeaders(req.Headers),
-		URL:    PostmanURL{Raw: req.URL},
+		Method:      method,
+		Header:      buildHeaders(req.Headers),
+		URL:         PostmanURL{Raw: req.URL},
+		Description: descriptionOf(req.Description),
 	}
 
 	// A WebSocket body holds the settings document, not a payload Postman could send.
@@ -138,10 +146,10 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 		pmReq.Auth = buildAuth(req.AuthType, req.AuthData)
 	}
 
+	// Request docs stay on the request: writing both levels makes the copies drift in Postman.
 	return PostmanItem{
-		Name:        req.Name,
-		Description: PostmanDescription(req.Description),
-		Request:     &pmReq,
+		Name:    req.Name,
+		Request: &pmReq,
 	}
 }
 

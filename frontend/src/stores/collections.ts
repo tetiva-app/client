@@ -7,10 +7,53 @@ import { useRequestStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { runMutation } from '@/stores/runMutation'
 import { useToast } from '@/composables/useToast'
+import { adoptStashedValue } from '@/lib/description'
+
+// What a collection editor holds that is not in the store yet.
+export interface CollectionLocals {
+  preScript: string
+  postScript: string
+  description: string
+  authType: string
+  authData: string
+}
+
+// Parked buffers beside the store values they were edited from, so a moved field can be told apart.
+export interface StashedLocals {
+  locals: CollectionLocals
+  base: CollectionLocals
+}
+
+const LOCAL_FIELDS = ['preScript', 'postScript', 'description', 'authType', 'authData'] as const
 
 export const useCollectionStore = defineStore('collections', () => {
   const collectionsMap = ref<Map<string, Collection>>(new Map())
   const loading = ref(false)
+
+  // Survives the editor: the History pane unmounts it and would take unsaved text with it.
+  const stashedLocals = new Map<string, StashedLocals>()
+
+  function stashLocals(id: string, stash: StashedLocals) {
+    stashedLocals.set(id, stash)
+  }
+
+  // Only the stash that was parked may be dropped: a later mount may have replaced it.
+  function clearLocals(id: string, stash: StashedLocals) {
+    if (stashedLocals.get(id) === stash) stashedLocals.delete(id)
+  }
+
+  // Merged field by field: what the store moved while the tab was gone wins, the rest comes back.
+  function takeLocals(id: string, current?: Collection | null): CollectionLocals | undefined {
+    const stash = stashedLocals.get(id)
+    stashedLocals.delete(id)
+    if (!stash) return undefined
+    if (!current) return stash.locals
+    const merged = { ...stash.locals }
+    for (const field of LOCAL_FIELDS) {
+      merged[field] = adoptStashedValue(stash.locals[field], stash.base[field], current[field])
+    }
+    return merged
+  }
 
   const tree = computed<CollectionTreeNode[]>(() => {
     const map = collectionsMap.value
@@ -82,7 +125,23 @@ export const useCollectionStore = defineStore('collections', () => {
     return data
   }
 
-  async function edit(id: string, updates: { name?: string; description?: string; authType?: string; authData?: string; preScript?: string; postScript?: string }, version: number): Promise<boolean> {
+  // edit() assigns every field, so two saves at once would overwrite each other's text.
+  const savesInFlight = new Map<string, Promise<boolean>>()
+
+  async function settled(id: string) {
+    await savesInFlight.get(id)?.catch(() => false)
+  }
+
+  // Registers before the first await so a caller right behind this one sees it in flight.
+  function edit(id: string, updates: { name?: string; description?: string; authType?: string; authData?: string; preScript?: string; postScript?: string }, version: number): Promise<boolean> {
+    const promise = settled(id)
+      .then(() => doEdit(id, updates, version))
+      .finally(() => { if (savesInFlight.get(id) === promise) savesInFlight.delete(id) })
+    savesInFlight.set(id, promise)
+    return promise
+  }
+
+  async function doEdit(id: string, updates: { name?: string; description?: string; authType?: string; authData?: string; preScript?: string; postScript?: string }, version: number): Promise<boolean> {
     const current = collectionsMap.value.get(id)
     if (!current) return false
     const data = await runMutation('Failed to edit collection', () =>
@@ -94,7 +153,7 @@ export const useCollectionStore = defineStore('collections', () => {
         authData: updates.authData ?? current.authData,
         preScript: updates.preScript ?? current.preScript,
         postScript: updates.postScript ?? current.postScript,
-        version,
+        version: current.version ?? version,
       }))
     )
     if (!data) return false
@@ -115,22 +174,25 @@ export const useCollectionStore = defineStore('collections', () => {
     return ids
   }
 
-  async function remove(id: string, version: number) {
+  async function remove(id: string, version: number): Promise<boolean> {
+    await settled(id)
     // Snapshot the subtree before the local map mutates
     const subtree = collectSubtreeIds(id)
     const data = await runMutation('Failed to delete collection', () =>
-      getCollectionService().then(s => s.delete({ id, version }))
+      getCollectionService().then(s => s.delete({ id, version: collectionsMap.value.get(id)?.version ?? version }))
     )
-    if (!data) return
+    if (!data) return false
     for (const cid of subtree) collectionsMap.value.delete(cid)
     collectionsMap.value = new Map(collectionsMap.value)
     // Backend cascade-deleted the subtree — close its tabs too
     await useRequestStore().purgeCollectionSubtree(subtree)
+    return true
   }
 
   async function move(id: string, targetParentId: string | null, version: number): Promise<boolean> {
+    await settled(id)
     const data = await runMutation('Failed to move collection', () =>
-      getCollectionService().then(s => s.move({ id, targetParentId, version }))
+      getCollectionService().then(s => s.move({ id, targetParentId, version: collectionsMap.value.get(id)?.version ?? version }))
     )
     if (!data) return false
     collectionsMap.value.set(data.id, data)
@@ -142,6 +204,9 @@ export const useCollectionStore = defineStore('collections', () => {
     collectionsMap,
     loading,
     tree,
+    stashLocals,
+    clearLocals,
+    takeLocals,
     fetchAll,
     create,
     edit,

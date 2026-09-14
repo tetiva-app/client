@@ -49,6 +49,9 @@ func (c *Create) Validate() error {
 	if c.CollectionID == uuid.Nil {
 		errs["collectionId"] = "required"
 	}
+	if len(c.Description) > domain.MaxDescriptionLen {
+		errs["description"] = fmt.Sprintf("must be at most %d bytes", domain.MaxDescriptionLen)
+	}
 	if !c.Protocol.IsValid() {
 		errs["protocol"] = "invalid"
 	}

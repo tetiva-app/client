@@ -13,11 +13,12 @@ import { markdownDarkHighlightStyle, markdownLightHighlightStyle } from '@/lib/c
 import { applyMarkdownAction, blockInsert, SLASH_MENU_ITEMS, tableSkeleton } from '@/lib/markdown-actions'
 import type { MarkdownAction } from '@/lib/markdown-actions'
 import {
-  disabledTableCommands, inTable, isInsideCodeAtLine, runTableCommand,
+  disabledTableCommands, inTable, isInsideCodeAtLine, normalizeTables, runTableCommand,
   tableEnter, tableShiftTab, tableTab,
 } from '@/lib/markdown-table-editor'
 import type { TableCommand } from '@/lib/markdown-table-editor'
 import { isTsv, tsvToMarkdownTable } from '@/lib/markdown-paste'
+import { externalReplace, isExternal } from '@/lib/cm-external'
 import MarkdownToolbar from './MarkdownToolbar.vue'
 
 const props = withDefaults(defineProps<{
@@ -33,9 +34,9 @@ const emit = defineEmits<{
 const editorRef = ref<HTMLDivElement>()
 const toolbarRef = ref<{ openTablePicker: () => void }>()
 const inTableState = ref(false)
+const insideFence = ref(false)
 const disabledCommands = ref<TableCommand[]>([])
 let view: EditorView | null = null
-let ignoreNextUpdate = false
 
 const settings = useSettingsStore()
 const highlightCompartment = new Compartment()
@@ -46,9 +47,19 @@ function activeHighlight() {
   )
 }
 
+// A fence opened inside a fence closes that one and turns the rest of the document into code.
+function fenceAtSelection(state: EditorState): boolean {
+  const range = state.selection.main
+  return isInsideCodeAtLine(state, range.from) || isInsideCodeAtLine(state, range.to)
+}
+
 function runAction(action: MarkdownAction) {
   if (!view) return
   const range = view.state.selection.main
+  if (action === 'codeBlock' && fenceAtSelection(view.state)) {
+    view.focus()
+    return
+  }
   const edit = applyMarkdownAction(action, view.state.doc.toString(), range.from, range.to)
   view.dispatch({
     changes: { from: edit.from, to: edit.to, insert: edit.insert },
@@ -120,15 +131,16 @@ const fenceBackticks = Prec.high(EditorView.inputHandler.of((v, from, to, insert
 function slashMenuSource(context: CompletionContext): CompletionResult | null {
   const match = context.matchBefore(/^\/\w*/)
   if (!match) return null
+  const items = SLASH_MENU_ITEMS.filter(item => item.action !== 'codeBlock' || !insideFence.value)
   return {
     from: match.from,
     validFor: /^\/\w*$/,
-    options: SLASH_MENU_ITEMS.map((item, index): Completion => ({
+    options: items.map((item, index): Completion => ({
       label: item.label,
       detail: item.detail,
       type: 'keyword',
       // Equal fuzzy scores are broken alphabetically, which would open on /code.
-      boost: SLASH_MENU_ITEMS.length - index,
+      boost: items.length - index,
       apply: (target, _completion, from, to) => {
         target.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from } })
         if (item.action === 'table') toolbarRef.value?.openTablePicker()
@@ -169,14 +181,15 @@ function createEditor() {
     cmPlaceholder(props.placeholder),
     // Prec.high: lang-markdown's own paste handler must not get first refusal.
     Prec.high(EditorView.domEventHandlers({ paste: handlePaste })),
+    EditorView.domEventHandlers({ blur: (_event, v) => { normalizeTables(v); return false } }),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        ignoreNextUpdate = true
+      if (update.docChanged && !update.transactions.some(isExternal)) {
         emit('update:modelValue', update.state.doc.toString())
       }
       if (update.docChanged || update.selectionSet) {
         inTableState.value = inTable(update.view)
         disabledCommands.value = inTableState.value ? disabledTableCommands(update.view) : []
+        insideFence.value = fenceAtSelection(update.state)
       }
     }),
     EditorView.theme({
@@ -244,18 +257,13 @@ function createEditor() {
   })
   inTableState.value = inTable(view)
   disabledCommands.value = inTableState.value ? disabledTableCommands(view) : []
+  insideFence.value = fenceAtSelection(view.state)
 }
 
 watch(() => props.modelValue, (next) => {
-  if (ignoreNextUpdate) {
-    ignoreNextUpdate = false
-    return
-  }
   if (!view) return
-  const current = view.state.doc.toString()
-  if (current !== next) {
-    view.dispatch({ changes: { from: 0, to: current.length, insert: next } })
-  }
+  const spec = externalReplace(view.state, next)
+  if (spec) view.dispatch(spec)
 })
 
 watch(() => settings.effectiveTheme, () => {
@@ -275,6 +283,7 @@ defineExpose({
     view?.requestMeasure()
     view?.focus()
   },
+  normalizeTables: () => { if (view) normalizeTables(view) },
 })
 </script>
 
@@ -283,6 +292,7 @@ defineExpose({
     <MarkdownToolbar
       ref="toolbarRef"
       :in-table="inTableState"
+      :inside-fence="insideFence"
       :disabled-commands="disabledCommands"
       @action="runAction"
       @table-command="runTable"

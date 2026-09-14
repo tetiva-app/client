@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { Loader2, RefreshCw, X } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
@@ -13,7 +13,7 @@ import GraphQLUrlBar from './GraphQLUrlBar.vue'
 import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 import GraphQLResponseViewer from './GraphQLResponseViewer.vue'
 import RequestDocs from '../RequestDocs.vue'
-import { isInsideOverlay } from '@/lib/shortcut-guards'
+import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { authBadgeLabel } from '@/constants/auth'
 import {
   ResizablePanelGroup,
@@ -51,6 +51,10 @@ const isActiveTab = computed(
 )
 
 const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs'>('query')
+
+// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
+const docsMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 
 const schema = ref<GraphQLSchema | null>(null)
 const schemaLoading = ref(false)
@@ -188,7 +192,7 @@ const tabs = computed(() => [
 function handleKeydown(event: KeyboardEvent) {
   if (!isActiveTab.value) return
   if (isInsideOverlay(event)) return
-  if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+  if (isModShortcut(event, 'KeyS', 's')) {
     event.preventDefault()
     store.saveToBackend(props.request.id)
   }
@@ -357,7 +361,8 @@ onUnmounted(() => {
             />
 
             <RequestDocs
-              v-else-if="activeTab === 'docs'"
+              v-if="docsMounted"
+              v-show="activeTab === 'docs'"
               :description="request.description"
               @update:description="(v) => updateField('description', v)"
             />

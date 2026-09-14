@@ -64,7 +64,19 @@ test.describe('Keyboard Shortcuts', () => {
 
     await page.keyboard.press('Meta+s');
 
-    await expect(dirtyDot).not.toBeVisible({ timeout: 3000 });
+    // Shorter than AUTOSAVE_DELAY_MS: the dot must clear from the shortcut, not the timer.
+    await expect(dirtyDot).toHaveCount(0, { timeout: 1000 });
+  });
+
+  test('Cmd+S saves on a Cyrillic layout (key ы, code KeyS)', async ({ page }) => {
+    await createCollectionWithRequests(page, ['Layout Test']);
+    await page.locator('[aria-placeholder="Enter request URL"]').fill('https://api.example.com/ru');
+    const dirtyDot = page.locator('span[title="Unsaved changes"]');
+    await expect(dirtyDot.first()).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'ы', code: 'KeyS', metaKey: true, bubbles: true, cancelable: true })));
+    // Shorter than AUTOSAVE_DELAY_MS: the dot must clear from the shortcut, not the timer.
+    await expect(dirtyDot).toHaveCount(0, { timeout: 1000 });
   });
 
   test('Cmd+Enter inside a dialog does not send the underlying request', async ({ page }) => {

@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
@@ -48,12 +51,16 @@ func ImportCollection(
 
 	result := &ImportResult{}
 
-	rootAuthType, rootAuthData, warnings := mapAuth(pc.Auth, itemLabel("collection", pc.Info.Name))
+	rootLabel := itemLabel("collection", pc.Info.Name)
+	rootAuthType, rootAuthData, warnings := mapAuth(pc.Auth, rootLabel)
 	result.Warnings = append(result.Warnings, warnings...)
+	appendWarning(result, warnDescriptionType(rootLabel, pc.Info.Description))
+	rootDescription, rootDescWarning := clampDescription(rootLabel, pc.Info.Description.Text())
+	appendWarning(result, rootDescWarning)
 
 	rootColl, err := collUC.Create(ctx, collection.Create{
 		Name:        pc.Info.Name,
-		Description: string(pc.Info.Description),
+		Description: rootDescription,
 		ParentID:    opts.ParentID,
 		AuthType:    rootAuthType,
 		AuthData:    rootAuthData,
@@ -73,6 +80,9 @@ func ImportCollection(
 	return result, nil
 }
 
+// untitledFolder stands in for a nameless folder rather than failing the whole import.
+const untitledFolder = "Untitled folder"
+
 func importItems(
 	ctx context.Context,
 	items []PostmanItem,
@@ -85,12 +95,30 @@ func importItems(
 	const funcName = "postman.importItems"
 
 	for _, item := range items {
+		children := derefItems(item.Item)
+		nameless := strings.TrimSpace(item.Name) == ""
+
+		// "item": [] and no "item" at all say the same thing; neither may abort the import.
+		if item.Request == nil && nameless && len(children) == 0 {
+			appendWarning(result, "an unnamed item with neither a request nor children was skipped")
+			continue
+		}
 		if item.IsFolder() {
-			folderAuthType, folderAuthData, warnings := mapAuth(item.Auth, itemLabel("folder", item.Name))
+			folderName := item.Name
+			if nameless {
+				folderName = untitledFolder
+				appendWarning(result, fmt.Sprintf("an unnamed folder with %d item(s) was imported as %q rather than failing the import",
+					len(children), untitledFolder))
+			}
+			folderLabel := itemLabel("folder", folderName)
+			folderAuthType, folderAuthData, warnings := mapAuth(item.Auth, folderLabel)
 			result.Warnings = append(result.Warnings, warnings...)
+			appendWarning(result, warnDescriptionType(folderLabel, item.Description))
+			folderDescription, folderDescWarning := clampDescription(folderLabel, item.Description.Text())
+			appendWarning(result, folderDescWarning)
 			subColl, err := collUC.Create(ctx, collection.Create{
-				Name:        item.Name,
-				Description: string(item.Description),
+				Name:        folderName,
+				Description: folderDescription,
 				ParentID:    &parentCollectionID,
 				AuthType:    folderAuthType,
 				AuthData:    folderAuthData,
@@ -99,14 +127,19 @@ func importItems(
 				WorkspaceID: opts.WorkspaceID,
 			})
 			if err != nil {
-				return fmt.Errorf("%s: failed to create folder %q: %w", funcName, item.Name, err)
+				return fmt.Errorf("%s: failed to create folder %q: %w", funcName, folderName, err)
 			}
 			result.FoldersCreated++
 
-			if err := importItems(ctx, item.Item, subColl.ID, opts, collUC, reqUC, result); err != nil {
+			if err := importItems(ctx, children, subColl.ID, opts, collUC, reqUC, result); err != nil {
 				return err
 			}
-		} else if item.Request != nil {
+		} else {
+			// Postman does not write children under a request; naming them beats losing them silently.
+			if len(children) > 0 {
+				appendWarning(result, fmt.Sprintf("%s: items nested under a request were skipped",
+					itemLabel("request", item.Name)))
+			}
 			input, warnings := mapPostmanRequest(item, parentCollectionID)
 			result.Warnings = append(result.Warnings, warnings...)
 
@@ -123,13 +156,68 @@ func importItems(
 	return nil
 }
 
-// requestDescription prefers the request-level description: v2.1 allows it in
-// both places, and Postman writes documentation to whichever the author used.
-func requestDescription(item PostmanItem) string {
-	if item.Request != nil && item.Request.Description != "" {
-		return string(item.Request.Description)
+func derefItems(p *[]PostmanItem) []PostmanItem {
+	if p == nil {
+		return nil
 	}
-	return string(item.Description)
+	return *p
+}
+
+func appendWarning(result *ImportResult, warning string) {
+	if warning != "" {
+		result.Warnings = append(result.Warnings, warning)
+	}
+}
+
+// warnDescriptionType names descriptions Postman wrote as HTML; the text is kept as-is.
+func warnDescriptionType(label string, d *PostmanDescription) string {
+	if d == nil || d.Type == "" || d.Type == "text/markdown" || d.Type == "text/plain" {
+		return ""
+	}
+	return fmt.Sprintf("%s: description is %s, imported as plain text", label, d.Type)
+}
+
+// requestDescription prefers the request level by presence: an explicit empty one there is a clear.
+func requestDescription(item PostmanItem, label string) (string, []string) {
+	var (
+		warnings []string
+		reqDesc  *PostmanDescription
+	)
+	if item.Request != nil {
+		reqDesc = item.Request.Description
+	}
+	for _, d := range []*PostmanDescription{item.Description, reqDesc} {
+		// Both levels can carry the same type; the user needs to read it once.
+		if w := warnDescriptionType(label, d); w != "" && !slices.Contains(warnings, w) {
+			warnings = append(warnings, w)
+		}
+	}
+
+	itemText, reqText := item.Description.Text(), reqDesc.Text()
+	if item.Description != nil && reqDesc != nil && itemText != reqText {
+		warnings = append(warnings, fmt.Sprintf("%s: item and request descriptions differ, request level kept", label))
+	}
+	text := itemText
+	if reqDesc != nil {
+		text = reqText
+	}
+	text, clampWarning := clampDescription(label, text)
+	if clampWarning != "" {
+		warnings = append(warnings, clampWarning)
+	}
+	return text, warnings
+}
+
+// Over the cap Create would reject the whole item and leave a half-imported tree behind.
+func clampDescription(label, s string) (string, string) {
+	if len(s) <= domain.MaxDescriptionLen {
+		return s, ""
+	}
+	cut := domain.MaxDescriptionLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], fmt.Sprintf("%s: description longer than %d bytes was truncated", label, domain.MaxDescriptionLen)
 }
 
 func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID) (request.Create, []string) {
@@ -141,14 +229,17 @@ func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID) (request.Create
 	}
 
 	headers := mapHeaders(req.Header)
-	authType, authData, warnings := mapAuth(req.Auth, itemLabel("request", item.Name))
+	label := itemLabel("request", item.Name)
+	authType, authData, warnings := mapAuth(req.Auth, label)
+	description, descWarnings := requestDescription(item, label)
+	warnings = append(warnings, descWarnings...)
 
 	// Detect GraphQL body mode — store data in GraphQL fields, not Body.
 	if req.Body != nil && req.Body.Mode == "graphql" && req.Body.Graphql != nil {
 		return request.Create{
 			CollectionID:     collectionID,
 			Name:             item.Name,
-			Description:      requestDescription(item),
+			Description:      description,
 			Protocol:         entities.ProtocolGraphQL,
 			Method:           entities.MethodPOST,
 			URL:              req.URL.Raw,
@@ -166,7 +257,7 @@ func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID) (request.Create
 	return request.Create{
 		CollectionID: collectionID,
 		Name:         item.Name,
-		Description:  requestDescription(item),
+		Description:  description,
 		Protocol:     entities.ProtocolHTTP,
 		Method:       method,
 		URL:          req.URL.Raw,

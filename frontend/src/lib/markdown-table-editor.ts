@@ -77,7 +77,8 @@ export class CodeMirrorTextEditor extends ITextEditor {
     this.host = host
   }
 
-  private get state(): EditorState {
+  // Readable from outside so a caller can re-read the document mid-transaction.
+  get state(): EditorState {
     return this.working ?? this.host.state
   }
 
@@ -256,40 +257,144 @@ export function isEmptyTableRow(line: string): boolean {
   return row.getCells().every((cell) => cell.content === '')
 }
 
-export const tableTab: HostCommand = (host) => {
-  const ctx = tableContext(host)
-  if (ctx === null) return false
-  const { editor } = createTableEditor(host)
-  // The header width counts the missing cells of a ragged row, so Tab fills them
-  // instead of jumping ahead; past the last column it wraps to the next row.
+// Columns of the inserted backslashes, so a caret to the right of one can follow it.
+export interface EscapedLine {
+  text: string
+  inserted: number[]
+}
+
+// GFM splits a row on every unescaped pipe; the kernel reads a code span as one cell, \| makes them agree.
+export function escapeCodeSpanPipesAt(line: string): EscapedLine {
+  let out = ''
+  const inserted: number[] = []
+  let i = 0
+  while (i < line.length) {
+    const ch = line[i]
+    if (ch === '\\') { out += line.slice(i, i + 2); i += 2; continue }
+    if (ch !== '`') { out += ch; i += 1; continue }
+    let run = 0
+    while (line[i + run] === '`') run++
+    // A code span closes only on a backtick run of exactly the opener's length.
+    let close = -1
+    for (let j = i + run; j < line.length; j++) {
+      if (line[j] !== '`') continue
+      let len = 0
+      while (line[j + len] === '`') len++
+      if (len === run) { close = j; break }
+      j += len - 1
+    }
+    if (close === -1) { out += '`'.repeat(run); i += run; continue }
+    out += '`'.repeat(run)
+    for (let k = i + run; k < close; k++) {
+      const c = line[k]
+      // Clamped: a backslash right before the closing run must not swallow it.
+      if (c === '\\') { out += line.slice(k, Math.min(k + 2, close)); k += 1; continue }
+      if (c === '|') { inserted.push(k); out += '\\|'; continue }
+      out += c
+    }
+    out += '`'.repeat(run)
+    i = close + run
+  }
+  return { text: out, inserted }
+}
+
+export function escapeCodeSpanPipes(line: string): string {
+  return escapeCodeSpanPipesAt(line).text
+}
+
+// Rows a table command would touch; the fence scan stands in for the syntax tree.
+function tableRows(lines: string[]): number[] {
+  const rows: number[] = []
+  let fence: string | null = null
+  lines.forEach((line, i) => {
+    const mark = FENCE_MARK.exec(line)
+    if (mark !== null) {
+      if (fence === null) fence = mark[1]
+      else if (mark[1][0] === fence[0] && mark[1].length >= fence.length && mark[2].trim() === '') fence = null
+      return
+    }
+    if (fence === null && TABLE_ROW.test(line)) rows.push(i)
+  })
+  return rows
+}
+
+export function normalizeTableLines(doc: string): string {
+  const lines = doc.split('\n')
+  for (const row of tableRows(lines)) lines[row] = escapeCodeSpanPipes(lines[row])
+  return lines.join('\n')
+}
+
+// Tab and Enter normalize their own table; this covers the rest of the document.
+export const normalizeTables: HostCommand = (host) => {
+  const doc = host.state.doc
+  const lines = doc.toString().split('\n')
+  const changes: { from: number; to: number; insert: string }[] = []
+  for (const row of tableRows(lines)) {
+    const line = doc.line(row + 1)
+    if (isInsideCodeAtLine(host.state, line.from)) continue
+    const escaped = escapeCodeSpanPipes(lines[row])
+    if (escaped === lines[row]) continue
+    changes.push({ from: line.from, to: line.to, insert: escaped })
+  }
+  if (changes.length === 0) return false
+  host.dispatch({ changes, userEvent: 'input.table' })
+  return true
+}
+
+// One dispatch: replacing a whole line parks the caret at its boundary, so it is put back by hand.
+function withNormalizedTable(
+  host: EditorHost,
+  run: (ctx: TableContext, editor: TableEditor, text: CodeMirrorTextEditor) => void,
+): boolean {
+  const before = tableContext(host)
+  if (before === null) return false
+  const { editor, text } = createTableEditor(host)
+  text.transact(() => {
+    const caret = text.getCursorPosition()
+    let caretRowReplaced = false
+    let shift = 0
+    for (let row = before.startRow; row <= before.endRow; row++) {
+      const line = text.getLine(row)
+      const escaped = escapeCodeSpanPipesAt(line)
+      if (escaped.text === line) continue
+      text.replaceLines(row, row + 1, [escaped.text])
+      if (row === caret.row) {
+        caretRowReplaced = true
+        shift = escaped.inserted.filter(col => col < caret.column).length
+      }
+    }
+    if (caretRowReplaced) text.setCursorPosition(new Point(caret.row, caret.column + shift))
+    run(before, editor, text)
+  })
+  return true
+}
+
+export const tableTab: HostCommand = (host) => withNormalizedTable(host, (ctx, editor) => {
+  // The header width counts a ragged row's missing cells, so Tab fills them before wrapping.
   if (ctx.focus.column >= ctx.width - 1) editor.nextRow(TABLE_OPTIONS)
   else editor.nextCell(TABLE_OPTIONS)
-  return true
-}
+})
 
-export const tableShiftTab: HostCommand = (host) => {
-  if (!inTable(host)) return false
-  createTableEditor(host).editor.previousCell(TABLE_OPTIONS)
-  return true
-}
+export const tableShiftTab: HostCommand = (host) => withNormalizedTable(host, (_ctx, editor) => {
+  editor.previousCell(TABLE_OPTIONS)
+})
 
-export const tableEnter: HostCommand = (host) => {
-  const ctx = tableContext(host)
-  if (ctx === null) return false
-  const { editor, text } = createTableEditor(host)
-  const line = host.state.doc.lineAt(host.state.selection.main.head)
+export const tableEnter: HostCommand = (host) => withNormalizedTable(host, (ctx, editor, text) => {
   const onLastBodyRow = ctx.focus.row >= 2 && ctx.focus.row === ctx.table.getHeight() - 1
-  if (onLastBodyRow && isEmptyTableRow(line.text)) {
-    // Enter on an empty last row leaves the table, the way it ends a list.
-    text.transact(() => {
-      editor.deleteRow(TABLE_OPTIONS)
-      editor.escape(TABLE_OPTIONS)
-    })
-  } else {
+  if (!onLastBodyRow || !isEmptyTableRow(text.getLine(text.getCursorPosition().row))) {
     editor.nextRow(TABLE_OPTIONS)
+    return
   }
-  return true
-}
+  // Enter on an empty last row leaves the table, the way it ends a list.
+  editor.deleteRow(TABLE_OPTIONS)
+  editor.escape(TABLE_OPTIONS)
+  // escape() parks the caret right under the table, where a paragraph would parse as one more row.
+  const row = text.getCursorPosition().row
+  const nextIsText = row <= text.getLastRow() && text.getLine(row) !== ''
+  text.insertLine(row, '')
+  if (nextIsText) text.insertLine(row + 1, '')
+  text.setCursorPosition(new Point(row + 1, 0))
+})
 
 export type TableCommand =
   | 'insertRowAbove' | 'insertRowBelow' | 'insertColumnLeft' | 'insertColumnRight'
@@ -357,55 +462,55 @@ export function runTableCommand(host: EditorHost, command: TableCommand): boolea
   if (ctx.focus.row < 2 && BODY_ONLY.has(command)) return false
   if (command === 'deleteColumn' && ctx.width === 1) return deleteTable(host, ctx)
 
-  const { editor, text } = createTableEditor(host)
-  switch (command) {
-    case 'insertRowAbove':
-      editor.insertRow(TABLE_OPTIONS)
-      break
-    case 'insertRowBelow':
-      // On the header and delimiter rows insertRow already lands on the first body row.
-      if (ctx.focus.row < 2) editor.insertRow(TABLE_OPTIONS)
-      else text.transact(() => {
+  return withNormalizedTable(host, (normalized, editor, text) => {
+    switch (command) {
+      case 'insertRowAbove':
         editor.insertRow(TABLE_OPTIONS)
-        editor.moveRow(1, TABLE_OPTIONS)
-      })
-      break
-    case 'insertColumnLeft':
-      editor.insertColumn(TABLE_OPTIONS)
-      break
-    case 'insertColumnRight':
-      text.transact(() => {
+        break
+      case 'insertRowBelow':
+        // On the header and delimiter rows insertRow already lands on the first body row.
+        if (normalized.focus.row < 2) editor.insertRow(TABLE_OPTIONS)
+        else text.transact(() => {
+          editor.insertRow(TABLE_OPTIONS)
+          editor.moveRow(1, TABLE_OPTIONS)
+        })
+        break
+      case 'insertColumnLeft':
         editor.insertColumn(TABLE_OPTIONS)
+        break
+      case 'insertColumnRight':
+        text.transact(() => {
+          editor.insertColumn(TABLE_OPTIONS)
+          editor.moveColumn(1, TABLE_OPTIONS)
+        })
+        break
+      case 'deleteRow':
+        editor.deleteRow(TABLE_OPTIONS)
+        break
+      case 'deleteColumn':
+        editor.deleteColumn(TABLE_OPTIONS)
+        break
+      case 'alignLeft':
+        editor.alignColumn(Alignment.LEFT, TABLE_OPTIONS)
+        break
+      case 'alignCenter':
+        editor.alignColumn(Alignment.CENTER, TABLE_OPTIONS)
+        break
+      case 'alignRight':
+        editor.alignColumn(Alignment.RIGHT, TABLE_OPTIONS)
+        break
+      case 'moveRowUp':
+        editor.moveRow(-1, TABLE_OPTIONS)
+        break
+      case 'moveRowDown':
+        editor.moveRow(1, TABLE_OPTIONS)
+        break
+      case 'moveColumnLeft':
+        editor.moveColumn(-1, TABLE_OPTIONS)
+        break
+      case 'moveColumnRight':
         editor.moveColumn(1, TABLE_OPTIONS)
-      })
-      break
-    case 'deleteRow':
-      editor.deleteRow(TABLE_OPTIONS)
-      break
-    case 'deleteColumn':
-      editor.deleteColumn(TABLE_OPTIONS)
-      break
-    case 'alignLeft':
-      editor.alignColumn(Alignment.LEFT, TABLE_OPTIONS)
-      break
-    case 'alignCenter':
-      editor.alignColumn(Alignment.CENTER, TABLE_OPTIONS)
-      break
-    case 'alignRight':
-      editor.alignColumn(Alignment.RIGHT, TABLE_OPTIONS)
-      break
-    case 'moveRowUp':
-      editor.moveRow(-1, TABLE_OPTIONS)
-      break
-    case 'moveRowDown':
-      editor.moveRow(1, TABLE_OPTIONS)
-      break
-    case 'moveColumnLeft':
-      editor.moveColumn(-1, TABLE_OPTIONS)
-      break
-    case 'moveColumnRight':
-      editor.moveColumn(1, TABLE_OPTIONS)
-      break
-  }
-  return true
+        break
+    }
+  })
 }

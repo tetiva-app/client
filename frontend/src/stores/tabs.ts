@@ -5,13 +5,17 @@ import { getRequestService } from '@/services'
 import { DEFAULT_PROTOCOL, DEFAULT_METHOD, DEFAULT_BODY_TYPE, DEFAULT_AUTH_TYPE, DEFAULT_AUTH_DATA } from '@/constants/defaults'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { clearDrafts } from '@/composables/useBodyDrafts'
+import { descriptionSaveBlocked } from '@/lib/description'
 import { useResponseStore } from '@/stores/responses'
 import { runMutation } from '@/stores/runMutation'
+import { formatResultError } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
 
 export type Tab =
   | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
   | { id: string; type: 'collection'; collectionId: string; name: string }
+
+export const AUTOSAVE_DELAY_MS = 1500
 
 export const useRequestStore = defineStore('requests', () => {
   const requestsMap = ref<Map<string, Request>>(new Map())
@@ -29,9 +33,9 @@ export const useRequestStore = defineStore('requests', () => {
 
   const collectionInitialSections = ref(new Map<string, string>())
 
-  const collectionEditorRefs = ref(new Map<string, { saveScripts: () => Promise<void>; scriptsDirty: boolean }>())
+  const collectionEditorRefs = ref(new Map<string, { saveScripts: () => Promise<boolean>; scriptsDirty: boolean }>())
 
-  function registerCollectionEditor(collectionId: string, editorRef: { saveScripts: () => Promise<void>; scriptsDirty: boolean }) {
+  function registerCollectionEditor(collectionId: string, editorRef: { saveScripts: () => Promise<boolean>; scriptsDirty: boolean }) {
     collectionEditorRefs.value.set(collectionId, editorRef)
   }
 
@@ -71,16 +75,30 @@ export const useRequestStore = defineStore('requests', () => {
         console.error('Failed to fetch requests:', result.error.message)
         return
       }
+      const dirty = new Set(Array.from(requestsMap.value.keys()).filter(isRequestDirty))
+      const incoming = new Map(result.data.map(item => [item.id, item]))
       // Replay drafts are hidden from list() (is_draft = 1), so a refresh must
       // not evict them: the open replay tab would render nothing and the close
       // path could no longer find the draft to hard-delete it.
       for (const [id, req] of requestsMap.value) {
-        if (req.collectionId === collectionId && !req.isDraft) {
-          requestsMap.value.delete(id)
-          savedSnapshots.value.delete(id)
+        if (req.collectionId !== collectionId || req.isDraft || incoming.has(id)) continue
+        // Deleted on another device: the buffer has nothing left to save into.
+        if (dirty.has(id)) {
+          cancelAutosave(id)
+          console.warn(`Request ${id} is gone from the server; dropping its unsaved edits`)
         }
+        requestsMap.value.delete(id)
+        savedSnapshots.value.delete(id)
       }
       for (const item of result.data) {
+        // A list that started before the last save carries the version that save replaced.
+        const existing = requestsMap.value.get(item.id)
+        if (existing && existing.version >= item.version) continue
+        // An unsaved buffer outranks the list: adopt the version so the next save wins.
+        if (dirty.has(item.id)) {
+          adoptServerVersion(item.id, item.version, item.updatedAt)
+          continue
+        }
         requestsMap.value.set(item.id, item)
         savedSnapshots.value.set(item.id, { ...item })
       }
@@ -143,6 +161,15 @@ export const useRequestStore = defineStore('requests', () => {
     const updated = { ...existing, ...partial }
     requestsMap.value.set(id, updated)
     requestsMap.value = new Map(requestsMap.value)
+    // Only docs autosave: a URL or header would push to sync on every pause in typing.
+    if ('description' in partial && !updated.isDraft) scheduleAutosave(id)
+  }
+
+  // An over-cap description the backend refuses: flushing it only repeats the toast.
+  function isSaveBlocked(id: string): boolean {
+    const current = requestsMap.value.get(id)
+    if (!current) return false
+    return descriptionSaveBlocked(current.description, savedSnapshots.value.get(id)?.description ?? '')
   }
 
   function isRequestDirty(requestId: string): boolean {
@@ -155,6 +182,40 @@ export const useRequestStore = defineStore('requests', () => {
   // Dedupe concurrent saves — a parallel edit would lose the version race
   const savesInFlight = new Map<string, Promise<boolean>>()
 
+  // Idle autosave per request; a keystroke-level cadence would push every edit through sync.
+  const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function scheduleAutosave(id: string) {
+    cancelAutosave(id)
+    autosaveTimers.set(id, setTimeout(() => {
+      autosaveTimers.delete(id)
+      const req = requestsMap.value.get(id)
+      // A save that can only fail would raise a toast every 1.5 s.
+      if (!req || req.isDraft || isSaveBlocked(id)) return
+      void flush(id)
+    }, AUTOSAVE_DELAY_MS))
+  }
+
+  function cancelAutosave(id: string) {
+    const timer = autosaveTimers.get(id)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      autosaveTimers.delete(id)
+    }
+  }
+
+  // Last chance on unload: every buffer the idle timer has not reached yet.
+  async function flushAllDirty(): Promise<void> {
+    const requestIds = Array.from(requestsMap.value.values())
+      .filter(r => !r.isDraft && isRequestDirty(r.id))
+      .map(r => r.id)
+    const editors = Array.from(collectionEditorRefs.value.values()).filter(e => e.scriptsDirty)
+    await Promise.all([
+      ...requestIds.map(id => flush(id)),
+      ...editors.map(e => e.saveScripts().catch(() => false)),
+    ])
+  }
+
   function saveToBackend(id: string): Promise<boolean> {
     const inFlight = savesInFlight.get(id)
     if (inFlight) return inFlight
@@ -163,7 +224,17 @@ export const useRequestStore = defineStore('requests', () => {
     return promise
   }
 
-  async function doSave(id: string): Promise<boolean> {
+  // Local edits stay, only the row's identity in the version race is refreshed.
+  function adoptServerVersion(id: string, version: number, updatedAt: string) {
+    const current = requestsMap.value.get(id)
+    if (current) requestsMap.value.set(id, { ...current, version, updatedAt })
+    const snapshot = savedSnapshots.value.get(id)
+    if (snapshot) savedSnapshots.value.set(id, { ...snapshot, version, updatedAt })
+    requestsMap.value = new Map(requestsMap.value)
+    savedSnapshots.value = new Map(savedSnapshots.value)
+  }
+
+  async function doSave(id: string, retried = false): Promise<boolean> {
     const current = requestsMap.value.get(id)
     if (!current) return true
     if (!isRequestDirty(id)) return true
@@ -194,8 +265,16 @@ export const useRequestStore = defineStore('requests', () => {
         graphqlOperation: current.graphqlOperation,
       })
       if (result.error) {
+        // Another device won the version race; the fresh version lets this save through.
+        if (result.error.code === 'conflict' && !retried) {
+          const fresh = await service.getById(id)
+          if (!fresh.error) {
+            adoptServerVersion(id, fresh.data.version, fresh.data.updatedAt)
+            return doSave(id, true)
+          }
+        }
         console.error('Failed to save request:', result.error.message)
-        useToast().error(`Failed to save request: ${result.error.message}`)
+        useToast().error(`Failed to save request: ${formatResultError(result.error)}`)
         return false
       }
       const latest = requestsMap.value.get(id)
@@ -216,10 +295,8 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
-  // flush persists everything typed so far: saveToBackend may hand back an
-  // in-flight save that started before the last edit, so it loops until the
-  // snapshot matches. Three dirty rounds and the caller is told it failed.
-  async function flush(requestId: string): Promise<boolean> {
+  // saveToBackend may return a save that started before the last edit, so this loops until clean.
+  async function flushForHandoff(requestId: string): Promise<boolean> {
     for (let round = 0; round < 3; round++) {
       if (!isRequestDirty(requestId)) return true
       if (!(await saveToBackend(requestId))) return false
@@ -227,7 +304,21 @@ export const useRequestStore = defineStore('requests', () => {
     return !isRequestDirty(requestId)
   }
 
+  // A replay draft dies with its tab: only the handoff paths persist it.
+  function flush(requestId: string): Promise<boolean> {
+    if (requestsMap.value.get(requestId)?.isDraft) return Promise.resolve(true)
+    return flushForHandoff(requestId)
+  }
+
   async function rename(id: string, newName: string, version: number): Promise<boolean> {
+    // edit() assigns every field, so a pending save has to land before the rename.
+    const hadAutosave = autosaveTimers.has(id)
+    cancelAutosave(id)
+    if (!(await flush(id))) {
+      // The timer this cancelled was the buffer's only way back to the backend.
+      if (hadAutosave && isRequestDirty(id) && !isSaveBlocked(id)) scheduleAutosave(id)
+      return false
+    }
     const current = requestsMap.value.get(id)
     if (!current) return false
 
@@ -247,7 +338,7 @@ export const useRequestStore = defineStore('requests', () => {
         authData: current.authData,
         preScript: current.preScript,
         postScript: current.postScript,
-        version,
+        version: current.version ?? version,
         grpcService: current.grpcService,
         grpcMethod: current.grpcMethod,
         grpcProtoPath: current.grpcProtoPath,
@@ -259,9 +350,21 @@ export const useRequestStore = defineStore('requests', () => {
       })
       if (result.error) {
         console.error('Failed to rename request:', result.error.message)
+        useToast().error(`Failed to rename request: ${formatResultError(result.error)}`)
         return false
       }
-      requestsMap.value.set(result.data.id, result.data)
+      const latest = requestsMap.value.get(id)
+      if (latest && latest !== current) {
+        // User typed during the rename: keep local edits, adopt only name and version
+        requestsMap.value.set(id, {
+          ...latest,
+          name: result.data.name,
+          version: result.data.version,
+          updatedAt: result.data.updatedAt,
+        })
+      } else {
+        requestsMap.value.set(result.data.id, result.data)
+      }
       savedSnapshots.value.set(result.data.id, { ...result.data })
       requestsMap.value = new Map(requestsMap.value)
       savedSnapshots.value = new Map(savedSnapshots.value)
@@ -274,15 +377,24 @@ export const useRequestStore = defineStore('requests', () => {
       return true
     } catch (err) {
       console.error('Failed to rename request:', err)
+      useToast().error('Failed to rename request')
       return false
     }
   }
 
-  async function remove(id: string, version: number) {
+  async function remove(id: string, version: number): Promise<boolean> {
+    // A timer that fires mid-delete bumps the version and the delete loses the race.
+    const hadAutosave = autosaveTimers.has(id)
+    cancelAutosave(id)
+    await savesInFlight.get(id)?.catch(() => false)
+    const currentVersion = requestsMap.value.get(id)?.version ?? version
     const data = await runMutation('Failed to delete request', () =>
-      getRequestService().then(s => s.delete({ id, version }))
+      getRequestService().then(s => s.delete({ id, version: currentVersion }))
     )
-    if (!data) return
+    if (!data) {
+      if (hadAutosave) scheduleAutosave(id)
+      return false
+    }
     // Close tab before removing data (closeTab calls saveToBackend, but the request is already deleted)
     const tabId = `request:${id}`
     if (openTabs.value.some(t => t.id === tabId)) {
@@ -304,6 +416,7 @@ export const useRequestStore = defineStore('requests', () => {
     await forgetTokenStatus([{ kind: 'request', id }])
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    return true
   }
 
   async function openTab(requestId: string) {
@@ -368,6 +481,7 @@ export const useRequestStore = defineStore('requests', () => {
 
   async function saveTabBeforeClose(tab: Tab): Promise<boolean> {
     if (tab.type === 'request') {
+      cancelAutosave(tab.requestId)
       const req = requestsMap.value.get(tab.requestId)
       // Drafts (created via History → Replay) are hard-deleted on close to avoid
       // accumulating soft-deleted rows. Skip the saveToBackend path entirely.
@@ -386,13 +500,13 @@ export const useRequestStore = defineStore('requests', () => {
         savedSnapshots.value = new Map(savedSnapshots.value)
         return true
       }
-      return saveToBackend(tab.requestId)
+      return flush(tab.requestId)
     }
     if (tab.type === 'collection') {
       const editorRef = collectionEditorRefs.value.get(tab.collectionId)
       if (editorRef?.scriptsDirty) {
         try {
-          await editorRef.saveScripts()
+          if (!(await editorRef.saveScripts())) return false
         } catch (err) {
           console.error('Failed to save collection scripts:', err)
           useToast().error('Failed to save collection scripts')
@@ -444,10 +558,8 @@ export const useRequestStore = defineStore('requests', () => {
 
     if (responses.getResponseState(id).status === 'loading') return
 
-    if (isRequestDirty(id)) {
-      // Don't execute a stale version after a failed save
-      if (!(await saveToBackend(id))) return
-    }
+    // Don't execute a stale version after a failed save
+    if (!(await flushForHandoff(id))) return
 
     responses.setResponse(id, { status: 'loading', startedAt: Date.now() })
 
@@ -565,6 +677,8 @@ export const useRequestStore = defineStore('requests', () => {
   async function purgeCollectionSubtree(collectionIds: string[]) {
     const idSet = new Set(collectionIds)
     const doomed = Array.from(requestsMap.value.values()).filter(r => idSet.has(r.collectionId))
+    // Rows are already gone on the backend: an autosave would only raise a toast.
+    for (const req of doomed) cancelAutosave(req.id)
     for (const req of doomed) {
       if (req.protocol === 'websocket') {
         const { useWebSocketStore } = await import('./websocket')
@@ -611,8 +725,12 @@ export const useRequestStore = defineStore('requests', () => {
     loadRequest,
     updateLocal,
     isRequestDirty,
+    isSaveBlocked,
     saveToBackend,
     flush,
+    flushForHandoff,
+    flushAllDirty,
+    cancelAutosave,
     remove,
     rename,
     move,

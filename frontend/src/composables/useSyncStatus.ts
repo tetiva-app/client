@@ -8,6 +8,7 @@ const POLL_MS = 5000
 const state = ref('disconnected')
 const pending = ref(0)
 const parked = ref(0)
+const tooLarge = ref(0)
 const awaitingVerification = ref(false)
 
 let consumers = 0
@@ -24,6 +25,7 @@ async function refresh() {
     state.value = result.data.state
     pending.value = result.data.pending
     parked.value = result.data.parked
+    tooLarge.value = result.data.tooLarge ?? 0
     awaitingVerification.value = result.data.awaitingVerification
   } catch {
     // Ignore — sync service may not be available
@@ -50,11 +52,12 @@ async function subscribe() {
       state.value = payload.state
     }))
 
-    type ParkedPayload = { parked?: number; workspaceId?: string }
+    type ParkedPayload = { parked?: number; tooLarge?: number; workspaceId?: string }
     unsubscribers.push(Events.On('sync:parked_changed', (evt: { data?: ParkedPayload } | ParkedPayload) => {
       const payload = (evt as { data?: ParkedPayload }).data ?? (evt as ParkedPayload)
       if (typeof payload?.parked !== 'number' || !isActiveWorkspace(payload.workspaceId)) return
       parked.value = payload.parked
+      if (typeof payload.tooLarge === 'number') tooLarge.value = payload.tooLarge
     }))
   } catch {
     // Non-Wails environment (browser mode) — events unavailable; poll still runs.
@@ -81,5 +84,5 @@ export function useSyncStatus() {
     unsubscribers = []
   })
 
-  return { state, pending, parked, awaitingVerification, refresh }
+  return { state, pending, parked, tooLarge, awaitingVerification, refresh }
 }

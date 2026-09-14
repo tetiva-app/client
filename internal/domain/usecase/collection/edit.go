@@ -70,6 +70,13 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 		return nil, &domain.ConflictError{Entity: "collection", ID: opt.CollectionID.String()}
 	}
 
+	// Only growth is rejected: a description stored before the cap must not lock the entity.
+	if len(input.Description) > domain.MaxDescriptionLen && len(input.Description) > len(existing.Description) {
+		return nil, &domain.ValidationError{Fields: map[string]string{
+			"description": fmt.Sprintf("must be at most %d bytes", domain.MaxDescriptionLen),
+		}}
+	}
+
 	prevAuthType, prevAuthData := existing.AuthType, existing.AuthData
 
 	authType := input.AuthType

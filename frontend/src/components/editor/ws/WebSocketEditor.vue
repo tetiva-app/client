@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onUnmounted, defineAsyncComponent } from 'vue'
+import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import type { Request } from '@/types/request'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -54,6 +54,10 @@ const composeError = ref('')
 const savedMessages = ref<InstanceType<typeof WsSavedMessages> | null>(null)
 
 const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs'>('messages')
+
+// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
+const docsMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 const dirty = computed(() => requestStore.isDirty(`request:${props.request.id}`))
 
 const formats: { id: WsFormat; label: string }[] = [
@@ -219,7 +223,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-else class="min-h-0 flex-1 overflow-auto">
+    <div v-show="activeTab !== 'messages'" class="min-h-0 flex-1 overflow-auto">
       <ParamsEditor
         v-if="activeTab === 'params'"
         :url="request.url"
@@ -254,7 +258,8 @@ onUnmounted(() => {
         @update:post-script="(v) => update({ postScript: v })"
       />
       <RequestDocs
-        v-else-if="activeTab === 'docs'"
+        v-if="docsMounted"
+        v-show="activeTab === 'docs'"
         :description="request.description"
         @update:description="(v) => update({ description: v })"
       />

@@ -86,8 +86,8 @@ func TestPullAll_UnknownAuthType_RollsBackBatchAndKeepsCursor(t *testing.T) {
 	if seq != 0 {
 		t.Fatalf("last_sync_seq = %d, want the pre-batch 0", seq)
 	}
-	if ws.lastSyncSeq != 0 {
-		t.Fatalf("in-memory cursor = %d, want 0", ws.lastSyncSeq)
+	if ws.cursor() != 0 {
+		t.Fatalf("in-memory cursor = %d, want 0", ws.cursor())
 	}
 
 	r, err := sqlite.NewRequestRepo(db).GetByID(context.Background(), goodID)

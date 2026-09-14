@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Mock build: `?mock=parked` boots connected with 4 quota-parked changes,
-// `?mock=plan-limit` boots with sync stopped over the member limit.
+// `?mock=plan-limit` stopped over the member limit, `?mock=too-large` with one of each.
 test.describe('Sync modal plan notice', () => {
   async function openConnected(page: Page, scenario: string) {
     await page.addInitScript(() => {
@@ -40,11 +40,29 @@ test.describe('Sync modal plan notice', () => {
     await expect(notice.getByRole('button', { name: 'See plans' })).toBeVisible();
   });
 
+  test('asks for an edit, not an upgrade, for items the server calls too large', async ({ page }) => {
+    const dialog = await openConnected(page, 'too-large');
+
+    const notice = dialog.getByTestId('sync-too-large-notice');
+    await expect(notice).toContainText('2 items too large for the server — edit them to retry.');
+    await expect(notice.getByRole('button', { name: 'See plans' })).toHaveCount(0);
+
+    const planNotice = dialog.getByTestId('sync-plan-notice');
+    await expect(planNotice).toContainText('1 change not synced — cloud collection limit reached on your plan.');
+    await expect(planNotice).not.toContainText('too large');
+  });
+
+  test('keeps the oversized line out of a plain quota notice', async ({ page }) => {
+    const dialog = await openConnected(page, 'parked');
+    await expect(dialog.getByTestId('sync-too-large-notice')).toHaveCount(0);
+  });
+
   test('stays quiet while everything syncs', async ({ page }) => {
     const dialog = await openConnected(page, 'signin-approve');
     await dialog.getByTestId('signin-browser').click();
 
     await expect(dialog.getByRole('button', { name: 'Disconnect' })).toBeVisible();
     await expect(dialog.getByTestId('sync-plan-notice')).toHaveCount(0);
+    await expect(dialog.getByTestId('sync-too-large-notice')).toHaveCount(0);
   });
 });

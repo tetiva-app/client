@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/tetiva-app/client/internal/domain"
 )
 
 type SyncEntry struct {
@@ -30,19 +32,30 @@ type SyncQueueRepository interface {
 	Delete(ctx context.Context, ids []int64) error
 	// Increments retry_count and schedules the next retry.
 	MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error
+	// Parks an entry no retry can help; only a newer write or a resync revives it.
+	MarkParked(ctx context.Context, id int64) error
 	// Moves 'failed' entries whose retry window elapsed back to 'pending'.
 	RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error)
+	// Drops parked entries a later pending write replaced, racing pushes included.
+	DeleteSupersededParked(ctx context.Context, workspaceID string) (int, error)
+	// Drops parked entries whose entity is soft-deleted or gone locally.
+	DeleteParkedForMissingEntities(ctx context.Context, workspaceID string) (int, error)
 	// Resets 'sending' back to 'pending'; called on startup.
 	ResetSending(ctx context.Context) error
+	// Uses the TX from context when present.
 	DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error)
 	// Only the latest entry per (entity_type, entity_id).
 	CoalescedPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
 	// Counts entries the server has not taken, parked retries included.
 	CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error)
-	// Entries the server refused, waiting for a retry.
+	// Entries the plan quota holds back, waiting for a retry.
 	CountParked(ctx context.Context, workspaceID string) (int, error)
+	// Entries the server refused as too large; no plan change lets them through.
+	CountTooLarge(ctx context.Context, workspaceID string) (int, error)
 	// ok is false when nothing is parked.
 	EarliestParkedRetryAt(ctx context.Context, workspaceID string) (t time.Time, ok bool, err error)
+	// Queues every documented request of a workspace for a re-push.
+	EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error)
 }
 
 type SyncQueueRepo struct {
@@ -65,7 +78,8 @@ func (r *SyncQueueRepo) Enqueue(ctx context.Context, entry SyncEntry) error {
 	query := `INSERT INTO sync_queue (workspace_id, entity_type, entity_id, action, operation_id, status, retry_count, next_retry_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, query,
+	db := DBTXFromContext(ctx, r.db)
+	_, err := db.ExecContext(ctx, query,
 		entry.WorkspaceID,
 		entry.EntityType,
 		entry.EntityID,
@@ -78,6 +92,15 @@ func (r *SyncQueueRepo) Enqueue(ctx context.Context, entry SyncEntry) error {
 	)
 	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	// The new row carries the whole entity; dropping parked rows here, not at push time, closes a race.
+	_, err = db.ExecContext(ctx,
+		`DELETE FROM sync_queue
+		 WHERE workspace_id = ? AND entity_type = ? AND entity_id = ? AND status = 'parked'`,
+		entry.WorkspaceID, entry.EntityType, entry.EntityID)
+	if err != nil {
+		return fmt.Errorf("%s: drop parked: %w", funcName, err)
 	}
 
 	return nil
@@ -154,6 +177,86 @@ func (r *SyncQueueRepo) MarkFailed(ctx context.Context, id int64, nextRetryAt ti
 	return nil
 }
 
+// 'parked' keeps an entry out of the pending queries and RequeueDue until a newer write.
+func (r *SyncQueueRepo) MarkParked(ctx context.Context, id int64) error {
+	const funcName = "SyncQueueRepo.MarkParked"
+
+	query := `UPDATE sync_queue SET status = 'parked', retry_count = retry_count + 1, next_retry_at = NULL WHERE id = ?`
+
+	_, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return nil
+}
+
+// A newer pending row carries the whole entity, so the parked one has nothing left to offer.
+func (r *SyncQueueRepo) DeleteSupersededParked(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.DeleteSupersededParked"
+
+	query := `DELETE FROM sync_queue
+		WHERE workspace_id = ? AND status = 'parked'
+		  AND EXISTS (
+			SELECT 1 FROM sync_queue newer
+			WHERE newer.workspace_id = sync_queue.workspace_id
+			  AND newer.entity_type = sync_queue.entity_type
+			  AND newer.entity_id = sync_queue.entity_id
+			  AND newer.status = 'pending'
+			  AND newer.id > sync_queue.id
+		  )`
+
+	result, err := r.db.ExecContext(ctx, query, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: rows affected: %w", funcName, err)
+	}
+
+	return int(n), nil
+}
+
+// Parked entries of deleted entities: no local write is coming to carry them out.
+func (r *SyncQueueRepo) DeleteParkedForMissingEntities(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.DeleteParkedForMissingEntities"
+
+	query := `DELETE FROM sync_queue
+		WHERE workspace_id = ? AND status = 'parked'
+		  AND entity_type IN ('collection', 'request', 'environment', 'variable')
+		  AND NOT EXISTS (
+			SELECT 1 FROM collections c
+			WHERE sync_queue.entity_type = 'collection' AND c.id = sync_queue.entity_id AND c.is_delete = 0
+			UNION ALL
+			SELECT 1 FROM requests r
+			JOIN collections rc ON rc.id = r.collection_id
+			WHERE sync_queue.entity_type = 'request' AND r.id = sync_queue.entity_id
+			  AND r.is_delete = 0 AND rc.is_delete = 0
+			UNION ALL
+			SELECT 1 FROM environments e
+			WHERE sync_queue.entity_type = 'environment' AND e.id = sync_queue.entity_id AND e.is_delete = 0
+			UNION ALL
+			SELECT 1 FROM variables v
+			JOIN environments ve ON ve.id = v.environment_id
+			WHERE sync_queue.entity_type = 'variable' AND v.id = sync_queue.entity_id
+			  AND v.is_delete = 0 AND ve.is_delete = 0
+		  )`
+
+	result, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, query, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: rows affected: %w", funcName, err)
+	}
+
+	return int(n), nil
+}
+
 func (r *SyncQueueRepo) RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error) {
 	const funcName = "SyncQueueRepo.RequeueDue"
 
@@ -192,7 +295,56 @@ func (r *SyncQueueRepo) DeleteByWorkspace(ctx context.Context, workspaceID strin
 
 	query := `DELETE FROM sync_queue WHERE workspace_id = ?`
 
-	result, err := r.db.ExecContext(ctx, query, workspaceID)
+	result, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, query, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: rows affected: %w", funcName, err)
+	}
+
+	return int(n), nil
+}
+
+// Mirrors migration 020 for one workspace; the server merges docs only where it has none.
+func (r *SyncQueueRepo) EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.EnqueueDocumentedRequests"
+
+	query := `INSERT INTO sync_queue (workspace_id, entity_type, entity_id, action, operation_id, status, retry_count, created_at)
+		SELECT
+			c.workspace_id,
+			'request',
+			r.id,
+			'update',
+			lower(
+				hex(randomblob(4)) || '-' ||
+				hex(randomblob(2)) || '-4' ||
+				substr(hex(randomblob(2)), 2) || '-' ||
+				substr('89ab', (random() & 3) + 1, 1) || substr(hex(randomblob(2)), 2) || '-' ||
+				hex(randomblob(6))
+			),
+			'pending',
+			0,
+			strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		FROM requests r
+		JOIN collections c ON c.id = r.collection_id
+		WHERE c.workspace_id = ?
+		  AND r.description != ''
+		  AND length(CAST(r.description AS BLOB)) <= ?
+		  AND r.is_delete = 0
+		  AND r.is_draft = 0
+		  AND c.is_delete = 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM sync_queue q
+			WHERE q.workspace_id = c.workspace_id
+			  AND q.entity_type = 'request'
+			  AND q.entity_id = r.id
+			  AND q.status = 'pending'
+		  )`
+
+	result, err := DBTXFromContext(ctx, r.db).ExecContext(ctx, query, workspaceID, domain.MaxDescriptionLen)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", funcName, err)
 	}
@@ -228,11 +380,11 @@ func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string
 	return scanSyncEntries(funcName, rows)
 }
 
-// 'failed' entries are parked quota retries, not losses.
+// 'failed' and 'parked' entries are held back, not losses.
 func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountPendingOrFailed"
 
-	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status IN ('pending', 'failed')`
+	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status IN ('pending', 'failed', 'parked')`
 
 	var count int
 	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&count); err != nil {
@@ -242,11 +394,26 @@ func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID st
 	return count, nil
 }
 
-// On the UI side these are the changes a plan limit keeps out of the cloud.
+// The changes a plan limit keeps out of the cloud; oversized ones live under 'parked' (CountTooLarge).
 func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountParked"
 
-	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status = 'failed'`
+	query := `SELECT COUNT(*) FROM sync_queue
+		WHERE workspace_id = ? AND status = 'failed' AND next_retry_at IS NOT NULL`
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return count, nil
+}
+
+// The changes the server refuses by size: the user has to trim them, not upgrade.
+func (r *SyncQueueRepo) CountTooLarge(ctx context.Context, workspaceID string) (int, error) {
+	const funcName = "SyncQueueRepo.CountTooLarge"
+
+	query := `SELECT COUNT(*) FROM sync_queue WHERE workspace_id = ? AND status = 'parked'`
 
 	var count int
 	if err := r.db.QueryRowContext(ctx, query, workspaceID).Scan(&count); err != nil {

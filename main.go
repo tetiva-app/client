@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -93,23 +94,27 @@ func main() {
 		wailsApp.Event.Emit(name, data)
 	})
 
-	// The default File menu binds Cmd+W to close-window, which quits the app
-	// (ShouldTerminateAfterLastWindowClosed); rebind it to close the active tab instead.
-	appMenu := application.NewMenu()
-	appMenu.AddRole(application.AppMenu)
-	fileMenu := appMenu.AddSubmenu("File")
-	fileMenu.Add("Close Tab").SetAccelerator("CmdOrCtrl+W").OnClick(func(_ *application.Context) {
-		win := wailsApp.Window.Current()
-		if win != nil && win.Name() != "main" {
-			win.Close()
-			return
-		}
-		wailsApp.Event.Emit("app:close-tab", nil)
-	})
-	appMenu.AddRole(application.EditMenu)
-	appMenu.AddRole(application.ViewMenu)
-	appMenu.AddRole(application.WindowMenu)
-	wailsApp.Menu.SetApplicationMenu(appMenu)
+	// On Linux the menu is drawn as a GTK bar inside the window and its labels are
+	// unreadable over our dark background; the frontend handles Ctrl+W there instead.
+	if runtime.GOOS != "linux" {
+		// The default File menu binds Cmd+W to close-window, which quits the app
+		// (ShouldTerminateAfterLastWindowClosed); rebind it to close the active tab instead.
+		appMenu := application.NewMenu()
+		appMenu.AddRole(application.AppMenu)
+		fileMenu := appMenu.AddSubmenu("File")
+		fileMenu.Add("Close Tab").SetAccelerator("CmdOrCtrl+W").OnClick(func(_ *application.Context) {
+			win := wailsApp.Window.Current()
+			if win != nil && win.Name() != "main" {
+				win.Close()
+				return
+			}
+			wailsApp.Event.Emit("app:close-tab", nil)
+		})
+		appMenu.AddRole(application.EditMenu)
+		appMenu.AddRole(application.ViewMenu)
+		appMenu.AddRole(application.WindowMenu)
+		wailsApp.Menu.SetApplicationMenu(appMenu)
+	}
 
 	mainWindow := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",

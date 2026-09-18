@@ -1,10 +1,10 @@
 {
 	"fixed": {
-		"file_version": "1.1.0"
+		"file_version": "1.1.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "1.1.0",
+			"ProductVersion": "1.1.1",
 			"CompanyName": "Saveliy Ludin",
 			"FileDescription": "API client for developers",
 			"LegalCopyright": "© 2026, Saveliy Ludin",

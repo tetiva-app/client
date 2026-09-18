@@ -34,7 +34,9 @@ import { useCookieModalUi } from '@/stores/cookieModalUi'
 import SettingsModal from '@/components/settings/SettingsModal.vue'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { ToastContainer } from '@/components/ui/toast'
-import { isEditingTarget, isModShortcut } from '@/lib/shortcut-guards'
+import { isEditingTarget, isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
+import { isLinux } from '@/lib/platform'
+import { closeCurrentWindow } from '@/lib/close-window'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -68,6 +70,7 @@ const onboardingUi = useOnboardingUi()
 const syncModalUi = useSyncModalUi()
 const historyStore = useHistoryStore()
 const toast = useToast()
+const linux = isLinux()
 
 async function onHistoryReplay() {
   const id = historyStore.selectedId
@@ -100,7 +103,15 @@ function handleSelectRequest(request: Request) {
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {
-  if (windowMode) return
+  // Child windows carry no menu on Linux either.
+  if (windowMode) {
+    if (linux && isModShortcut(event, 'KeyW', 'w') && !isInsideOverlay(event)) {
+      event.preventDefault()
+      // Wails closes the window without a beforeunload, so save first.
+      void store.flushAllDirty().finally(closeCurrentWindow)
+    }
+    return
+  }
   if (!(event.metaKey || event.ctrlKey)) return
 
   // Cmd/Ctrl+, opens Settings — handle before the no-tabs guard so it works
@@ -108,6 +119,14 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (isModShortcut(event, 'Comma', ',')) {
     event.preventDefault()
     settingsModalUi.show()
+    return
+  }
+
+  // Linux ships without the application menu, so Ctrl+W has no accelerator behind it.
+  if (linux && isModShortcut(event, 'KeyW', 'w')) {
+    if (isInsideOverlay(event)) return
+    event.preventDefault()
+    if (store.activeTabId) store.closeTab(store.activeTabId)
     return
   }
 

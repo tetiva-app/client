@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Linux: the in-window File/Edit/View/Window menu bar is gone — it was unreadable on a light GTK theme; Ctrl+W still closes the tab
+- Linux: Ctrl+W closes a detached request window and the schema window, and such a window also closes on its own when you switch workspace or delete the request it holds
+
 ## [v1.1.1] — 2026-09-14 — Docs editor fixes and synced request descriptions
 
 ### Added

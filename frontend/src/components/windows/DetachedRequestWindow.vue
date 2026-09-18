@@ -8,6 +8,7 @@ import { useEnvironmentStore } from '@/stores/environments'
 import { useEnvModalUi } from '@/stores/envModalUi'
 import { getRequestService } from '@/services'
 import { useWindowEvents } from '@/composables/useWindowEvents'
+import { closeCurrentWindow } from '@/lib/close-window'
 import RequestEditor from '@/components/editor/RequestEditor.vue'
 import EnvironmentModal from '@/components/EnvironmentModal.vue'
 
@@ -91,10 +92,10 @@ useWindowEvents({
   },
   onWorkspaceSwitched: async () => {
     await autoSave()
-    window.close()
+    await closeCurrentWindow()
   },
   onRequestDeleted: () => {
-    window.close()
+    void closeCurrentWindow()
   },
 })
 </script>

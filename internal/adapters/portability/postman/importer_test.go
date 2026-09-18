@@ -26,7 +26,6 @@ type stubCollectionUC struct {
 }
 
 func (s *stubCollectionUC) Create(_ context.Context, input collection.Create, _ collection.CreateOpt) (*entities.Collection, error) {
-	// Mirrors collection.Create.Validate — a nameless folder is what aborted the import.
 	if input.Name == "" {
 		return nil, errors.New("validation: name is required")
 	}
@@ -117,17 +116,14 @@ func (s *stubRequestUC) SubstituteMessage(_ context.Context, _ uuid.UUID, text s
 	return text, nil
 }
 
-// items builds the pointer-to-slice a folder carries, keeping [] and absent distinguishable.
-func items(v ...postman.PostmanItem) *[]postman.PostmanItem { return &v }
-
 func TestImportCollection_SimpleStructure(t *testing.T) {
 	data := postman.PostmanCollection{
 		Info: postman.PostmanInfo{Name: "My API", Schema: postman.SchemaV21},
 		Item: []postman.PostmanItem{
 			{
 				Name: "Auth",
-				Item: items(
-					postman.PostmanItem{
+				Item: &[]postman.PostmanItem{
+					{
 						Name: "Login",
 						Request: &postman.PostmanRequest{
 							Method: "POST",
@@ -141,7 +137,7 @@ func TestImportCollection_SimpleStructure(t *testing.T) {
 							},
 						},
 					},
-				),
+				},
 			},
 			{
 				Name: "Ping",
@@ -344,9 +340,9 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 					Type:  "basic",
 					Basic: authKVs(map[string]string{"username": "admin", "password": "pass"}),
 				},
-				Item: items(
-					postman.PostmanItem{Name: "Users", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/users"}}},
-				),
+				Item: &[]postman.PostmanItem{
+					{Name: "Users", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/users"}}},
+				},
 			},
 		},
 	}

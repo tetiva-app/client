@@ -82,7 +82,6 @@ export const useRequestStore = defineStore('requests', () => {
       // path could no longer find the draft to hard-delete it.
       for (const [id, req] of requestsMap.value) {
         if (req.collectionId !== collectionId || req.isDraft || incoming.has(id)) continue
-        // Deleted on another device: the buffer has nothing left to save into.
         if (dirty.has(id)) {
           cancelAutosave(id)
           console.warn(`Request ${id} is gone from the server; dropping its unsaved edits`)
@@ -91,10 +90,9 @@ export const useRequestStore = defineStore('requests', () => {
         savedSnapshots.value.delete(id)
       }
       for (const item of result.data) {
-        // A list that started before the last save carries the version that save replaced.
         const existing = requestsMap.value.get(item.id)
+        // A list that started before the last save carries the version that save replaced.
         if (existing && existing.version >= item.version) continue
-        // An unsaved buffer outranks the list: adopt the version so the next save wins.
         if (dirty.has(item.id)) {
           adoptServerVersion(item.id, item.version, item.updatedAt)
           continue
@@ -161,11 +159,9 @@ export const useRequestStore = defineStore('requests', () => {
     const updated = { ...existing, ...partial }
     requestsMap.value.set(id, updated)
     requestsMap.value = new Map(requestsMap.value)
-    // Only docs autosave: a URL or header would push to sync on every pause in typing.
     if ('description' in partial && !updated.isDraft) scheduleAutosave(id)
   }
 
-  // An over-cap description the backend refuses: flushing it only repeats the toast.
   function isSaveBlocked(id: string): boolean {
     const current = requestsMap.value.get(id)
     if (!current) return false
@@ -182,7 +178,6 @@ export const useRequestStore = defineStore('requests', () => {
   // Dedupe concurrent saves — a parallel edit would lose the version race
   const savesInFlight = new Map<string, Promise<boolean>>()
 
-  // Idle autosave per request; a keystroke-level cadence would push every edit through sync.
   const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function scheduleAutosave(id: string) {
@@ -190,7 +185,6 @@ export const useRequestStore = defineStore('requests', () => {
     autosaveTimers.set(id, setTimeout(() => {
       autosaveTimers.delete(id)
       const req = requestsMap.value.get(id)
-      // A save that can only fail would raise a toast every 1.5 s.
       if (!req || req.isDraft || isSaveBlocked(id)) return
       void flush(id)
     }, AUTOSAVE_DELAY_MS))
@@ -204,7 +198,6 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
-  // Last chance on unload: every buffer the idle timer has not reached yet.
   async function flushAllDirty(): Promise<void> {
     const requestIds = Array.from(requestsMap.value.values())
       .filter(r => !r.isDraft && isRequestDirty(r.id))
@@ -224,7 +217,6 @@ export const useRequestStore = defineStore('requests', () => {
     return promise
   }
 
-  // Local edits stay, only the row's identity in the version race is refreshed.
   function adoptServerVersion(id: string, version: number, updatedAt: string) {
     const current = requestsMap.value.get(id)
     if (current) requestsMap.value.set(id, { ...current, version, updatedAt })
@@ -265,7 +257,6 @@ export const useRequestStore = defineStore('requests', () => {
         graphqlOperation: current.graphqlOperation,
       })
       if (result.error) {
-        // Another device won the version race; the fresh version lets this save through.
         if (result.error.code === 'conflict' && !retried) {
           const fresh = await service.getById(id)
           if (!fresh.error) {
@@ -295,7 +286,7 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
-  // saveToBackend may return a save that started before the last edit, so this loops until clean.
+  // saveToBackend may return a save that predates the last edit, so this loops until clean.
   async function flushForHandoff(requestId: string): Promise<boolean> {
     for (let round = 0; round < 3; round++) {
       if (!isRequestDirty(requestId)) return true
@@ -311,11 +302,9 @@ export const useRequestStore = defineStore('requests', () => {
   }
 
   async function rename(id: string, newName: string, version: number): Promise<boolean> {
-    // edit() assigns every field, so a pending save has to land before the rename.
     const hadAutosave = autosaveTimers.has(id)
     cancelAutosave(id)
     if (!(await flush(id))) {
-      // The timer this cancelled was the buffer's only way back to the backend.
       if (hadAutosave && isRequestDirty(id) && !isSaveBlocked(id)) scheduleAutosave(id)
       return false
     }
@@ -355,7 +344,6 @@ export const useRequestStore = defineStore('requests', () => {
       }
       const latest = requestsMap.value.get(id)
       if (latest && latest !== current) {
-        // User typed during the rename: keep local edits, adopt only name and version
         requestsMap.value.set(id, {
           ...latest,
           name: result.data.name,
@@ -383,7 +371,6 @@ export const useRequestStore = defineStore('requests', () => {
   }
 
   async function remove(id: string, version: number): Promise<boolean> {
-    // A timer that fires mid-delete bumps the version and the delete loses the race.
     const hadAutosave = autosaveTimers.has(id)
     cancelAutosave(id)
     await savesInFlight.get(id)?.catch(() => false)
@@ -558,7 +545,6 @@ export const useRequestStore = defineStore('requests', () => {
 
     if (responses.getResponseState(id).status === 'loading') return
 
-    // Don't execute a stale version after a failed save
     if (!(await flushForHandoff(id))) return
 
     responses.setResponse(id, { status: 'loading', startedAt: Date.now() })
@@ -677,7 +663,6 @@ export const useRequestStore = defineStore('requests', () => {
   async function purgeCollectionSubtree(collectionIds: string[]) {
     const idSet = new Set(collectionIds)
     const doomed = Array.from(requestsMap.value.values()).filter(r => idSet.has(r.collectionId))
-    // Rows are already gone on the backend: an autosave would only raise a toast.
     for (const req of doomed) cancelAutosave(req.id)
     for (const req of doomed) {
       if (req.protocol === 'websocket') {

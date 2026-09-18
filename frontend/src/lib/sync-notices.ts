@@ -39,7 +39,6 @@ export function rejectNotice(reason: string): SyncNotice | null {
   }
 }
 
-// Two reasons an entry sits in the outbox; only the quota one is lifted by an upgrade.
 export function parkedQuotaNotice(count: number): SyncNotice | null {
   if (count <= 0) return null
   return {
@@ -58,7 +57,6 @@ export function parkedTooLargeNotice(count: number): SyncNotice | null {
   }
 }
 
-// Short forms for the sidebar icon; the sync modal carries the full explanation.
 export function parkedSummary(quota: number, tooLarge: number): string {
   const parts: string[] = []
   if (quota > 0) parts.push(`${quota} change${quota === 1 ? '' : 's'} not synced — plan limit`)

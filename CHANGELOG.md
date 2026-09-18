@@ -5,6 +5,14 @@
 ### Fixed
 
 - Linux: the in-window File/Edit/View/Window menu bar is gone — it was unreadable on a light GTK theme; Ctrl+W still closes the tab
+- Request docs preview no longer wraps inline code in backticks, and a quoted block loses the curly quotes and the italics it was given
+- The empty response pane names the shortcut your platform actually has: Ctrl Enter on Linux and Windows, ⌘ Enter on macOS
+- Dragging the request/response splitter all the way up can no longer cut the Docs toolbar in half — in the HTTP, gRPC and GraphQL editors alike
+- Environment menu items are left-aligned; "Manage Environments…" no longer wraps into a centred two-liner
+- Sidebar rows and editor tabs reached with Tab draw a focus ring inside themselves instead of the thick system outline around them
+- The font size and MCP client dropdowns in Settings are drawn by the app instead of the system
+- The "?" buttons next to section titles show the app tooltip instead of the system one
+- A long URL fades out before the environment chip instead of being cut mid-character
 - Linux: Ctrl+W closes a detached request window and the schema window, and such a window also closes on its own when you switch workspace or delete the request it holds
 
 ## [v1.1.1] — 2026-09-14 — Docs editor fixes and synced request descriptions

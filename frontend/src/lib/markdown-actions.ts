@@ -106,7 +106,6 @@ function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'itali
   }
 
   if (kind === 'code') {
-    // A code span needs a fence longer than any backtick run inside it, and padding spaces.
     const fence = '`'.repeat(longestBacktickRun(selected) + 1)
     const pad = fence.length > 1 || selected.startsWith('`') || selected.endsWith('`') ? ' ' : ''
     const selectionFrom = from + fence.length + pad.length
@@ -134,13 +133,11 @@ function linkEdit(doc: string, from: number, to: number): MarkdownEdit {
   // Nothing selected, or a URL was selected: the label is what needs typing.
   if (from === to || URL_RE.test(selected)) {
     const url = from === to ? 'url' : selected
-    // A bare destination ends at the first parenthesis, so the angle form takes over.
     const href = url.replace(/\(/g, '%28').replace(/\)/g, '%29')
     const insert = `[text](${href})`
     return { from, to, insert, selectionFrom: from + 1, selectionTo: from + 5 }
   }
 
-  // Backslash first, or the escape added for a bracket would itself be escaped.
   const label = selected.replace(/[\\[\]]/g, m => '\\' + m)
   const insert = `[${label}](url)`
   const urlFrom = from + label.length + 3

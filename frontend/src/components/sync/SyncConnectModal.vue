@@ -117,7 +117,6 @@ const planNotice = computed(() => {
   return parkedQuotaNotice(syncStatus.parked.value)?.message ?? ''
 })
 
-// Its own line: no plan covers an oversized item, so the plans link has nothing to add.
 const tooLargeNotice = computed(() => parkedTooLargeNotice(syncStatus.tooLarge.value)?.message ?? '')
 
 const showPlansLink = computed(() => syncStatus.state.value !== 'update_required')

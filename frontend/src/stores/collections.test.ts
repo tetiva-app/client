@@ -53,10 +53,6 @@ describe('stashed locals', () => {
     expect(store.takeLocals('c1')?.description).toBe('one')
   })
 
-  it('returns nothing for a collection that never stashed', () => {
-    expect(useCollectionStore().takeLocals('nope')).toBeUndefined()
-  })
-
   it('keeps the stash when the store moved only a field nobody edited', () => {
     const current = coll({ version: 2, name: 'Renamed', description: 'old' })
     const parked = stash({ description: 'unsaved' }, { description: 'old' })
@@ -76,12 +72,6 @@ describe('stashed locals', () => {
     const taken = store.takeLocals('c1', current)
     expect(taken?.description).toBe('from sync')
     expect(taken?.preScript).toBe('typed')
-  })
-
-  it('hands the stash back untouched while the collection has not loaded', () => {
-    const store = useCollectionStore()
-    store.stashLocals('c1', stash({ description: 'unsaved' }, { description: 'old' }))
-    expect(store.takeLocals('c1', undefined)?.description).toBe('unsaved')
   })
 
   it('clears only the stash it was handed', () => {

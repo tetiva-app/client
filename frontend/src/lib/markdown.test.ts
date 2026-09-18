@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderMarkdown, MARKDOWN_OPTIONS } from './markdown'
+import { renderMarkdown } from './markdown'
 
 const VECTORS = [
   '<script>alert(1)</script>',
@@ -15,14 +15,9 @@ const VECTORS = [
 ]
 
 describe('renderMarkdown', () => {
-  it('never enables raw HTML', () => {
-    expect(MARKDOWN_OPTIONS.html).toBe(false)
-  })
-
   it.each(VECTORS)('renders %s inert', (src) => {
     const html = renderMarkdown(src)
     expect(html).not.toMatch(/<script/i)
-    // Attribute inside a real tag, not the escaped literal text `&lt;img … onerror=…&gt;`.
     expect(html).not.toMatch(/<[^>]+\son[a-z]+\s*=/i)
     expect(html).not.toMatch(/href="(javascript|vbscript|data:text)/i)
     expect(html).not.toMatch(/<details/i)

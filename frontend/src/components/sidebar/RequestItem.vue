@@ -119,7 +119,7 @@ function handleMoreClick(e: MouseEvent) {
     <ContextMenuTrigger as-child>
       <button
         :data-tree-item-id="request.id"
-        class="flex w-full items-center gap-1.5 py-1 pr-2 text-sm text-left text-sidebar-foreground hover:bg-sidebar-accent transition-colors cursor-pointer select-none group"
+        class="flex w-full items-center gap-1.5 py-1 pr-2 text-sm text-left text-sidebar-foreground hover:bg-sidebar-accent transition-colors cursor-pointer select-none group outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         :class="{ 'bg-primary/10': isSelected(request.id), 'opacity-50': isContextOnly }"
         :style="{ paddingLeft }"
         @click="handleClick"

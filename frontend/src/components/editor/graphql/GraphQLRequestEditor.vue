@@ -52,7 +52,6 @@ const isActiveTab = computed(
 
 const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs'>('query')
 
-// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 
@@ -283,13 +282,13 @@ onUnmounted(() => {
       auto-save-id="graphql-request-response-split"
       class="flex-1 mt-3"
     >
-      <ResizablePanel :default-size="45" :min-size="15">
+      <ResizablePanel :default-size="45" :min-size="25">
         <div class="flex flex-col h-full">
           <div class="flex border-b border-border px-3">
             <button
               v-for="tab in tabs"
               :key="tab.id"
-              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
+              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               :class="activeTab === tab.id
                 ? 'border-b-[3px] border-primary text-foreground'
                 : 'text-muted-foreground hover:text-foreground'"
@@ -306,7 +305,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex-1 overflow-auto">
+          <div class="flex-1 min-h-0 overflow-auto">
             <div v-if="activeTab === 'query'" class="h-full">
               <GraphQLQueryEditor
                 :request="request"

@@ -55,7 +55,6 @@ const savedMessages = ref<InstanceType<typeof WsSavedMessages> | null>(null)
 
 const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs'>('messages')
 
-// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 const dirty = computed(() => requestStore.isDirty(`request:${props.request.id}`))
@@ -192,7 +191,7 @@ onUnmounted(() => {
       <button
         v-for="tab in tabs"
         :key="tab.id"
-        class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
+        class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         :class="activeTab === tab.id
           ? 'border-b-[3px] border-primary text-foreground'
           : 'text-muted-foreground hover:text-foreground'"

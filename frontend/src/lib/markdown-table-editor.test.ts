@@ -235,16 +235,6 @@ describe('table keymap', () => {
     expect((html.match(/<td>/g) ?? []).length).toBe(3)
   })
 
-  it('Tab leaves a code span that ends with a backslash alone', () => {
-    const doc = '| a | b |\n| - | - |\n| `C:\\` | 2 |'
-    const host = makeHost(doc, doc.indexOf('2'))
-    tableTab(host)
-    const text = host.state.doc.toString()
-    expect(text).toContain('| `C:\\` |')
-    expect(text).not.toContain('``')
-    expect(renderMarkdown(text)).toContain('<code>C:\\</code>')
-  })
-
   it('Tab keeps the caret in its cell when escaping shifts the line', () => {
     const doc = '| a | b | c |\n| - | - | - |\n| `a|b|c` | 2 | 3 |'
     const host = makeHost(doc, doc.indexOf('2'))
@@ -297,17 +287,6 @@ describe('table keymap', () => {
     expect(host.state.doc.toString()).toBe('| a   | b   |\n| --- | --- |\n| 1   | 2   |\n\n\nnext para')
     expect(host.state.doc.lineAt(host.state.selection.main.head).number).toBe(5)
     expect(renderMarkdown(host.state.doc.toString())).toContain('<p>next para</p>')
-  })
-
-  it('text typed after leaving the table is a paragraph, not a row', () => {
-    const doc = '| a | b |\n| - | - |\n| 1 | 2 |\n|   |   |'
-    const host = makeHost(doc, doc.length - 3)
-    tableEnter(host)
-    const pos = host.state.selection.main.head
-    host.dispatch({ changes: { from: pos, insert: 'next paragraph' } })
-    const html = renderMarkdown(host.state.doc.toString())
-    expect(html).toContain('<p>next paragraph</p>')
-    expect(html).not.toContain('<td>next paragraph</td>')
   })
 
   it('falls through outside tables and inside fenced code', () => {

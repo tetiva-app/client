@@ -22,7 +22,6 @@ test.describe('Env var drill-through from script editor', () => {
     const scriptsTab = page.getByRole('tab', { name: 'Scripts' });
     await scriptsTab.click();
 
-    // Hidden sub-tabs stay mounted, so scope to the visible panel.
     const editorContent = page.locator('[role="tabpanel"]:not([hidden]) .cm-content').first();
     await expect(editorContent).toBeVisible();
 

@@ -50,8 +50,7 @@ const (
 
 const (
 	pushBatchSize = 100
-	// pushBatchBytes stays under the server's 4 MiB gRPC default: a bigger batch comes
-	// back as ResourceExhausted, which sync cannot tell from a plan limit.
+	// pushBatchBytes stays under the 4 MiB gRPC default: overflow mimics a plan limit.
 	pushBatchBytes   = 3 << 20
 	pullBatchSize    = 100
 	heartbeatTimeout = 60 * time.Second
@@ -325,12 +324,10 @@ func (e *SyncEngine) GetPendingCount(ctx context.Context, workspaceID string) (i
 	return e.syncQueue.CountPendingOrFailed(ctx, workspaceID)
 }
 
-// GetParkedCount returns how many entries the plan quota holds back.
 func (e *SyncEngine) GetParkedCount(ctx context.Context, workspaceID string) (int, error) {
 	return e.syncQueue.CountParked(ctx, workspaceID)
 }
 
-// GetTooLargeCount returns how many entries the server refused by size.
 func (e *SyncEngine) GetTooLargeCount(ctx context.Context, workspaceID string) (int, error) {
 	return e.syncQueue.CountTooLarge(ctx, workspaceID)
 }
@@ -373,7 +370,6 @@ func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error 
 	e.StopWorkspace(workspaceID)
 
 	if _, err := e.clearOutbox(ctx, workspaceID); err != nil {
-		// The outbox survived, so the syncer has to come back or the workspace reads as not syncing.
 		e.StartWorkspace(workspaceID, remoteID, lastSeq)
 		return fmt.Errorf("clear queue: %w", err)
 	}
@@ -382,8 +378,7 @@ func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error 
 	return nil
 }
 
-// clearOutbox drops the workspace outbox and re-offers local docs in one transaction:
-// a clear without its re-offer would drop descriptions the server does not have.
+// The clear and the re-offer share one transaction: a clear alone drops unsent docs.
 func (e *SyncEngine) clearOutbox(ctx context.Context, workspaceID string) (int, error) {
 	var deleted, reoffered int
 
@@ -496,8 +491,7 @@ type workspaceSyncer struct {
 	mu                gosync.RWMutex
 	cancel            context.CancelFunc
 	pushSignal        chan struct{} // buffered(1) — non-blocking send on write
-	// lastSyncSeq is the pull cursor, guarded by mu: readers run off the syncer goroutine.
-	lastSyncSeq int64
+	lastSyncSeq       int64
 	// paused: the goroutine ctx is cancelled but the entry stays in the map
 	// so Resume can restart it without losing remoteWorkspaceID / lastSyncSeq.
 	paused bool
@@ -505,10 +499,9 @@ type workspaceSyncer struct {
 	streamCancel context.CancelFunc
 	// Throttle stamp for the id-conflict rejection event, guarded by mu.
 	lastRejectEvent time.Time
-	// Last published reject counts; quotaEpisode stays open while the quota ones are owed. Guarded by mu.
-	parked       int
-	tooLarge     int
-	quotaEpisode bool
+	parked          int
+	tooLarge        int
+	quotaEpisode    bool
 	// requeueTimer wakes the syncer once when parked entries fall due: no local
 	// write is coming to trigger the push that would requeue them.
 	requeueTimer *time.Timer
@@ -572,7 +565,6 @@ func (ws *workspaceSyncer) stop() {
 	ws.cancel()
 }
 
-// cursor reads last_sync_seq from outside the syncer goroutine that advances it.
 func (ws *workspaceSyncer) cursor() int64 {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
@@ -651,7 +643,7 @@ func (ws *workspaceSyncer) run(ctx context.Context) {
 	ws.subscribeLoop(ctx)
 }
 
-// pushAll requeues the parked entries that fell due, drains the outbox queue and
+// pushAll requeues the parked entries that fell due, drains the outbox queue, and
 // re-arms the wake-up for whatever is still parked.
 func (ws *workspaceSyncer) pushAll(ctx context.Context) error {
 	if _, err := ws.engine.syncQueue.RequeueDue(ctx, ws.localWorkspaceID, time.Now()); err != nil {
@@ -738,7 +730,7 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 
 			if protoEntity != nil {
 				size := proto.Size(protoEntity)
-				// An entity over the budget on its own still goes, alone: only the server can refuse it.
+				// An entity over the budget still goes, alone: only the server can refuse it.
 				if len(protoEntities) > 0 && batchBytes+size > pushBatchBytes {
 					break
 				}
@@ -989,13 +981,11 @@ func (ws *workspaceSyncer) parkEntries(ctx context.Context, entryIDs, rejected [
 	return slices.DeleteFunc(entryIDs, func(id int64) bool { return kept[id] })
 }
 
-// isOversizedPushErr reports the transport limit: ResourceExhausted without the plan marker.
 func isOversizedPushErr(err error) bool {
 	code, msg, ok := grpcStatusOf(err)
 	return ok && code == codes.ResourceExhausted && !strings.Contains(msg, planLimitMarker)
 }
 
-// parkOversized parks an entity the server refuses so it stops wedging the outbox. Reports success.
 func (ws *workspaceSyncer) parkOversized(ctx context.Context, entry *sqlite.SyncEntry, size int) bool {
 	if entry == nil {
 		return false
@@ -1031,7 +1021,6 @@ func (ws *workspaceSyncer) emitQuotaOnce(data map[string]any) {
 	ws.engine.eventEmitter("sync:quota_exceeded", data)
 }
 
-// refreshParked republishes both parked counts when either moves; a drop to zero closes the episode.
 func (ws *workspaceSyncer) refreshParked(ctx context.Context) {
 	count, err := ws.engine.syncQueue.CountParked(ctx, ws.localWorkspaceID)
 	if err != nil {
@@ -1144,7 +1133,6 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 	}
 }
 
-// applyChange applies a single change and sweeps after it; a pull batch sweeps once per batch.
 func (ws *workspaceSyncer) applyChange(ctx context.Context, change *syncv1.SyncChange) error {
 	entity := change.GetEntity()
 	if entity == nil {
@@ -1163,8 +1151,6 @@ func (ws *workspaceSyncer) applyEntity(ctx context.Context, entity *syncv1.SyncE
 	return nil
 }
 
-// dropParkedForGoneEntities clears parked entries of unreachable entities; nothing local
-// will supersede them. Joins the caller's transaction.
 func (ws *workspaceSyncer) dropParkedForGoneEntities(ctx context.Context) {
 	if _, err := ws.engine.syncQueue.DeleteParkedForMissingEntities(ctx, ws.localWorkspaceID); err != nil {
 		slog.Warn("sync: failed to drop parked entries of deleted entities", "workspace", ws.localWorkspaceID, "err", err)
@@ -1248,7 +1234,6 @@ func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Reques
 		return ws.engine.requests.Create(ctx, r)
 	}
 
-	// A peer too old to know the field must not wipe the local docs; a sent "" is a clear.
 	if !hasDescription {
 		local, err := ws.engine.requests.GetDescriptionByID(ctx, r.ID)
 		if err != nil {
@@ -1627,7 +1612,6 @@ func (ws *workspaceSyncer) resync(ctx context.Context) error {
 		return fmt.Errorf("resync pull: %w", err)
 	}
 
-	// The re-offered rows have no local write coming to carry them out.
 	if err := ws.pushAll(ctx); err != nil {
 		return fmt.Errorf("resync push: %w", err)
 	}

@@ -31,7 +31,6 @@ const counter = computed(() =>
   + (overLimit.value ? ' — over the limit, saves only when shortened' : ''),
 )
 
-// The pipes the preview needs escaped are fixed on the way out of the editor.
 function showPreview() {
   editorRef.value?.normalizeTables()
   editing.value = false
@@ -107,7 +106,9 @@ function handlePreviewClick(event: MouseEvent) {
 
     <div
       v-show="!editing && !isEmpty"
-      class="prose prose-sm dark:prose-invert max-w-none overflow-auto rounded-md border border-border p-3"
+      class="prose prose-sm dark:prose-invert max-w-none overflow-auto rounded-md border border-border p-3
+             prose-code:before:content-none prose-code:after:content-none prose-blockquote:not-italic
+             [&_blockquote_p:first-of-type]:before:content-none [&_blockquote_p:last-of-type]:after:content-none"
       :style="{ minHeight }"
       @click="handlePreviewClick"
       v-html="renderedMarkdown"

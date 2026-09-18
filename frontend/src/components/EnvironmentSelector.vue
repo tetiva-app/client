@@ -59,7 +59,7 @@ function openManage() {
       class="absolute top-full right-0 z-50 mt-1 min-w-[180px] rounded-md border border-border bg-popover py-1 shadow-md"
     >
       <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer text-muted-foreground"
+        class="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer text-muted-foreground"
         :class="{ 'bg-black/5 dark:bg-white/10': !store.activeEnvironment }"
         @click="clearEnv"
       >
@@ -72,7 +72,7 @@ function openManage() {
       <button
         v-for="env in store.environments"
         :key="env.id"
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+        class="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-xs hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
         :class="{ 'bg-black/5 dark:bg-white/10 text-emerald-400': env.isActive, 'text-foreground': !env.isActive }"
         @click="selectEnv(env.id)"
       >
@@ -83,7 +83,7 @@ function openManage() {
       <div class="my-1 border-t border-border" />
 
       <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+        class="flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
         @click="openManage"
       >
         <Settings class="size-3" />

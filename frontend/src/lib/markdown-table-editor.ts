@@ -274,7 +274,6 @@ export function escapeCodeSpanPipesAt(line: string): EscapedLine {
     if (ch !== '`') { out += ch; i += 1; continue }
     let run = 0
     while (line[i + run] === '`') run++
-    // A code span closes only on a backtick run of exactly the opener's length.
     let close = -1
     for (let j = i + run; j < line.length; j++) {
       if (line[j] !== '`') continue
@@ -302,7 +301,6 @@ export function escapeCodeSpanPipes(line: string): string {
   return escapeCodeSpanPipesAt(line).text
 }
 
-// Rows a table command would touch; the fence scan stands in for the syntax tree.
 function tableRows(lines: string[]): number[] {
   const rows: number[] = []
   let fence: string | null = null
@@ -324,7 +322,6 @@ export function normalizeTableLines(doc: string): string {
   return lines.join('\n')
 }
 
-// Tab and Enter normalize their own table; this covers the rest of the document.
 export const normalizeTables: HostCommand = (host) => {
   const doc = host.state.doc
   const lines = doc.toString().split('\n')
@@ -341,7 +338,6 @@ export const normalizeTables: HostCommand = (host) => {
   return true
 }
 
-// One dispatch: replacing a whole line parks the caret at its boundary, so it is put back by hand.
 function withNormalizedTable(
   host: EditorHost,
   run: (ctx: TableContext, editor: TableEditor, text: CodeMirrorTextEditor) => void,
@@ -370,7 +366,6 @@ function withNormalizedTable(
 }
 
 export const tableTab: HostCommand = (host) => withNormalizedTable(host, (ctx, editor) => {
-  // The header width counts a ragged row's missing cells, so Tab fills them before wrapping.
   if (ctx.focus.column >= ctx.width - 1) editor.nextRow(TABLE_OPTIONS)
   else editor.nextCell(TABLE_OPTIONS)
 })
@@ -385,10 +380,9 @@ export const tableEnter: HostCommand = (host) => withNormalizedTable(host, (ctx,
     editor.nextRow(TABLE_OPTIONS)
     return
   }
-  // Enter on an empty last row leaves the table, the way it ends a list.
   editor.deleteRow(TABLE_OPTIONS)
   editor.escape(TABLE_OPTIONS)
-  // escape() parks the caret right under the table, where a paragraph would parse as one more row.
+  // escape() parks the caret under the table, where a paragraph parses as one more row.
   const row = text.getCursorPosition().row
   const nextIsText = row <= text.getLastRow() && text.getLine(row) !== ''
   text.insertLine(row, '')
@@ -468,7 +462,6 @@ export function runTableCommand(host: EditorHost, command: TableCommand): boolea
         editor.insertRow(TABLE_OPTIONS)
         break
       case 'insertRowBelow':
-        // On the header and delimiter rows insertRow already lands on the first body row.
         if (normalized.focus.row < 2) editor.insertRow(TABLE_OPTIONS)
         else text.transact(() => {
           editor.insertRow(TABLE_OPTIONS)

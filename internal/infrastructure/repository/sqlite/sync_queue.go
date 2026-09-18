@@ -32,29 +32,22 @@ type SyncQueueRepository interface {
 	Delete(ctx context.Context, ids []int64) error
 	// Increments retry_count and schedules the next retry.
 	MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error
-	// Parks an entry no retry can help; only a newer write or a resync revives it.
 	MarkParked(ctx context.Context, id int64) error
 	// Moves 'failed' entries whose retry window elapsed back to 'pending'.
 	RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error)
-	// Drops parked entries a later pending write replaced, racing pushes included.
 	DeleteSupersededParked(ctx context.Context, workspaceID string) (int, error)
-	// Drops parked entries whose entity is soft-deleted or gone locally.
 	DeleteParkedForMissingEntities(ctx context.Context, workspaceID string) (int, error)
 	// Resets 'sending' back to 'pending'; called on startup.
 	ResetSending(ctx context.Context) error
-	// Uses the TX from context when present.
 	DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error)
 	// Only the latest entry per (entity_type, entity_id).
 	CoalescedPending(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
 	// Counts entries the server has not taken, parked retries included.
 	CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error)
-	// Entries the plan quota holds back, waiting for a retry.
 	CountParked(ctx context.Context, workspaceID string) (int, error)
-	// Entries the server refused as too large; no plan change lets them through.
 	CountTooLarge(ctx context.Context, workspaceID string) (int, error)
 	// ok is false when nothing is parked.
 	EarliestParkedRetryAt(ctx context.Context, workspaceID string) (t time.Time, ok bool, err error)
-	// Queues every documented request of a workspace for a re-push.
 	EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error)
 }
 
@@ -94,7 +87,7 @@ func (r *SyncQueueRepo) Enqueue(ctx context.Context, entry SyncEntry) error {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	// The new row carries the whole entity; dropping parked rows here, not at push time, closes a race.
+	// Dropping parked rows here, not at push time, closes a race with a running push.
 	_, err = db.ExecContext(ctx,
 		`DELETE FROM sync_queue
 		 WHERE workspace_id = ? AND entity_type = ? AND entity_id = ? AND status = 'parked'`,
@@ -177,7 +170,6 @@ func (r *SyncQueueRepo) MarkFailed(ctx context.Context, id int64, nextRetryAt ti
 	return nil
 }
 
-// 'parked' keeps an entry out of the pending queries and RequeueDue until a newer write.
 func (r *SyncQueueRepo) MarkParked(ctx context.Context, id int64) error {
 	const funcName = "SyncQueueRepo.MarkParked"
 
@@ -191,7 +183,6 @@ func (r *SyncQueueRepo) MarkParked(ctx context.Context, id int64) error {
 	return nil
 }
 
-// A newer pending row carries the whole entity, so the parked one has nothing left to offer.
 func (r *SyncQueueRepo) DeleteSupersededParked(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.DeleteSupersededParked"
 
@@ -219,7 +210,6 @@ func (r *SyncQueueRepo) DeleteSupersededParked(ctx context.Context, workspaceID 
 	return int(n), nil
 }
 
-// Parked entries of deleted entities: no local write is coming to carry them out.
 func (r *SyncQueueRepo) DeleteParkedForMissingEntities(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.DeleteParkedForMissingEntities"
 
@@ -308,7 +298,6 @@ func (r *SyncQueueRepo) DeleteByWorkspace(ctx context.Context, workspaceID strin
 	return int(n), nil
 }
 
-// Mirrors migration 020 for one workspace; the server merges docs only where it has none.
 func (r *SyncQueueRepo) EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.EnqueueDocumentedRequests"
 
@@ -380,7 +369,6 @@ func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string
 	return scanSyncEntries(funcName, rows)
 }
 
-// 'failed' and 'parked' entries are held back, not losses.
 func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountPendingOrFailed"
 
@@ -394,7 +382,7 @@ func (r *SyncQueueRepo) CountPendingOrFailed(ctx context.Context, workspaceID st
 	return count, nil
 }
 
-// The changes a plan limit keeps out of the cloud; oversized ones live under 'parked' (CountTooLarge).
+// Plan-held entries live under 'failed' with a retry; 'parked' is CountTooLarge.
 func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountParked"
 
@@ -409,7 +397,6 @@ func (r *SyncQueueRepo) CountParked(ctx context.Context, workspaceID string) (in
 	return count, nil
 }
 
-// The changes the server refuses by size: the user has to trim them, not upgrade.
 func (r *SyncQueueRepo) CountTooLarge(ctx context.Context, workspaceID string) (int, error) {
 	const funcName = "SyncQueueRepo.CountTooLarge"
 

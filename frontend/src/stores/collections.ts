@@ -9,7 +9,6 @@ import { runMutation } from '@/stores/runMutation'
 import { useToast } from '@/composables/useToast'
 import { adoptStashedValue } from '@/lib/description'
 
-// What a collection editor holds that is not in the store yet.
 export interface CollectionLocals {
   preScript: string
   postScript: string
@@ -18,7 +17,6 @@ export interface CollectionLocals {
   authData: string
 }
 
-// Parked buffers beside the store values they were edited from, so a moved field can be told apart.
 export interface StashedLocals {
   locals: CollectionLocals
   base: CollectionLocals
@@ -30,19 +28,17 @@ export const useCollectionStore = defineStore('collections', () => {
   const collectionsMap = ref<Map<string, Collection>>(new Map())
   const loading = ref(false)
 
-  // Survives the editor: the History pane unmounts it and would take unsaved text with it.
   const stashedLocals = new Map<string, StashedLocals>()
 
   function stashLocals(id: string, stash: StashedLocals) {
     stashedLocals.set(id, stash)
   }
 
-  // Only the stash that was parked may be dropped: a later mount may have replaced it.
   function clearLocals(id: string, stash: StashedLocals) {
+    // Only the stash that was parked may be dropped: a later mount may have replaced it.
     if (stashedLocals.get(id) === stash) stashedLocals.delete(id)
   }
 
-  // Merged field by field: what the store moved while the tab was gone wins, the rest comes back.
   function takeLocals(id: string, current?: Collection | null): CollectionLocals | undefined {
     const stash = stashedLocals.get(id)
     stashedLocals.delete(id)
@@ -125,7 +121,6 @@ export const useCollectionStore = defineStore('collections', () => {
     return data
   }
 
-  // edit() assigns every field, so two saves at once would overwrite each other's text.
   const savesInFlight = new Map<string, Promise<boolean>>()
 
   async function settled(id: string) {

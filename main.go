@@ -94,11 +94,9 @@ func main() {
 		wailsApp.Event.Emit(name, data)
 	})
 
-	// On Linux the menu is drawn as a GTK bar inside the window and its labels are
-	// unreadable over our dark background; the frontend handles Ctrl+W there instead.
+	// Linux draws the menu as a GTK bar with unreadable labels; the frontend handles Ctrl+W.
 	if runtime.GOOS != "linux" {
-		// The default File menu binds Cmd+W to close-window, which quits the app
-		// (ShouldTerminateAfterLastWindowClosed); rebind it to close the active tab instead.
+		// The default Cmd+W closes the window and quits the app; rebind it to close the tab.
 		appMenu := application.NewMenu()
 		appMenu.AddRole(application.AppMenu)
 		fileMenu := appMenu.AddSubmenu("File")

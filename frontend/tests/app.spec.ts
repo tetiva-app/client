@@ -53,3 +53,16 @@ test.describe('Tetiva App', () => {
     await expect(createBtn).toBeEnabled();
   });
 });
+
+test('documentation buttons use the app tooltip, not the native one', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+
+  const help = page.getByRole('button', { name: 'Documentation: mcp server' });
+  await expect(help).toBeVisible();
+  await expect(help).not.toHaveAttribute('title', /./);
+
+  await help.hover();
+  // Reka renders the visible bubble without role=tooltip; the slot is the handle.
+  await expect(page.locator('[data-slot="tooltip-content"]')).toContainText('Documentation: mcp server');
+});

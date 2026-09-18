@@ -17,12 +17,8 @@ export function isInsideOverlay(event: KeyboardEvent): boolean {
   return el.closest('[role="dialog"], [role="alertdialog"]') !== null
 }
 
-export function hasMod(event: KeyboardEvent): boolean {
-  return event.metaKey || event.ctrlKey
-}
-
-// Matched by physical code and by layout-produced key ('ы' on Cyrillic); AltGr is Ctrl+Alt.
+// Matched by code and by layout key ('ы' on Cyrillic); AltGr arrives as Ctrl+Alt.
 export function isModShortcut(event: KeyboardEvent, code: string, key: string): boolean {
-  if (!hasMod(event) || event.altKey || event.shiftKey) return false
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return false
   return event.code === code || event.key.toLowerCase() === key
 }

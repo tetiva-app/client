@@ -12,6 +12,7 @@ import type { MarkdownAction } from '@/lib/markdown-actions'
 import { TABLE_COMMANDS } from '@/lib/markdown-table-editor'
 import type { TableCommand } from '@/lib/markdown-table-editor'
 import TableSizePicker from './TableSizePicker.vue'
+import { isMac } from '@/lib/platform'
 
 const props = withDefaults(defineProps<{
   inTable?: boolean
@@ -26,7 +27,7 @@ const emit = defineEmits<{
   closed: []
 }>()
 
-const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl+'
+const mod = isMac() ? '⌘' : 'Ctrl+'
 
 interface ToolbarButton {
   action: MarkdownAction
@@ -73,7 +74,6 @@ function isDisabled(command: TableCommand): boolean {
   return props.disabledCommands.includes(command)
 }
 
-// A second fence inside one closes it and turns the rest of the document into code.
 function isActionDisabled(action: MarkdownAction): boolean {
   return action === 'codeBlock' && props.insideFence
 }

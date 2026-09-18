@@ -73,11 +73,9 @@ const singleDelete = useConfirmDelete<DeleteTarget>(async (t) => {
   const removed = t.kind === 'collection'
     ? await store.remove(t.id, t.version)
     : await requestStore.remove(t.id, t.version)
-  // The dialog closes unless this throws, and the store already said why it failed.
   if (!removed) throw new Error('delete rejected')
 })
 
-// A cascade may have taken an item with its collection, which is not a failure.
 function removeTreeItem(id: string): Promise<boolean> {
   const collection = store.collectionsMap.get(id)
   if (collection) return store.remove(id, collection.version)
@@ -90,7 +88,6 @@ const bulkDelete = useConfirmDelete<string[]>(async (ids) => {
   const failed = await removeEach(ids, removeTreeItem)
   setSelection(failed)
   await store.fetchAll()
-  // The dialog closes unless this throws, and the stores already said what refused.
   if (failed.length > 0) throw new Error('delete rejected')
 })
 

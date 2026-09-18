@@ -173,7 +173,6 @@ export class MockSyncService implements SyncServiceAPI {
         parked: PARKED_COUNT,
       }
     }
-    // One of each, so the plan limit and the oversized items must not share a line.
     if (scenario === TOO_LARGE_SCENARIO) {
       this.status = {
         ...this.status,

@@ -92,7 +92,6 @@ async function handleConfirm() {
   submitting.value = true
   errorMessage.value = null
   try {
-    // Drafts are exempt from autosave, so the text typed into one is still only in memory.
     if (!(await tabs.flushForHandoff(d.id))) {
       errorMessage.value = 'Failed to save the draft'
       return

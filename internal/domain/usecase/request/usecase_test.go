@@ -2069,7 +2069,6 @@ func TestEdit_RejectsOversizedDescription(t *testing.T) {
 		t.Fatalf("expected a description validation error, got %v", err)
 	}
 
-	// Stored before the cap existed, or applied by the sync path, which skips Validate.
 	legacy := strings.Repeat("b", 20*1024)
 	repo.requests[created.ID].Description = legacy
 

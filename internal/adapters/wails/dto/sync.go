@@ -42,15 +42,14 @@ type LogoutAllResult struct {
 }
 
 type SyncStatusResponse struct {
-	Enabled   bool   `json:"enabled"`
-	State     string `json:"state"`
-	ServerURL string `json:"serverUrl"`
-	UserEmail string `json:"userEmail"`
-	Pending   int    `json:"pending"`
-	Parked    int    `json:"parked"`
-	// TooLarge is the size-refused entries, which no plan change releases.
-	TooLarge             int  `json:"tooLarge"`
-	AwaitingVerification bool `json:"awaitingVerification"`
+	Enabled              bool   `json:"enabled"`
+	State                string `json:"state"`
+	ServerURL            string `json:"serverUrl"`
+	UserEmail            string `json:"userEmail"`
+	Pending              int    `json:"pending"`
+	Parked               int    `json:"parked"`
+	TooLarge             int    `json:"tooLarge"`
+	AwaitingVerification bool   `json:"awaitingVerification"`
 	// ReauthRequired is the one-shot ask after an update dropped the session.
 	ReauthRequired bool `json:"reauthRequired"`
 }

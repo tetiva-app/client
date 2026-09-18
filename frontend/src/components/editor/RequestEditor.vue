@@ -77,7 +77,7 @@ const isActiveTab = computed(
 
 const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs'>('params')
 
-// Docs mounts on first visit and then stays: recreating CodeMirror drops undo history.
+// Docs stays mounted once visited: recreating CodeMirror would drop its undo history.
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
 
@@ -158,7 +158,6 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })
 
-// Leaving the tab is a handoff: the buffer must be on disk before another view owns it.
 function flushOnLeave() {
   if (store.isSaveBlocked(props.requestId)) return
   void store.flush(props.requestId)
@@ -362,13 +361,13 @@ function updateField(field: string, value: any) {
         auto-save-id="request-response-split"
         class="flex-1 mt-3"
       >
-        <ResizablePanel :default-size="40" :min-size="15">
+        <ResizablePanel :default-size="40" :min-size="25">
           <div class="flex flex-col h-full">
             <div class="flex border-b border-border px-3">
               <button
                 v-for="tab in tabs"
                 :key="tab.id"
-                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer"
+                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 :class="activeTab === tab.id
                   ? 'border-b-[3px] border-primary text-foreground'
                   : 'text-muted-foreground hover:text-foreground'"

@@ -108,7 +108,7 @@ test.describe('URL Bar', () => {
 
     await cancelBtn.click();
 
-    await expect(page.getByText('⌘ Enter')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/(⌘|Ctrl) Enter/)).toBeVisible({ timeout: 3000 });
   });
 
   test('should show Copy as cURL option in send dropdown', async ({ page }) => {
@@ -147,4 +147,18 @@ test.describe('URL Bar', () => {
     await expect(page.getByText('500').first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Internal Server Error').first()).toBeVisible();
   });
+});
+
+test('a long URL fades out instead of being cut off by the environment chip', async ({ page }) => {
+  await createAndOpenRequest(page, 'https://api.example.com/v1/reports?from=2026-01-01&to=2026-12-31&utm_medium=agent');
+
+  const edge = await page.locator('[aria-placeholder="Enter request URL"]')
+    .locator('xpath=ancestor::div[contains(@class,"cm-editor")]')
+    .evaluate((ed) => ({
+      paddingRight: getComputedStyle(ed.querySelector('.cm-content')!).paddingRight,
+      maskImage: getComputedStyle(ed.querySelector('.cm-scroller')!).maskImage,
+    }));
+
+  expect(edge.paddingRight).toBe('32px');
+  expect(edge.maskImage).toContain('linear-gradient');
 });

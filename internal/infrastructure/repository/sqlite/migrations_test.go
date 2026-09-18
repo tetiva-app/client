@@ -237,7 +237,6 @@ func TestMigration020BackfillsRequestDescriptions(t *testing.T) {
 		t.Errorf("queued = %v, want [req1]: only a live, non-draft request under the description cap", queued)
 	}
 
-	// The row has to survive the repo's own reader: created_at is written in SQL.
 	pending, err := NewSyncQueueRepo(db).ListPending(context.Background(), "ws1", 10)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)

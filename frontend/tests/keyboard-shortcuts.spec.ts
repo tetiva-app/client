@@ -75,7 +75,6 @@ test.describe('Keyboard Shortcuts', () => {
     await expect(dirtyDot.first()).toBeVisible();
     await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown',
       { key: 'ы', code: 'KeyS', metaKey: true, bubbles: true, cancelable: true })));
-    // Shorter than AUTOSAVE_DELAY_MS: the dot must clear from the shortcut, not the timer.
     await expect(dirtyDot).toHaveCount(0, { timeout: 1000 });
   });
 
@@ -104,5 +103,22 @@ test.describe('Keyboard Shortcuts', () => {
 
     const cancelBtn = page.locator('button', { hasText: 'Cancel' }).first();
     await expect(cancelBtn).toBeVisible({ timeout: 2000 });
+  });
+
+  test('a sub-tab reached by Tab draws a ring, not the UA outline', async ({ page }) => {
+    await createCollectionWithRequests(page, ['Focus Ring']);
+
+    // Tab from the previous strip button: :focus-visible only reacts to keyboard focus.
+    await page.getByRole('button', { name: 'Scripts', exact: true }).focus();
+    await page.keyboard.press('Tab');
+
+    const docs = page.getByRole('button', { name: 'Docs', exact: true });
+    await expect(docs).toBeFocused();
+    expect(
+      await docs.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { outline: s.outlineStyle, ring: s.boxShadow !== 'none' };
+      }),
+    ).toEqual({ outline: 'none', ring: true });
   });
 });

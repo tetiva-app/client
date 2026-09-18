@@ -169,7 +169,7 @@ function formatSize(bytes: number): string {
 
       <div class="flex items-center border-b border-border px-3">
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'body'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -178,7 +178,7 @@ function formatSize(bytes: number): string {
           Body
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'metadata'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -190,7 +190,7 @@ function formatSize(bytes: number): string {
           </span>
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'tests'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"

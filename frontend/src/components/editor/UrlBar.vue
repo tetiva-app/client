@@ -119,7 +119,11 @@ function handleClickOutside() {
       </div>
     </div>
 
-    <div class="flex-1 h-full min-w-0" @click="variableInputRef?.focus()">
+    <div
+      class="flex-1 h-full min-w-0 [&_.cm-content]:pr-8!
+             [&_.cm-scroller]:[mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]"
+      @click="variableInputRef?.focus()"
+    >
       <VariableInput
         ref="variableInputRef"
         :model-value="url"

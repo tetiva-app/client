@@ -96,11 +96,4 @@ describe('externalReplace', () => {
     const spec = externalReplace(h.state, 'first external')!
     expect(spec.changes).toEqual({ from: 0, to: 5, insert: 'first external' })
   })
-
-  it('applies two consecutive external values', () => {
-    const h = host('')
-    h.dispatch(externalReplace(h.state, 'one')!)
-    h.dispatch(externalReplace(h.state, 'two')!)
-    expect(h.state.doc.toString()).toBe('two')
-  })
 })

@@ -146,7 +146,6 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 		pmReq.Auth = buildAuth(req.AuthType, req.AuthData)
 	}
 
-	// Request docs stay on the request: writing both levels makes the copies drift in Postman.
 	return PostmanItem{
 		Name:    req.Name,
 		Request: &pmReq,

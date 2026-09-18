@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Sun, Moon, Monitor, Eye, EyeOff, Copy, Check } from 'lucide-vue-next'
+import { Sun, Moon, Monitor, Eye, EyeOff, Copy, Check, ChevronDown } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsStore } from '@/stores/settings'
@@ -227,12 +227,15 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
           <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Editor</h3>
           <div class="flex items-center justify-between">
             <span class="text-[13px]">Font size</span>
-            <select
-              v-model.number="settings.editorFontSize"
-              class="h-8 cursor-pointer rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option v-for="size in FONT_SIZE_OPTIONS" :key="size" :value="size">{{ size }} px</option>
-            </select>
+            <div class="relative">
+              <select
+                v-model.number="settings.editorFontSize"
+                class="h-8 cursor-pointer appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option v-for="size in FONT_SIZE_OPTIONS" :key="size" :value="size">{{ size }} px</option>
+              </select>
+              <ChevronDown class="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+            </div>
           </div>
           <div class="flex items-center justify-between">
             <span class="text-[13px]">Word wrap</span>
@@ -309,12 +312,15 @@ watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: tru
             </p>
 
             <div class="flex items-center justify-between">
-              <select
-                v-model="mcpClient"
-                class="h-8 cursor-pointer rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option v-for="c in MCP_CLIENTS" :key="c.value" :value="c.value">{{ c.label }}</option>
-              </select>
+              <div class="relative">
+                <select
+                  v-model="mcpClient"
+                  class="h-8 cursor-pointer appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option v-for="c in MCP_CLIENTS" :key="c.value" :value="c.value">{{ c.label }}</option>
+                </select>
+                <ChevronDown class="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+              </div>
               <button
                 type="button"
                 class="h-8 cursor-pointer rounded-md border border-border px-3 text-[13px] hover:bg-accent"

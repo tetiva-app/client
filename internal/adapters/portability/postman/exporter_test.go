@@ -343,6 +343,7 @@ func TestExportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 
 	require.Len(t, pc.Item, 2)
 	assert.Equal(t, "# Ping\nReturns pong.", pc.Item[0].Request.Description.Text())
+	assert.Nil(t, pc.Item[0].Description, "the description is written at request level only")
 	assert.Equal(t, "query", findKV(t, pc.Item[0].Request.Auth.APIKey, "in"))
 	assert.Equal(t, "query", findKV(t, pc.Item[1].Request.Auth.APIKey, "in"),
 		"collections imported before the addTo rename must still export their location")
@@ -463,23 +464,4 @@ func TestExportCollection_EmptyRootWritesItemArray(t *testing.T) {
 	data, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, nil)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), `"item": null`)
-}
-
-func TestExportCollection_RequestDescriptionAtRequestLevel(t *testing.T) {
-	rootID := uuid.New()
-	requests := []*entities.Request{{
-		ID: uuid.New(), CollectionID: rootID, Name: "Ping", Description: "Returns pong.",
-		Protocol: entities.ProtocolHTTP, Method: entities.MethodGET, URL: "https://api.example.com/ping",
-		BodyType: entities.BodyTypeNone, AuthType: entities.AuthTypeNone, AuthData: "{}",
-	}}
-
-	data, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, requests)
-	require.NoError(t, err)
-
-	var pc postman.PostmanCollection
-	require.NoError(t, json.Unmarshal(data, &pc))
-
-	require.Len(t, pc.Item, 1)
-	assert.Equal(t, "Returns pong.", pc.Item[0].Request.Description.Text())
-	assert.Nil(t, pc.Item[0].Description)
 }

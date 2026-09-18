@@ -172,7 +172,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
 
       <div class="flex items-center border-b border-border px-3">
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'data'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -181,7 +181,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
           Data
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'errors'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -191,7 +191,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
           <span v-if="hasErrors" class="ml-1 size-1.5 inline-block rounded-full bg-[var(--gc-error)] align-middle" />
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'headers'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -201,7 +201,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
           <span v-if="headerEntries.length > 0" class="ml-1 text-muted-foreground">({{ headerEntries.length }})</span>
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeTab === 'tests'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"

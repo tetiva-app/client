@@ -1,5 +1,4 @@
--- Request descriptions predate the sync contract (015): a device that pulled a request
--- before the field existed would push the clear, so re-offer them once in linked workspaces.
+-- Descriptions predating the sync contract (015) were never pushed; re-offer them once.
 INSERT INTO sync_queue (workspace_id, entity_type, entity_id, action, operation_id, status, retry_count, created_at)
 SELECT
     c.workspace_id,

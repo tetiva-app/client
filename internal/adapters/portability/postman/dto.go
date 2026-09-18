@@ -52,7 +52,6 @@ func (d *PostmanDescription) Text() string {
 	return d.Content
 }
 
-// descriptionOf is nil for an empty description so omitempty drops the key.
 func descriptionOf(s string) *PostmanDescription {
 	if s == "" {
 		return nil
@@ -75,7 +74,6 @@ type PostmanInfo struct {
 	ExporterID  string              `json:"_exporter_id,omitempty"`
 }
 
-// PostmanItem is either a folder or a request; Item is a pointer so an empty folder keeps "item": [].
 type PostmanItem struct {
 	Name        string              `json:"name"`
 	Description *PostmanDescription `json:"description,omitempty"`
@@ -85,7 +83,7 @@ type PostmanItem struct {
 	Event       []PostmanEvent      `json:"event,omitempty"`
 }
 
-// Postman writes a childless folder without an item array, so the request is what tells them apart.
+// A childless folder has no item array, so only the request tells them apart.
 func (i *PostmanItem) IsFolder() bool {
 	return i.Request == nil
 }

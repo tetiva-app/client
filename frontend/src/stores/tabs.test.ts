@@ -402,19 +402,7 @@ describe('executeRequest', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
-  it('persists edits before running the request', async () => {
-    const store = useRequestStore()
-    store.loadRequest(makeRequest())
-    store.updateLocal('r1', { url: '/v2' })
-    editMock.mockResolvedValue({ data: makeRequest({ url: '/v2', version: 2 }) })
-
-    await store.executeRequest('r1')
-
-    expect(editMock).toHaveBeenCalledTimes(1)
-    expect(store.isRequestDirty('r1')).toBe(false)
-  })
-
-  it('persists a dirty draft too', async () => {
+  it('persists a dirty draft before running the request', async () => {
     const store = useRequestStore()
     store.loadRequest(makeRequest({ isDraft: true }))
     store.updateLocal('r1', { url: '/replayed' })

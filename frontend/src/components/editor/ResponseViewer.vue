@@ -12,8 +12,11 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import type { ResponseState } from '@/stores/responses'
+import { isMac } from '@/lib/platform'
 
 const CodeViewer = defineAsyncComponent(() => import('./CodeViewer.vue'))
+
+const sendShortcut = isMac() ? '⌘ Enter' : 'Ctrl Enter'
 const bodyContainer = ref<HTMLElement | null>(null)
 const codeViewerRef = ref<InstanceType<typeof CodeViewer> | null>(null)
 const responseSearchQuery = ref('')
@@ -223,7 +226,7 @@ async function saveResponseToFile() {
       </div>
       <div class="flex-1 flex items-center justify-center">
         <div class="text-center text-muted-foreground">
-          <p class="text-sm">Hit <kbd class="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">⌘ Enter</kbd> to send a request</p>
+          <p class="text-sm">Hit <kbd class="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{{ sendShortcut }}</kbd> to send a request</p>
         </div>
       </div>
     </div>
@@ -263,7 +266,7 @@ async function saveResponseToFile() {
 
       <div class="flex items-center border-b border-border px-3">
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeResponseTab === 'body'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -272,7 +275,7 @@ async function saveResponseToFile() {
           Body
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeResponseTab === 'headers'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -285,7 +288,7 @@ async function saveResponseToFile() {
         </button>
         <button
           v-if="state.status === 'success'"
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeResponseTab === 'cookies'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"
@@ -297,7 +300,7 @@ async function saveResponseToFile() {
           </span>
         </button>
         <button
-          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer"
+          class="px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           :class="activeResponseTab === 'tests'
             ? 'border-b-[3px] border-primary text-foreground'
             : 'text-muted-foreground hover:text-foreground'"

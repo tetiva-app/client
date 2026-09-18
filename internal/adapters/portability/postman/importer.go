@@ -80,9 +80,6 @@ func ImportCollection(
 	return result, nil
 }
 
-// untitledFolder stands in for a nameless folder rather than failing the whole import.
-const untitledFolder = "Untitled folder"
-
 func importItems(
 	ctx context.Context,
 	items []PostmanItem,
@@ -93,12 +90,12 @@ func importItems(
 	result *ImportResult,
 ) error {
 	const funcName = "postman.importItems"
+	const untitledFolder = "Untitled folder"
 
 	for _, item := range items {
 		children := derefItems(item.Item)
 		nameless := strings.TrimSpace(item.Name) == ""
 
-		// "item": [] and no "item" at all say the same thing; neither may abort the import.
 		if item.Request == nil && nameless && len(children) == 0 {
 			appendWarning(result, "an unnamed item with neither a request nor children was skipped")
 			continue
@@ -135,7 +132,6 @@ func importItems(
 				return err
 			}
 		} else {
-			// Postman does not write children under a request; naming them beats losing them silently.
 			if len(children) > 0 {
 				appendWarning(result, fmt.Sprintf("%s: items nested under a request were skipped",
 					itemLabel("request", item.Name)))
@@ -169,7 +165,6 @@ func appendWarning(result *ImportResult, warning string) {
 	}
 }
 
-// warnDescriptionType names descriptions Postman wrote as HTML; the text is kept as-is.
 func warnDescriptionType(label string, d *PostmanDescription) string {
 	if d == nil || d.Type == "" || d.Type == "text/markdown" || d.Type == "text/plain" {
 		return ""
@@ -177,7 +172,7 @@ func warnDescriptionType(label string, d *PostmanDescription) string {
 	return fmt.Sprintf("%s: description is %s, imported as plain text", label, d.Type)
 }
 
-// requestDescription prefers the request level by presence: an explicit empty one there is a clear.
+// Picks by presence: an empty request-level description is a clear, not a fallback.
 func requestDescription(item PostmanItem, label string) (string, []string) {
 	var (
 		warnings []string
@@ -187,7 +182,6 @@ func requestDescription(item PostmanItem, label string) (string, []string) {
 		reqDesc = item.Request.Description
 	}
 	for _, d := range []*PostmanDescription{item.Description, reqDesc} {
-		// Both levels can carry the same type; the user needs to read it once.
 		if w := warnDescriptionType(label, d); w != "" && !slices.Contains(warnings, w) {
 			warnings = append(warnings, w)
 		}
@@ -208,7 +202,6 @@ func requestDescription(item PostmanItem, label string) (string, []string) {
 	return text, warnings
 }
 
-// Over the cap Create would reject the whole item and leave a half-imported tree behind.
 func clampDescription(label, s string) (string, string) {
 	if len(s) <= domain.MaxDescriptionLen {
 		return s, ""

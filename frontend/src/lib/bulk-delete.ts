@@ -1,4 +1,3 @@
-// Every id is attempted even after one is refused; the refused ones come back to the caller.
 export async function removeEach(
   ids: string[],
   remove: (id: string) => Promise<boolean>,

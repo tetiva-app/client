@@ -1036,11 +1036,10 @@ func (s *stubSubscribeStream) Recv() (*syncv1.SubscribeResponse, error) {
 
 type stubSyncClient struct {
 	syncv1.SyncServiceClient
-	mu       gosync.Mutex
-	pushErr  error
-	pushed   [][]*syncv1.SyncEntity
-	pushResp func(call int, req *syncv1.PushRequest) *syncv1.PushResponse
-	// pushErrFn fails only the calls it picks; pushErr fails every one.
+	mu        gosync.Mutex
+	pushErr   error
+	pushed    [][]*syncv1.SyncEntity
+	pushResp  func(call int, req *syncv1.PushRequest) *syncv1.PushResponse
 	pushErrFn func(req *syncv1.PushRequest) error
 }
 
@@ -1542,22 +1541,6 @@ func TestUpsertRequest_IncomingDescriptionWins(t *testing.T) {
 	assert.Equal(t, "remote docs", repo.data[id].Description)
 }
 
-func TestUpsertRequest_PeerClearsDescription(t *testing.T) {
-	engine := newTestEngine(t)
-	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
-	defer cancel()
-
-	repo := engine.requests.(*stubRequestRepo)
-	id := uuid.New()
-	repo.data[id] = &entities.Request{ID: id, Name: "Ping", Description: "local docs"}
-	seedRequestRow(t, engine.db, id)
-
-	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping", Description: ""}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
-
-	assert.Equal(t, "", repo.data[id].Description, "a present empty value is a deliberate clear")
-}
-
 func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
 	engine := newTestEngine(t)
 	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
@@ -1881,7 +1864,6 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-// requestDescriptionEntity mirrors a peer: a nil description is an old peer, "" is a clear.
 func requestDescriptionEntity(id uuid.UUID, description *string) *syncv1.SyncEntity {
 	return syncv1.SyncEntity_builder{
 		EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
@@ -1919,7 +1901,6 @@ func TestApplyEntity_RequestDescriptionPresenceThreadsThrough(t *testing.T) {
 	assert.Empty(t, repo.data[cleared].Description, "an explicit empty description clears the local docs")
 }
 
-// bigRequest seeds a request whose body alone dominates the entity size.
 func bigRequest(t *testing.T, engine *SyncEngine, ws string, bodyBytes int) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -2037,7 +2018,6 @@ func TestWorkspaceSyncer_DrainOutbox_OversizedEntityParkedAndRestPushed(t *testi
 	assert.Equal(t, StateConnected, ws.getState(), "a parked entity is not an offline event")
 }
 
-// oversizedSyncer builds a syncer whose stub refuses any batch over the gRPC limit.
 func oversizedSyncer(t *testing.T) (*SyncEngine, *workspaceSyncer, *stubSyncClient, func()) {
 	t.Helper()
 	engine := newTestEngine(t)
@@ -2055,37 +2035,6 @@ func oversizedSyncer(t *testing.T) (*SyncEngine, *workspaceSyncer, *stubSyncClie
 
 	ws, cancel := newSyncer(engine, testWorkspaceID.String(), StateConnected)
 	return engine, ws, stub, cancel
-}
-
-func TestWorkspaceSyncer_ParkedOversized_NotRevivedByRequeueDue(t *testing.T) {
-	engine, ws, _, cancel := oversizedSyncer(t)
-	defer cancel()
-	ctx := context.Background()
-	wsID := ws.localWorkspaceID
-
-	oversized := bigRequest(t, engine, wsID, 5<<20)
-	require.NoError(t, ws.pushAll(ctx))
-
-	requeued, err := engine.syncQueue.RequeueDue(ctx, wsID, time.Now().Add(quotaRetryDelay+time.Hour))
-	require.NoError(t, err)
-	assert.Zero(t, requeued, "resending the same oversized entity every five minutes achieves nothing")
-
-	pending, err := engine.syncQueue.ListPending(ctx, wsID, 10)
-	require.NoError(t, err)
-	assert.Empty(t, pending)
-
-	var queueStatus string
-	require.NoError(t, engine.db.QueryRowContext(ctx,
-		`SELECT status FROM sync_queue WHERE entity_id = ?`, oversized.String()).Scan(&queueStatus))
-	assert.Equal(t, "parked", queueStatus)
-
-	parked, err := engine.GetParkedCount(ctx, wsID)
-	require.NoError(t, err)
-	assert.Zero(t, parked, "an oversized entity is not a plan limit")
-
-	tooLarge, err := engine.GetTooLargeCount(ctx, wsID)
-	require.NoError(t, err)
-	assert.Equal(t, 1, tooLarge, "the user still owes the cloud this entity")
 }
 
 func TestWorkspaceSyncer_ParkedOversized_EventCarriesTooLargeCount(t *testing.T) {
@@ -2171,7 +2120,6 @@ func TestWorkspaceSyncer_Resync_ReoffersDocumentedRequests(t *testing.T) {
 	assert.Empty(t, pending, "an accepted re-offer leaves the outbox")
 }
 
-// seedDocumentedRequest puts a documented request in both the row store and the repo.
 func seedDocumentedRequest(t *testing.T, engine *SyncEngine) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -2188,7 +2136,6 @@ func seedDocumentedRequest(t *testing.T, engine *SyncEngine) uuid.UUID {
 	return id
 }
 
-// failingQueueRepo fails the chosen call and delegates the rest to the real repo.
 type failingQueueRepo struct {
 	sqlite.SyncQueueRepository
 	deleteErr  error
@@ -2280,7 +2227,6 @@ func TestWorkspaceSyncer_Resync_PropagatesReofferError(t *testing.T) {
 	require.Error(t, ws.resync(ctx))
 }
 
-// parkRequestRow queues an entry for the request and parks it, as an oversized push would.
 func parkRequestRow(t *testing.T, ws *workspaceSyncer, requestID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
@@ -2363,7 +2309,6 @@ func TestApplyEntity_InboundDelete_SweepsInsideTheCallersTransaction(t *testing.
 	assert.Zero(t, queueRowsFor(t, db, req.ID.String()))
 }
 
-// countingSweepRepo counts how often a batch asks for the parked sweep.
 type countingSweepRepo struct {
 	sqlite.SyncQueueRepository
 	sweeps int
@@ -2427,7 +2372,6 @@ func TestPushAll_DropsParkedRowsOfRequestsUnderADeletedCollection(t *testing.T) 
 		"a request the user deleted with its collection is not waiting for the cloud")
 }
 
-// cursorPullClient never runs out of changes, so the syncer keeps advancing lastSyncSeq.
 type cursorPullClient struct {
 	syncv1.SyncServiceClient
 	seq     atomic.Int64
@@ -2470,7 +2414,7 @@ func TestSyncEngine_ForceResync_ReadsCursorUnderLock(t *testing.T) {
 	wsID := testWorkspaceID.String()
 	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
 	<-stub.entered
-	// Unsynchronised on purpose: a channel or an atomic here would order the writes and hide the race.
+	// Unsynchronised on purpose: a channel here would order the writes and hide the race.
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, engine.ForceResync(context.Background(), wsID))

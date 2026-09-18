@@ -34,6 +34,7 @@ import { useCookieModalUi } from '@/stores/cookieModalUi'
 import SettingsModal from '@/components/settings/SettingsModal.vue'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { ToastContainer } from '@/components/ui/toast'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { isEditingTarget, isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { isLinux } from '@/lib/platform'
 import { closeCurrentWindow } from '@/lib/close-window'
@@ -103,7 +104,6 @@ function handleSelectRequest(request: Request) {
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {
-  // Child windows carry no menu on Linux either.
   if (windowMode) {
     if (linux && isModShortcut(event, 'KeyW', 'w') && !isInsideOverlay(event)) {
       event.preventDefault()
@@ -139,9 +139,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     if (isEditingTarget(event)) return
     event.preventDefault()
     const currentIdx = tabs.findIndex(t => t.id === store.activeTabId)
-    const step = bracket
     const base = currentIdx === -1 ? 0 : currentIdx
-    const nextIdx = (base + step + tabs.length) % tabs.length
+    const nextIdx = (base + bracket + tabs.length) % tabs.length
     store.activeTabId = tabs[nextIdx].id
     return
   }
@@ -287,7 +286,6 @@ function onOnboardingClose() {
   onboardingUi.hide()
 }
 
-// Best-effort only: the process does not wait for a Wails call from beforeunload.
 function flushOnUnload() {
   void store.flushAllDirty()
 }
@@ -310,94 +308,96 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <DetachedRequestWindow
-    v-if="windowMode === 'detached-request'"
-    :request-id="params.get('requestId') ?? ''"
-  />
-
-  <SchemaViewerWindow
-    v-else-if="windowMode === 'schema-viewer'"
-    :schema-id="params.get('schemaId') ?? ''"
-  />
-
-  <div v-else class="flex h-screen bg-background text-foreground overflow-hidden">
-    <ActivityBar
-      v-model:active-section="activeSection"
-      @open-environments="envModalUi.openBlank()"
-      @open-settings="settingsModalUi.show()"
+  <TooltipProvider :delay-duration="300">
+    <DetachedRequestWindow
+      v-if="windowMode === 'detached-request'"
+      :request-id="params.get('requestId') ?? ''"
     />
 
-    <ResizablePanelGroup direction="horizontal" auto-save-id="main-layout">
-      <ResizablePanel
-        :default-size="20"
-        :min-size="15"
-        :max-size="35"
-        collapsible
-        :collapsed-size="0"
-      >
-        <AppSidebar
-          :active-section="activeSection"
-          @select-request="handleSelectRequest"
-          @switch-section="(s) => activeSection = s"
-        />
-      </ResizablePanel>
+    <SchemaViewerWindow
+      v-else-if="windowMode === 'schema-viewer'"
+      :schema-id="params.get('schemaId') ?? ''"
+    />
 
-      <ResizableHandle with-handle />
+    <div v-else class="flex h-screen bg-background text-foreground overflow-hidden">
+      <ActivityBar
+        v-model:active-section="activeSection"
+        @open-environments="envModalUi.openBlank()"
+        @open-settings="settingsModalUi.show()"
+      />
 
-      <ResizablePanel :default-size="80">
-        <div class="flex flex-col h-full">
-          <TabBar />
-
-          <HistoryViewer
-            v-if="activeSection === 'history' && historyStore.selectedId"
-            @replay="onHistoryReplay"
+      <ResizablePanelGroup direction="horizontal" auto-save-id="main-layout">
+        <ResizablePanel
+          :default-size="20"
+          :min-size="15"
+          :max-size="35"
+          collapsible
+          :collapsed-size="0"
+        >
+          <AppSidebar
+            :active-section="activeSection"
+            @select-request="handleSelectRequest"
+            @switch-section="(s) => activeSection = s"
           />
-          <KeepAlive v-else-if="store.activeTab">
-            <CollectionEditor
-              v-if="store.activeTab.type === 'collection'"
-              :key="store.activeTab.id"
-              :collection-id="store.activeTab.collectionId"
-            />
-            <RequestEditor
-              v-else
-              :key="store.activeTab.id"
-              :request-id="store.activeTab.requestId"
-              @manage-environments="envModalUi.openBlank()"
-              @switch-section="(s) => activeSection = s"
-            />
-          </KeepAlive>
-          <main v-else class="flex-1 flex items-center justify-center">
-            <div class="text-center">
-              <h1 class="text-2xl font-bold text-primary">Tetiva</h1>
-              <p class="mt-2 text-sm text-muted-foreground">
-                Select a request from the sidebar to get started.
-              </p>
-            </div>
-          </main>
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        </ResizablePanel>
 
-    <EnvironmentModal
-      :open="envModalUi.open"
-      @update:open="val => val ? null : envModalUi.close()"
-    />
-    <CookieManagerModal
-      :open="cookieModalUi.open"
-      @update:open="val => val ? cookieModalUi.show() : cookieModalUi.hide()"
-    />
-    <SettingsModal
-      :open="settingsModalUi.open"
-      @update:open="val => val ? settingsModalUi.show() : settingsModalUi.hide()"
-    />
-    <WhatsNewModal v-if="whatsNewUi.open" @close="onWhatsNewClose" />
-    <OnboardingModal
-      v-if="onboardingUi.open"
-      @select-account="syncModalUi.show('register')"
-      @open-tour="onboardingUi.openTour()"
-      @close="onOnboardingClose"
-    />
-    <OnboardingTour v-if="onboardingUi.tourOpen" @done="onboardingUi.closeTour()" />
-    <ToastContainer />
-  </div>
+        <ResizableHandle with-handle />
+
+        <ResizablePanel :default-size="80">
+          <div class="flex flex-col h-full">
+            <TabBar />
+
+            <HistoryViewer
+              v-if="activeSection === 'history' && historyStore.selectedId"
+              @replay="onHistoryReplay"
+            />
+            <KeepAlive v-else-if="store.activeTab">
+              <CollectionEditor
+                v-if="store.activeTab.type === 'collection'"
+                :key="store.activeTab.id"
+                :collection-id="store.activeTab.collectionId"
+              />
+              <RequestEditor
+                v-else
+                :key="store.activeTab.id"
+                :request-id="store.activeTab.requestId"
+                @manage-environments="envModalUi.openBlank()"
+                @switch-section="(s) => activeSection = s"
+              />
+            </KeepAlive>
+            <main v-else class="flex-1 flex items-center justify-center">
+              <div class="text-center">
+                <h1 class="text-2xl font-bold text-primary">Tetiva</h1>
+                <p class="mt-2 text-sm text-muted-foreground">
+                  Select a request from the sidebar to get started.
+                </p>
+              </div>
+            </main>
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+
+      <EnvironmentModal
+        :open="envModalUi.open"
+        @update:open="val => val ? null : envModalUi.close()"
+      />
+      <CookieManagerModal
+        :open="cookieModalUi.open"
+        @update:open="val => val ? cookieModalUi.show() : cookieModalUi.hide()"
+      />
+      <SettingsModal
+        :open="settingsModalUi.open"
+        @update:open="val => val ? settingsModalUi.show() : settingsModalUi.hide()"
+      />
+      <WhatsNewModal v-if="whatsNewUi.open" @close="onWhatsNewClose" />
+      <OnboardingModal
+        v-if="onboardingUi.open"
+        @select-account="syncModalUi.show('register')"
+        @open-tour="onboardingUi.openTour()"
+        @close="onOnboardingClose"
+      />
+      <OnboardingTour v-if="onboardingUi.tourOpen" @done="onboardingUi.closeTour()" />
+      <ToastContainer />
+    </div>
+  </TooltipProvider>
 </template>

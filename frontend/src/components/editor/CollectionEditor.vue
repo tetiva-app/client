@@ -48,7 +48,6 @@ onActivated(() => {
   if (section) activeSection.value = section
 })
 
-// A previous mount may have gone away with a save that failed; take its buffers back.
 const stashed = collectionStore.takeLocals(props.collectionId, collection.value)
 const localPreScript = ref(stashed?.preScript ?? collection.value?.preScript ?? '')
 const localPostScript = ref(stashed?.postScript ?? collection.value?.postScript ?? '')
@@ -56,7 +55,6 @@ const localDescription = ref(stashed?.description ?? collection.value?.descripti
 const localAuthType = ref(stashed?.authType ?? collection.value?.authType ?? 'none')
 const localAuthData = ref(stashed?.authData ?? collection.value?.authData ?? '{}')
 
-// The tab mounts before fetchAll lands, so the empty buffers have to follow the store.
 watch(collection, (next, prev) => {
   if (!next) return
   localPreScript.value = adoptStoreValue(localPreScript.value, prev?.preScript, next.preScript)
@@ -75,7 +73,6 @@ const isDirty = computed(() => {
     || localAuthData.value !== collection.value.authData
 })
 
-// Same shape as tabs.flush: a save started before the last keystroke must not report it saved.
 let saving: Promise<boolean> | null = null
 async function saveCollection(): Promise<boolean> {
   for (let round = 0; round < 3; round++) {
@@ -99,10 +96,7 @@ async function saveCollection(): Promise<boolean> {
 }
 
 watchDebounced(localDescription, () => {
-  // A save that can only fail would raise a toast every 1.5 s.
-  if (isDirty.value && !descriptionSaveBlocked(localDescription.value, collection.value?.description ?? '')) {
-    void saveCollection()
-  }
+  if (isDirty.value && !saveBlocked()) void saveCollection()
 }, { debounce: AUTOSAVE_DELAY_MS })
 
 // On window, not on the container: clicking a button inside does not focus it in
@@ -124,12 +118,10 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })
 
-// An over-cap description is refused by the backend, so leaving the tab would only toast.
 function saveBlocked() {
   return descriptionSaveBlocked(localDescription.value, collection.value?.description ?? '')
 }
 
-// The store values go along so takeLocals can tell a synced field from an edited one.
 function stash(): StashedLocals {
   const parked: StashedLocals = {
     locals: {

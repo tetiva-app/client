@@ -349,7 +349,6 @@ func TestSyncQueueRepo_CountParked(t *testing.T) {
 		}
 	}
 
-	// An oversized entity is a size problem, not a plan problem.
 	if err := repo.MarkParked(ctx, list[2].ID); err != nil {
 		t.Fatalf("MarkParked failed: %v", err)
 	}
@@ -465,7 +464,6 @@ func TestSyncQueueRepo_DeleteSupersededParked(t *testing.T) {
 	if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "request", superseded, "update")); err != nil {
 		t.Fatalf("Enqueue newer failed: %v", err)
 	}
-	// Parked after the newer write landed, the state a push racing Enqueue leaves behind.
 	list, _ := repo.ListPending(ctx, wsID, 10)
 	for _, e := range list[:2] {
 		if err := repo.MarkParked(ctx, e.ID); err != nil {
@@ -628,7 +626,6 @@ func TestSyncQueueRepo_EnqueueDocumentedRequests(t *testing.T) {
 		}
 	}
 
-	// Rows that share the id but not the entity: neither carries the request's docs.
 	if err := repo.Enqueue(ctx, newTestSyncEntry("ws1", "collection", "req1", "update")); err != nil {
 		t.Fatalf("Enqueue decoy collection row failed: %v", err)
 	}
@@ -811,7 +808,6 @@ func TestSyncQueueRepo_DeleteParkedForMissingEntities(t *testing.T) {
 		}
 	}
 
-	// A pending row of a deleted entity is a delete on its way out, not a leftover.
 	if err := repo.Enqueue(ctx, newTestSyncEntry("ws1", "request", "req-leaving", "delete")); err != nil {
 		t.Fatalf("Enqueue delete failed: %v", err)
 	}

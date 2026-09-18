@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 const DOCS_PLACEHOLDER = '[aria-placeholder^="Document this request"]';
 const COLLECTION_PLACEHOLDER = '[aria-placeholder^="Add a description for this collection"]';
@@ -274,7 +274,6 @@ test.describe('description tables', () => {
     expect(lines[0]).toBe('| Column 1 | Column 2 |');
     expect(lines[1]).toBe('| -------- | -------- |');
     expect(lines[lines.length - 1]).toBe('after');
-    // CodeMirror gives the blank line its own div, so innerText doubles that newline.
     expect(lines.slice(2, -1).every((line) => line === '')).toBe(true);
 
     await page.getByRole('button', { name: 'Preview description' }).click();
@@ -501,18 +500,11 @@ test('request docs autosave without Cmd+S', async ({ page }) => {
 test('two consecutive external description updates both reach the editor', async ({ page }) => {
   await startDescription(page, 'External Coll');
   await page.keyboard.type('local');
-  const setExternal = async (value: string) => page.evaluate((v) => {
-    const app = (document.querySelector('#app') as any).__vue_app__;
-    const pinia = app.config.globalProperties.$pinia;
-    const store = pinia._s.get('requests');
-    const id = store.activeTab.requestId;
-    store.updateLocal(id, { description: v });
-  }, value);
   // The URL bar is a CodeMirror too, so .cm-content alone is not a strict locator.
   const docs = page.locator(DOCS_PLACEHOLDER);
-  await setExternal('first external');
+  await setDescription(page, 'first external');
   await expect(docs).toContainText('first external');
-  await setExternal('second external');
+  await setDescription(page, 'second external');
   await expect(docs).toContainText('second external');
   await docs.click();
   await page.keyboard.press('Meta+z');
@@ -525,11 +517,9 @@ test('request docs keep undo history across sub-tab switches', async ({ page }) 
   const docs = page.locator(DOCS_PLACEHOLDER);
 
   await page.getByRole('button', { name: 'Params', exact: true }).click();
-  // Hidden, not unmounted: a fresh CodeMirror would start with an empty history.
   await expect(docs).toHaveCount(1);
   await expect(docs).not.toBeVisible();
 
-  // The tab label grows a badge ("Docs (•)") once text exists.
   await page.getByRole('button', { name: /^Docs/ }).click();
   await docs.click();
   await page.keyboard.press('ControlOrMeta+z');
@@ -553,6 +543,13 @@ test('collection overview keeps undo history across section switches', async ({ 
   await page.keyboard.press('ControlOrMeta+z');
   await expect(docs).not.toContainText('hello');
 });
+
+function pseudoContent(locator: Locator) {
+  return locator.evaluate((el) => [
+    getComputedStyle(el, '::before').content,
+    getComputedStyle(el, '::after').content,
+  ]);
+}
 
 async function setDescription(page: Page, value: string) {
   await page.evaluate((v) => {
@@ -585,4 +582,20 @@ test('switching to preview escapes pipes inside inline code in a table', async (
 
   await page.getByRole('button', { name: 'Edit description' }).click();
   expect(await editorText(page)).toContain('`x\\|y`');
+});
+
+test('the preview drops the typography backticks and quote marks', async ({ page }) => {
+  await startDescription(page, 'Prose Punctuation');
+  await setDescription(page, 'Run `curl -v` first.\n\n> Mind the trailing slash.');
+  await page.getByRole('button', { name: 'Preview description' }).click();
+
+  const preview = page.locator('.prose');
+  const code = preview.locator('code');
+  await expect(code).toHaveText('curl -v');
+  expect(await pseudoContent(code)).toEqual(['none', 'none']);
+
+  const quoted = preview.locator('blockquote p');
+  await expect(quoted).toHaveText('Mind the trailing slash.');
+  expect(await pseudoContent(quoted)).toEqual(['none', 'none']);
+  await expect(preview.locator('blockquote')).toHaveCSS('font-style', 'normal');
 });

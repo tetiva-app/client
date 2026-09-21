@@ -1,0 +1,142 @@
+name: windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: bash build/check-versions.sh
+
+      - id: version
+        run: echo "version=$(grep -o 'AppVersion *= *"[^"]*"' internal/constants/app.go | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Install wails3 and NSIS
+        run: |
+          # CGO off: the CLI pulls in a GTK4 probe that does not build on the runner.
+          CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+          sudo apt-get update
+          sudo apt-get install -y nsis
+
+      - run: bash build/release-windows.sh
+
+      - name: Name installers for release
+        run: |
+          for arch in amd64 arm64; do
+            mv "bin/client-$arch-installer.exe" \
+              "bin/Tetiva-${{ steps.version.outputs.version }}-windows-$arch-installer.exe"
+          done
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: bin/Tetiva-*-installer.exe
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-installers
+          path: bin/Tetiva-*-installer.exe
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: amd64
+          - runner: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      OLD_DIR: C:\Program Files\Saveliy Ludin\Tetiva
+      NEW_EXE: C:\Program Files\Saveliy Yudin\Tetiva\client.exe
+      UNINSTALL: HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-installers
+
+      - name: Install 1.1.1 as users have it
+        run: |
+          Invoke-WebRequest "https://s3.twcstorage.ru/ccquota/releases/Tetiva-1.1.1-windows-${{ matrix.arch }}-installer.exe" -OutFile old.exe
+          # WaitForExit, not -Wait: -Wait also waits for a lingering WebView2 updater.
+          $p = Start-Process .\old.exe -ArgumentList '/S' -PassThru
+          $null = $p.Handle
+          $p.WaitForExit()
+          if ($p.ExitCode -ne 0) { throw "1.1.1 installer exited with $($p.ExitCode)" }
+          if (-not (Test-Path "$env:OLD_DIR\client.exe")) { throw "1.1.1 did not install into $env:OLD_DIR" }
+          if (-not (Test-Path "$env:UNINSTALL\Saveliy LudinTetiva")) { throw '1.1.1 wrote no uninstall key' }
+
+      - name: Install this build over it
+        run: |
+          $p = Start-Process ".\Tetiva-$env:VERSION-windows-${{ matrix.arch }}-installer.exe" -ArgumentList '/S' -PassThru
+          $null = $p.Handle
+          $p.WaitForExit()
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
+          if (Test-Path $env:OLD_DIR) { throw 'the 1.1.1 folder is still there' }
+          if (Test-Path 'C:\Program Files\Saveliy Ludin') { throw 'the old publisher folder is still there' }
+          if (Test-Path "$env:UNINSTALL\Saveliy LudinTetiva") { throw 'the 1.1.1 uninstall key is still there' }
+          $publisher = (Get-ItemProperty "$env:UNINSTALL\Saveliy YudinTetiva" -ErrorAction Stop).Publisher
+          if ($publisher -ne 'Saveliy Yudin') { throw "Publisher '$publisher'" }
+          $version = (Get-Item $env:NEW_EXE).VersionInfo.FileVersionRaw.ToString(3)
+          if ($version -ne $env:VERSION) { throw "file version $version, want $env:VERSION" }
+
+      - name: Open the app
+        run: |
+          $app = Start-Process $env:NEW_EXE -PassThru -RedirectStandardError stderr.txt
+          # Holding the handle keeps ExitCode readable after the process is gone.
+          $null = $app.Handle
+          $webview = $null
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 2
+            $app.Refresh()
+            if ($app.HasExited) { break }
+            $webview = Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" |
+              Where-Object ParentProcessId -eq $app.Id
+            if ($app.MainWindowTitle -and $webview) { break }
+          }
+          $failures = @()
+          if ($app.HasExited) {
+            $failures += "client.exe exited with code $($app.ExitCode)"
+          } elseif ($app.MainWindowTitle -ne "Tetiva $env:VERSION") {
+            $failures += "window title '$($app.MainWindowTitle)', want 'Tetiva $env:VERSION'"
+          }
+          if (-not $webview) { $failures += 'no msedgewebview2.exe under client.exe' }
+          if (-not (Test-Path "$env:APPDATA\client.exe\EBWebView")) { $failures += 'no WebView2 profile' }
+          if ($failures) {
+            Get-Content stderr.txt -ErrorAction SilentlyContinue
+            throw ($failures -join '; ')
+          }
+          Stop-Process -Id $app.Id

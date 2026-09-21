@@ -1,4 +1,4 @@
-# Build & Distribution (macOS)
+# Build & Distribution
 
 ## Prerequisites
 
@@ -117,3 +117,29 @@ Bundle ID: `yudinsv.com.Tetiva`
 - **Quarantine xattr** — downloaded apps get it; notarization + stapling ensures Gatekeeper clears it
 - **Finder alias, not symlink** — symlinks show blank icon on macOS Tahoe; use `osascript` Finder alias
 - **First-time notarization** for a new Developer ID can take 30+ min; subsequent: 1-3 min
+
+## Windows
+
+`.github/workflows/windows.yml` builds both installers on every push to `main`. It
+cross-compiles on Ubuntu with `build/release-windows.sh`, then installs each installer
+over 1.1.1 and opens the app on Windows x64 and ARM64.
+
+Every push produces installers named after the current `AppVersion`, so take the ones
+from the green run of the release commit and check they came from it:
+
+```bash
+SHA=$(git rev-parse main)
+RUN=$(gh run list --workflow windows.yml --commit "$SHA" --status success --json databaseId --jq '.[0].databaseId')
+gh run download "$RUN" -n windows-installers -D bin/
+for f in bin/Tetiva-*-windows-*-installer.exe; do
+  gh attestation verify "$f" --repo tetiva-app/client \
+    --signer-workflow tetiva-app/client/.github/workflows/windows.yml \
+    --source-ref refs/heads/main --source-digest "$SHA"
+done
+```
+
+Without CI: `bash build/release-windows.sh` (needs `makensis`: `brew install nsis`). It
+writes `bin/client-{amd64,arm64}-installer.exe`.
+
+Before a release, `bash build/check-versions.sh` confirms the version matches in every
+file that carries it; CI runs the same check.

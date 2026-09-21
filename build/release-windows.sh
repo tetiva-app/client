@@ -14,8 +14,11 @@ VERSION=$(perl -ne 'print $1 if /^\s*version:\s*"([^"]+)"/' build/config.yml)
 perl -pi -e 's/("(?:file_version|ProductVersion)":\s*")[^"]+/${1}'"$VERSION"'/' build/windows/info.json
 perl -pi -e 's/(<assemblyIdentity type="win32" name="yudinsv.com.Tetiva" version=")[^"]+/${1}'"$VERSION"'/' build/windows/wails.exe.manifest
 
-# Same tags as the go build below, so the generated bindings match the shipped .exe.
-wails3 task common:build:frontend BUILD_FLAGS='-tags production'
+# GOOS and tags of the .exe below: bindings match it, and Linux cgo files stay out.
+GOOS=windows wails3 task common:build:frontend BUILD_FLAGS='-tags production'
+
+# Gitignored, and makensis embeds it into every installer.
+wails3 generate webview2bootstrapper -dir build/windows/nsis
 
 for ARCH in amd64 arm64; do
   wails3 generate syso -arch "$ARCH" -icon build/windows/icon.ico \

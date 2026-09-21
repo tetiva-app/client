@@ -14,6 +14,7 @@
 - The "?" buttons next to section titles show the app tooltip instead of the system one
 - A long URL fades out before the environment chip instead of being cut mid-character
 - Linux: Ctrl+W closes a detached request window and the schema window, and such a window also closes on its own when you switch workspace or delete the request it holds
+- Windows: the installer names the publisher Saveliy Yudin, and installing over 0.15.3–1.1.1 removes the copy those versions left under the old name; your data and settings stay
 
 ## [v1.1.1] — 2026-09-14 — Docs editor fixes and synced request descriptions
 

@@ -87,6 +87,23 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
+    # 0.15.3–1.1.1 installed under "Saveliy Ludin"; that copy would stay behind.
+    SetRegView 64
+    ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy LudinTetiva" "DisplayIcon"
+    ${If} $0 != ""
+        ${GetParent} $0 $1
+        ClearErrors
+        Delete "$1\client.exe"
+        Delete "$1\uninstall.exe"
+        ${If} ${Errors}
+            MessageBox MB_OK|MB_ICONSTOP "Close Tetiva and run the installer again." /SD IDOK
+            Abort
+        ${EndIf}
+        RMDir "$1"
+        RMDir "$PROGRAMFILES64\Saveliy Ludin"
+        DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy LudinTetiva"
+    ${EndIf}
+
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR

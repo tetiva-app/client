@@ -8,7 +8,7 @@
     !define INFO_PROJECTNAME "client"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "Saveliy Ludin"
+    !define INFO_COMPANYNAME "Saveliy Yudin"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "Tetiva"
@@ -17,7 +17,7 @@
     !define INFO_PRODUCTVERSION "1.1.1"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "© 2026, Saveliy Ludin"
+    !define INFO_COPYRIGHT "© 2026, Saveliy Yudin"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

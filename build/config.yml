@@ -5,11 +5,11 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "Saveliy Ludin"
+  companyName: "Saveliy Yudin"
   productName: "Tetiva"
   productIdentifier: "yudinsv.com.Tetiva"
   description: "API client for developers"
-  copyright: "© 2026, Saveliy Ludin"
+  copyright: "© 2026, Saveliy Yudin"
   comments: ""
   version: "1.1.1" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)

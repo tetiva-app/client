@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A `.deb` package for ARM64 Linux (Ubuntu 22.04 and newer)
+
 ### Fixed
 
 - Linux: the in-window File/Edit/View/Window menu bar is gone — it was unreadable on a light GTK theme; Ctrl+W still closes the tab

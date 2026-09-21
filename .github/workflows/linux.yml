@@ -1,0 +1,109 @@
+name: linux
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ubuntu:22.04
+      options: --shm-size=512m
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      # Keep in step with build/linux/Dockerfile.builder.
+      - run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev ca-certificates curl git xz-utils
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: bash build/check-versions.sh
+
+      - id: version
+        run: echo "version=$(grep -o 'AppVersion *= *"[^"]*"' internal/constants/app.go | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Install wails3
+        # CGO off: the CLI pulls in a GTK4 probe that does not build without GTK4 headers.
+        run: CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+
+      - run: bash build/release-linux.sh
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: bin/Tetiva-*-linux-${{ matrix.arch }}.deb
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-deb-${{ matrix.arch }}
+          path: bin/Tetiva-*-linux-${{ matrix.arch }}.deb
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        ubuntu: ['22.04', '26.04']
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ubuntu:${{ matrix.ubuntu }}
+      options: --shm-size=512m
+    timeout-minutes: 20
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-deb-${{ matrix.arch }}
+
+      - name: Fetch 1.1.1 as users have it
+        if: matrix.arch == 'amd64'
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl ca-certificates
+          curl -fsSL --retry 3 -o old.deb https://s3.twcstorage.ru/ccquota/releases/Tetiva-1.1.1-linux-amd64.deb
+
+      - run: bash build/linux/smoke.sh "Tetiva-$VERSION-linux-${{ matrix.arch }}.deb" ${{ matrix.arch == 'amd64' && 'old.deb' || '' }}

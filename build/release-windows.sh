@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Cross-builds the Windows NSIS installers (amd64 + arm64) from macOS.
-# ARCH vars don't propagate through `wails3 task`, hence the direct steps.
-# Prereqs: makensis (brew install nsis). Output: bin/client-<arch>-installer.exe
+# Builds both NSIS installers where it runs; ARCH does not pass through `wails3 task`.
+# Needs makensis (nsis). Output: bin/Tetiva-<ver>-windows-<arch>-installer.exe
 
 cd "$(dirname "$0")/.."
 export PATH="$HOME/go/bin:$PATH"
@@ -30,5 +29,6 @@ for ARCH in amd64 arm64; do
   FLAG=$([ "$ARCH" = amd64 ] && echo AMD64 || echo ARM64)
   (cd build/windows/nsis && makensis -DINFO_PRODUCTVERSION="$VERSION" \
     -DARG_WAILS_${FLAG}_BINARY="$(pwd)/../../../bin/client.exe" project.nsi)
+  mv "bin/client-${ARCH}-installer.exe" "bin/Tetiva-${VERSION}-windows-${ARCH}-installer.exe"
 done
-echo "DONE: bin/client-amd64-installer.exe bin/client-arm64-installer.exe"
+echo "DONE: bin/Tetiva-${VERSION}-windows-{amd64,arm64}-installer.exe"

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { shouldCheckForUpdates, shouldShowWhatsNew } from './update-decisions'
 
-const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
 const NOW = Date.parse('2026-07-12T12:00:00Z')
-const daysAgo = (n: number) => new Date(NOW - n * DAY_MS).toISOString()
+const hoursAgo = (n: number) => new Date(NOW - n * HOUR_MS).toISOString()
 
 describe('shouldCheckForUpdates', () => {
   it('checks when no prior check is recorded', () => {
@@ -11,11 +11,11 @@ describe('shouldCheckForUpdates', () => {
   })
 
   it('skips when the last check is within the interval', () => {
-    expect(shouldCheckForUpdates(daysAgo(9), NOW)).toBe(false)
+    expect(shouldCheckForUpdates(hoursAgo(23), NOW)).toBe(false)
   })
 
   it('checks when the last check is older than the interval', () => {
-    expect(shouldCheckForUpdates(daysAgo(11), NOW)).toBe(true)
+    expect(shouldCheckForUpdates(hoursAgo(25), NOW)).toBe(true)
   })
 
   it('checks when the stored timestamp is unparsable', () => {

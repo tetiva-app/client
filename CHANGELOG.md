@@ -5,6 +5,11 @@
 ### Added
 
 - A `.deb` package for ARM64 Linux (Ubuntu 22.04 and newer)
+- The Windows installer's first page says how the update check works and where to turn it off
+
+### Changed
+
+- The app checks for a new version at most once a day instead of once every ten days
 
 ### Fixed
 

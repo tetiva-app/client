@@ -166,6 +166,23 @@ function blockNativeContextMenu(e: MouseEvent) {
   e.preventDefault()
 }
 
+const TEXT_ASSIST_OFF: Record<string, string> = {
+  autocomplete: 'off',
+  autocorrect: 'off',
+  autocapitalize: 'off',
+  spellcheck: 'false',
+  writingsuggestions: 'false',
+}
+
+// macOS autocorrect rewrites keys and names (address → Address); CodeMirror opts out itself.
+function disableTextAssist(e: FocusEvent) {
+  const el = e.target
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return
+  for (const [name, value] of Object.entries(TEXT_ASSIST_OFF)) {
+    el.setAttribute(name, value)
+  }
+}
+
 const syncUnsubscribers: (() => void)[] = []
 
 // The Wails runtime may wrap the emitted map in `data` depending on version.
@@ -293,6 +310,7 @@ function flushOnUnload() {
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('contextmenu', blockNativeContextMenu)
+  window.addEventListener('focusin', disableTextAssist)
   window.addEventListener('beforeunload', flushOnUnload)
   setupSyncEvents()
   runStartupWelcomeFlow()
@@ -302,6 +320,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('contextmenu', blockNativeContextMenu)
+  window.removeEventListener('focusin', disableTextAssist)
   window.removeEventListener('beforeunload', flushOnUnload)
   for (const unsub of syncUnsubscribers) unsub()
 })

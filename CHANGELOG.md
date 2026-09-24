@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- macOS: text fields no longer autocorrect or capitalize what you type — a header key or collection name `address` stays `address` instead of being offered as `Address`
 - Linux: the in-window File/Edit/View/Window menu bar is gone — it was unreadable on a light GTK theme; Ctrl+W still closes the tab
 - Request docs preview no longer wraps inline code in backticks, and a quoted block loses the curly quotes and the italics it was given
 - The empty response pane names the shortcut your platform actually has: Ctrl Enter on Linux and Windows, ⌘ Enter on macOS

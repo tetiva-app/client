@@ -45,7 +45,7 @@ func jwtClaimNumber(t *testing.T, tok *jwt.Token, key string) int64 {
 	return int64(num)
 }
 
-func authFieldsError(t *testing.T, err error) *domain.ValidationError {
+func authFieldsError(t *testing.T, err error) string {
 	t.Helper()
 	var ve *domain.ValidationError
 	if !errors.As(err, &ve) {
@@ -54,7 +54,7 @@ func authFieldsError(t *testing.T, err error) *domain.ValidationError {
 	if ve.Fields["auth"] == "" {
 		t.Fatalf("expected an \"auth\" field, got %v", ve.Fields)
 	}
-	return ve
+	return ve.Fields["auth"]
 }
 
 func TestSignJWT_HS256(t *testing.T) {
@@ -211,9 +211,9 @@ func TestSignJWT_ProtectedHeaderKeysRejected(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%q in the header must be rejected", key)
 		}
-		ve := authFieldsError(t, err)
-		if !strings.Contains(ve.Fields["auth"], key) {
-			t.Errorf("%q: message should name the key, got %q", key, ve.Fields["auth"])
+		msg := authFieldsError(t, err)
+		if !strings.Contains(msg, key) {
+			t.Errorf("%q: message should name the key, got %q", key, msg)
 		}
 	}
 }

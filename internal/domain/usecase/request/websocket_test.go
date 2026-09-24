@@ -58,7 +58,7 @@ func newWSUsecase(t *testing.T, repo *mockRepo, d wsDeps) request.Usecase {
 	if d.persist != nil {
 		persist = d.persist
 	}
-	var auth request.AuthResolver = request.NewAuthResolver(fixtureCollections())
+	auth := request.NewAuthResolver(fixtureCollections())
 	if d.resolver != nil {
 		auth = d.resolver
 	}

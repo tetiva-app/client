@@ -90,10 +90,6 @@ func TestConfigHash(t *testing.T) {
 		ClientID: "app", ClientSecret: "s3cret", ClientAuth: ClientAuthBasic, Scope: "read",
 	}
 
-	if ConfigHash(base) != ConfigHash(base) {
-		t.Fatal("hash is not stable")
-	}
-
 	presentation, err := ParseFields(`{"grant":"client_credentials","tokenUrl":"https://idp.example/token",
 		"clientId":"app","clientSecret":"s3cret","scope":"read","addTo":"query","queryParam":"at",
 		"headerPrefix":"Token","redirectPort":"0"}`)

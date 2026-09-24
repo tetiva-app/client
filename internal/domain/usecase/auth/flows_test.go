@@ -1346,7 +1346,7 @@ func TestFlowReportsAStoreThatMovedUnderIt(t *testing.T) {
 			name: "cleared during the flow",
 			setup: func(f *flowFixture, owner entities.AuthOwner) {
 				f.repo.onBeforePut(func() {
-					if err := f.repo.fakeRepo.Clear(context.Background(), owner); err != nil {
+					if err := f.repo.Clear(context.Background(), owner); err != nil {
 						f.t.Errorf("Clear: %v", err)
 					}
 				})

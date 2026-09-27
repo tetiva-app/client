@@ -1,0 +1,138 @@
+=== curl ===
+curl -X POST 'https://api.example.com/sp' \
+  -H 'Content-Type: text/plain' \
+  -H 'X-Cyr: Привет' \
+  -H 'X-Quote: it'\''s "quoted" \ back' \
+  --data-raw 'line1 '\''single'\'' "double"
+line2 \backslash\ $HOME `tick` Привет ${x}'
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/sp"
+headers = {
+    "Content-Type": "text/plain",
+    "X-Cyr": "Привет",
+    "X-Quote": "it's \"quoted\" \\ back",
+}
+data = "line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}"
+
+response = requests.request("POST", url, headers=headers, data=data)
+print(response.text)
+
+=== js-fetch ===
+const url = "https://api.example.com/sp";
+const options = {
+  method: "POST",
+  headers: {
+    "Content-Type": "text/plain",
+    "X-Cyr": "Привет",
+    "X-Quote": "it's \"quoted\" \\ back",
+  },
+  body: "line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}",
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/sp"
+
+	payload := strings.NewReader("line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Content-Type", "text/plain")
+	req.Header.Add("X-Cyr", "Привет")
+	req.Header.Add("X-Quote", "it's \"quoted\" \\ back")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/sp"))
+    .header("Content-Type", "text/plain")
+    .header("X-Cyr", "Привет")
+    .header("X-Quote", "it's \"quoted\" \\ back")
+    .method("POST", HttpRequest.BodyPublishers.ofString("line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("text/plain");
+RequestBody body = RequestBody.create(mediaType, "line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}");
+Request request = new Request.Builder()
+  .url("https://api.example.com/sp")
+  .post(body)
+  .addHeader("Content-Type", "text/plain")
+  .addHeader("X-Cyr", "Привет")
+  .addHeader("X-Quote", "it's \"quoted\" \\ back")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("https://api.example.com/sp"),
+    Headers =
+    {
+        { "X-Cyr", "Привет" },
+        { "X-Quote", "it's \"quoted\" \\ back" },
+    },
+    Content = new StringContent("line1 'single' \"double\"\nline2 \\backslash\\ $HOME `tick` Привет ${x}")
+    {
+        Headers =
+        {
+            ContentType = MediaTypeHeaderValue.Parse("text/plain")
+        }
+    }
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', 'https://api.example.com/sp', [
+  'body' => 'line1 \'single\' "double"
+line2 \\backslash\\ $HOME `tick` Привет ${x}',
+  'headers' => [
+    'Content-Type' => 'text/plain',
+    'X-Cyr' => 'Привет',
+    'X-Quote' => 'it\'s "quoted" \\ back',
+  ],
+]);
+
+echo $response->getBody();

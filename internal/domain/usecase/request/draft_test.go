@@ -21,7 +21,7 @@ func newDraftUsecase(repo request.Repository, historyRepo request.HistoryReposit
 		nil, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
 		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
-		nil, collectionReader, nil, nil,
+		nil, collectionReader, nil, nil, nil, nil,
 	)
 }
 

@@ -1,0 +1,10 @@
+=== grpcurl ===
+grpcurl -plaintext \
+  -H 'authorization: Bearer {{token}}' \
+  -d '{
+  "id": "42"
+}' \
+  'localhost:50051' \
+  'example.v1.UserService/GetUser'
+--- warnings ---
+Tetiva sends gRPC without TLS; drop -plaintext for TLS servers

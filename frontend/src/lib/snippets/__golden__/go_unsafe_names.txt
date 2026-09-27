@@ -1,0 +1,163 @@
+=== curl ===
+curl -X POST 'https://api.example.com/VAR_0?q=VAR_2' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Home: VAR_1' \
+  --data-raw '{"v":"VAR_0"}'
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/VAR_0"
+params = [
+    ("q", "VAR_2"),
+]
+headers = {
+    "Content-Type": "application/json",
+    "X-Home": "VAR_1",
+}
+data = "{\"v\":\"VAR_0\"}"
+
+response = requests.request("POST", url, params=params, headers=headers, data=data)
+print(response.text)
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== js-fetch ===
+const url = "https://api.example.com/VAR_0?q=VAR_2";
+const options = {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Home": "VAR_1",
+  },
+  body: "{\"v\":\"VAR_0\"}",
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/VAR_0?q=VAR_2"
+
+	payload := strings.NewReader("{\"v\":\"VAR_0\"}")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("X-Home", "VAR_1")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/VAR_0?q=VAR_2"))
+    .header("Content-Type", "application/json")
+    .header("X-Home", "VAR_1")
+    .method("POST", HttpRequest.BodyPublishers.ofString("{\"v\":\"VAR_0\"}"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("application/json");
+RequestBody body = RequestBody.create(mediaType, "{\"v\":\"VAR_0\"}");
+Request request = new Request.Builder()
+  .url("https://api.example.com/VAR_0?q=VAR_2")
+  .post(body)
+  .addHeader("Content-Type", "application/json")
+  .addHeader("X-Home", "VAR_1")
+  .build();
+
+Response response = client.newCall(request).execute();
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("https://api.example.com/VAR_0?q=VAR_2"),
+    Headers =
+    {
+        { "X-Home", "VAR_1" },
+    },
+    Content = new StringContent("{\"v\":\"VAR_0\"}")
+    {
+        Headers =
+        {
+            ContentType = MediaTypeHeaderValue.Parse("application/json")
+        }
+    }
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', 'https://api.example.com/VAR_0?q=VAR_2', [
+  'body' => '{"v":"VAR_0"}',
+  'headers' => [
+    'Content-Type' => 'application/json',
+    'X-Home' => 'VAR_1',
+  ],
+]);
+
+echo $response->getBody();
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$HOME" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2

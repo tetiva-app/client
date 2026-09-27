@@ -3,8 +3,10 @@ package postman
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -19,12 +21,14 @@ func stringVal(v any) string {
 	return ""
 }
 
-// collections and requests must include the whole subtree under rootID.
+// collections and requests must include the whole subtree under rootID; examples are keyed
+// by request ID. The warnings name what Postman cannot hold and was left out.
 func ExportCollection(
 	rootID uuid.UUID,
 	collections []*entities.Collection,
 	requests []*entities.Request,
-) ([]byte, error) {
+	examples map[uuid.UUID][]*entities.ResponseExample,
+) ([]byte, []string, error) {
 	const funcName = "postman.ExportCollection"
 
 	var root *entities.Collection
@@ -35,7 +39,7 @@ func ExportCollection(
 		}
 	}
 	if root == nil {
-		return nil, fmt.Errorf("%s: root collection not found", funcName)
+		return nil, nil, fmt.Errorf("%s: root collection not found", funcName)
 	}
 
 	childrenMap := make(map[uuid.UUID][]*entities.Collection)
@@ -65,7 +69,11 @@ func ExportCollection(
 		})
 	}
 
-	items := buildItems(rootID, childrenMap, requestsMap)
+	b := &itemBuilder{children: childrenMap, requests: requestsMap, examples: examples}
+	items, err := b.buildItems(rootID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", funcName, err)
+	}
 	if items == nil {
 		items = []PostmanItem{}
 	}
@@ -77,27 +85,34 @@ func ExportCollection(
 			Description: descriptionOf(root.Description),
 			Schema:      SchemaV21,
 		},
-		Auth: buildAuth(root.AuthType, root.AuthData),
-		Item: items,
+		Auth:  buildAuth(root.AuthType, root.AuthData),
+		Event: buildEvents(root.PreScript, root.PostScript),
+		Item:  items,
 	}
 
 	data, err := json.MarshalIndent(pc, "", "\t")
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to marshal: %w", funcName, err)
+		return nil, nil, fmt.Errorf("%s: failed to marshal: %w", funcName, err)
 	}
 
-	return data, nil
+	return data, b.warnings, nil
 }
 
-func buildItems(
-	parentID uuid.UUID,
-	childrenMap map[uuid.UUID][]*entities.Collection,
-	requestsMap map[uuid.UUID][]*entities.Request,
-) []PostmanItem {
+type itemBuilder struct {
+	children map[uuid.UUID][]*entities.Collection
+	requests map[uuid.UUID][]*entities.Request
+	examples map[uuid.UUID][]*entities.ResponseExample
+	warnings []string
+}
+
+func (b *itemBuilder) buildItems(parentID uuid.UUID) ([]PostmanItem, error) {
 	var items []PostmanItem
 
-	for _, child := range childrenMap[parentID] {
-		subItems := buildItems(child.ID, childrenMap, requestsMap)
+	for _, child := range b.children[parentID] {
+		subItems, err := b.buildItems(child.ID)
+		if err != nil {
+			return nil, err
+		}
 		// A nil slice would be omitted and read back as a request, losing the folder.
 		if subItems == nil {
 			subItems = []PostmanItem{}
@@ -106,18 +121,28 @@ func buildItems(
 			Name:        child.Name,
 			Description: descriptionOf(child.Description),
 			Auth:        buildAuth(child.AuthType, child.AuthData),
+			Event:       buildEvents(child.PreScript, child.PostScript),
 			Item:        &subItems,
 		})
 	}
 
-	for _, req := range requestsMap[parentID] {
-		items = append(items, buildRequestItem(req))
+	for _, req := range b.requests[parentID] {
+		if req.Protocol == entities.ProtocolGRPC {
+			b.warnings = append(b.warnings, fmt.Sprintf("%s: gRPC requests have no Postman equivalent and were skipped",
+				itemLabel("request", req.Name)))
+			continue
+		}
+		item, err := buildRequestItem(req, b.examples[req.ID])
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
 
-	return items
+	return items, nil
 }
 
-func buildRequestItem(req *entities.Request) PostmanItem {
+func buildRequestItem(req *entities.Request, examples []*entities.ResponseExample) (PostmanItem, error) {
 	method := string(req.Method)
 
 	// GraphQL requests are always exported as POST in Postman.
@@ -142,14 +167,110 @@ func buildRequestItem(req *entities.Request) PostmanItem {
 		pmReq.Body = buildBody(req.BodyType, req.Body)
 	}
 
-	if req.AuthType != entities.AuthTypeNone {
+	switch req.AuthType {
+	case entities.AuthTypeNone:
+		pmReq.Auth = &PostmanAuth{Type: "noauth"}
+	case entities.AuthTypeInherit:
+	default:
 		pmReq.Auth = buildAuth(req.AuthType, req.AuthData)
 	}
 
-	return PostmanItem{
-		Name:    req.Name,
-		Request: &pmReq,
+	responses, err := buildResponses(pmReq, examples)
+	if err != nil {
+		return PostmanItem{}, fmt.Errorf("request %q: %w", req.Name, err)
 	}
+	return PostmanItem{
+		Name:     req.Name,
+		Request:  &pmReq,
+		Event:    buildEvents(req.PreScript, req.PostScript),
+		Response: responses,
+	}, nil
+}
+
+func buildResponses(pmReq PostmanRequest, examples []*entities.ResponseExample) ([]json.RawMessage, error) {
+	if len(examples) == 0 {
+		return nil, nil
+	}
+	sorted := slices.Clone(examples)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].SortOrder != sorted[j].SortOrder {
+			return sorted[i].SortOrder < sorted[j].SortOrder
+		}
+		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+	})
+
+	original := pmReq
+	original.Description = nil
+	original.Auth = nil
+
+	out := make([]json.RawMessage, 0, len(sorted))
+	for _, e := range sorted {
+		headers, language := exampleContentType(e, buildHeaders(e.Headers))
+		raw, err := json.Marshal(PostmanResponse{
+			Name:            e.Name,
+			OriginalRequest: &original,
+			Status:          e.StatusText,
+			Code:            e.StatusCode,
+			PreviewLanguage: language,
+			Header:          headers,
+			Body:            e.Body,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, raw)
+	}
+	return out, nil
+}
+
+// exampleContentType carries the example's content type in the preview language, plus a
+// Content-Type header when the example has none and the language would read back as another type.
+func exampleContentType(e *entities.ResponseExample, headers []PostmanKV) ([]PostmanKV, string) {
+	fromHeader := contentTypeHeader(e.Headers)
+	contentType := e.ContentType
+	if contentType == "" {
+		contentType = fromHeader
+	}
+	language := previewLanguage(contentType)
+	if e.ContentType != "" && fromHeader == "" && previewLanguageTypes[language] != e.ContentType {
+		headers = append(headers, PostmanKV{Key: "Content-Type", Value: e.ContentType})
+	}
+	return headers, language
+}
+
+func previewLanguage(contentType string) string {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	switch {
+	case mediaType == "":
+		return ""
+	case strings.Contains(mediaType, "json"):
+		return "json"
+	case strings.Contains(mediaType, "xml"):
+		return "xml"
+	case strings.Contains(mediaType, "html"):
+		return "html"
+	case strings.Contains(mediaType, "javascript"):
+		return "javascript"
+	case strings.HasPrefix(mediaType, "text/"):
+		return "text"
+	default:
+		return ""
+	}
+}
+
+func buildEvents(preScript, postScript string) []PostmanEvent {
+	var events []PostmanEvent
+	for _, s := range []struct{ listen, code string }{{"prerequest", preScript}, {"test", postScript}} {
+		if strings.TrimSpace(s.code) == "" {
+			continue
+		}
+		events = append(events, PostmanEvent{
+			Listen: s.listen,
+			Script: PostmanScript{Type: "text/javascript", Exec: strings.Split(s.code, "\n")},
+		})
+	}
+	return events
 }
 
 func buildHeaders(headers []entities.HeaderItem) []PostmanKV {

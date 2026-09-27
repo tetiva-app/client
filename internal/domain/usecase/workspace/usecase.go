@@ -29,10 +29,46 @@ type Usecase interface {
 	SetActive(ctx context.Context, opt SetActiveOpt) error
 }
 
-type usecase struct {
-	repo Repository
+type TxRunner interface {
+	Run(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-func NewUsecase(repo Repository) Usecase {
-	return &usecase{repo: repo}
+// directTx stands in for test constructors built without a database: fn runs without atomicity.
+type directTx struct{}
+
+func (directTx) Run(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
+// PublicationMarker records, inside the delete transaction, that the workspace's public pages have to come down.
+type PublicationMarker interface {
+	MarkPendingUnpublishWorkspace(ctx context.Context, workspaceID uuid.UUID) error
+}
+
+type noopPublicationMarker struct{}
+
+func (noopPublicationMarker) MarkPendingUnpublishWorkspace(context.Context, uuid.UUID) error {
+	return nil
+}
+
+type usecase struct {
+	repo         Repository
+	txRunner     TxRunner
+	publications PublicationMarker
+}
+
+func NewUsecase(repo Repository, tx TxRunner, publications PublicationMarker) Usecase {
+	return &usecase{repo: repo, txRunner: tx, publications: publications}
+}
+
+func (u *usecase) tx() TxRunner {
+	if u.txRunner == nil {
+		return directTx{}
+	}
+	return u.txRunner
+}
+
+func (u *usecase) publicationMarker() PublicationMarker {
+	if u.publications == nil {
+		return noopPublicationMarker{}
+	}
+	return u.publications
 }

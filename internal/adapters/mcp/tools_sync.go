@@ -160,7 +160,7 @@ func (s *Server) handleSyncQueueList(ctx context.Context, req mcplib.CallToolReq
 	wsID := stringArg(req, "workspace_id", defaultWorkspaceID)
 	limit := intArg(req, "limit", 50)
 
-	entries, err := s.syncQueue.CoalescedPending(ctx, wsID, limit)
+	entries, err := s.syncQueue.CoalescedPending(ctx, wsID, limit, nil)
 	if err != nil {
 		return errResult(err), nil
 	}

@@ -1,7 +1,6 @@
 package requester
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -152,15 +151,12 @@ func (r *GraphQLRequester) Introspect(ctx context.Context, req request.GraphQLIn
 func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
 	const funcName = "introspectFromEndpoint"
 
-	payload := graphqlRequestBody{
-		Query: introspectionQuery,
-	}
-	bodyBytes, err := json.Marshal(payload)
+	body, err := request.GraphQLBody(introspectionQuery, "", "")
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to marshal introspection query: %w", funcName, err)
+		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, strings.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, err)
 	}

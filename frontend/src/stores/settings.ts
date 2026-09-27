@@ -7,6 +7,8 @@ import {
   SETTINGS_STORAGE_KEY,
   type AppSettings,
   type AvailableUpdate,
+  type SnippetFamily,
+  type SnippetTargets,
   type ThemePreference,
 } from '@/lib/settings-storage'
 import { shouldBackfillOnboarding } from '@/lib/onboarding-decisions'
@@ -31,6 +33,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const availableUpdate = ref<AvailableUpdate | null>(initial.availableUpdate)
   const lastSeenWhatsNewVersion = ref<string | null>(initial.lastSeenWhatsNewVersion)
   const onboardingCompletedAt = ref<string | null>(initial.onboardingCompletedAt)
+  const snippetTargets = ref<SnippetTargets>(initial.snippetTargets)
 
   // Track the OS color scheme so `system` resolves reactively.
   const systemPrefersDark = ref<boolean>(prefersDark())
@@ -61,6 +64,7 @@ export const useSettingsStore = defineStore('settings', () => {
       availableUpdate: availableUpdate.value,
       lastSeenWhatsNewVersion: lastSeenWhatsNewVersion.value,
       onboardingCompletedAt: onboardingCompletedAt.value,
+      snippetTargets: snippetTargets.value,
     }
   }
 
@@ -79,6 +83,7 @@ export const useSettingsStore = defineStore('settings', () => {
     availableUpdate,
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
+    snippetTargets,
   ], () => {
     if (applyingRemote) return
     saveSettings(snapshot())
@@ -97,6 +102,7 @@ export const useSettingsStore = defineStore('settings', () => {
       availableUpdate.value = next.availableUpdate
       lastSeenWhatsNewVersion.value = next.lastSeenWhatsNewVersion
       onboardingCompletedAt.value = next.onboardingCompletedAt
+      snippetTargets.value = next.snippetTargets
       applyingRemote = false
     })
   }
@@ -115,6 +121,10 @@ export const useSettingsStore = defineStore('settings', () => {
   }
   function setOnboardingCompletedAt(v: string | null) {
     onboardingCompletedAt.value = v
+  }
+  // Replaces the object: the persist watcher is shallow.
+  function setSnippetTarget(family: SnippetFamily, key: string) {
+    snippetTargets.value = { ...snippetTargets.value, [family]: key }
   }
 
   // Backfill for installs upgraded from a build without the flag. Runs here and
@@ -142,10 +152,12 @@ export const useSettingsStore = defineStore('settings', () => {
     availableUpdate,
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
+    snippetTargets,
     setCheckUpdatesAutomatically,
     setLastUpdateCheckAt,
     setAvailableUpdate,
     setLastSeenWhatsNewVersion,
     setOnboardingCompletedAt,
+    setSnippetTarget,
   }
 })

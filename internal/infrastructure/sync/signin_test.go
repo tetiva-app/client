@@ -56,6 +56,30 @@ func TestGRPCClient_GetServerInfo_WithoutCapability(t *testing.T) {
 	info, err := NewGRPCClientWithStubs(stub, nil).GetServerInfo(context.Background())
 	require.NoError(t, err)
 	assert.False(t, info.DesktopSignIn)
+	assert.False(t, info.ResponseExamples)
+	assert.False(t, info.Publish)
+}
+
+func TestGRPCClient_GetServerInfo_ResponseExamples(t *testing.T) {
+	stub := &stubAuthClient{serverInfoResp: authv1.GetServerInfoResponse_builder{
+		ServerVersion: "0.19.0",
+		Capabilities:  []string{"desktop_signin", "response_examples"},
+	}.Build()}
+
+	info, err := NewGRPCClientWithStubs(stub, nil).GetServerInfo(context.Background())
+	require.NoError(t, err)
+	assert.True(t, info.ResponseExamples)
+}
+
+func TestGRPCClient_GetServerInfo_Publish(t *testing.T) {
+	stub := &stubAuthClient{serverInfoResp: authv1.GetServerInfoResponse_builder{
+		ServerVersion: "0.19.0",
+		Capabilities:  []string{"response_examples", "publish"},
+	}.Build()}
+
+	info, err := NewGRPCClientWithStubs(stub, nil).GetServerInfo(context.Background())
+	require.NoError(t, err)
+	assert.True(t, info.Publish)
 }
 
 func TestGRPCClient_GetServerInfo_UnimplementedIsNotAnError(t *testing.T) {

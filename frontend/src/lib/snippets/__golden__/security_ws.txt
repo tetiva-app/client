@@ -1,0 +1,30 @@
+=== websocat ===
+printf '%s' 'VAR_0 VAR_1 VAR_2' | websocat --protocol='VAR_3' \
+  -H='X-Cmd: VAR_0' \
+  'wss://echo.example.com/VAR_4'
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable ""q"" contains unsafe characters and is shown as VAR_1
+Variable "a b" contains unsafe characters and is shown as VAR_2
+Variable "$(id)" contains unsafe characters and is shown as VAR_3
+Variable "$HOME" contains unsafe characters and is shown as VAR_4
+
+=== js-websocket ===
+// Browsers cannot send custom WebSocket headers; the request also has:
+// X-Cmd: VAR_0
+const ws = new WebSocket("wss://echo.example.com/VAR_2", ["VAR_1"]);
+
+ws.addEventListener("open", () => {
+  ws.send("VAR_0 VAR_3 VAR_4");
+});
+
+ws.addEventListener("message", (e) => {
+  console.log(e.data);
+});
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable "$(id)" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+Variable "a b" contains unsafe characters and is shown as VAR_4
+Browsers cannot send custom WebSocket headers

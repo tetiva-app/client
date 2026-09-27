@@ -1,0 +1,262 @@
+diff --git a/node_modules/@readme/httpsnippet/dist/index.mjs b/node_modules/@readme/httpsnippet/dist/index.mjs
+index 40e797b..5f6cc41 100644
+--- a/node_modules/@readme/httpsnippet/dist/index.mjs
++++ b/node_modules/@readme/httpsnippet/dist/index.mjs
+@@ -57,7 +57,7 @@ var HTTPSnippet = class {
+ 			cookiesObj: {},
+ 			allHeaders: {}
+ 		};
+-		if (request?.queryString.length) request.queryObj = request.queryString.reduce(reducer, {});
++		if (request?.queryString.length) request.queryObj = request.queryString.reduce(reducer, Object.create(null));
+ 		if (request?.headers.length) {
+ 			const http2VersionRegex = /^HTTP\/2/;
+ 			request.headersObj = request.headers.reduce((accumulator, { name, value }) => {
+@@ -98,9 +98,9 @@ var HTTPSnippet = class {
+ 						const filename = param.fileName || null;
+ 						const contentType = param.contentType || "application/octet-stream";
+ 						if (filename) {
+-							payload.push(`Content-Disposition: form-data; name="${escapeStr(normalizeLinefeeds(name))}"; filename="${filename}"`);
++							payload.push(`Content-Disposition: form-data; name="${escapeStr(normalizeLinefeeds(name))}"; filename="${escapeStr(filename)}"`);
+ 							payload.push(`Content-Type: ${contentType}`);
+-						} else payload.push(`Content-Disposition: form-data; name="${escape(normalizeLinefeeds(name))}"`);
++						} else payload.push(`Content-Disposition: form-data; name="${escapeStr(normalizeLinefeeds(name))}"`);
+ 						payload.push("");
+ 						payload.push(normalizeLinefeeds(value));
+ 						if (i !== request.postData.params.length - 1) payload.push(`--${boundary}`);
+@@ -115,7 +115,7 @@ var HTTPSnippet = class {
+ 			case "application/x-www-form-urlencoded":
+ 				if (!request.postData.params) request.postData.text = "";
+ 				else {
+-					request.postData.paramsObj = request.postData.params.reduce(reducer, {});
++					request.postData.paramsObj = request.postData.params.reduce(reducer, Object.create(null));
+ 					request.postData.text = stringify(request.postData.paramsObj);
+ 				}
+ 				break;
+diff --git a/node_modules/@readme/httpsnippet/dist/targets-ZiFkWqLU.mjs b/node_modules/@readme/httpsnippet/dist/targets-ZiFkWqLU.mjs
+index 15a4906..4ba8eaa 100644
+--- a/node_modules/@readme/httpsnippet/dist/targets-ZiFkWqLU.mjs
++++ b/node_modules/@readme/httpsnippet/dist/targets-ZiFkWqLU.mjs
+@@ -124,6 +124,7 @@ const escapeForSingleQuotes = (value) => escapeString(value, { delimiter: "'" })
+ * If value is not a string, it will be stringified with .toString() first.
+ */
+ const escapeForDoubleQuotes = (value) => escapeString(value, { delimiter: "\"" });
++const csharpString = (value) => `"${escapeForDoubleQuotes(value).replace(/[\u0085\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)}"`;
+ //#endregion
+ //#region src/targets/c/target.ts
+ const c = {
+@@ -437,9 +438,9 @@ const httpclient = {
+ 		];
+ 		method = method.toUpperCase();
+ 		if (method && methods.includes(method)) method = `HttpMethod.${method[0]}${method.substring(1).toLowerCase()}`;
+-		else method = `new HttpMethod("${method}")`;
++		else method = `new HttpMethod(${csharpString(method)})`;
+ 		push(`Method = ${method},`, 1);
+-		push(`RequestUri = new Uri("${fullUrl}"),`, 1);
++		push(`RequestUri = new Uri(${csharpString(fullUrl)}),`, 1);
+ 		const headers = Object.keys(allHeaders).filter((header) => {
+ 			switch (header.toLowerCase()) {
+ 				case "content-type":
+@@ -452,7 +453,7 @@ const httpclient = {
+ 			push("Headers =", 1);
+ 			push("{", 1);
+ 			headers.forEach((key) => {
+-				push(`{ "${key}", "${escapeForDoubleQuotes(allHeaders[key])}" },`, 2);
++				push(`{ ${csharpString(key)}, ${csharpString(allHeaders[key])} },`, 2);
+ 			});
+ 			push("},", 1);
+ 		}
+@@ -460,10 +461,10 @@ const httpclient = {
+ 			const contentType = postData.mimeType;
+ 			switch (contentType) {
+ 				case "application/x-www-form-urlencoded":
+-					push("Content = new FormUrlEncodedContent(new Dictionary<string, string>", 1);
++					push("Content = new FormUrlEncodedContent(new List<KeyValuePair<string, string>>", 1);
+ 					push("{", 1);
+ 					postData.params?.forEach((param) => {
+-						push(`{ "${param.name}", "${param.value}" },`, 2);
++						push(`new(${csharpString(param.name)}, ${csharpString(param.value || "")}),`, 2);
+ 					});
+ 					push("}),", 1);
+ 					break;
+@@ -471,15 +472,15 @@ const httpclient = {
+ 					push("Content = new MultipartFormDataContent", 1);
+ 					push("{", 1);
+ 					postData.params?.forEach((param) => {
+-						push(`new StringContent(${JSON.stringify(param.value || "")})`, 2);
++						push(`new StringContent(${csharpString(param.value || "")})`, 2);
+ 						push("{", 2);
+ 						push("Headers =", 3);
+ 						push("{", 3);
+-						if (param.contentType) push(`ContentType = new MediaTypeHeaderValue("${param.contentType}"),`, 4);
++						if (param.contentType) push(`ContentType = MediaTypeHeaderValue.Parse(${csharpString(param.contentType)}),`, 4);
+ 						push("ContentDisposition = new ContentDispositionHeaderValue(\"form-data\")", 4);
+ 						push("{", 4);
+-						push(`Name = "${param.name}",`, 5);
+-						if (param.fileName) push(`FileName = "${param.fileName}",`, 5);
++						push(`Name = ${csharpString(param.name)},`, 5);
++						if (param.fileName) push(`FileName = ${csharpString(param.fileName)},`, 5);
+ 						push("}", 4);
+ 						push("}", 3);
+ 						push("},", 2);
+@@ -487,11 +488,11 @@ const httpclient = {
+ 					push("},", 1);
+ 					break;
+ 				default:
+-					push(`Content = new StringContent(${JSON.stringify(postData.text || "")})`, 1);
++					push(`Content = new StringContent(${csharpString(postData.text || "")})`, 1);
+ 					push("{", 1);
+ 					push("Headers =", 2);
+ 					push("{", 2);
+-					push(`ContentType = new MediaTypeHeaderValue("${contentType}")`, 3);
++					push(`ContentType = MediaTypeHeaderValue.Parse(${csharpString(contentType)})`, 3);
+ 					push("}", 2);
+ 					push("}", 1);
+ 					break;
+@@ -646,21 +647,21 @@ const go = {
+ 				push("}", indent);
+ 				blank();
+ 			}
+-			push(`url := "${fullUrl}"`, indent);
++			push(`url := "${escapeForDoubleQuotes(fullUrl)}"`, indent);
+ 			blank();
+ 			if (postData.text) {
+ 				push(`payload := strings.NewReader(${JSON.stringify(postData.text)})`, indent);
+ 				blank();
+-				push(`req, ${errorPlaceholder} := http.NewRequest("${method}", url, payload)`, indent);
++				push(`req, ${errorPlaceholder} := http.NewRequest("${escapeForDoubleQuotes(method)}", url, payload)`, indent);
+ 				blank();
+ 			} else {
+-				push(`req, ${errorPlaceholder} := http.NewRequest("${method}", url, nil)`, indent);
++				push(`req, ${errorPlaceholder} := http.NewRequest("${escapeForDoubleQuotes(method)}", url, nil)`, indent);
+ 				blank();
+ 			}
+ 			errorCheck();
+ 			if (Object.keys(allHeaders).length) {
+ 				Object.keys(allHeaders).forEach((key) => {
+-					push(`req.Header.Add("${key}", "${escapeForDoubleQuotes(allHeaders[key])}")`, indent);
++					push(`req.Header.Add("${escapeForDoubleQuotes(key)}", "${escapeForDoubleQuotes(allHeaders[key])}")`, indent);
+ 				});
+ 				blank();
+ 			}
+@@ -778,12 +779,12 @@ const java = {
+ 					...options
+ 				}.indent });
+ 				push("HttpRequest request = HttpRequest.newBuilder()");
+-				push(`.uri(URI.create("${fullUrl}"))`, 2);
++				push(`.uri(URI.create("${escapeForDoubleQuotes(fullUrl)}"))`, 2);
+ 				Object.keys(allHeaders).forEach((key) => {
+-					push(`.header("${key}", "${escapeForDoubleQuotes(allHeaders[key])}")`, 2);
++					push(`.header("${escapeForDoubleQuotes(key)}", "${escapeForDoubleQuotes(allHeaders[key])}")`, 2);
+ 				});
+-				if (postData.text) push(`.method("${method.toUpperCase()}", HttpRequest.BodyPublishers.ofString(${JSON.stringify(postData.text)}))`, 2);
+-				else push(`.method("${method.toUpperCase()}", HttpRequest.BodyPublishers.noBody())`, 2);
++				if (postData.text) push(`.method("${escapeForDoubleQuotes(method.toUpperCase())}", HttpRequest.BodyPublishers.ofString(${JSON.stringify(postData.text)}))`, 2);
++				else push(`.method("${escapeForDoubleQuotes(method.toUpperCase())}", HttpRequest.BodyPublishers.noBody())`, 2);
+ 				push(".build();", 2);
+ 				push("HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());");
+ 				push("System.out.println(response.body());");
+@@ -820,19 +821,19 @@ const java = {
+ 				push("OkHttpClient client = new OkHttpClient();");
+ 				blank();
+ 				if (postData.text) {
+-					if (postData.boundary) push(`MediaType mediaType = MediaType.parse("${postData.mimeType}; boundary=${postData.boundary}");`);
+-					else push(`MediaType mediaType = MediaType.parse("${postData.mimeType}");`);
++					if (postData.boundary) push(`MediaType mediaType = MediaType.parse("${escapeForDoubleQuotes(`${postData.mimeType}; boundary=${postData.boundary}`)}");`);
++					else push(`MediaType mediaType = MediaType.parse("${escapeForDoubleQuotes(postData.mimeType)}");`);
+ 					push(`RequestBody body = RequestBody.create(mediaType, ${JSON.stringify(postData.text)});`);
+ 				}
+ 				push("Request request = new Request.Builder()");
+-				push(`.url("${fullUrl}")`, 1);
+-				if (!methods.includes(method.toUpperCase())) if (postData.text) push(`.method("${method.toUpperCase()}", body)`, 1);
+-				else push(`.method("${method.toUpperCase()}", null)`, 1);
++				push(`.url("${escapeForDoubleQuotes(fullUrl)}")`, 1);
++				if (!methods.includes(method.toUpperCase())) if (postData.text) push(`.method("${escapeForDoubleQuotes(method.toUpperCase())}", body)`, 1);
++				else push(`.method("${escapeForDoubleQuotes(method.toUpperCase())}", null)`, 1);
+ 				else if (methodsWithBody.includes(method.toUpperCase())) if (postData.text) push(`.${method.toLowerCase()}(body)`, 1);
+ 				else push(`.${method.toLowerCase()}(null)`, 1);
+ 				else push(`.${method.toLowerCase()}()`, 1);
+ 				Object.keys(allHeaders).forEach((key) => {
+-					push(`.addHeader("${key}", "${escapeForDoubleQuotes(allHeaders[key])}")`, 1);
++					push(`.addHeader("${escapeForDoubleQuotes(key)}", "${escapeForDoubleQuotes(allHeaders[key])}")`, 1);
+ 				});
+ 				push(".build();", 1);
+ 				blank();
+@@ -1632,6 +1633,24 @@ const ocaml = {
+ };
+ //#endregion
+ //#region src/targets/php/helpers.ts
++const phpEscapes = {
++	"\\": "\\\\",
++	"\"": "\\\"",
++	"$": "\\$",
++	"\t": "\\t",
++	"\n": "\\n",
++	"\v": "\\v",
++	"\f": "\\f",
++	"\r": "\\r",
++	"\u001b": "\\e"
++};
++const phpString = (value) => {
++	if (!/[\u0000-\u0009\u000b-\u001f\u007f]/.test(value)) return `'${escapeString(value, {
++		delimiter: "'",
++		escapeNewlines: false
++	})}'`;
++	return `"${value.replace(/[\\"$\u0000-\u001f\u007f]/g, (c) => phpEscapes[c] ?? `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`)}"`;
++};
+ const convertType = (obj, indent, lastIndent) => {
+ 	lastIndent = lastIndent || "";
+ 	indent = indent || "";
+@@ -1639,10 +1658,7 @@ const convertType = (obj, indent, lastIndent) => {
+ 		case "[object Boolean]": return obj;
+ 		case "[object Null]": return "null";
+ 		case "[object Undefined]": return "null";
+-		case "[object String]": return `'${escapeString(obj, {
+-			delimiter: "'",
+-			escapeNewlines: false
+-		})}'`;
++		case "[object String]": return phpString(obj);
+ 		case "[object Number]": return obj.toString();
+ 		case "[object Array]": {
+ 			const contents = obj.map((item) => convertType(item, `${indent}${indent}`, indent)).join(`,\n${indent}`);
+@@ -1833,13 +1849,13 @@ const php = {
+ 								};
+ 								if (param.contentType) field.headers = { "Content-Type": param.contentType };
+ 								fields.push(field);
+-							} else if (param.value) fields.push({
++							} else fields.push({
+ 								name: param.name,
+-								contents: param.value
++								contents: param.value || ""
+ 							});
+ 						});
+ 						if (fields.length) {
+-							requestPush(`'multipart' => ${convertType(fields, opts.indent + opts.indent, opts.indent)}`, 1);
++							requestPush(`'multipart' => ${convertType(fields, opts.indent + opts.indent, opts.indent)},`, 1);
+ 							if (hasHeader(headersObj, "content-type")) {
+ 								if (getHeader(headersObj, "content-type")?.indexOf("boundary")) {
+ 									const headerName = getHeaderName(headersObj, "content-type");
+@@ -1851,9 +1867,9 @@ const php = {
+ 					}
+ 					default: if (postData.text) requestPush(`'body' => ${convertType(postData.text)},`, 1);
+ 				}
+-				const headers = Object.keys(headersObj).sort().map((key) => `${opts.indent}${opts.indent}'${key}' => '${escapeForSingleQuotes(headersObj[key])}',`);
++				const headers = Object.keys(headersObj).sort().map((key) => `${opts.indent}${opts.indent}${convertType(key)} => ${convertType(headersObj[key])},`);
+ 				const cookieString = cookies.map((cookie) => `${encodeURIComponent(cookie.name)}=${encodeURIComponent(cookie.value)}`).join("; ");
+-				if (cookieString.length) headers.push(`${opts.indent}${opts.indent}'cookie' => '${escapeForSingleQuotes(cookieString)}',`);
++				if (cookieString.length) headers.push(`${opts.indent}${opts.indent}'cookie' => ${convertType(cookieString)},`);
+ 				if (headers.length) {
+ 					requestPush("'headers' => [", 1);
+ 					requestPush(headers.join("\n"));
+@@ -1862,10 +1878,10 @@ const php = {
+ 				push("$client = new \\GuzzleHttp\\Client();");
+ 				blank();
+ 				if (requestCode.length) {
+-					push(`$response = $client->request('${method}', '${fullUrl}', [`);
++					push(`$response = $client->request(${convertType(method)}, ${convertType(fullUrl)}, [`);
+ 					push(requestJoin());
+ 					push("]);");
+-				} else push(`$response = $client->request('${method}', '${fullUrl}');`);
++				} else push(`$response = $client->request(${convertType(method)}, ${convertType(fullUrl)});`);
+ 				blank();
+ 				push("echo $response->getBody();");
+ 				if (!opts.noTags && opts.closingTag) {

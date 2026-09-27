@@ -20,6 +20,7 @@ import EnvironmentSelector from '@/components/EnvironmentSelector.vue'
 import { Button } from '@/components/ui/button'
 
 const CodeEditor = defineAsyncComponent(() => import('../CodeEditor.vue'))
+const CodeSnippetPanel = defineAsyncComponent(() => import('../CodeSnippetPanel.vue'))
 
 const props = defineProps<{ request: Request }>()
 const emit = defineEmits<{ (e: 'manage-environments'): void }>()
@@ -53,7 +54,7 @@ const composeFormat = ref<WsFormat>('json')
 const composeError = ref('')
 const savedMessages = ref<InstanceType<typeof WsSavedMessages> | null>(null)
 
-const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs'>('messages')
+const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs' | 'code'>('messages')
 
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
@@ -112,6 +113,7 @@ const tabs = computed(() => [
   },
   { id: 'scripts' as const, label: 'Scripts', badge: props.request.preScript ? '1' : '' },
   { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
+  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function update(patch: Partial<Request>) {
@@ -256,6 +258,7 @@ onUnmounted(() => {
         @update:pre-script="(v) => update({ preScript: v })"
         @update:post-script="(v) => update({ postScript: v })"
       />
+      <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
       <RequestDocs
         v-if="docsMounted"
         v-show="activeTab === 'docs'"

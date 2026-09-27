@@ -1,0 +1,115 @@
+package postman_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/tetiva-app/client/internal/adapters/portability/postman"
+	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
+	"github.com/tetiva-app/client/internal/domain/usecase/example"
+	"github.com/tetiva-app/client/internal/domain/usecase/request"
+)
+
+// fromSnapshotFixture is written by the snippet bundle's converter from testdata/snapshot/all-protocols.json
+// (frontend/src/lib/snippets/__tests__/snapshot-postman.test.ts, UPDATE_FIXTURES=1).
+func fromSnapshotFixture(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "from-snapshot.postman_collection.json"))
+	require.NoError(t, err)
+	return raw
+}
+
+func TestImportCollection_FromSnapshotConverter(t *testing.T) {
+	collUC := &stubCollectionUC{}
+	reqUC := &stubRequestUC{}
+	exUC := &stubExampleUC{}
+
+	result, err := postman.ImportCollection(context.Background(), fromSnapshotFixture(t), postman.ImportOpts{
+		WorkspaceID:    uuid.MustParse("00000000-0000-4000-a000-000000000001"),
+		UserID:         "local_user",
+		IncludeScripts: true,
+	}, collUC, reqUC, exUC)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		`request "Загрузить фото": file field "file" was imported without its file; pick it again`,
+		`request "Replace avatar": the file body was imported without its file; pick it again`,
+		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.request, pm.response, pm.test), so some may need changes",
+	}, result.Warnings)
+	assert.Equal(t, 4, result.FoldersCreated)
+	assert.Equal(t, 10, result.RequestsCreated)
+
+	folders := map[string]int{}
+	for i, c := range collUC.created {
+		folders[c.Name] = i
+	}
+	root := collUC.created[0]
+	assert.Nil(t, root.ParentID)
+	assert.Equal(t, entities.AuthTypeBearer, root.AuthType)
+	assert.JSONEq(t, `{"token":"{{token}}"}`, root.AuthData)
+	assert.Equal(t, `pm.environment.set("ts", Date.now());`, root.PreScript)
+	assert.Equal(t, `pm.test("status is 2xx", () => pm.expect(pm.response.code).to.be.below(300));`, root.PostScript)
+
+	pets := collUC.created[folders["Питомцы"]]
+	require.Equal(t, entities.AuthTypeOAuth2, pets.AuthType)
+	fields, err := auth.ParseFields(pets.AuthData)
+	require.NoError(t, err)
+	assert.Equal(t, "https://auth.example.com/oauth/token", fields.Str("tokenUrl"))
+	assert.Equal(t, "{{clientId}}", fields.Str("clientId"))
+	assert.Equal(t, `console.log("folder pre");`, pets.PreScript)
+	assert.Empty(t, pets.PostScript)
+	assert.Equal(t, entities.AuthTypeNone, collUC.created[folders["Администрирование"]].AuthType)
+
+	requests := map[string]request.Create{}
+	examples := map[string][]example.Create{}
+	for i, r := range reqUC.created {
+		requests[r.Name] = r
+		examples[r.Name] = examplesOf(exUC.created, reqUC.ids[i])
+	}
+	assert.NotContains(t, requests, "GetPet (gRPC)")
+	assert.NotContains(t, requests, "Чат питомника")
+	assert.Equal(t, entities.AuthTypeNone, requests["Search (urlencoded)"].AuthType)
+	assert.Equal(t, entities.AuthTypeInherit, requests["Delete pet"].AuthType)
+
+	ping := requests["Ping"]
+	assert.Equal(t, entities.AuthTypeAPIKey, ping.AuthType)
+	assert.JSONEq(t, `{"key":"X-Api-Key","value":"{{apiKey}}","addTo":"header"}`, ping.AuthData)
+	assert.Equal(t, entities.MethodOPTIONS, ping.Method)
+
+	graphql := requests["Pet by id (GraphQL)"]
+	assert.Equal(t, entities.ProtocolGraphQL, graphql.Protocol)
+	assert.Contains(t, graphql.GraphQLQuery, "pet(id: $id)")
+	require.Len(t, examples["Pet by id (GraphQL)"], 1)
+	assert.Equal(t, entities.ProtocolGraphQL, examples["Pet by id (GraphQL)"][0].Protocol)
+
+	create := requests["Create pet"]
+	assert.Equal(t, entities.BodyTypeJSON, create.BodyType)
+	assert.Contains(t, create.Body, `"ownerId": "{{userId}}"`)
+	assert.Equal(t, `pm.environment.set("requestId", crypto.randomUUID());`, create.PreScript)
+	assert.Equal(t, `pm.test("created", () => pm.response.to.have.status(201));`, create.PostScript)
+	require.Len(t, examples["Create pet"], 1)
+	assert.Equal(t, 201, examples["Create pet"][0].StatusCode)
+
+	get := examples["Получить питомца"]
+	require.Len(t, get, 2)
+	assert.Equal(t, "200 Успех", get[0].Name)
+	assert.Equal(t, 200, get[0].StatusCode)
+	assert.Equal(t, "404 Не найден", get[1].Name)
+	assert.Equal(t, "Not Found", get[1].StatusText)
+	assert.Len(t, exUC.created, 4)
+
+	upload := requests["Загрузить фото"]
+	assert.Equal(t, entities.BodyTypeForm, upload.BodyType)
+	assert.JSONEq(t, `[
+		{"key":"title","value":"Отчёт за Q3","type":"text","enabled":true},
+		{"key":"file","value":"","type":"file","enabled":true},
+		{"key":"draft","value":"true","type":"text","enabled":false}
+	]`, upload.Body)
+}

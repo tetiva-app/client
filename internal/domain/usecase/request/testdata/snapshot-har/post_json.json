@@ -1,0 +1,53 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "af37eb103285",
+    "name": "post_json",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "POST",
+      "url": "https://api.example.com/users",
+      "headers": [],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"name\": \"neo\",\n  \"role\": \"{{role}}\"\n}",
+        "fields": [],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/users",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\n  \"name\": \"neo\",\n  \"role\": \"{{role}}\"\n}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

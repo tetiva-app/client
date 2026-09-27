@@ -1,0 +1,56 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "27e7eb6cfd76",
+    "name": "binary",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "PUT",
+      "url": "https://api.example.com/blobs/1",
+      "headers": [],
+      "body": {
+        "type": "binary",
+        "raw": "",
+        "fields": [],
+        "fileName": "payload.bin"
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "PUT",
+    "url": "https://api.example.com/blobs/1",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/octet-stream"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/octet-stream",
+      "text": "",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1,
+    "_tetiva": {
+      "binaryFile": "payload.bin"
+    }
+  }
+}

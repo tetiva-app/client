@@ -123,9 +123,7 @@ func TestDSN(t *testing.T) {
 }
 
 func TestNewDB_BusyTimeoutOnEveryPooledConnection(t *testing.T) {
-	t.Setenv("TETIVA_DATA_DIR", t.TempDir())
-
-	db, err := NewDB()
+	db, err := NewDB(DataDir(t.TempDir()))
 	if err != nil {
 		t.Fatalf("NewDB: %v", err)
 	}

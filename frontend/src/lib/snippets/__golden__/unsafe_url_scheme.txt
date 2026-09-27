@@ -1,0 +1,39 @@
+=== curl ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== python-requests ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== js-fetch ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== go ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== java-httpclient ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== java-okhttp ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== csharp-httpclient ===
+
+--- warnings ---
+Code is generated only for http and https URLs
+
+=== php-guzzle ===
+
+--- warnings ---
+Code is generated only for http and https URLs

@@ -3,17 +3,20 @@ package app
 import (
 	"go.uber.org/fx"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/requester"
 	wailsadapter "github.com/tetiva-app/client/internal/adapters/wails"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/cookie"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
+	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/history"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/domain/usecase/search"
 	"github.com/tetiva-app/client/internal/domain/usecase/settings"
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
+	"github.com/tetiva-app/client/internal/infrastructure/publicapi"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	"github.com/tetiva-app/client/internal/infrastructure/scriptengine"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
@@ -94,9 +97,30 @@ func NewUsecases() fx.Option {
 		fx.Provide(func(r *requester.GRPCRequester) request.GRPCRequester { return r }),
 		fx.Provide(requester.NewGraphQLRequester),
 		fx.Provide(func(r *requester.GraphQLRequester) request.GraphQLRequester { return r }),
+		fx.Provide(fx.Annotate(
+			sqlite.NewResponseExampleRepo,
+			fx.As(new(example.Repository)),
+			fx.ResultTags(`name:"innerResponseExampleRepo"`),
+		)),
+		fx.Provide(fx.Annotate(
+			syncsvc.NewSyncedResponseExampleRepo,
+			fx.ParamTags(`name:"innerResponseExampleRepo"`, ``, ``, ``),
+			fx.As(new(example.Repository)),
+		)),
+		fx.Provide(func(r request.Repository) example.RequestReader { return r }),
+		fx.Provide(func(r collection.Repository) example.CollectionReader { return r }),
+		fx.Provide(example.NewUsecase),
+		fx.Provide(wailsadapter.NewExampleService),
+		fx.Provide(func(u example.Usecase) request.ExampleCleaner { return u }),
+		fx.Provide(sqlite.NewTxRunner),
+		fx.Provide(func(t *sqlite.TxRunner) request.TxRunner { return t }),
+		fx.Provide(func(t *sqlite.TxRunner) collection.TxRunner { return t }),
+		fx.Provide(func(t *sqlite.TxRunner) workspace.TxRunner { return t }),
 		fx.Provide(request.NewUsecase),
 		fx.Provide(wailsadapter.NewRequestService),
 		fx.Provide(wailsadapter.NewAuthService),
+		fx.Provide(func(t *sqlite.TxRunner) portability.TxRunner { return t }),
+		fx.Provide(func() *publicapi.Client { return publicapi.New(publicapi.DefaultBaseURL()) }),
 		fx.Provide(wailsadapter.NewPortabilityService),
 		fx.Provide(sqlite.NewWorkspaceRepo),
 		fx.Provide(workspace.NewUsecase),
@@ -110,6 +134,7 @@ func NewUsecases() fx.Option {
 		fx.Provide(settings.NewUsecase),
 		fx.Provide(wailsadapter.NewSettingsService),
 		fx.Provide(wailsadapter.NewWindowService),
+		fx.Provide(wailsadapter.NewDeepLinkService),
 
 		fx.Invoke(RegisterCleanupHook),
 	)

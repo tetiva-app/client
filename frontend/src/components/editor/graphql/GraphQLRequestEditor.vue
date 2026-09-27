@@ -5,6 +5,7 @@ import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useExamplesStore } from '@/stores/examples'
 import { getRequestService } from '@/services'
 import { useToast } from '@/composables/useToast'
 import type { Request } from '@/types/request'
@@ -13,6 +14,7 @@ import GraphQLUrlBar from './GraphQLUrlBar.vue'
 import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 import GraphQLResponseViewer from './GraphQLResponseViewer.vue'
 import RequestDocs from '../RequestDocs.vue'
+import UnsavedExamplesDot from '../examples/UnsavedExamplesDot.vue'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { authBadgeLabel } from '@/constants/auth'
 import {
@@ -26,6 +28,8 @@ const GraphQLSchemaViewer = defineAsyncComponent(() => import('./GraphQLSchemaVi
 const KeyValueEditor = defineAsyncComponent(() => import('../KeyValueEditor.vue'))
 const AuthEditor = defineAsyncComponent(() => import('../AuthEditor.vue'))
 const ScriptEditor = defineAsyncComponent(() => import('../ScriptEditor.vue'))
+const ExamplesPanel = defineAsyncComponent(() => import('../examples/ExamplesPanel.vue'))
+const CodeSnippetPanel = defineAsyncComponent(() => import('../CodeSnippetPanel.vue'))
 
 const props = defineProps<{
   request: Request
@@ -35,6 +39,7 @@ const store = useRequestStore()
 const responseStore = useResponseStore()
 const envStore = useEnvironmentStore()
 const workspaceStore = useWorkspaceStore()
+const examplesStore = useExamplesStore()
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -50,10 +55,14 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.request.id,
 )
 
-const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs'>('query')
+const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs' | 'examples' | 'code'>('query')
 
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
+
+const examplesMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'examples') examplesMounted.value = true }, { immediate: true })
+const examplesPanel = ref<{ save: () => boolean } | null>(null)
 
 const schema = ref<GraphQLSchema | null>(null)
 const schemaLoading = ref(false)
@@ -179,6 +188,11 @@ const scriptsBadge = computed(() => {
   return count > 0 ? String(count) : ''
 })
 
+const examplesBadge = computed(() => {
+  const count = examplesStore.byRequest[props.request.id]?.length ?? 0
+  return count > 0 ? String(count) : ''
+})
+
 const tabs = computed(() => [
   { id: 'query' as const, label: 'Query', badge: queryBadge.value },
   { id: 'headers' as const, label: 'Headers', badge: headersBadge.value },
@@ -186,6 +200,8 @@ const tabs = computed(() => [
   { id: 'schema' as const, label: 'Schema', badge: schemaBadge.value },
   { id: 'scripts' as const, label: 'Scripts', badge: scriptsBadge.value },
   { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
+  { id: 'examples' as const, label: 'Examples', badge: examplesBadge.value },
+  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -193,7 +209,7 @@ function handleKeydown(event: KeyboardEvent) {
   if (isInsideOverlay(event)) return
   if (isModShortcut(event, 'KeyS', 's')) {
     event.preventDefault()
-    store.saveToBackend(props.request.id)
+    if (activeTab.value !== 'examples' || !examplesPanel.value?.save()) store.saveToBackend(props.request.id)
   }
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault()
@@ -203,6 +219,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  void examplesStore.fetch(props.request.id)
   if (props.request.url) {
     loadSchema()
   }
@@ -298,6 +315,7 @@ onUnmounted(() => {
               <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
                 ({{ tab.badge }})
               </span>
+              <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(request.id)" />
             </button>
 
             <div v-if="dirty" class="ml-auto flex items-center pr-3">
@@ -359,11 +377,22 @@ onUnmounted(() => {
               @update:post-script="(v) => updateField('postScript', v)"
             />
 
+            <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
+
             <RequestDocs
               v-if="docsMounted"
               v-show="activeTab === 'docs'"
               :description="request.description"
               @update:description="(v) => updateField('description', v)"
+            />
+
+            <ExamplesPanel
+              v-if="examplesMounted"
+              v-show="activeTab === 'examples'"
+              ref="examplesPanel"
+              :request-id="request.id"
+              protocol="graphql"
+              :is-draft="request.isDraft === true"
             />
           </div>
         </div>
@@ -374,6 +403,7 @@ onUnmounted(() => {
       <ResizablePanel :default-size="55" :min-size="20">
         <GraphQLResponseViewer
           :state="responseState"
+          :request-id="request.id"
           :loading="responseState.status === 'loading'"
           @cancel="responseStore.cancelRequest(request.id)"
         />

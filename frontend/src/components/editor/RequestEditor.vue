@@ -4,6 +4,7 @@ import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useHistoryStore } from '@/stores/history'
+import { useExamplesStore } from '@/stores/examples'
 import UrlBar from './UrlBar.vue'
 import PromoteDraftDialog from '@/components/PromoteDraftDialog.vue'
 import { useCollectionStore } from '@/stores/collections'
@@ -14,6 +15,7 @@ import BodyEditor from './BodyEditor.vue'
 import ScriptEditor from './ScriptEditor.vue'
 import RequestDocs from './RequestDocs.vue'
 import ResponseViewer from './ResponseViewer.vue'
+import UnsavedExamplesDot from './examples/UnsavedExamplesDot.vue'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -34,10 +36,13 @@ import type { CurlImportFields } from '@/lib/curl-paste'
 import { useToast } from '@/composables/useToast'
 import { authBadgeLabel } from '@/constants/auth'
 import { warningsToastMessage } from '@/lib/auth-warnings'
+import { copyText } from '@/lib/clipboard'
 
 const GRPCRequestEditor = defineAsyncComponent(() => import('./grpc/GRPCRequestEditor.vue'))
 const GraphQLRequestEditor = defineAsyncComponent(() => import('./graphql/GraphQLRequestEditor.vue'))
 const WebSocketEditor = defineAsyncComponent(() => import('./ws/WebSocketEditor.vue'))
+const ExamplesPanel = defineAsyncComponent(() => import('./examples/ExamplesPanel.vue'))
+const CodeSnippetPanel = defineAsyncComponent(() => import('./CodeSnippetPanel.vue'))
 
 const bodyTypeContentType: Partial<Record<BodyType, string>> = {
   json: 'application/json',
@@ -59,6 +64,7 @@ const store = useRequestStore()
 const responseStore = useResponseStore()
 const envStore = useEnvironmentStore()
 const historyStore = useHistoryStore()
+const examplesStore = useExamplesStore()
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -75,11 +81,25 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.requestId,
 )
 
-const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs'>('params')
+const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs' | 'examples' | 'code'>('params')
 
 // Docs stays mounted once visited: recreating CodeMirror would drop its undo history.
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
+
+const examplesMounted = ref(false)
+watch(activeTab, (tab) => { if (tab === 'examples') examplesMounted.value = true }, { immediate: true })
+const examplesPanel = ref<{ save: () => boolean } | null>(null)
+
+// gRPC and GraphQL editors fetch their own examples.
+watch(() => request.value?.protocol, (protocol) => {
+  if (protocol === 'http') void examplesStore.fetch(props.requestId)
+}, { immediate: true })
+
+const examplesBadge = computed(() => {
+  const count = examplesStore.byRequest[props.requestId]?.length ?? 0
+  return count > 0 ? String(count) : ''
+})
 
 const promoteOpen = ref(false)
 const collectionsStore = useCollectionStore()
@@ -133,6 +153,8 @@ const tabs = computed(() => [
   { id: 'body' as const, label: 'Body', badge: bodyBadge.value },
   { id: 'scripts' as const, label: 'Scripts', badge: (() => { const count = (request.value?.preScript ? 1 : 0) + (request.value?.postScript ? 1 : 0); return count > 0 ? String(count) : '' })() },
   { id: 'docs' as const, label: 'Docs', badge: request.value?.description ? '•' : '' },
+  { id: 'examples' as const, label: 'Examples', badge: examplesBadge.value },
+  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -143,7 +165,7 @@ function handleKeydown(event: KeyboardEvent) {
   if (proto === 'grpc' || proto === 'graphql') return
   if (isModShortcut(event, 'KeyS', 's')) {
     event.preventDefault()
-    store.saveToBackend(props.requestId)
+    if (activeTab.value !== 'examples' || !examplesPanel.value?.save()) store.saveToBackend(props.requestId)
   }
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     event.preventDefault()
@@ -159,6 +181,7 @@ onMounted(() => {
 })
 
 function flushOnLeave() {
+  void examplesStore.flushDrafts(props.requestId)
   if (store.isSaveBlocked(props.requestId)) return
   void store.flush(props.requestId)
 }
@@ -189,15 +212,7 @@ async function handleCopyCurl() {
   }
   const warning = warningsToastMessage(result.data.warnings)
   if (warning) toast.info(warning)
-  // Use Wails native clipboard: navigator.clipboard.writeText fails in WebView
-  // after an awaited backend call (user-activation gesture is consumed).
-  try {
-    const { Clipboard } = await import('@wailsio/runtime')
-    await Clipboard.SetText(result.data.command)
-  } catch {
-    // Browser-mode fallback (vite dev without Wails).
-    await navigator.clipboard.writeText(result.data.command)
-  }
+  await copyText(result.data.command)
 }
 
 // The sticky Undo toast can hang around for minutes, so the import it belongs to
@@ -377,6 +392,7 @@ function updateField(field: string, value: any) {
                 <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
                   ({{ tab.badge }})
                 </span>
+                <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(requestId)" />
               </button>
 
               <div v-if="dirty" class="ml-auto flex items-center pr-3">
@@ -427,11 +443,20 @@ function updateField(field: string, value: any) {
                 @update:pre-script="(v) => updateField('preScript', v)"
                 @update:post-script="(v) => updateField('postScript', v)"
               />
+              <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
               <RequestDocs
                 v-if="docsMounted"
                 v-show="activeTab === 'docs'"
                 :description="request.description"
                 @update:description="(v) => updateField('description', v)"
+              />
+              <ExamplesPanel
+                v-if="examplesMounted"
+                v-show="activeTab === 'examples'"
+                ref="examplesPanel"
+                :request-id="requestId"
+                protocol="http"
+                :is-draft="request.isDraft === true"
               />
             </div>
           </div>
@@ -442,6 +467,7 @@ function updateField(field: string, value: any) {
         <ResizablePanel :default-size="60" :min-size="20">
           <ResponseViewer
             :state="responseState"
+            :request-id="requestId"
             @cancel="responseStore.cancelRequest(props.requestId)"
           />
         </ResizablePanel>

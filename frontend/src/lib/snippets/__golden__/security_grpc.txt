@@ -1,0 +1,14 @@
+=== grpcurl ===
+grpcurl -plaintext \
+  -H 'x-cmd: VAR_0' \
+  -H 'x-q: VAR_1' \
+  -d '{"a": "VAR_0", "b": "VAR_2", "c": "VAR_3"}' \
+  'VAR_4:50051' \
+  'example.v1.UserService/GetUser'
+--- warnings ---
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_0
+Variable ""q"" contains unsafe characters and is shown as VAR_1
+Variable "$(id)" contains unsafe characters and is shown as VAR_2
+Variable "a b" contains unsafe characters and is shown as VAR_3
+Variable "$HOME" contains unsafe characters and is shown as VAR_4
+Tetiva sends gRPC without TLS; drop -plaintext for TLS servers

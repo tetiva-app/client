@@ -2,13 +2,13 @@ package mcp
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/secrets"
 )
 
 // Tool results reach the MCP client verbatim, so stored credentials are masked in them.
@@ -21,48 +21,6 @@ func maskAuthData(data string) string {
 		return ""
 	}
 	return redactedValue
-}
-
-// sensitiveHeaders carry credentials by convention; their values never reach
-// the MCP client. Keys are lowercase, lookups fold case.
-var sensitiveHeaders = map[string]struct{}{
-	"authorization":        {},
-	"proxy-authorization":  {},
-	"cookie":               {},
-	"set-cookie":           {},
-	"x-api-key":            {},
-	"api-key":              {},
-	"x-auth-token":         {},
-	"x-access-token":       {},
-	"x-csrf-token":         {},
-	"x-session-token":      {},
-	"x-amz-security-token": {},
-	"x-amz-content-sha256": {},
-	// A Digest challenge carries the nonce a replay would need.
-	"www-authenticate": {},
-}
-
-// sensitiveQueryParams are the query keys whose values are treated as credentials.
-var sensitiveQueryParams = map[string]struct{}{
-	"token":         {},
-	"access_token":  {},
-	"refresh_token": {},
-	"api_key":       {},
-	"apikey":        {},
-	"key":           {},
-	"secret":        {},
-	"password":      {},
-	"sig":           {},
-	"signature":     {},
-	"code":          {},
-	"code_verifier": {},
-	"client_secret": {},
-	"assertion":     {},
-	"id_token":      {},
-	// The presigned-URL twins of the x-amz-* headers above.
-	"x-amz-signature":      {},
-	"x-amz-credential":     {},
-	"x-amz-security-token": {},
 }
 
 // authTypeDoc renders an auth-type registry for a tool description, so a new
@@ -85,11 +43,8 @@ func isVariableRef(v string) bool {
 	return !strings.Contains(t[2:len(t)-2], "}}")
 }
 
-func maskSensitiveValue(name, value string, sensitive map[string]struct{}) string {
-	if value == "" || isVariableRef(value) {
-		return value
-	}
-	if _, ok := sensitive[strings.ToLower(strings.TrimSpace(name))]; !ok {
+func maskSensitiveValue(value string, sensitive bool) string {
+	if !sensitive || value == "" || isVariableRef(value) {
 		return value
 	}
 	return redactedValue
@@ -102,7 +57,7 @@ func maskHeaderItems(items []entities.HeaderItem) []entities.HeaderItem {
 	}
 	out := make([]entities.HeaderItem, len(items))
 	for i, h := range items {
-		h.Value = maskSensitiveValue(h.Key, h.Value, sensitiveHeaders)
+		h.Value = maskSensitiveValue(h.Value, secrets.IsSensitiveHeader(h.Key))
 		out[i] = h
 	}
 	return out
@@ -117,64 +72,17 @@ func maskResponseHeaders(headers map[string][]string) map[string][]string {
 	for k, values := range headers {
 		masked := make([]string, len(values))
 		for i, v := range values {
-			masked[i] = maskSensitiveValue(k, v, sensitiveHeaders)
+			masked[i] = maskSensitiveValue(v, secrets.IsSensitiveHeader(k))
 		}
 		out[k] = masked
 	}
 	return out
 }
 
-// paramKey normalizes a query parameter name for lookups: the receiver decodes
-// "access%5Ftoken" as "access_token", so classification must see the same name.
-func paramKey(name string) string {
-	if decoded, err := url.QueryUnescape(name); err == nil {
-		name = decoded
-	}
-	return strings.ToLower(strings.TrimSpace(name))
-}
-
-// splitQuery cuts raw into prefix, query and fragment. Written by hand rather
-// than via net/url so that "{{var}}" placeholders survive untouched.
-func splitQuery(raw string) (prefix, query, suffix string, ok bool) {
-	q := strings.IndexByte(raw, '?')
-	if q < 0 {
-		return "", "", "", false
-	}
-	prefix, query = raw[:q+1], raw[q+1:]
-	if frag := strings.IndexByte(query, '#'); frag >= 0 {
-		suffix, query = query[frag:], query[:frag]
-	}
-	if query == "" {
-		return "", "", "", false
-	}
-	return prefix, query, suffix, true
-}
-
-// maskURLSecrets redacts credential query parameters.
+// maskURLSecrets redacts credential query parameters. Only the query: restoreURLSecrets puts
+// the stored values back by parameter, and a mask elsewhere could not be restored.
 func maskURLSecrets(raw string) string {
-	prefix, query, suffix, ok := splitQuery(raw)
-	if !ok {
-		return raw
-	}
-
-	parts := strings.Split(query, "&")
-	changed := false
-	for i, part := range parts {
-		eq := strings.IndexByte(part, '=')
-		if eq < 0 {
-			continue
-		}
-		name, value := part[:eq], part[eq+1:]
-		masked := maskSensitiveValue(paramKey(name), value, sensitiveQueryParams)
-		if masked != value {
-			parts[i] = name + "=" + masked
-			changed = true
-		}
-	}
-	if !changed {
-		return raw
-	}
-	return prefix + strings.Join(parts, "&") + suffix
+	return secrets.MaskQuery(raw, redactedValue)
 }
 
 // maskVariableValue redacts variables the user flagged as secret.
@@ -224,14 +132,14 @@ func restoreAuthData(input, current string) (string, error) {
 
 // queryValues indexes a URL's query by lowercased parameter name.
 func queryValues(raw string) map[string][]string {
-	_, query, _, ok := splitQuery(raw)
+	_, query, _, ok := secrets.SplitQuery(raw)
 	if !ok {
 		return nil
 	}
 	out := make(map[string][]string)
 	for _, part := range strings.Split(query, "&") {
 		if eq := strings.IndexByte(part, '='); eq >= 0 {
-			key := paramKey(part[:eq])
+			key := secrets.ParamKey(part[:eq])
 			out[key] = append(out[key], part[eq+1:])
 		}
 	}
@@ -244,7 +152,7 @@ func restoreURLSecrets(input, current string) (string, error) {
 	if !strings.Contains(input, redactedValue) {
 		return input, nil
 	}
-	prefix, query, suffix, ok := splitQuery(input)
+	prefix, query, suffix, ok := secrets.SplitQuery(input)
 	if !ok {
 		return "", redactedEchoErr("url")
 	}
@@ -258,7 +166,7 @@ func restoreURLSecrets(input, current string) (string, error) {
 			continue
 		}
 		name, value := part[:eq], part[eq+1:]
-		key := paramKey(name)
+		key := secrets.ParamKey(name)
 		idx := seen[key]
 		seen[key]++
 		if value != redactedValue {

@@ -53,6 +53,7 @@ func newTokenSyncer(t *testing.T) (*workspaceSyncer, *sql.DB, *recordingCleaner)
 		sqlite.NewRequestRepo(db),
 		sqlite.NewEnvironmentRepo(db),
 		sqlite.NewVariableRepo(db),
+		sqlite.NewResponseExampleRepo(db),
 		cleaner,
 	)
 	ws := &workspaceSyncer{
@@ -305,6 +306,10 @@ func TestPullAll_SweepsOncePerBatchInsideTheTransaction(t *testing.T) {
 	client := &fakeSyncClient{}
 	ws, db, cleaner := newInboundSyncer(t, client)
 	coll := hostCollection(t, db)
+	if _, err := db.Exec(`UPDATE workspaces SET last_sync_seq = 5 WHERE id = ?`, testWorkspaceID.String()); err != nil {
+		t.Fatalf("seed last_sync_seq: %v", err)
+	}
+	ws.setCursor(5)
 
 	pulls := 0
 	client.pull = func(*syncv1.PullRequest) (*syncv1.PullResponse, error) {
@@ -344,8 +349,8 @@ func TestPullAll_SweepsOncePerBatchInsideTheTransaction(t *testing.T) {
 	if cleaner.sweeps != 1 {
 		t.Fatalf("sweeps = %d, want 1 per batch", cleaner.sweeps)
 	}
-	if seqAtSweep != 0 {
-		t.Fatalf("last_sync_seq at sweep time = %d, want the pre-batch 0", seqAtSweep)
+	if seqAtSweep != 5 {
+		t.Fatalf("last_sync_seq at sweep time = %d, want the pre-batch 5", seqAtSweep)
 	}
 
 	var seq int64

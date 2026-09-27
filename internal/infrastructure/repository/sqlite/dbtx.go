@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 )
 
@@ -13,6 +14,8 @@ type DBTX interface {
 }
 
 type txKey struct{}
+
+type afterCommitKey struct{}
 
 func ContextWithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
@@ -31,18 +34,74 @@ func WithTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context) error)
 	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		return fn(ctx)
 	}
+	return runTx(ctx, db, fn)
+}
 
+// WithInboundTx is WithTx on a connection with foreign keys off: a sync page may carry a child
+// before its parent. The pragma is a no-op inside a transaction, so a caller's TX is joined as is.
+func WithInboundTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context) error) error {
+	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return fn(ctx)
+	}
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("inbound conn: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var fkWas int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fkWas); err != nil {
+		return fmt.Errorf("read foreign_keys: %w", err)
+	}
+	if fkWas != 0 {
+		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+			return fmt.Errorf("disable foreign_keys: %w", err)
+		}
+		defer restoreForeignKeys(conn)
+	}
+	return runTx(ctx, conn, fn)
+}
+
+// restoreForeignKeys discards a connection it cannot restore rather than pool it with the check off.
+func restoreForeignKeys(conn *sql.Conn) {
+	if _, err := conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON"); err != nil {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	}
+}
+
+type txBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
+func runTx(ctx context.Context, db txBeginner, fn func(ctx context.Context) error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
-	txCtx := ContextWithTx(ctx, tx)
+	hooks := new([]func())
+	txCtx := context.WithValue(ContextWithTx(ctx, tx), afterCommitKey{}, hooks)
 
 	if err := fn(txCtx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, hook := range *hooks {
+		hook()
+	}
+	return nil
+}
+
+// Inside WithTx fn runs once the outermost transaction commits and never on rollback; elsewhere it runs at once.
+func AfterCommit(ctx context.Context, fn func()) {
+	if hooks, ok := ctx.Value(afterCommitKey{}).(*[]func()); ok {
+		*hooks = append(*hooks, fn)
+		return
+	}
+	fn()
 }

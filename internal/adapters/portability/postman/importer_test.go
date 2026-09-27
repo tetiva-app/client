@@ -17,6 +17,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
+	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
@@ -51,11 +52,14 @@ func (s *stubCollectionUC) Move(context.Context, collection.MoveOpt) (*entities.
 
 type stubRequestUC struct {
 	created []request.Create
+	ids     []uuid.UUID
 }
 
 func (s *stubRequestUC) Create(_ context.Context, input request.Create, _ request.CreateOpt) (*entities.Request, error) {
 	s.created = append(s.created, input)
-	return &entities.Request{ID: uuid.New(), Name: input.Name}, nil
+	id := uuid.New()
+	s.ids = append(s.ids, id)
+	return &entities.Request{ID: id, Name: input.Name, Protocol: input.Protocol}, nil
 }
 
 func (s *stubRequestUC) GetByID(context.Context, uuid.UUID) (*entities.Request, error) {
@@ -75,6 +79,10 @@ func (s *stubRequestUC) Execute(context.Context, uuid.UUID, request.ExecuteOpt) 
 func (s *stubRequestUC) BuildCurl(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
 	return request.CurlResult{}, nil
 }
+func (s *stubRequestUC) BuildSnippetInput(context.Context, *entities.Request, request.BuildSnippetOpt) (request.SnippetInput, error) {
+	return request.SnippetInput{}, nil
+}
+
 func (s *stubRequestUC) Move(context.Context, request.MoveOpt) (*entities.Request, error) {
 	return nil, nil
 }
@@ -114,6 +122,33 @@ func (s *stubRequestUC) ResolveWebSocket(_ context.Context, _, _ uuid.UUID, _ st
 
 func (s *stubRequestUC) SubstituteMessage(_ context.Context, _ uuid.UUID, text string) (string, error) {
 	return text, nil
+}
+
+type stubExampleUC struct {
+	created []example.Create
+	failOn  func(example.Create) error
+}
+
+func (s *stubExampleUC) Create(_ context.Context, in example.Create, _ example.CreateOpt) (*entities.ResponseExample, error) {
+	if s.failOn != nil {
+		if err := s.failOn(in); err != nil {
+			return nil, err
+		}
+	}
+	s.created = append(s.created, in)
+	return &entities.ResponseExample{ID: uuid.New(), RequestID: in.RequestID, Name: in.Name}, nil
+}
+
+func (s *stubExampleUC) Edit(context.Context, example.Edit, example.EditOpt) (*entities.ResponseExample, error) {
+	return nil, nil
+}
+func (s *stubExampleUC) Delete(context.Context, example.DeleteOpt) error { return nil }
+func (s *stubExampleUC) ListByRequest(context.Context, uuid.UUID) ([]*entities.ResponseExample, error) {
+	return nil, nil
+}
+func (s *stubExampleUC) DeleteByRequest(context.Context, uuid.UUID, string) error { return nil }
+func (s *stubExampleUC) MoveToWorkspace(context.Context, uuid.UUID, uuid.UUID, string) error {
+	return nil
 }
 
 func TestImportCollection_SimpleStructure(t *testing.T) {
@@ -159,7 +194,7 @@ func TestImportCollection_SimpleStructure(t *testing.T) {
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: workspaceID,
 		UserID:      "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, result.FoldersCreated)
@@ -201,7 +236,7 @@ func TestImportCollection_WithParentID(t *testing.T) {
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
 		ParentID:    &parentID,
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.FoldersCreated)
@@ -221,7 +256,7 @@ func TestImportCollection_InvalidSchema(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, &stubRequestUC{})
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "v2.1")
@@ -254,7 +289,7 @@ func TestImportCollection_Headers(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(reqUC.created))
@@ -301,7 +336,7 @@ func TestImportCollection_FormData(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(reqUC.created))
@@ -315,7 +350,7 @@ func TestImportCollection_InvalidJSON(t *testing.T) {
 	_, err := postman.ImportCollection(context.Background(), []byte("not json"), postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, &stubRequestUC{})
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid JSON")
@@ -355,7 +390,7 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.True(t, len(collUC.created) >= 2)
@@ -377,7 +412,7 @@ func TestImportCollection_RequestLevelDescription(t *testing.T) {
 
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	byName := make(map[string]request.Create, len(reqUC.created))
@@ -410,7 +445,7 @@ func TestImportCollection_NestedUnderRequestAndUnnamedItem(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	var names []string
@@ -432,7 +467,7 @@ func TestImportCollection_NamelessFolders(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err, `an explicitly empty "item": [] under a nameless folder must not abort the import`)
 
 	var folders []string
@@ -456,7 +491,7 @@ func TestImportCollection_EmptyFolderAndDescriptionTypes(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, res.FoldersCreated, "an item with neither request nor item is an empty folder")
@@ -483,16 +518,18 @@ func TestImportCollection_RealPostmanFile(t *testing.T) {
 
 	collUC := &stubCollectionUC{}
 	reqUC := &stubRequestUC{}
+	exUC := &stubExampleUC{}
 
 	result, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001"),
 		UserID:      "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, exUC)
 
 	require.NoError(t, err)
 
 	t.Logf("Folders created: %d", result.FoldersCreated)
 	t.Logf("Requests created: %d", result.RequestsCreated)
+	t.Logf("Examples created: %d, warnings: %d", len(exUC.created), len(result.Warnings))
 
 	assert.True(t, result.FoldersCreated >= 18, "expected at least 18 folders (root + 17 sub)")
 	assert.True(t, result.RequestsCreated >= 80, "expected at least 80 requests")
@@ -558,7 +595,7 @@ func TestImportCollection_GraphQL(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 2, len(reqUC.created))
@@ -605,7 +642,7 @@ func TestImportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -638,7 +675,7 @@ func TestImportCollection_TruncatesOversizedDescription(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -650,4 +687,98 @@ func TestImportCollection_TruncatesOversizedDescription(t *testing.T) {
 
 	warnings := strings.Join(res.Warnings, "\n")
 	assert.Contains(t, warnings, `request "Ping": description longer than 16384 bytes was truncated`)
+}
+
+func TestImportCollection_ScriptsAndBodies(t *testing.T) {
+	data, err := os.ReadFile("testdata/scripts-bodies.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
+	}, collUC, reqUC, &stubExampleUC{})
+	require.NoError(t, err)
+
+	require.Len(t, collUC.created, 2)
+	assert.Equal(t, "pm.environment.set('ts', Date.now());", collUC.created[0].PreScript)
+	assert.Empty(t, collUC.created[0].PostScript, "a blank Postman script is not a script")
+	assert.Equal(t, "pm.test('ok', () => pm.response.to.have.status(200));", collUC.created[1].PostScript,
+		"exec may be a single string")
+
+	byName := createdByName(reqUC.created)
+	require.Len(t, byName, 3)
+
+	login := byName["Login form"]
+	assert.Equal(t, "const a = 1;\npm.request.headers.upsert({key: 'X-A', value: String(a)});", login.PreScript)
+	assert.Empty(t, login.PostScript, "a disabled script is not imported")
+	assert.Equal(t, entities.BodyTypeForm, login.BodyType)
+	assert.JSONEq(t, `[
+		{"key":"user","value":"alice","type":"text","enabled":true},
+		{"key":"remember","value":"1","type":"text","enabled":false}
+	]`, login.Body)
+	assert.Equal(t, entities.AuthTypeInherit, login.AuthType, "a request without an auth block inherits")
+
+	upload := byName["Upload avatar"]
+	assert.Equal(t, entities.BodyTypeForm, upload.BodyType)
+	assert.JSONEq(t, `[
+		{"key":"title","value":"me","type":"text","enabled":true},
+		{"key":"avatar","value":"","type":"file","enabled":true}
+	]`, upload.Body)
+	assert.NotContains(t, upload.Body, "id_rsa")
+	assert.Equal(t, entities.AuthTypeNone, upload.AuthType, "noauth is an explicit none")
+
+	blob := byName["Put blob"]
+	assert.Equal(t, entities.BodyTypeBinary, blob.BodyType)
+	assert.Empty(t, blob.Body)
+
+	assert.Equal(t, []string{
+		`request "Login form": disabled test script was not imported`,
+		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
+		`request "Put blob": the file body was imported without its file; pick it again`,
+		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.request, pm.response, pm.test), so some may need changes",
+	}, res.Warnings)
+}
+
+func TestImportCollection_ScriptsAreOptIn(t *testing.T) {
+	data, err := os.ReadFile("testdata/scripts-bodies.postman_collection.json")
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user",
+	}, collUC, reqUC, &stubExampleUC{})
+	require.NoError(t, err)
+
+	require.Len(t, collUC.created, 2)
+	for _, c := range collUC.created {
+		assert.Empty(t, c.PreScript+c.PostScript, "collection %q", c.Name)
+	}
+	require.Len(t, reqUC.created, 3)
+	for _, r := range reqUC.created {
+		assert.Empty(t, r.PreScript+r.PostScript, "request %q", r.Name)
+	}
+	assert.Equal(t, []string{
+		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
+		`request "Put blob": the file body was imported without its file; pick it again`,
+	}, res.Warnings)
+}
+
+func TestImportCollection_NoScriptsNoScriptWarning(t *testing.T) {
+	data := postman.PostmanCollection{
+		Info: postman.PostmanInfo{Name: "Quiet", Schema: postman.SchemaV21},
+		Event: []postman.PostmanEvent{
+			{Listen: "prerequest", Script: postman.PostmanScript{Type: "text/javascript", Exec: []string{"", "  "}}},
+		},
+		Item: []postman.PostmanItem{
+			{Name: "Ping", Request: &postman.PostmanRequest{Method: "GET", URL: postman.PostmanURL{Raw: "/ping"}}},
+		},
+	}
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	res, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
+	require.NoError(t, err)
+	assert.Empty(t, res.Warnings)
 }

@@ -5,6 +5,14 @@ export interface AvailableUpdate {
   url: string
 }
 
+export interface SnippetTargets {
+  http: string
+  grpc: string
+  websocket: string
+}
+
+export type SnippetFamily = keyof SnippetTargets
+
 export interface AppSettings {
   theme: ThemePreference
   editorFontSize: number
@@ -14,6 +22,8 @@ export interface AppSettings {
   availableUpdate: AvailableUpdate | null
   lastSeenWhatsNewVersion: string | null
   onboardingCompletedAt: string | null
+  // Code tab language per protocol family; GraphQL shares the HTTP choice.
+  snippetTargets: SnippetTargets
 }
 
 // Legacy pre-rebrand key — existing installs already store settings under it.
@@ -30,6 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   availableUpdate: null,
   lastSeenWhatsNewVersion: null,
   onboardingCompletedAt: null,
+  snippetTargets: { http: 'curl', grpc: 'grpcurl', websocket: 'websocat' },
 }
 
 function normalizeTheme(value: unknown): ThemePreference {
@@ -62,12 +73,26 @@ function normalizeAvailableUpdate(value: unknown): AvailableUpdate | null {
   return null
 }
 
+// Keys are not checked against the registry: the Code tab falls back to the first offered target.
+export function normalizeSnippetTargets(value: unknown): SnippetTargets {
+  const v = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const pick = (family: SnippetFamily) => {
+    const key = v[family]
+    return typeof key === 'string' && key !== '' ? key : DEFAULT_SETTINGS.snippetTargets[family]
+  }
+  return { http: pick('http'), grpc: pick('grpc'), websocket: pick('websocket') }
+}
+
+function defaultSettings(): AppSettings {
+  return { ...DEFAULT_SETTINGS, snippetTargets: normalizeSnippetTargets(undefined) }
+}
+
 // WebKit can throw on the localStorage access itself (private mode), and stored
 // JSON may be corrupt — any failure yields a fresh copy of the defaults.
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
+    if (!raw) return defaultSettings()
     const parsed = JSON.parse(raw) as Partial<AppSettings>
     return {
       theme: normalizeTheme(parsed.theme),
@@ -82,9 +107,10 @@ export function loadSettings(): AppSettings {
       availableUpdate: normalizeAvailableUpdate(parsed.availableUpdate),
       lastSeenWhatsNewVersion: normalizeNullableString(parsed.lastSeenWhatsNewVersion),
       onboardingCompletedAt: normalizeNullableString(parsed.onboardingCompletedAt),
+      snippetTargets: normalizeSnippetTargets(parsed.snippetTargets),
     }
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    return defaultSettings()
   }
 }
 

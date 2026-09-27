@@ -6,16 +6,23 @@ const editMock = vi.fn()
 const listMock = vi.fn()
 const getByIdMock = vi.fn()
 const deleteMock = vi.fn()
+const moveMock = vi.fn()
+const exampleEditMock = vi.fn()
+const detachMock = vi.fn()
 
 vi.mock('@/services', () => ({
-  getRequestService: () => Promise.resolve({ edit: editMock, list: listMock, getById: getByIdMock, delete: deleteMock }),
+  getRequestService: () => Promise.resolve({ edit: editMock, list: listMock, getById: getByIdMock, delete: deleteMock, move: moveMock }),
+  getExampleService: () => Promise.resolve({ edit: exampleEditMock }),
   getWebSocketService: () => Promise.resolve({
     connect: vi.fn(), send: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn(),
   }),
+  getWindowService: () => Promise.resolve({ detachRequest: detachMock }),
   isWailsEnvironment: () => false,
 }))
 
 import { useRequestStore, AUTOSAVE_DELAY_MS } from './tabs'
+import { useExamplesStore } from './examples'
+import type { Example } from '@/types/example'
 import { MAX_DESCRIPTION_BYTES } from '@/lib/description'
 import { useToast } from '@/composables/useToast'
 
@@ -27,6 +34,29 @@ function makeRequest(over: Partial<Request> = {}): Request {
     version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',
     ...over,
   } as Request
+}
+
+function makeExample(over: Partial<Example> = {}): Example {
+  return {
+    id: 'e1', requestId: 'r1', name: '200 OK', statusCode: 200, statusText: 'OK', headers: [], body: '',
+    contentType: '', protocol: 'http', sortOrder: 0, version: 1, createdAt: '', updatedAt: '',
+    ...over,
+  }
+}
+
+// Stands in for the backend: an edit comes back at the next version.
+function editExamplesOk(calls: string[] = []) {
+  exampleEditMock.mockImplementation(async (req: Example) => {
+    calls.push(`example ${req.id}`)
+    return { data: makeExample({ ...req, version: req.version + 1 }) }
+  })
+}
+
+function editDraft(id: string, requestId: string) {
+  const examples = useExamplesStore()
+  examples.applyServerList(requestId, [...(examples.byRequest[requestId] ?? []), makeExample({ id, requestId })])
+  examples.openDraft(id)
+  examples.updateDraft(id, { body: 'edited' })
 }
 
 describe('saveToBackend', () => {
@@ -193,8 +223,13 @@ describe('purgeCollectionSubtree', () => {
     )
     store.activeTabId = 'request:r2'
 
+    editDraft('e1', 'r1')
+    editDraft('e3', 'r3')
+
     await store.purgeCollectionSubtree(['c1', 'c2'])
 
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(false)
+    expect(useExamplesStore().hasUnsaved('r3')).toBe(true)
     expect(store.openTabs.map(t => t.id)).toEqual(['request:r3'])
     expect(store.activeTabId).toBe('request:r3')
     expect(store.getById('r1')).toBeUndefined()
@@ -316,6 +351,22 @@ describe('remove', () => {
 
     await expect(store.remove('r1', 1)).resolves.toBe(true)
     expect(store.getById('r1')).toBeUndefined()
+  })
+
+  it('drops the example drafts of a deleted request, not of a refused delete', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    editDraft('e1', 'r1')
+    editDraft('e2', 'r2')
+
+    deleteMock.mockResolvedValueOnce({ error: { code: 'internal', message: 'server is down' } })
+    await store.remove('r1', 1)
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(true)
+
+    deleteMock.mockResolvedValueOnce({ data: true })
+    await store.remove('r1', 1)
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(false)
+    expect(useExamplesStore().hasUnsaved('r2')).toBe(true)
   })
 })
 
@@ -592,15 +643,83 @@ describe('forgetting token owners on close', () => {
     expect(forget).not.toHaveBeenCalled()
   })
 
-  // TabBar.detachTab bypasses releaseTab and calls this helper by hand.
-  it('exposes forgetTokenStatus for the detach path', async () => {
+  it('forgets a request owner when its tab moves to a window', async () => {
     const store = useRequestStore()
     const forget = await spyOnForget()
     openBoth(store)
+    detachMock.mockResolvedValue({ data: true })
 
-    await store.forgetTokenStatus([{ kind: 'request', id: 'r1' }])
+    await store.detachTab(store.openTabs[0])
 
     expect(forget).toHaveBeenCalledWith('request', 'r1')
+  })
+})
+
+describe('detachTab', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    editMock.mockReset()
+    exampleEditMock.mockReset()
+    detachMock.mockReset()
+    detachMock.mockResolvedValue({ data: true })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function openRequestTab(store: ReturnType<typeof useRequestStore>) {
+    store.loadRequest(makeRequest())
+    store.openTabs.push({ id: 'request:r1', type: 'request', requestId: 'r1', name: 'Req', method: 'GET', protocol: 'http' })
+    store.activeTabId = 'request:r1'
+  }
+
+  it('saves the example drafts, then hands the request to a window', async () => {
+    const store = useRequestStore()
+    openRequestTab(store)
+    const calls: string[] = []
+    editExamplesOk(calls)
+    detachMock.mockImplementation(async () => {
+      calls.push('detach')
+      return { data: true }
+    })
+    editDraft('e1', 'r1')
+    const examples = useExamplesStore()
+    examples.newDraft('r1', 'http', { name: 'untouched', statusCode: 200, statusText: 'OK', headers: [], body: '', contentType: '' })
+
+    await store.detachTab(store.openTabs[0])
+
+    expect(calls).toEqual(['example e1', 'detach'])
+    expect(store.openTabs).toEqual([])
+    expect(store.activeTabId).toBeNull()
+    expect(examples.drafts).toEqual({})
+  })
+
+  it('stays in this window while an example draft is left unsaved', async () => {
+    const store = useRequestStore()
+    openRequestTab(store)
+    editDraft('e1', 'r1')
+    useExamplesStore().drafts.e1.remote = 'updated'
+
+    await store.detachTab(store.openTabs[0])
+
+    expect(detachMock).not.toHaveBeenCalled()
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:r1'])
+    expect(useExamplesStore().drafts.e1).toMatchObject({ dirty: true, remote: 'updated' })
+    expect(useToast().toasts.value.at(-1)?.message).toBe('Save or discard the unsaved examples before opening this request in a window')
+  })
+
+  it('stays in this window when an example draft fails to save', async () => {
+    const store = useRequestStore()
+    openRequestTab(store)
+    exampleEditMock.mockResolvedValue({ error: { code: 'internal', message: 'disk is full' } })
+    editDraft('e1', 'r1')
+
+    await store.detachTab(store.openTabs[0])
+
+    expect(detachMock).not.toHaveBeenCalled()
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:r1'])
   })
 })
 
@@ -787,5 +906,148 @@ describe('autosave', () => {
     await store.flushAllDirty()
     expect(editMock).toHaveBeenCalledTimes(2)
     expect(saveScripts).toHaveBeenCalledTimes(1)
+  })
+
+  it('saveRequestAndExamples saves a dirty request and the drafts of its examples', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    editMock.mockResolvedValue({ data: makeRequest({ url: '/closed', version: 2 }) })
+    exampleEditMock.mockReset()
+    editExamplesOk()
+    store.updateLocal('r1', { url: '/closed' })
+    editDraft('e1', 'r1')
+
+    await store.saveRequestAndExamples('r1')
+
+    expect(editMock).toHaveBeenCalledTimes(1)
+    expect(exampleEditMock).toHaveBeenCalledTimes(1)
+    expect(store.isRequestDirty('r1')).toBe(false)
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(false)
+  })
+
+  it('flushAllDirty saves edited example drafts too', async () => {
+    const store = useRequestStore()
+    exampleEditMock.mockReset()
+    editExamplesOk()
+    editDraft('e1', 'r1')
+    editDraft('e2', 'r2')
+
+    await store.flushAllDirty()
+
+    expect(exampleEditMock.mock.calls.map(c => [c[0].id, c[0].body])).toEqual([['e1', 'edited'], ['e2', 'edited']])
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(false)
+    expect(useExamplesStore().hasUnsaved('r2')).toBe(false)
+  })
+})
+
+describe('flushCollections', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    editMock.mockReset()
+    exampleEditMock.mockReset()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  function editRequestsOk() {
+    const store = useRequestStore()
+    editMock.mockImplementation(async (input: Request) => ({
+      data: makeRequest({ ...store.getById(input.id), url: input.url, version: input.version + 1 }),
+    }))
+  }
+
+  it('saves the requests, collection editors and example drafts of the given collections only', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'r1', collectionId: 'root' }))
+    store.loadRequest(makeRequest({ id: 'r2', collectionId: 'folder' }))
+    store.loadRequest(makeRequest({ id: 'r3', collectionId: 'other' }))
+    for (const id of ['r1', 'r2', 'r3']) store.updateLocal(id, { url: '/edited' })
+    editRequestsOk()
+    const rootEditor = vi.fn(async () => true)
+    const cleanEditor = vi.fn(async () => true)
+    const otherEditor = vi.fn(async () => true)
+    store.registerCollectionEditor('root', { saveScripts: rootEditor, scriptsDirty: true })
+    store.registerCollectionEditor('folder', { saveScripts: cleanEditor, scriptsDirty: false })
+    store.registerCollectionEditor('other', { saveScripts: otherEditor, scriptsDirty: true })
+    editExamplesOk()
+    editDraft('e2', 'r2')
+    editDraft('e3', 'r3')
+
+    await expect(store.flushCollections(['root', 'folder'])).resolves.toBe(true)
+
+    expect(editMock.mock.calls.map(c => c[0].id).sort()).toEqual(['r1', 'r2'])
+    expect(rootEditor).toHaveBeenCalledTimes(1)
+    expect(cleanEditor).not.toHaveBeenCalled()
+    expect(otherEditor).not.toHaveBeenCalled()
+    expect(exampleEditMock.mock.calls.map(c => c[0].id)).toEqual(['e2'])
+    expect(store.isRequestDirty('r3')).toBe(true)
+  })
+
+  it('reports a request that failed to save', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'r1', collectionId: 'root' }))
+    store.updateLocal('r1', { url: '/edited' })
+    editMock.mockResolvedValue({ error: { code: 'internal', message: 'disk full' } })
+
+    await expect(store.flushCollections(['root'])).resolves.toBe(false)
+  })
+
+  it('reports a collection editor that failed to save', async () => {
+    const store = useRequestStore()
+    store.registerCollectionEditor('root', { saveScripts: async () => false, scriptsDirty: true })
+
+    await expect(store.flushCollections(['root'])).resolves.toBe(false)
+  })
+
+  it('reports an example draft that failed to save', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'r1', collectionId: 'root' }))
+    exampleEditMock.mockResolvedValue({ error: { code: 'internal', message: 'disk full' } })
+    editDraft('e1', 'r1')
+
+    await expect(store.flushCollections(['root'])).resolves.toBe(false)
+  })
+})
+
+describe('move', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    moveMock.mockReset()
+    exampleEditMock.mockReset()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('saves the example drafts of the request before moving it', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    const calls: string[] = []
+    editExamplesOk(calls)
+    moveMock.mockImplementation(async (req: { targetCollectionId: string }) => {
+      calls.push('move')
+      return { data: makeRequest({ collectionId: req.targetCollectionId, version: 2 }) }
+    })
+    editDraft('e1', 'r1')
+    editDraft('e9', 'r9')
+
+    await expect(store.move('r1', 'c2', 1)).resolves.toBe(true)
+
+    expect(calls).toEqual(['example e1', 'move'])
+    expect(useExamplesStore().hasUnsaved('r9')).toBe(true)
+  })
+
+  it('still moves the request when a draft cannot be saved', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    exampleEditMock.mockResolvedValue({ error: { code: 'validation', message: 'validation failed' } })
+    moveMock.mockResolvedValue({ data: makeRequest({ collectionId: 'c2', version: 2 }) })
+    editDraft('e1', 'r1')
+
+    await expect(store.move('r1', 'c2', 1)).resolves.toBe(true)
+
+    expect(moveMock).toHaveBeenCalledTimes(1)
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(true)
   })
 })

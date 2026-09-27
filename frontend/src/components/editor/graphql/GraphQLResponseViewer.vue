@@ -3,12 +3,14 @@ import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import type { ResponseState } from '@/stores/responses'
+import SaveExampleInline from '../examples/SaveExampleInline.vue'
 
 const CodeViewer = defineAsyncComponent(() => import('../CodeViewer.vue'))
 
 const props = defineProps<{
   state: ResponseState
   loading: boolean
+  requestId: string
 }>()
 
 const emit = defineEmits<{
@@ -168,6 +170,12 @@ function handleSearchKeydown(event: KeyboardEvent) {
           <span class="size-1.5 rounded-full bg-[var(--gc-error)]" />
           GraphQL errors
         </span>
+        <SaveExampleInline
+          class="ml-auto"
+          :request-id="requestId"
+          protocol="graphql"
+          :response="state.data"
+        />
       </div>
 
       <div class="flex items-center border-b border-border px-3">

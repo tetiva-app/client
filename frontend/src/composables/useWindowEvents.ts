@@ -9,7 +9,15 @@ interface WindowEventsConfig {
   onWorkspaceSwitched?: () => void
   onRequestDeleted?: () => void
   onRequestUpdated?: () => void
+  onSaveAndClose?: () => void
   onSyncChanged?: () => void
+  onExamplesChanged?: (requestId: string) => void
+}
+
+// The Wails runtime may wrap the emitted map in `data` depending on version.
+export function eventPayload(evt: unknown): Record<string, unknown> {
+  const wrapped = (evt as { data?: unknown })?.data
+  return ((wrapped ?? evt) as Record<string, unknown>) ?? {}
 }
 
 export function useWindowEvents(config: WindowEventsConfig) {
@@ -39,6 +47,13 @@ export function useWindowEvents(config: WindowEventsConfig) {
       unsubscribers.push(Events.On('sync:entity_updated', config.onSyncChanged))
     }
 
+    const onExamplesChanged = config.onExamplesChanged
+    if (onExamplesChanged) {
+      unsubscribers.push(Events.On('examples:changed', (evt: unknown) => {
+        onExamplesChanged(String(eventPayload(evt).requestId ?? ''))
+      }))
+    }
+
     if (config.mode === 'detached-request' && config.requestId) {
       if (config.onRequestDeleted) {
         unsubscribers.push(
@@ -48,6 +63,11 @@ export function useWindowEvents(config: WindowEventsConfig) {
       if (config.onRequestUpdated) {
         unsubscribers.push(
           Events.On(`request:updated:${config.requestId}`, config.onRequestUpdated),
+        )
+      }
+      if (config.onSaveAndClose) {
+        unsubscribers.push(
+          Events.On(`window:save-and-close:${config.requestId}`, config.onSaveAndClose),
         )
       }
     }

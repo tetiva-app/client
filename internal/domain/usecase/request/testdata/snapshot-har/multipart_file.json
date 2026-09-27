@@ -1,0 +1,71 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "db357321109e",
+    "name": "multipart_file",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "POST",
+      "url": "https://api.example.com/upload",
+      "headers": [],
+      "body": {
+        "type": "form",
+        "raw": "",
+        "fields": [
+          {
+            "key": "title",
+            "value": "Q3",
+            "type": "text",
+            "enabled": true
+          },
+          {
+            "key": "file",
+            "value": "report.pdf",
+            "type": "file",
+            "enabled": true
+          }
+        ],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/upload",
+    "httpVersion": "HTTP/1.1",
+    "headers": [],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "multipart/form-data",
+      "text": "",
+      "params": [
+        {
+          "name": "title",
+          "value": "Q3"
+        },
+        {
+          "name": "file",
+          "value": "",
+          "fileName": "report.pdf"
+        }
+      ]
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

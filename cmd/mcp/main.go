@@ -19,6 +19,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
+	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/domain/usecase/settings"
 	"github.com/tetiva-app/client/internal/domain/usecase/workspace"
@@ -46,21 +47,27 @@ func main() {
 	syncConfigRepo := sqlite.NewSyncConfigRepo(db)
 	tokenRepo := sqlite.NewAuthTokenRepo(db)
 
-	colUC := collection.NewUsecase(colRepo, tokenRepo)
+	txRunner := sqlite.NewTxRunner(db)
+	publicationRepo := sqlite.NewPublicationRepo(db)
+
+	colUC := collection.NewUsecase(colRepo, tokenRepo, txRunner, publicationRepo)
 	envUC := environment.NewUsecase(envRepo, varRepo)
-	wsUC := workspace.NewUsecase(wsRepo)
+	wsUC := workspace.NewUsecase(wsRepo, txRunner, publicationRepo)
+	exampleRepo := sqlite.NewResponseExampleRepo(db)
+	exampleUC := example.NewUsecase(exampleRepo, reqRepo, colRepo)
 	reqUC := request.NewUsecase(
 		reqRepo, &noopHistoryRepo{}, &noopHTTPRequester{},
 		&noopGRPCRequester{}, &noopGraphQLRequester{},
 		&noopEnvResolver{}, &noopScriptEngine{},
 		&noopScriptResolver{}, &noopVarPersister{},
 		request.NewAuthResolver(collectionReader{repo: colRepo}),
-		&noopCookieReader{}, nil, tokenRepo, auth.NewProvider(tokenRepo, nil, nil),
+		&noopCookieReader{}, collectionReader{repo: colRepo}, tokenRepo, auth.NewProvider(tokenRepo, nil, nil),
+		exampleUC, txRunner,
 	)
 
 	syncAuth := syncsvc.NewSyncAuthManager(syncConfigRepo)
 	engine := syncsvc.NewSyncEngine(syncAuth, syncQueueRepo, syncConfigRepo, db,
-		colRepo, reqRepo, envRepo, varRepo, tokenRepo)
+		colRepo, reqRepo, envRepo, varRepo, exampleRepo, tokenRepo)
 
 	// Debug binary: no UI to copy a token from, so MCP_TOKEN is the only source
 	// and an empty one leaves the server open.
@@ -164,6 +171,10 @@ func (n *noopGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ 
 type noopEnvResolver struct{}
 
 func (n *noopEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[string]string, error) {
+	return nil, nil
+}
+
+func (n *noopEnvResolver) ActiveVariables(_ context.Context, _ uuid.UUID) ([]*entities.Variable, error) {
 	return nil, nil
 }
 

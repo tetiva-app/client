@@ -63,7 +63,7 @@ func newWSUsecase(t *testing.T, repo *mockRepo, d wsDeps) request.Usecase {
 		auth = d.resolver
 	}
 	return request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
-		&mockEnvResolver{vars: d.vars}, engine, scripts, persist, auth, nil, nil, nil, nil)
+		&mockEnvResolver{vars: d.vars}, engine, scripts, persist, auth, nil, nil, nil, nil, nil, nil)
 }
 
 // newTestUsecaseWithEnv keeps the plain wiring used by the older websocket tests.

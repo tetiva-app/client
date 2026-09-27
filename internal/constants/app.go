@@ -6,7 +6,7 @@ const (
 	DBFileName = "data.db"
 	AppDir     = ".tetiva"
 	// LegacyAppDir is the pre-rebrand data directory (GopherCourier).
-	// NewDB migrates it to AppDir on first start after the rename.
+	// ResolveDataDir migrates it to AppDir on first start after the rename.
 	LegacyAppDir = ".gophercourier"
 )
 

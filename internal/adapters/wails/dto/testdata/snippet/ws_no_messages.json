@@ -1,0 +1,10 @@
+{
+  "protocol": "websocket",
+  "ws": {
+    "url": "wss://echo.example.com/ws",
+    "headers": {},
+    "subprotocols": [],
+    "messages": []
+  },
+  "warnings": []
+}

@@ -40,11 +40,11 @@ func (r *SyncedRequestRepo) Create(ctx context.Context, req *entities.Request) e
 	if err != nil || !r.isSyncEnabled(wsID) {
 		return r.inner.Create(ctx, req)
 	}
-	txErr := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Create(txCtx, req); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "request",
 			EntityID:    req.ID.String(),
@@ -52,12 +52,12 @@ func (r *SyncedRequestRepo) Create(ctx context.Context, req *entities.Request) e
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if txErr == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return txErr
 }
 
 func (r *SyncedRequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
@@ -78,11 +78,11 @@ func (r *SyncedRequestRepo) Update(ctx context.Context, req *entities.Request) e
 	if req.IsDelete {
 		action = "delete"
 	}
-	txErr := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Update(txCtx, req); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "request",
 			EntityID:    req.ID.String(),
@@ -90,12 +90,13 @@ func (r *SyncedRequestRepo) Update(ctx context.Context, req *entities.Request) e
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		// The syncer reads sync_queue on another connection and cannot see this row until the outermost commit.
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if txErr == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return txErr
 }
 
 func (r *SyncedRequestRepo) GetDescriptionByID(ctx context.Context, id uuid.UUID) (string, error) {

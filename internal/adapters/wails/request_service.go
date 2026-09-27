@@ -349,6 +349,33 @@ func (s *RequestService) GenerateCurl(req dto.GenerateCurlRequest) Result[dto.Ge
 	})
 }
 
+// BuildSnippetInput takes the open editor's state, so unsaved edits show up in the Code tab.
+func (s *RequestService) BuildSnippetInput(req dto.BuildSnippetRequest) Result[dto.SnippetInputDTO] {
+	ctx := context.Background()
+
+	workspaceID, err := uuid.Parse(req.WorkspaceID)
+	if err != nil {
+		return Err[dto.SnippetInputDTO](&domain.ValidationError{
+			Fields: map[string]string{"workspaceId": "invalid UUID"},
+		})
+	}
+	entity, err := req.Request.ToEntity()
+	if err != nil {
+		return Err[dto.SnippetInputDTO](err)
+	}
+
+	in, err := s.uc.BuildSnippetInput(ctx, entity, request.BuildSnippetOpt{
+		WorkspaceID:      workspaceID,
+		ResolveVariables: req.ResolveVariables,
+		IncludeSecrets:   req.IncludeSecrets,
+	})
+	if err != nil {
+		return Err[dto.SnippetInputDTO](err)
+	}
+
+	return OK(dto.SnippetInputToDTO(in))
+}
+
 func (s *RequestService) GRPCListServices(req dto.GRPCConnectRequest) Result[dto.GRPCSchemaResponse] {
 	ctx := context.Background()
 	schema, err := s.uc.GRPCListServices(ctx, request.GRPCConnectRequest{

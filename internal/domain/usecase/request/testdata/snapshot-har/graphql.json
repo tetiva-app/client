@@ -1,0 +1,60 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "3fa92533f92c",
+    "name": "graphql",
+    "description": "",
+    "protocol": "graphql",
+    "graphql": {
+      "url": "https://api.example.com/graphql",
+      "headers": [
+        {
+          "key": "X-Trace",
+          "value": "{{trace}}",
+          "enabled": true,
+          "redacted": false
+        }
+      ],
+      "query": "query Pet($id: ID!) {\n  pet(id: $id) { name }\n}",
+      "variables": "{\n  \"id\": \"{{petId}}\"\n}",
+      "operationName": "Pet"
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/graphql",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      },
+      {
+        "name": "X-Trace",
+        "value": "{{trace}}"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\"query\":\"query Pet($id: ID!) {\\n  pet(id: $id) { name }\\n}\",\"variables\":{\"id\":\"{{petId}}\"},\"operationName\":\"Pet\"}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

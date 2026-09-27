@@ -1,0 +1,113 @@
+=== curl ===
+curl 'https://api.example.com/h' \
+  -H 'Accept: text/plain' \
+  -H 'X-Multi: one, two'
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/h"
+headers = {
+    "Accept": "text/plain",
+    "X-Multi": "one, two",
+}
+
+response = requests.request("GET", url, headers=headers)
+print(response.text)
+
+=== js-fetch ===
+const url = "https://api.example.com/h";
+const options = {
+  method: "GET",
+  headers: {
+    "Accept": "text/plain",
+    "X-Multi": "one, two",
+  },
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/h"
+
+	req, _ := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("Accept", "text/plain")
+	req.Header.Add("X-Multi", "one, two")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/h"))
+    .header("Accept", "text/plain")
+    .header("X-Multi", "one, two")
+    .method("GET", HttpRequest.BodyPublishers.noBody())
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+Request request = new Request.Builder()
+  .url("https://api.example.com/h")
+  .get()
+  .addHeader("Accept", "text/plain")
+  .addHeader("X-Multi", "one, two")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Get,
+    RequestUri = new Uri("https://api.example.com/h"),
+    Headers =
+    {
+        { "Accept", "text/plain" },
+        { "X-Multi", "one, two" },
+    },
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('GET', 'https://api.example.com/h', [
+  'headers' => [
+    'Accept' => 'text/plain',
+    'X-Multi' => 'one, two',
+  ],
+]);
+
+echo $response->getBody();

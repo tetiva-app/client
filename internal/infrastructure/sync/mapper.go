@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/secrets"
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 )
 
@@ -143,6 +144,39 @@ func VariableToProto(v *entities.Variable, operationID string) *syncv1.SyncEntit
 			Value:         v.Value,
 			IsSecret:      v.IsSecret,
 			Enabled:       v.Enabled,
+		}.Build(),
+	}.Build()
+}
+
+// ResponseExampleToProto masks sensitive headers again: the usecase already does, but a
+// credential must not reach the server through a path that bypassed it.
+func ResponseExampleToProto(e *entities.ResponseExample, operationID string) *syncv1.SyncEntity {
+	masked := secrets.RedactHeaders(e.Headers)
+	headers := make([]*syncv1.HeaderItem, len(masked))
+	for i, h := range masked {
+		headers[i] = syncv1.HeaderItem_builder{
+			Key: h.Key, Value: h.Value, Enabled: h.Enabled,
+		}.Build()
+	}
+
+	return syncv1.SyncEntity_builder{
+		EntityType:  syncv1.EntityType_ENTITY_TYPE_RESPONSE_EXAMPLE,
+		EntityId:    e.ID.String(),
+		Version:     int32(e.Version),
+		IsDeleted:   e.IsDelete,
+		UpdatedAt:   timestamppb.New(e.UpdatedAt),
+		CreatedAt:   timestamppb.New(e.CreatedAt),
+		OperationId: operationID,
+		ResponseExample: syncv1.ResponseExampleData_builder{
+			RequestId:   e.RequestID.String(),
+			Name:        e.Name,
+			StatusCode:  int32(e.StatusCode),
+			StatusText:  e.StatusText,
+			Headers:     headers,
+			Body:        e.Body,
+			ContentType: e.ContentType,
+			Protocol:    string(e.Protocol),
+			SortOrder:   int32(e.SortOrder),
 		}.Build(),
 	}.Build()
 }
@@ -337,4 +371,61 @@ func VariableFromProto(e *syncv1.SyncEntity) (*entities.Variable, error) {
 	}
 
 	return v, nil
+}
+
+func ResponseExampleFromProto(e *syncv1.SyncEntity, workspaceID uuid.UUID) (*entities.ResponseExample, error) {
+	const funcName = "ResponseExampleFromProto"
+
+	d := e.GetResponseExample()
+	if d == nil {
+		return nil, fmt.Errorf("%s: missing response example data", funcName)
+	}
+
+	id, err := uuid.Parse(e.GetEntityId())
+	if err != nil {
+		return nil, fmt.Errorf("%s: invalid entity id %q: %w", funcName, e.GetEntityId(), err)
+	}
+	requestID, err := uuid.Parse(d.GetRequestId())
+	if err != nil {
+		return nil, fmt.Errorf("%s: invalid request id %q: %w", funcName, d.GetRequestId(), err)
+	}
+
+	protocol := entities.Protocol(d.GetProtocol())
+	if protocol == "" {
+		protocol = entities.ProtocolHTTP
+	}
+
+	ex := &entities.ResponseExample{
+		ID:          id,
+		RequestID:   requestID,
+		WorkspaceID: workspaceID,
+		Name:        d.GetName(),
+		StatusCode:  int(d.GetStatusCode()),
+		StatusText:  d.GetStatusText(),
+		Body:        d.GetBody(),
+		ContentType: d.GetContentType(),
+		Protocol:    protocol,
+		SortOrder:   int(d.GetSortOrder()),
+		Version:     int(e.GetVersion()),
+		IsDelete:    e.GetIsDeleted(),
+		CreatedBy:   "sync",
+		UpdatedBy:   "sync",
+	}
+
+	if e.HasCreatedAt() {
+		ex.CreatedAt = e.GetCreatedAt().AsTime()
+	}
+	if e.HasUpdatedAt() {
+		ex.UpdatedAt = e.GetUpdatedAt().AsTime()
+	}
+
+	protoHeaders := d.GetHeaders()
+	headers := make([]entities.HeaderItem, len(protoHeaders))
+	for i, h := range protoHeaders {
+		headers[i] = entities.HeaderItem{Key: h.GetKey(), Value: h.GetValue(), Enabled: h.GetEnabled()}
+	}
+	// A peer with a masking bug or its own client must not plant a credential here.
+	ex.Headers = secrets.RedactHeaders(headers)
+
+	return ex, nil
 }

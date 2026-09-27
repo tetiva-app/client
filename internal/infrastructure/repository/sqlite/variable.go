@@ -48,15 +48,28 @@ func (r *VariableRepo) Create(ctx context.Context, v *entities.Variable) error {
 	return nil
 }
 
+// Returns nil when the row is missing or soft-deleted.
 func (r *VariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Variable, error) {
+	return r.get(ctx, id, true)
+}
+
+// GetByIDIncludingDeleted returns soft-deleted rows too: a tombstone for an older server carries the last state.
+func (r *VariableRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*entities.Variable, error) {
+	return r.get(ctx, id, false)
+}
+
+func (r *VariableRepo) get(ctx context.Context, id uuid.UUID, liveOnly bool) (*entities.Variable, error) {
 	const funcName = "VariableRepo.GetByID"
 
 	query := `SELECT id, environment_id, key, value, is_secret, enabled, sort_order, version, is_delete, created_by, created_at, updated_by, updated_at
-		FROM variables WHERE id = ? AND is_delete = 0`
+		FROM variables WHERE id = ?`
+	if liveOnly {
+		query += ` AND is_delete = 0`
+	}
 
 	row := DBTXFromContext(ctx, r.db).QueryRowContext(ctx, query, id.String())
 
-	v, err := scanVariable(row)
+	e, err := scanVariable(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -64,7 +77,7 @@ func (r *VariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Var
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	return v, nil
+	return e, nil
 }
 
 // Ordered by sort_order.

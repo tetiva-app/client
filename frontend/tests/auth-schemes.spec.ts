@@ -589,8 +589,9 @@ test.describe('Auth schemes', () => {
   test('an import reports the schemes it could not map', async ({ page }) => {
     await page.goto('/');
 
+    await page.locator('button[title="Import"]').click();
     const chooserPromise = page.waitForEvent('filechooser');
-    await page.locator('button[title="Import Postman Collection"]').click();
+    await page.getByRole('menuitem', { name: 'Import File…' }).click();
     const chooser = await chooserPromise;
     await chooser.setFiles({
       name: 'legacy.postman_collection.json',

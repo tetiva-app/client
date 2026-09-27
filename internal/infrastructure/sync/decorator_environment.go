@@ -39,11 +39,11 @@ func (r *SyncedEnvironmentRepo) Create(ctx context.Context, e *entities.Environm
 	if !r.isSyncEnabled(wsID) {
 		return r.inner.Create(ctx, e)
 	}
-	err := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Create(txCtx, e); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "environment",
 			EntityID:    e.ID.String(),
@@ -51,12 +51,12 @@ func (r *SyncedEnvironmentRepo) Create(ctx context.Context, e *entities.Environm
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if err == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return err
 }
 
 func (r *SyncedEnvironmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Environment, error) {
@@ -77,11 +77,11 @@ func (r *SyncedEnvironmentRepo) Update(ctx context.Context, e *entities.Environm
 	if e.IsDelete {
 		action = "delete"
 	}
-	err := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Update(txCtx, e); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "environment",
 			EntityID:    e.ID.String(),
@@ -89,12 +89,12 @@ func (r *SyncedEnvironmentRepo) Update(ctx context.Context, e *entities.Environm
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if err == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return err
 }
 
 func (r *SyncedEnvironmentRepo) GetActive(ctx context.Context, workspaceID uuid.UUID) (*entities.Environment, error) {

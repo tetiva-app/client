@@ -21,8 +21,11 @@ import (
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
-// seededWorkspaceID is the active workspace the migrations create.
-const seededWorkspaceID = "00000000-0000-4000-a000-000000000001"
+// The active workspace the migrations create, and its Default environment.
+const (
+	seededWorkspaceID   = "00000000-0000-4000-a000-000000000001"
+	seededEnvironmentID = "00000000-0000-4000-a000-000000000002"
+)
 
 const testServerURL = "sync.test:443"
 
@@ -54,6 +57,7 @@ func newVerificationFixture(t *testing.T) *verificationFixture {
 		sqlite.NewRequestRepo(db),
 		sqlite.NewEnvironmentRepo(db),
 		sqlite.NewVariableRepo(db),
+		sqlite.NewResponseExampleRepo(db),
 		sqlite.NewAuthTokenRepo(db),
 	)
 	t.Cleanup(func() { engine.StopAll() })
@@ -71,7 +75,7 @@ func newVerificationFixture(t *testing.T) *verificationFixture {
 			configRepo: configRepo,
 			queueRepo:  queueRepo,
 			db:         db,
-			wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(db)),
+			wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(db), nil, nil),
 			newClient:  func(string) (*syncsvc.GRPCClient, error) { return client, nil },
 			signIn:     signIn,
 			signInSink: signInSink,
@@ -234,6 +238,7 @@ func (f *verificationFixture) restartApp(t *testing.T) {
 		sqlite.NewRequestRepo(f.db),
 		sqlite.NewEnvironmentRepo(f.db),
 		sqlite.NewVariableRepo(f.db),
+		sqlite.NewResponseExampleRepo(f.db),
 		sqlite.NewAuthTokenRepo(f.db),
 	)
 	t.Cleanup(func() { engine.StopAll() })
@@ -245,7 +250,7 @@ func (f *verificationFixture) restartApp(t *testing.T) {
 		configRepo: f.configRepo,
 		queueRepo:  queueRepo,
 		db:         f.db,
-		wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(f.db)),
+		wsUC:       workspace.NewUsecase(sqlite.NewWorkspaceRepo(f.db), nil, nil),
 		newClient:  func(string) (*syncsvc.GRPCClient, error) { return f.client, nil },
 		signIn:     f.signIn,
 		signInSink: f.signInSink,

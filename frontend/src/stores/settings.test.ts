@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings-storage'
+import { DEFAULT_SETTINGS, loadSettings, SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings-storage'
 import { useSettingsStore } from './settings'
 
 type StorageHandler = (e: { key: string | null }) => void
@@ -96,5 +96,59 @@ describe('settings store — onboarding backfill', () => {
     settings.setOnboardingCompletedAt('2026-07-27T12:00:00.000Z')
 
     expect(stored(env.store).onboardingCompletedAt).toBe('2026-07-27T12:00:00.000Z')
+  })
+})
+
+describe('settings store — snippet targets', () => {
+  let env: ReturnType<typeof mockEnv>
+
+  beforeEach(() => {
+    env = mockEnv()
+    setActivePinia(createPinia())
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('falls back to the defaults for settings saved before the field existed', () => {
+    env.store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: 'dark' }))
+
+    expect(useSettingsStore().snippetTargets).toEqual({ http: 'curl', grpc: 'grpcurl', websocket: 'websocat' })
+  })
+
+  it('replaces malformed entries with the defaults one by one', () => {
+    env.store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ snippetTargets: { http: 5, grpc: '', websocket: 'js-websocket' } }))
+
+    expect(useSettingsStore().snippetTargets).toEqual({ http: 'curl', grpc: 'grpcurl', websocket: 'js-websocket' })
+  })
+
+  it('keeps setSnippetTarget across a reload', () => {
+    useSettingsStore().setSnippetTarget('grpc', 'custom')
+
+    expect(stored(env.store).snippetTargets).toEqual({ http: 'curl', grpc: 'custom', websocket: 'websocat' })
+
+    setActivePinia(createPinia())
+    expect(useSettingsStore().snippetTargets).toEqual({ http: 'curl', grpc: 'custom', websocket: 'websocat' })
+  })
+
+  it('never hands out the default object itself', () => {
+    const fresh = loadSettings()
+    fresh.snippetTargets.http = 'go'
+    useSettingsStore().snippetTargets.grpc = 'changed'
+
+    env.store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: 'dark' }))
+    loadSettings().snippetTargets.websocket = 'changed'
+
+    expect(DEFAULT_SETTINGS.snippetTargets).toEqual({ http: 'curl', grpc: 'grpcurl', websocket: 'websocat' })
+    expect(loadSettings().snippetTargets).toEqual({ http: 'curl', grpc: 'grpcurl', websocket: 'websocat' })
+  })
+
+  it('takes targets chosen in another window from the storage event', () => {
+    const settings = useSettingsStore()
+
+    env.store.set(SETTINGS_STORAGE_KEY, JSON.stringify({
+      snippetTargets: { http: 'go', grpc: 'grpcurl', websocket: 'websocat' },
+    }))
+    env.handlers[0]({ key: SETTINGS_STORAGE_KEY })
+
+    expect(settings.snippetTargets.http).toBe('go')
   })
 })

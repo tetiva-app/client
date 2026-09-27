@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CookiesTab from './CookiesTab.vue'
+import SaveExampleInline from './examples/SaveExampleInline.vue'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -23,6 +24,7 @@ const responseSearchQuery = ref('')
 
 const props = defineProps<{
   state: ResponseState
+  requestId: string
 }>()
 
 const emit = defineEmits<{
@@ -262,6 +264,12 @@ async function saveResponseToFile() {
         </span>
         <span class="text-muted-foreground tabular-nums">{{ state.data.durationMs }}ms</span>
         <span class="text-muted-foreground tabular-nums">{{ formatSize(state.data.size || state.data.body?.length || 0) }}</span>
+        <SaveExampleInline
+          class="ml-auto"
+          :request-id="requestId"
+          protocol="http"
+          :response="state.data"
+        />
       </div>
 
       <div class="flex items-center border-b border-border px-3">

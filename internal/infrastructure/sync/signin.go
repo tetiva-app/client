@@ -20,6 +20,12 @@ var _ auth.SignInClient = (*GRPCClient)(nil)
 // cabinet can complete a sign-in for this app.
 const desktopSignInCapability = "desktop_signin"
 
+// responseExamplesCapability marks a server that stores and syncs response examples.
+const responseExamplesCapability = "response_examples"
+
+// publishCapability marks a server with public collection pages turned on.
+const publishCapability = "publish"
+
 // GetServerInfo asks what this server offers before anyone signs in. A server
 // that predates the RPC answers Unimplemented, which is not an error here.
 func (c *GRPCClient) GetServerInfo(ctx context.Context) (auth.ServerInfo, error) {
@@ -38,6 +44,8 @@ func (c *GRPCClient) GetServerInfo(ctx context.Context) (auth.ServerInfo, error)
 		DesktopSignIn:    slices.Contains(resp.GetCapabilities(), desktopSignInCapability),
 		DesktopSignInURL: resp.GetDesktopSigninUrl(),
 		RegistrationOpen: resp.GetRegistrationOpen(),
+		ResponseExamples: slices.Contains(resp.GetCapabilities(), responseExamplesCapability),
+		Publish:          slices.Contains(resp.GetCapabilities(), publishCapability),
 	}, nil
 }
 

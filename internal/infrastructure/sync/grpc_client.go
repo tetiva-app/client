@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
+	publicationv1 "github.com/tetiva-app/proto/go/gophercourier/publication/v1"
+	subscriptionv1 "github.com/tetiva-app/proto/go/gophercourier/subscription/v1"
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 	workspacev1 "github.com/tetiva-app/proto/go/gophercourier/workspace/v1"
 
@@ -22,10 +24,12 @@ import (
 )
 
 type GRPCClient struct {
-	conn      *grpc.ClientConn
-	auth      authv1.AuthServiceClient
-	sync      syncv1.SyncServiceClient
-	workspace workspacev1.WorkspaceServiceClient
+	conn         *grpc.ClientConn
+	auth         authv1.AuthServiceClient
+	sync         syncv1.SyncServiceClient
+	workspace    workspacev1.WorkspaceServiceClient
+	publication  publicationv1.PublicationServiceClient
+	subscription subscriptionv1.SubscriptionServiceClient
 }
 
 // Uses TLS for port 443, insecure for localhost/127.0.0.1 addresses.
@@ -55,16 +59,33 @@ func NewGRPCClient(serverURL string) (*GRPCClient, error) {
 	}
 
 	return &GRPCClient{
-		conn:      conn,
-		auth:      authv1.NewAuthServiceClient(conn),
-		sync:      syncv1.NewSyncServiceClient(conn),
-		workspace: workspacev1.NewWorkspaceServiceClient(conn),
+		conn:         conn,
+		auth:         authv1.NewAuthServiceClient(conn),
+		sync:         syncv1.NewSyncServiceClient(conn),
+		workspace:    workspacev1.NewWorkspaceServiceClient(conn),
+		publication:  publicationv1.NewPublicationServiceClient(conn),
+		subscription: subscriptionv1.NewSubscriptionServiceClient(conn),
 	}, nil
 }
 
 // NewGRPCClientWithStubs builds a client around ready-made stubs, for tests without a live server.
 func NewGRPCClientWithStubs(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient) *GRPCClient {
 	return &GRPCClient{auth: auth, workspace: ws}
+}
+
+// NewGRPCClientWithSyncStub also takes a sync stub, for tests that drive a syncer without a live server.
+func NewGRPCClientWithSyncStub(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient, sync syncv1.SyncServiceClient) *GRPCClient {
+	return &GRPCClient{auth: auth, workspace: ws, sync: sync}
+}
+
+// NewGRPCClientWithPublication adds a publication stub, for tests of the publication calls.
+func NewGRPCClientWithPublication(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient, pub publicationv1.PublicationServiceClient) *GRPCClient {
+	return &GRPCClient{auth: auth, workspace: ws, publication: pub}
+}
+
+// NewGRPCClientWithPlan takes a subscription stub, for tests of the plan lookup.
+func NewGRPCClientWithPlan(auth authv1.AuthServiceClient, sub subscriptionv1.SubscriptionServiceClient) *GRPCClient {
+	return &GRPCClient{auth: auth, subscription: sub}
 }
 
 // userAgent names this device in the server's session list.
@@ -85,6 +106,10 @@ func (c *GRPCClient) Auth() authv1.AuthServiceClient { return c.auth }
 func (c *GRPCClient) Sync() syncv1.SyncServiceClient { return c.sync }
 
 func (c *GRPCClient) Workspace() workspacev1.WorkspaceServiceClient { return c.workspace }
+
+func (c *GRPCClient) Publication() publicationv1.PublicationServiceClient { return c.publication }
+
+func (c *GRPCClient) Subscription() subscriptionv1.SubscriptionServiceClient { return c.subscription }
 
 func ContextWithAuth(ctx context.Context, token string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)

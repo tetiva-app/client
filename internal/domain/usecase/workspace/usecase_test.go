@@ -87,7 +87,7 @@ func (m *mockRepo) GetByRemoteID(_ context.Context, remoteID string) (*entities.
 
 func newTestUsecase() (Usecase, *mockRepo) {
 	repo := newMockRepo()
-	uc := NewUsecase(repo)
+	uc := NewUsecase(repo, nil, nil)
 	return uc, repo
 }
 

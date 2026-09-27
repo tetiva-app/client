@@ -225,7 +225,7 @@ func newOAuth2Usecase(d *oauth2Deps) request.Usecase {
 	}
 	return request.NewUsecase(d.repo, d.history, d.requester, nil, d.graphql,
 		&mockEnvResolver{}, d.engine, d.scripts, &noopVarPersister{},
-		request.NewAuthResolver(fixtureCollections()), nil, fixtureCollections(), d.store, d.provider)
+		request.NewAuthResolver(fixtureCollections()), nil, fixtureCollections(), d.store, d.provider, nil, nil)
 }
 
 func newOAuth2Deps(t *testing.T) *oauth2Deps {
@@ -511,7 +511,7 @@ func TestResolveWebSocketOAuth2DirectAndInherited(t *testing.T) {
 	repo := newMockRepo()
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{},
-		request.NewAuthResolver(collections), nil, collections, store, auth.NewProvider(store, nil, nil))
+		request.NewAuthResolver(collections), nil, collections, store, auth.NewProvider(store, nil, nil), nil, nil)
 
 	inheritID := uuid.New()
 	inherit := wsRequest(inheritID, "wss://example.com/ws")

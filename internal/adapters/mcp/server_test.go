@@ -58,9 +58,9 @@ func setupTestServer(t *testing.T) *Server {
 	syncConfigRepo := sqlite.NewSyncConfigRepo(db)
 	tokenRepo := sqlite.NewAuthTokenRepo(db)
 
-	colUC := collection.NewUsecase(colRepo, tokenRepo)
+	colUC := collection.NewUsecase(colRepo, tokenRepo, nil, nil)
 	envUC := environment.NewUsecase(envRepo, varRepo)
-	wsUC := workspace.NewUsecase(wsRepo)
+	wsUC := workspace.NewUsecase(wsRepo, nil, nil)
 
 	reqUC := request.NewUsecase(
 		reqRepo, &stubHistoryRepo{}, &stubHTTPRequester{},
@@ -68,12 +68,12 @@ func setupTestServer(t *testing.T) *Server {
 		&stubEnvResolver{}, &stubScriptEngine{},
 		&stubScriptResolver{}, &stubVarPersister{},
 		request.NewAuthResolver(collectionReaderFor{repo: colRepo}),
-		&stubCookieReader{}, nil, tokenRepo, authuc.NewProvider(tokenRepo, nil, nil),
+		&stubCookieReader{}, nil, tokenRepo, authuc.NewProvider(tokenRepo, nil, nil), nil, nil,
 	)
 
 	syncAuth := syncsvc.NewSyncAuthManager(syncConfigRepo)
 	engine := syncsvc.NewSyncEngine(syncAuth, syncQueueRepo, syncConfigRepo, db,
-		colRepo, reqRepo, envRepo, varRepo, tokenRepo)
+		colRepo, reqRepo, envRepo, varRepo, sqlite.NewResponseExampleRepo(db), tokenRepo)
 
 	return NewServer(engine, syncQueueRepo, colUC, reqUC, envUC, wsUC, ":0", NewTokenAuth("", false))
 }
@@ -775,6 +775,10 @@ func (r *stubGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ 
 type stubEnvResolver struct{}
 
 func (r *stubEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[string]string, error) {
+	return nil, nil
+}
+
+func (r *stubEnvResolver) ActiveVariables(_ context.Context, _ uuid.UUID) ([]*entities.Variable, error) {
 	return nil, nil
 }
 

@@ -33,6 +33,59 @@ export PATH="$HOME/go/bin:$PATH"
 wails3 dev
 ```
 
+### One running copy per data directory
+
+At startup the app locks `<data dir>/tetiva.lock`; the data dir is `TETIVA_DATA_DIR` or
+`~/.tetiva`. A second launch with the same data dir opens neither the database nor a window:
+it passes its arguments (a `tetiva://` link, say) to the running copy over the loopback port
+recorded in `<data dir>/instance.json`, prints `Tetiva is already running with <dir>…` and
+exits 0. If the running copy does not answer within 5 seconds, it exits 2. A launch while the
+running copy is shutting down waits, within the same 5 seconds, for it to exit and then starts
+normally.
+
+Dev and prod share `~/.tetiva`, so `wails3 dev` started while the installed app is open hands
+over to it and quits. Give the dev build its own directory to run both at once:
+
+```bash
+TETIVA_DATA_DIR=/tmp/tetiva-dev wails3 dev
+```
+
+The same applies to `bin/client-server` and `bin/client-mcp`.
+
+### Deep links
+
+`tetiva://import?slug=<slug>[&token=<import-token>]` opens the import confirmation; the dev
+bundle `bin/client.dev.app` answers to `tetiva-dev://` instead. The schemes are registered by
+committed files, which `update:build-assets` would overwrite, so do not run it:
+`build/config.yml` (`protocols`), `build/darwin/Info.plist` and `Info.dev.plist`
+(`CFBundleURLTypes`), `build/windows/nsis/wails_tools.nsh` (protocol macros, quoted exe path)
+and `build/linux/tetiva.desktop` (`%u`, `MimeType`).
+
+`wails3 dev` starts the binary directly, so macOS learns about `tetiva-dev` only after an
+explicit registration:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f bin/client.dev.app
+open 'tetiva-dev://import?slug=petstore-api-k3f9x2qa'
+```
+
+An app started by `open` gets the launchd environment, not your shell's, so it uses
+`~/.tetiva` even if you exported `TETIVA_DATA_DIR`.
+
+Two platform limits, both on the owner's release checklist:
+
+- **macOS, the lock held by another copy.** The link arrives as an Apple Event, not in the
+  arguments. If `~/.tetiva` is locked by a copy LaunchServices did not route the link to
+  (`wails3 dev` while a link on share.tetiva.app starts `/Applications/Tetiva.app`,
+  `bin/client.dev.app` beside the prod bundle, two copies of the bundle), the new process has no
+  link to forward: the running copy comes to the front and no import confirmation opens. Wails
+  keeps its Apple Event capture (`captureLaunchURL`) private, so there is nothing to reuse. Start
+  `wails3 dev` with its own `TETIVA_DATA_DIR` so the copy LaunchServices opens owns `~/.tetiva`.
+- **Linux under Wayland.** A link opened while Tetiva runs is handed over without an activation
+  token, so GNOME and other compositors that block focus stealing may show a "Tetiva is ready"
+  notification instead of raising the window. The import confirmation is already open when the
+  user switches to it.
+
 ## Production Build
 
 ### 1. Build + Sign + Notarize

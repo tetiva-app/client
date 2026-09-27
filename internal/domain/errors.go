@@ -27,3 +27,17 @@ type ConflictError struct {
 func (e *ConflictError) Error() string {
 	return fmt.Sprintf("%s version conflict: %s", e.Entity, e.ID)
 }
+
+// ReasonError carries a stable machine-readable reason the UI branches on.
+type ReasonError struct {
+	Reason string
+	Err    error
+}
+
+func (e *ReasonError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ReasonError) Unwrap() error {
+	return e.Err
+}

@@ -18,7 +18,12 @@ const (
 
 // oauth2NoCachedTokenWarning is shown where a token may not be acquired on the
 // spot (Copy as cURL), so the command is rendered without credentials.
-const oauth2NoCachedTokenWarning = "no cached OAuth 2.0 token: the command carries no Authorization; get a token in the Auth tab first"
+const oauth2NoCachedTokenWarning = "No cached OAuth 2.0 token: the command carries no Authorization; get a token in the Auth tab first"
+
+const (
+	oauth2TokenPlaceholder        = "<token>"
+	oauth2TokenNotIncludedWarning = "OAuth 2.0 token is not included"
+)
 
 // applyResolvedAuth puts the effective auth on the prepared headers and URL: oauth2 goes through the
 // token provider; digest and aws_sigv4 never reach here, the caller puts them on preparedHTTP.Auth.
@@ -71,8 +76,12 @@ func (u *usecase) applyResolvedAuth(
 	return headers, rawURL, nil, warnings, nil
 }
 
-// oauth2Token returns "" with a warning when the caller accepts only a cached token and there is none.
+// oauth2Token returns "" with a warning when the caller accepts only a cached token and there is none,
+// and a placeholder with a warning when the caller wants no real token at all.
 func (u *usecase) oauth2Token(ctx context.Context, owner entities.AuthOwner, f auth.Fields, opt prepareOpt) (string, []string, error) {
+	if opt.TokenPlaceholder {
+		return oauth2TokenPlaceholder, []string{oauth2TokenNotIncludedWarning}, nil
+	}
 	if u.authProvider == nil {
 		return "", nil, &domain.ValidationError{Fields: map[string]string{
 			"auth": "OAuth 2.0 is not available in this build",

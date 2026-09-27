@@ -1,0 +1,15 @@
+{
+  "protocol": "grpc",
+  "grpc": {
+    "target": "localhost:50051",
+    "service": "example.v1.UserService",
+    "method": "GetUser",
+    "message": "{\n  \"id\": \"42\"\n}",
+    "metadata": {
+      "authorization": [
+        "Bearer {{token}}"
+      ]
+    }
+  },
+  "warnings": []
+}

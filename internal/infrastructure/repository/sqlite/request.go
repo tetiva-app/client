@@ -88,6 +88,15 @@ func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 
 // Returns nil when the row is missing or soft-deleted.
 func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
+	return r.get(ctx, id, true)
+}
+
+// GetByIDIncludingDeleted returns soft-deleted rows too: a tombstone for an older server carries the last state.
+func (r *RequestRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
+	return r.get(ctx, id, false)
+}
+
+func (r *RequestRepo) get(ctx context.Context, id uuid.UUID, liveOnly bool) (*entities.Request, error) {
 	const funcName = "RequestRepo.GetByID"
 
 	query := `SELECT id, collection_id, name, description, protocol, method, url, headers, body, body_type,
@@ -95,11 +104,14 @@ func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Requ
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
 		pre_script, post_script, sort_order, version, is_delete, is_draft, created_by, created_at, updated_by, updated_at
-		FROM requests WHERE id = ? AND is_delete = 0`
+		FROM requests WHERE id = ?`
+	if liveOnly {
+		query += ` AND is_delete = 0`
+	}
 
 	row := DBTXFromContext(ctx, r.db).QueryRowContext(ctx, query, id.String())
 
-	req, err := scanRequest(row)
+	e, err := scanRequest(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -107,7 +119,7 @@ func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Requ
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	return req, nil
+	return e, nil
 }
 
 // Ordered by sort_order ASC, created_at ASC.

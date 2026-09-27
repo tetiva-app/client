@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { X, Folder } from 'lucide-vue-next'
 import { useRequestStore, type Tab } from '@/stores/tabs'
+import { useExamplesStore } from '@/stores/examples'
 import { methodColors, METHOD_COLOR_FALLBACK } from '@/lib/http-methods'
-import { isWailsEnvironment, getWindowService } from '@/services'
+import { isWailsEnvironment } from '@/services'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,7 +13,12 @@ import {
 } from '@/components/ui/context-menu'
 
 const store = useRequestStore()
+const examples = useExamplesStore()
 const isWails = isWailsEnvironment()
+
+function hasUnsaved(tab: Tab): boolean {
+  return store.isDirty(tab.id) || (tab.type === 'request' && examples.hasUnsaved(tab.requestId))
+}
 
 // Hues must match MethodBadge; without this a GraphQL tab shows its POST colour.
 const PROTOCOL_DOT: Record<string, string> = {
@@ -26,37 +32,6 @@ function handleMousedown(e: MouseEvent, tabId: string) {
   if (e.button === 1) {
     e.preventDefault()
     store.closeTab(tabId)
-  }
-}
-
-async function detachTab(tab: Tab) {
-  if (tab.type !== 'request') return
-  const svc = await getWindowService()
-  if (!svc) return
-
-  if (!(await store.flushForHandoff(tab.requestId))) return
-  // The detached window owns the version; a pending timer here would conflict with it.
-  store.cancelAutosave(tab.requestId)
-
-  const req = store.getById(tab.requestId)
-  const method = req?.protocol === 'grpc' ? 'gRPC' : (req?.method ?? 'GET')
-  const url = req?.url || 'Untitled'
-  const title = `${method} ${url} — Tetiva`
-
-  await svc.detachRequest(tab.requestId, req?.protocol ?? 'http', title)
-
-  // The detached window owns the request now; a flow started here must not
-  // outlive the tab. This path bypasses releaseTab, so it forgets by hand.
-  await store.forgetTokenStatus([{ kind: 'request', id: tab.requestId }])
-
-  // Request data stays in the map for sidebar display.
-  const idx = store.openTabs.findIndex(t => t.id === tab.id)
-  if (idx >= 0) {
-    store.openTabs.splice(idx, 1)
-    if (store.activeTabId === tab.id) {
-      const next = store.openTabs[Math.min(idx, store.openTabs.length - 1)]
-      store.activeTabId = next?.id ?? null
-    }
   }
 }
 </script>
@@ -95,7 +70,7 @@ async function detachTab(tab: Tab) {
           </template>
 
           <span
-            v-if="store.isDirty(tab.id)"
+            v-if="hasUnsaved(tab)"
             class="size-1.5 rounded-full bg-primary shrink-0"
             title="Unsaved changes"
           />
@@ -125,7 +100,7 @@ async function detachTab(tab: Tab) {
         </ContextMenuItem>
         <template v-if="isWails && tab.type === 'request'">
           <ContextMenuSeparator />
-          <ContextMenuItem @click="detachTab(tab)">
+          <ContextMenuItem @click="store.detachTab(tab)">
             Open in Window
           </ContextMenuItem>
         </template>

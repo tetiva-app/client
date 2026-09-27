@@ -1,0 +1,161 @@
+=== curl ===
+curl 'https://api.example.com/headers' \
+  -H 'X'\''.INJECTED.'\'': apostrophe' \
+  -H 'X-Unsafe: " + INJECTED + " \" + INJECTED + \" '\'' . INJECTED . '\'' '\''; INJECTED; '\'' \u0022 + INJECTED + \u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \ tab	here Привет'
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/headers"
+headers = {
+    "X'.INJECTED.'": "apostrophe",
+    "X-Unsafe": "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет",
+}
+
+response = requests.request("GET", url, headers=headers)
+print(response.text)
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== js-fetch ===
+const url = "https://api.example.com/headers";
+const options = {
+  method: "GET",
+  headers: {
+    "X'.INJECTED.'": "apostrophe",
+    "X-Unsafe": "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет",
+  },
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/headers"
+
+	req, _ := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("X'.INJECTED.'", "apostrophe")
+	req.Header.Add("X-Unsafe", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/headers"))
+    .header("X'.INJECTED.'", "apostrophe")
+    .header("X-Unsafe", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет")
+    .method("GET", HttpRequest.BodyPublishers.noBody())
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+Request request = new Request.Builder()
+  .url("https://api.example.com/headers")
+  .get()
+  .addHeader("X'.INJECTED.'", "apostrophe")
+  .addHeader("X-Unsafe", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет")
+  .build();
+
+Response response = client.newCall(request).execute();
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Get,
+    RequestUri = new Uri("https://api.example.com/headers"),
+    Headers =
+    {
+        { "X'.INJECTED.'", "apostrophe" },
+        { "X-Unsafe", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет" },
+    },
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('GET', 'https://api.example.com/headers', [
+  'headers' => [
+    'X\'.INJECTED.\'' => 'apostrophe',
+    'X-Unsafe' => "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 \${INJECTED} {\${INJECTED()}} \$(INJECTED) `INJECTED` ?> */ \\ tab\there Привет",
+  ],
+]);
+
+echo $response->getBody();
+--- warnings ---
+Header "X\"Z" is not a valid HTTP header name and is left out
+Header "X\\Z" is not a valid HTTP header name and is left out
+Header "X\nZ" is not a valid HTTP header name and is left out
+Header "X\tZ" is not a valid HTTP header name and is left out
+Header "X-Привет" is not a valid HTTP header name and is left out

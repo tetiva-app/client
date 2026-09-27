@@ -1,0 +1,33 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/{{x'; printf injected; #}}",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      },
+      {
+        "name": "X-Home",
+        "value": "{{$HOME}}"
+      }
+    ],
+    "queryString": [
+      {
+        "name": "q",
+        "value": "{{a b}}"
+      }
+    ],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\"v\":\"{{x'; printf injected; #}}\"}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "warnings": []
+}

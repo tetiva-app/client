@@ -52,7 +52,13 @@ func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, err
 	existing.UpdatedBy = opt.UserID
 	existing.UpdatedAt = time.Now()
 
-	if err := u.repo.Update(ctx, existing); err != nil {
+	err = u.tx().Run(ctx, func(txCtx context.Context) error {
+		if err := u.repo.Update(txCtx, existing); err != nil {
+			return err
+		}
+		return u.moveExamples(txCtx, existing.ID, opt.TargetCollectionID, opt.UserID)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
@@ -63,6 +69,21 @@ func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, err
 	}
 
 	return existing, nil
+}
+
+// moveExamples follows the request into its new collection's workspace; an unknown target moves nothing.
+func (u *usecase) moveExamples(ctx context.Context, requestID, collectionID uuid.UUID, userID string) error {
+	if u.exampleCleaner == nil || u.collectionReader == nil {
+		return nil
+	}
+	target, err := u.collectionReader.GetByID(ctx, collectionID)
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return nil
+	}
+	return u.exampleCleaner.MoveToWorkspace(ctx, requestID, target.WorkspaceID, userID)
 }
 
 func (u *usecase) GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
@@ -112,7 +133,16 @@ func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	existing.UpdatedBy = opt.UserID
 	existing.UpdatedAt = time.Now()
 
-	if err := u.repo.Update(ctx, existing); err != nil {
+	err = u.tx().Run(ctx, func(txCtx context.Context) error {
+		if err := u.repo.Update(txCtx, existing); err != nil {
+			return err
+		}
+		if u.exampleCleaner == nil {
+			return nil
+		}
+		return u.exampleCleaner.DeleteByRequest(txCtx, existing.ID, opt.UserID)
+	})
+	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
 	}
 

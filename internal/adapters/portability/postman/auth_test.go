@@ -54,7 +54,7 @@ func TestImportCollection_AuthSchemesFixture(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 1)
@@ -137,7 +137,7 @@ func TestImportCollection_UnsupportedGrantWarning(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -169,7 +169,7 @@ func TestImportCollection_JWTPayloadNotAnObject(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -230,20 +230,20 @@ func TestAuthRoundTrip(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rootID := uuid.New()
-			exported, err := postman.ExportCollection(rootID,
+			exported, _, err := postman.ExportCollection(rootID,
 				[]*entities.Collection{{ID: rootID, Name: "Root", AuthType: tc.authType, AuthData: tc.data}},
 				[]*entities.Request{{
 					ID: uuid.New(), CollectionID: rootID, Name: "Req", Protocol: entities.ProtocolHTTP,
 					Method: entities.MethodGET, URL: "https://api.example.com/x",
 					BodyType: entities.BodyTypeNone, AuthType: tc.authType, AuthData: tc.data,
-				}})
+				}}, nil)
 			require.NoError(t, err)
 
 			collUC := &stubCollectionUC{}
 			reqUC := &stubRequestUC{}
 			result, err := postman.ImportCollection(context.Background(), exported, postman.ImportOpts{
 				WorkspaceID: uuid.New(), UserID: "local_user",
-			}, collUC, reqUC)
+			}, collUC, reqUC, &stubExampleUC{})
 			require.NoError(t, err)
 			assert.Empty(t, result.Warnings)
 
@@ -259,11 +259,11 @@ func TestAuthRoundTrip(t *testing.T) {
 
 func TestExportCollection_JWTSecretBase64IsJSONBoolean(t *testing.T) {
 	rootID := uuid.New()
-	exported, err := postman.ExportCollection(rootID,
+	exported, _, err := postman.ExportCollection(rootID,
 		[]*entities.Collection{{
 			ID: rootID, Name: "Root", AuthType: entities.AuthTypeJWT,
 			AuthData: `{"alg":"HS256","secret":"a-string-secret-at-least-256-bits-long","secretBase64":"false"}`,
-		}}, nil)
+		}}, nil, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -281,11 +281,11 @@ func TestExportCollection_JWTSecretBase64IsJSONBoolean(t *testing.T) {
 
 func TestExportCollection_NumericJWTLifetime(t *testing.T) {
 	rootID := uuid.New()
-	exported, err := postman.ExportCollection(rootID,
+	exported, _, err := postman.ExportCollection(rootID,
 		[]*entities.Collection{{
 			ID: rootID, Name: "Root", AuthType: entities.AuthTypeJWT,
 			AuthData: `{"alg":"HS256","secret":"a-string-secret-at-least-256-bits-long","expiresIn":60}`,
-		}}, nil)
+		}}, nil, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -358,7 +358,11 @@ func TestImportCollection_RealFileKeyValuesUnchanged(t *testing.T) {
 						if fieldType == "" {
 							fieldType = "text"
 						}
-						form = append(form, [3]string{str(f["key"]), str(f["value"]), fieldType})
+						value := str(f["value"])
+						if fieldType == "file" {
+							value = ""
+						}
+						form = append(form, [3]string{str(f["key"]), value, fieldType})
 					}
 				}
 				wantForms = append(wantForms, form)
@@ -370,7 +374,7 @@ func TestImportCollection_RealFileKeyValuesUnchanged(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC)
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 	require.Len(t, reqUC.created, len(wantHeaders))
 

@@ -1,12 +1,11 @@
 package requester
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,32 +38,15 @@ func (r *GraphQLRequester) clientFor(ctx context.Context, workspaceID uuid.UUID)
 	return &c
 }
 
-type graphqlRequestBody struct {
-	Query         string          `json:"query"`
-	Variables     json.RawMessage `json:"variables,omitempty"`
-	OperationName string          `json:"operationName,omitempty"`
-}
-
 func (r *GraphQLRequester) Execute(ctx context.Context, req request.GraphQLExecuteRequest) (*entities.Response, error) {
 	const funcName = "GraphQLRequester.Execute"
 
-	var vars json.RawMessage
-	if req.Variables != "" && req.Variables != "{}" {
-		vars = json.RawMessage(req.Variables)
-	}
-
-	payload := graphqlRequestBody{
-		Query:         req.Query,
-		Variables:     vars,
-		OperationName: req.OperationName,
-	}
-
-	bodyBytes, err := json.Marshal(payload)
+	body, err := request.GraphQLBody(req.Query, req.Variables, req.OperationName)
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to marshal request: %w", funcName, err)
+		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, strings.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, err)
 	}

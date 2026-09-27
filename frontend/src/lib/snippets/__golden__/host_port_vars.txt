@@ -1,0 +1,89 @@
+=== curl ===
+curl 'https://{{host}}:{{port}}/a?api_key={{key}}'
+
+=== python-requests ===
+import requests
+
+url = "https://{{host}}:{{port}}/a"
+params = [
+    ("api_key", "{{key}}"),
+]
+
+response = requests.request("GET", url, params=params)
+print(response.text)
+
+=== js-fetch ===
+const url = "https://{{host}}:{{port}}/a?api_key={{key}}";
+const options = {
+  method: "GET",
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://{{host}}:{{port}}/a?api_key={{key}}"
+
+	req, _ := http.NewRequest("GET", url, nil)
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://{{host}}:{{port}}/a?api_key={{key}}"))
+    .method("GET", HttpRequest.BodyPublishers.noBody())
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+Request request = new Request.Builder()
+  .url("https://{{host}}:{{port}}/a?api_key={{key}}")
+  .get()
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Get,
+    RequestUri = new Uri("https://{{host}}:{{port}}/a?api_key={{key}}"),
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('GET', 'https://{{host}}:{{port}}/a?api_key={{key}}');
+
+echo $response->getBody();

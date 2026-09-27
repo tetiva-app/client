@@ -4,17 +4,16 @@ import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { EditorState, Compartment } from '@codemirror/state'
 import { selectAll } from '@codemirror/commands'
 import { search, SearchQuery, setSearchQuery, findNext as cmFindNext, findPrevious as cmFindPrev } from '@codemirror/search'
-import { json } from '@codemirror/lang-json'
-import { xml } from '@codemirror/lang-xml'
-import { html } from '@codemirror/lang-html'
 import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { languageSupport, type ViewerLanguage } from '@/lib/codemirror-languages'
 
 const props = defineProps<{
   content: string
-  language?: 'json' | 'xml' | 'html' | 'text'
+  language?: ViewerLanguage
+  label?: string
 }>()
 
 const editorRef = ref<HTMLDivElement>()
@@ -23,18 +22,10 @@ let view: EditorView | null = null
 const settings = useSettingsStore()
 const wrapCompartment = new Compartment()
 const highlightCompartment = new Compartment()
+const languageCompartment = new Compartment()
 
 function activeHighlight() {
   return syntaxHighlighting(settings.effectiveTheme === 'dark' ? darkHighlightStyle : lightHighlightStyle)
-}
-
-function getLanguageExtension(lang?: string) {
-  switch (lang) {
-    case 'json': return json()
-    case 'xml': return xml()
-    case 'html': return html()
-    default: return []
-  }
 }
 
 function createEditor() {
@@ -44,6 +35,9 @@ function createEditor() {
     view.destroy()
     view = null
   }
+
+  const lang = props.language
+  const support = languageSupport(lang)
 
   const extensions = [
     // readOnly keeps contenteditable so native selection and Cmd/Ctrl+C work.
@@ -56,7 +50,8 @@ function createEditor() {
     drawSelection(),
     search({ top: true, createPanel: () => ({ dom: document.createElement('span') }) }),
     highlightCompartment.of(activeHighlight()),
-    getLanguageExtension(props.language),
+    languageCompartment.of(support instanceof Promise ? [] : support),
+    EditorView.contentAttributes.of(props.label ? { 'aria-label': props.label } : {}),
     EditorView.theme({
       '&': {
         fontSize: 'var(--gc-editor-font-size, 13px)',
@@ -101,6 +96,13 @@ function createEditor() {
     }),
     parent: editorRef.value,
   })
+  if (support instanceof Promise) {
+    const created = view
+    // A mode chunk that fails to load leaves the code unhighlighted.
+    support.then((ext) => {
+      if (view === created && props.language === lang) created.dispatch({ effects: languageCompartment.reconfigure(ext) })
+    }, () => {})
+  }
 }
 
 // Update document content without recreating the editor

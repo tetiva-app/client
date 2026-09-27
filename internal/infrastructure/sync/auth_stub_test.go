@@ -3,11 +3,13 @@ package sync
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
+	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 )
 
 // stubAuthClient embeds the generated interface so only the RPCs a test
@@ -146,4 +148,30 @@ func (s *stubAuthClient) CancelDesktopSignIn(ctx context.Context, req *authv1.Ca
 		return nil, s.cancelErr
 	}
 	return authv1.CancelDesktopSignInResponse_builder{}.Build(), nil
+}
+
+// capabilityAuthClient answers only GetServerInfo and is safe to call from any number of syncer goroutines.
+type capabilityAuthClient struct {
+	authv1.AuthServiceClient
+	capabilities []string
+	calls        atomic.Int32
+	// answer replaces the fixed capabilities when set; call counts from 1.
+	answer func(ctx context.Context, call int32) (*authv1.GetServerInfoResponse, error)
+}
+
+func (c *capabilityAuthClient) GetServerInfo(ctx context.Context, _ *authv1.GetServerInfoRequest, _ ...grpc.CallOption) (*authv1.GetServerInfoResponse, error) {
+	call := c.calls.Add(1)
+	if c.answer != nil {
+		return c.answer(ctx, call)
+	}
+	return authv1.GetServerInfoResponse_builder{Capabilities: c.capabilities}.Build(), nil
+}
+
+func serverInfoWith(capabilities ...string) *authv1.GetServerInfoResponse {
+	return authv1.GetServerInfoResponse_builder{Capabilities: capabilities}.Build()
+}
+
+// examplesCapableClient pairs a sync stub with a server that advertises response examples.
+func examplesCapableClient(sync syncv1.SyncServiceClient) *GRPCClient {
+	return &GRPCClient{sync: sync, auth: &capabilityAuthClient{capabilities: []string{"response_examples"}}}
 }

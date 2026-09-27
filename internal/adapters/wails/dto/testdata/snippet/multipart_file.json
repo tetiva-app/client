@@ -1,0 +1,29 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/upload",
+    "httpVersion": "HTTP/1.1",
+    "headers": [],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "multipart/form-data",
+      "text": "",
+      "params": [
+        {
+          "name": "title",
+          "value": "Q3 report"
+        },
+        {
+          "name": "file",
+          "value": "",
+          "fileName": "report.pdf"
+        }
+      ]
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "warnings": []
+}

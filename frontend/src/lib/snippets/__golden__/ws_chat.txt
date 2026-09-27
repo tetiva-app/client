@@ -1,0 +1,25 @@
+=== websocat ===
+printf '%s' '{
+  "text": "it'\''s $HOME `tick` Привет"
+}' | websocat --protocol='chat, superchat' \
+  -H='Authorization: Bearer {{token}}' \
+  -H='X-Client: tetiva' \
+  'wss://{{host}}/chat?room={{room}}'
+--- warnings ---
+Each line becomes a separate message in websocat
+
+=== js-websocket ===
+// Browsers cannot send custom WebSocket headers; the request also has:
+// Authorization: Bearer {{token}}
+// X-Client: tetiva
+const ws = new WebSocket("wss://{{host}}/chat?room={{room}}", ["chat", "superchat"]);
+
+ws.addEventListener("open", () => {
+  ws.send("{\n  \"text\": \"it's $HOME `tick` Привет\"\n}");
+});
+
+ws.addEventListener("message", (e) => {
+  console.log(e.data);
+});
+--- warnings ---
+Browsers cannot send custom WebSocket headers

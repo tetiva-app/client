@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tetiva.app/schemas/collection-snapshot.v1.schema.json",
+  "title": "Tetiva collection snapshot, version 1",
+  "description": "Published collection as uploaded by the desktop client. The server accepts only documents valid against this schema and additionally enforces what a schema cannot express: at most 8 MiB unpacked and 3.5 MiB gzip, folder depth at most 16, at most 5000 items (folders and requests) in total, at most 500000 JSON values in the document, at most 256 values below one auth field, every string at most 1 MiB of UTF-8 and every header, metadata, form field and variable value at most its maxLength in UTF-8 bytes, no duplicate keys in any object. Readers (landing page, importer) ignore unknown fields of version 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "generator", "locale", "collection", "environment"],
+  "properties": {
+    "format": { "const": "tetiva.collection-snapshot" },
+    "version": { "const": 1 },
+    "generator": { "$ref": "#/$defs/text" },
+    "locale": { "enum": ["ru", "en"], "description": "Author's language, the page falls back to it." },
+    "collection": { "$ref": "#/$defs/collection" },
+    "environment": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/environment" }] }
+  },
+  "$defs": {
+    "text": { "type": "string", "maxLength": 1048576 },
+    "name": { "type": "string", "maxLength": 512 },
+    "pairValue": { "type": "string", "maxLength": 16384, "description": "At most 16 KiB of UTF-8." },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{12}$",
+      "description": "First 12 hex of HMAC-SHA256(key = collection_id, msg = entity_id); stable across revisions."
+    },
+    "url": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+      "description": "May contain {{variable}} references; no control characters."
+    },
+    "headerName": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^([!#$%&'*+.^_`|~0-9A-Za-z-]|\\{\\{[^}\\x00-\\x1f\\x7f]+\\}\\})+$",
+      "description": "RFC 7230 token characters and {{variable}} references, nothing else; a reference name has no '}' and no control characters."
+    },
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "enabled", "redacted"],
+      "properties": {
+        "key": { "$ref": "#/$defs/headerName" },
+        "value": { "$ref": "#/$defs/pairValue" },
+        "enabled": { "type": "boolean" },
+        "redacted": { "type": "boolean", "description": "Literal parts of the value were replaced with <redacted>." }
+      }
+    },
+    "headers": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/header" } },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pre", "post"],
+      "properties": {
+        "pre": { "$ref": "#/$defs/text" },
+        "post": { "$ref": "#/$defs/text" }
+      }
+    },
+    "nullableScripts": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/scripts" }],
+      "description": "null when the author left scripts out."
+    },
+    "authScalar": { "type": ["null", "boolean", "number", "string"], "maxLength": 1048576 },
+    "authValue1": {
+      "type": ["null", "boolean", "number", "string", "array", "object"],
+      "maxLength": 1048576,
+      "maxItems": 256,
+      "maxProperties": 256,
+      "propertyNames": { "maxLength": 512 },
+      "items": { "$ref": "#/$defs/authScalar" },
+      "additionalProperties": { "$ref": "#/$defs/authScalar" }
+    },
+    "authValue2": {
+      "type": ["null", "boolean", "number", "string", "array", "object"],
+      "maxLength": 1048576,
+      "maxItems": 256,
+      "maxProperties": 256,
+      "propertyNames": { "maxLength": 512 },
+      "items": { "$ref": "#/$defs/authValue1" },
+      "additionalProperties": { "$ref": "#/$defs/authValue1" }
+    },
+    "authValue3": {
+      "type": ["null", "boolean", "number", "string", "array", "object"],
+      "maxLength": 1048576,
+      "maxItems": 256,
+      "maxProperties": 256,
+      "propertyNames": { "maxLength": 512 },
+      "items": { "$ref": "#/$defs/authValue2" },
+      "additionalProperties": { "$ref": "#/$defs/authValue2" }
+    },
+    "authValue4": {
+      "type": ["null", "boolean", "number", "string", "array", "object"],
+      "maxLength": 1048576,
+      "maxItems": 256,
+      "maxProperties": 256,
+      "propertyNames": { "maxLength": 512 },
+      "items": { "$ref": "#/$defs/authValue3" },
+      "additionalProperties": { "$ref": "#/$defs/authValue3" },
+      "description": "Value of one auth field: arrays and objects nest at most 4 deep and hold at most 256 values below the field in total."
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "fields", "redacted"],
+      "properties": {
+        "type": { "enum": ["inherit", "none", "basic", "bearer", "api_key", "oauth2", "jwt", "digest", "aws_sigv4"] },
+        "fields": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "maxLength": 512 },
+          "additionalProperties": { "$ref": "#/$defs/authValue4" },
+          "description": "Any key spelling and any JSON value; JWT claims and header are objects."
+        },
+        "redacted": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/name" },
+          "description": "Names of secret fields whose literal value was emptied."
+        }
+      }
+    },
+    "nullableAuth": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/auth" }] },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "auth", "scripts", "grpcMetadata", "items"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/text" },
+        "auth": { "$ref": "#/$defs/nullableAuth" },
+        "scripts": { "$ref": "#/$defs/nullableScripts" },
+        "grpcMetadata": { "$ref": "#/$defs/headers" },
+        "items": { "$ref": "#/$defs/items" }
+      }
+    },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "item": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": { "kind": { "enum": ["folder", "request"] } },
+      "if": { "properties": { "kind": { "const": "folder" } } },
+      "then": { "$ref": "#/$defs/folder" },
+      "else": { "$ref": "#/$defs/request" }
+    },
+    "folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "name", "description", "auth", "scripts", "items"],
+      "properties": {
+        "kind": { "const": "folder" },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/text" },
+        "auth": { "$ref": "#/$defs/nullableAuth" },
+        "scripts": { "$ref": "#/$defs/nullableScripts" },
+        "items": { "$ref": "#/$defs/items" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "name", "description", "protocol", "auth", "scripts", "examples"],
+      "description": "Exactly the part named by protocol is an object; the other parts are absent or null.",
+      "properties": {
+        "kind": { "const": "request" },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "description": { "$ref": "#/$defs/text" },
+        "protocol": { "enum": ["http", "graphql", "grpc", "websocket"] },
+        "http": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/httpPart" }] },
+        "graphql": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/graphqlPart" }] },
+        "grpc": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/grpcPart" }] },
+        "websocket": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/websocketPart" }] },
+        "auth": { "$ref": "#/$defs/nullableAuth" },
+        "scripts": { "$ref": "#/$defs/nullableScripts" },
+        "examples": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/example" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "protocol": { "const": "http" } } },
+          "then": {
+            "required": ["http"],
+            "properties": { "http": { "type": "object" }, "graphql": { "type": "null" }, "grpc": { "type": "null" }, "websocket": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "protocol": { "const": "graphql" } } },
+          "then": {
+            "required": ["graphql"],
+            "properties": { "http": { "type": "null" }, "graphql": { "type": "object" }, "grpc": { "type": "null" }, "websocket": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "protocol": { "const": "grpc" } } },
+          "then": {
+            "required": ["grpc"],
+            "properties": { "http": { "type": "null" }, "graphql": { "type": "null" }, "grpc": { "type": "object" }, "websocket": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "protocol": { "const": "websocket" } } },
+          "then": {
+            "required": ["websocket"],
+            "properties": { "http": { "type": "null" }, "graphql": { "type": "null" }, "grpc": { "type": "null" }, "websocket": { "type": "object" } }
+          }
+        }
+      ]
+    },
+    "httpPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url", "headers", "body"],
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] },
+        "url": { "$ref": "#/$defs/url" },
+        "headers": { "$ref": "#/$defs/headers" },
+        "body": { "$ref": "#/$defs/body" }
+      }
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "raw", "fields", "fileName"],
+      "description": "form is multipart when an enabled field has type file, urlencoded otherwise; fileName is the base name of a binary body.",
+      "properties": {
+        "type": { "enum": ["none", "json", "xml", "raw", "form", "binary"] },
+        "raw": { "$ref": "#/$defs/text" },
+        "fields": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/formField" } },
+        "fileName": { "$ref": "#/$defs/text" }
+      }
+    },
+    "formField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "type", "enabled"],
+      "description": "For a file field the value is the base file name, never a path.",
+      "properties": {
+        "key": { "$ref": "#/$defs/name" },
+        "value": { "$ref": "#/$defs/pairValue" },
+        "type": { "enum": ["text", "file"] },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "graphqlPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "headers", "query", "variables", "operationName"],
+      "properties": {
+        "url": { "$ref": "#/$defs/url" },
+        "headers": { "$ref": "#/$defs/headers" },
+        "query": { "$ref": "#/$defs/text" },
+        "variables": { "$ref": "#/$defs/text", "description": "JSON text as the author typed it." },
+        "operationName": { "$ref": "#/$defs/text" }
+      }
+    },
+    "grpcPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "service", "method", "message", "metadata"],
+      "properties": {
+        "target": { "$ref": "#/$defs/url" },
+        "service": { "$ref": "#/$defs/text" },
+        "method": { "$ref": "#/$defs/text" },
+        "message": { "$ref": "#/$defs/text", "description": "JSON text of the request message." },
+        "metadata": { "$ref": "#/$defs/headers" }
+      }
+    },
+    "websocketPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "headers", "subprotocols", "messages"],
+      "properties": {
+        "url": { "$ref": "#/$defs/url" },
+        "headers": { "$ref": "#/$defs/headers" },
+        "subprotocols": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/text" } },
+        "messages": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/wsMessage" } }
+      }
+    },
+    "wsMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "format", "data"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" },
+        "format": { "enum": ["json", "text", "binary"] },
+        "data": { "$ref": "#/$defs/text", "description": "Message text; base64 for the binary format." }
+      }
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status", "statusText", "headers", "body", "contentType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "status": { "type": "integer", "minimum": 0, "maximum": 999, "description": "HTTP status, or the gRPC code for a gRPC request." },
+        "statusText": { "$ref": "#/$defs/text" },
+        "headers": { "$ref": "#/$defs/headers" },
+        "body": { "$ref": "#/$defs/text" },
+        "contentType": { "$ref": "#/$defs/text" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "variables"],
+      "properties": {
+        "name": { "$ref": "#/$defs/text" },
+        "variables": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/variable" } }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "secret"],
+      "properties": {
+        "key": { "$ref": "#/$defs/name" },
+        "value": { "type": "string", "maxLength": 65536, "description": "At most 64 KiB of UTF-8." },
+        "secret": { "type": "boolean" }
+      },
+      "if": { "properties": { "secret": { "const": true } } },
+      "then": { "properties": { "value": { "const": "" } } }
+    }
+  }
+}

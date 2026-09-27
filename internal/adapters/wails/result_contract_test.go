@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -86,6 +87,79 @@ func TestContract_Err_ServerUnreachable_WinsOverRateLimited(t *testing.T) {
 	res := Err[string](err)
 	require.NotNil(t, res.Error)
 	require.Equal(t, ErrCodeServerUnreachable, res.Error.Code)
+}
+
+func statusWithReason(t *testing.T, code codes.Code, reason string) error {
+	t.Helper()
+	st, err := status.New(code, "refused").WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "tetiva.app"})
+	require.NoError(t, err)
+	return st.Err()
+}
+
+func TestContract_Err_ReasonFromErrorInfo(t *testing.T) {
+	reasons := []string{
+		"PUBLISH_QUOTA_EXCEEDED", "PUBLISH_FEATURE_REQUIRED", "PUBLISH_BLOCKED", "PUBLISH_SUSPENDED",
+		"PUBLISH_COLLECTION_NOT_SYNCED", "PUBLISH_CONFIRM_REQUIRED", "PUBLISH_CONFLICT", "PUBLISH_DISABLED",
+		"PUBLISH_EMAIL_UNVERIFIED", "SNAPSHOT_TOO_LARGE", "SNAPSHOT_INVALID", "PASSWORD_INVALID", "RATE_LIMITED",
+	}
+	for _, reason := range reasons {
+		t.Run(reason, func(t *testing.T) {
+			res := Err[string](fmt.Errorf("publish: %w", statusWithReason(t, codes.FailedPrecondition, reason)))
+			require.NotNil(t, res.Error)
+			assert.Equal(t, ErrCodeInternal, res.Error.Code)
+			assert.Equal(t, reason, res.Error.Reason)
+		})
+	}
+}
+
+func TestContract_Err_ReasonWireFormat(t *testing.T) {
+	err := fmt.Errorf("publish: %w", statusWithReason(t, codes.ResourceExhausted, "PUBLISH_QUOTA_EXCEEDED"))
+	b, mErr := json.Marshal(Err[string](err))
+	require.NoError(t, mErr)
+	require.Equal(t,
+		`{"data":"","error":{"code":"rate_limited","message":"publish: rpc error: code = ResourceExhausted desc = refused","reason":"PUBLISH_QUOTA_EXCEEDED"}}`,
+		string(b))
+}
+
+func TestContract_Err_ReasonSitsBeforeFields(t *testing.T) {
+	err := &domain.ReasonError{Reason: "LINK_INVALID", Err: &domain.ValidationError{Fields: map[string]string{"slug": "invalid"}}}
+	b, mErr := json.Marshal(Err[string](err))
+	require.NoError(t, mErr)
+	require.Equal(t,
+		`{"data":"","error":{"code":"validation","message":"validation failed","reason":"LINK_INVALID","fields":{"slug":"invalid"}}}`,
+		string(b))
+}
+
+func TestContract_Err_ReasonFromReasonError(t *testing.T) {
+	inner := &domain.NotFoundError{Entity: "publication", ID: "abc"}
+	err := fmt.Errorf("importLink: %w", &domain.ReasonError{Reason: "LINK_NOT_FOUND", Err: inner})
+
+	b, mErr := json.Marshal(Err[string](err))
+	require.NoError(t, mErr)
+	require.Equal(t,
+		`{"data":"","error":{"code":"not_found","message":"publication not found: abc","reason":"LINK_NOT_FOUND"}}`,
+		string(b))
+}
+
+func TestContract_Err_ReasonErrorWinsOverErrorInfo(t *testing.T) {
+	err := &domain.ReasonError{Reason: "LINK_EXPIRED", Err: statusWithReason(t, codes.Unauthenticated, "PASSWORD_INVALID")}
+	res := Err[string](err)
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "LINK_EXPIRED", res.Error.Reason)
+}
+
+func TestContract_Err_ServerUnreachable_KeepsReason(t *testing.T) {
+	err := fmt.Errorf("%w: %w", ErrServerUnreachable, statusWithReason(t, codes.ResourceExhausted, "RATE_LIMITED"))
+	res := Err[string](err)
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeServerUnreachable, res.Error.Code)
+	assert.Equal(t, "RATE_LIMITED", res.Error.Reason)
+}
+
+func TestContract_Err_StatusWithoutErrorInfoHasNoReason(t *testing.T) {
+	b, err := json.Marshal(Err[string](status.Error(codes.ResourceExhausted, "slow down")))
+	require.NoError(t, err)
+	require.Equal(t, `{"data":"","error":{"code":"rate_limited","message":"rpc error: code = ResourceExhausted desc = slow down"}}`, string(b))
 }
 
 func TestContract_Err_Internal_PlainError(t *testing.T) {

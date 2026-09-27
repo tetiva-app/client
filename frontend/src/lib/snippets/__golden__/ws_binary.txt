@@ -1,0 +1,15 @@
+=== websocat ===
+printf '%s' 'AAEC/w==' | base64 -d | websocat --binary \
+  --protocol='bin' \
+  'wss://echo.example.com/ws'
+
+=== js-websocket ===
+const ws = new WebSocket("wss://echo.example.com/ws", ["bin"]);
+
+ws.addEventListener("open", () => {
+  ws.send(Uint8Array.from(atob("AAEC/w=="), (c) => c.charCodeAt(0)));
+});
+
+ws.addEventListener("message", (e) => {
+  console.log(e.data);
+});

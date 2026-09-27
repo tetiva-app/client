@@ -15,6 +15,7 @@ import (
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/har"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
@@ -30,6 +31,7 @@ type stubRequestUsecase struct {
 	reorderFn                  func(context.Context, uuid.UUID, int) error
 	executeFn                  func(context.Context, uuid.UUID, request.ExecuteOpt) (*entities.Response, error)
 	buildCurlFn                func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error)
+	buildSnippetInputFn        func(context.Context, *entities.Request, request.BuildSnippetOpt) (request.SnippetInput, error)
 	moveFn                     func(context.Context, request.MoveOpt) (*entities.Request, error)
 	grpcListServicesFn         func(context.Context, request.GRPCConnectRequest) (*request.GRPCSchema, error)
 	grpcGenerateExampleFn      func(context.Context, request.GRPCConnectRequest, string, string) (string, error)
@@ -96,6 +98,13 @@ func (s *stubRequestUsecase) BuildCurl(ctx context.Context, id uuid.UUID, opt re
 		panic("buildCurlFn not set")
 	}
 	return s.buildCurlFn(ctx, id, opt)
+}
+
+func (s *stubRequestUsecase) BuildSnippetInput(ctx context.Context, req *entities.Request, opt request.BuildSnippetOpt) (request.SnippetInput, error) {
+	if s.buildSnippetInputFn == nil {
+		panic("buildSnippetInputFn not set")
+	}
+	return s.buildSnippetInputFn(ctx, req, opt)
 }
 
 func (s *stubRequestUsecase) Move(ctx context.Context, opt request.MoveOpt) (*entities.Request, error) {
@@ -398,6 +407,93 @@ func TestRequestService_GenerateCurl_Happy_PassesScriptResultThrough(t *testing.
 	// into non-nil empty slices so the JSON payload contains [] not null.
 	assert.NotNil(t, res.Data.ScriptResult.Tests, "Tests should be non-nil empty slice")
 	assert.NotNil(t, res.Data.ScriptResult.PostConsole, "PostConsole should be non-nil empty slice")
+}
+
+func snippetRequest() dto.BuildSnippetRequest {
+	return dto.BuildSnippetRequest{
+		WorkspaceID:      uuid.New().String(),
+		ResolveVariables: true,
+		Request: dto.SnippetRequestDTO{
+			ID:           uuid.New().String(),
+			CollectionID: uuid.New().String(),
+			Protocol:     "http",
+			Method:       "GET",
+			URL:          "{{baseUrl}}/users",
+			Headers:      []dto.HeaderItemDTO{{Key: "Accept", Value: "application/json", Enabled: true}},
+			BodyType:     "none",
+			AuthType:     "none",
+		},
+	}
+}
+
+func TestRequestService_BuildSnippetInput_Happy(t *testing.T) {
+	in := snippetRequest()
+	in.IncludeSecrets = true
+	stub := &stubRequestUsecase{
+		buildSnippetInputFn: func(_ context.Context, req *entities.Request, opt request.BuildSnippetOpt) (request.SnippetInput, error) {
+			assert.Equal(t, in.Request.ID, req.ID.String())
+			assert.Equal(t, in.Request.CollectionID, req.CollectionID.String())
+			assert.Equal(t, entities.ProtocolHTTP, req.Protocol)
+			assert.Equal(t, "{{baseUrl}}/users", req.URL)
+			assert.Equal(t, []entities.HeaderItem{{Key: "Accept", Value: "application/json", Enabled: true}}, req.Headers)
+			assert.Equal(t, in.WorkspaceID, opt.WorkspaceID.String())
+			assert.True(t, opt.ResolveVariables)
+			assert.True(t, opt.IncludeSecrets)
+			return request.SnippetInput{
+				Protocol: entities.ProtocolHTTP,
+				HAR:      &har.Request{Method: "GET", URL: "{{baseUrl}}/users", HTTPVersion: "HTTP/1.1"},
+			}, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.BuildSnippetInput(in)
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, "http", res.Data.Protocol)
+	require.NotNil(t, res.Data.HAR)
+	assert.Equal(t, "{{baseUrl}}/users", res.Data.HAR.URL)
+	assert.Equal(t, -1, res.Data.HAR.HeadersSize)
+	assert.NotNil(t, res.Data.Warnings)
+}
+
+func TestRequestService_BuildSnippetInput_Error_InvalidWorkspaceUUID(t *testing.T) {
+	in := snippetRequest()
+	in.WorkspaceID = "not-a-uuid"
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.BuildSnippetInput(in)
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+	assert.Contains(t, res.Error.Fields, "workspaceId")
+}
+
+func TestRequestService_BuildSnippetInput_Error_InvalidCollectionUUID(t *testing.T) {
+	in := snippetRequest()
+	in.Request.CollectionID = ""
+	svc := NewRequestService(&stubRequestUsecase{})
+
+	res := svc.BuildSnippetInput(in)
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+	assert.Contains(t, res.Error.Fields, "collectionId")
+}
+
+func TestRequestService_BuildSnippetInput_Error_PropagatesUsecaseError(t *testing.T) {
+	stub := &stubRequestUsecase{
+		buildSnippetInputFn: func(context.Context, *entities.Request, request.BuildSnippetOpt) (request.SnippetInput, error) {
+			return request.SnippetInput{}, &domain.ValidationError{Fields: map[string]string{"workspace": "request belongs to another workspace"}}
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.BuildSnippetInput(snippetRequest())
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+	assert.NotEmpty(t, res.Error.Fields["workspace"])
 }
 
 func TestRequestService_Create_Happy(t *testing.T) {

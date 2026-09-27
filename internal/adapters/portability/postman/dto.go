@@ -3,6 +3,7 @@ package postman
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -81,6 +82,8 @@ type PostmanItem struct {
 	Request     *PostmanRequest     `json:"request,omitempty"`
 	Auth        *PostmanAuth        `json:"auth,omitempty"`
 	Event       []PostmanEvent      `json:"event,omitempty"`
+	// Raw so one malformed example is skipped on its own instead of failing the whole file.
+	Response []json.RawMessage `json:"response,omitempty"`
 }
 
 // A childless folder has no item array, so only the request tells them apart.
@@ -113,11 +116,12 @@ type PostmanKV struct {
 }
 
 type PostmanBody struct {
-	Mode     string              `json:"mode"`
-	Raw      string              `json:"raw,omitempty"`
-	Options  *PostmanBodyOpt     `json:"options,omitempty"`
-	FormData []PostmanKV         `json:"formdata,omitempty"`
-	Graphql  *PostmanGraphQLBody `json:"graphql,omitempty"`
+	Mode       string              `json:"mode"`
+	Raw        string              `json:"raw,omitempty"`
+	Options    *PostmanBodyOpt     `json:"options,omitempty"`
+	FormData   []PostmanKV         `json:"formdata,omitempty"`
+	URLEncoded []PostmanKV         `json:"urlencoded,omitempty"`
+	Graphql    *PostmanGraphQLBody `json:"graphql,omitempty"`
 }
 
 // PostmanGraphQLBody holds GraphQL query and variables for the graphql body mode.
@@ -198,13 +202,115 @@ func boolAuthKV(key string, value bool) PostmanAuthKV {
 
 // PostmanEvent represents a pre-request or test script.
 type PostmanEvent struct {
-	Listen string        `json:"listen"`
-	Script PostmanScript `json:"script"`
+	Listen   string        `json:"listen"`
+	Script   PostmanScript `json:"script"`
+	Disabled bool          `json:"disabled,omitempty"`
 }
 
 type PostmanScript struct {
-	Type string   `json:"type"`
-	Exec []string `json:"exec"`
+	Type string      `json:"type"`
+	Exec PostmanExec `json:"exec"`
+}
+
+// PostmanExec holds script lines; v2.1 also allows the whole script as one string.
+type PostmanExec []string
+
+func (e *PostmanExec) UnmarshalJSON(b []byte) error {
+	const funcName = "postman.PostmanExec.UnmarshalJSON"
+
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*e = PostmanExec{s}
+		return nil
+	}
+	var lines []string
+	if err := json.Unmarshal(b, &lines); err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	*e = lines
+	return nil
+}
+
+// PostmanResponse is a saved example of a request.
+type PostmanResponse struct {
+	Name            string          `json:"name"`
+	OriginalRequest *PostmanRequest `json:"originalRequest,omitempty"`
+	Status          string          `json:"status"`
+	Code            int             `json:"code"`
+	// Postman picks the body viewer by it; the only type hint an example without headers has.
+	PreviewLanguage string         `json:"_postman_previewlanguage,omitempty"`
+	Header          PostmanHeaders `json:"header"`
+	Body            string         `json:"body"`
+}
+
+// PostmanHeaders reads every v2.1 header shape: a list of objects, one string of
+// "Key: Value" lines, or a list mixing objects and such strings.
+type PostmanHeaders []PostmanKV
+
+func (h *PostmanHeaders) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*h = nil
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(b, &text); err == nil {
+		*h = parseHeaderLines(text)
+		return nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(b, &items); err != nil {
+		return headersTypeError(b)
+	}
+	out := make(PostmanHeaders, 0, len(items))
+	for _, raw := range items {
+		if err := json.Unmarshal(raw, &text); err == nil {
+			out = append(out, parseHeaderLines(text)...)
+			continue
+		}
+		var kv PostmanKV
+		if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &kv) != nil {
+			return headersTypeError(raw)
+		}
+		out = append(out, kv)
+	}
+	*h = out
+	return nil
+}
+
+// A bare UnmarshalTypeError gets the field path from the decoder, which names it in the warning.
+func headersTypeError(raw []byte) error {
+	kind := "number"
+	if len(raw) > 0 {
+		switch raw[0] {
+		case '{':
+			kind = "object"
+		case '[':
+			kind = "array"
+		case '"':
+			kind = "string"
+		case 't', 'f':
+			kind = "bool"
+		}
+	}
+	return &json.UnmarshalTypeError{Value: kind, Type: reflect.TypeFor[PostmanHeaders]()}
+}
+
+// parseHeaderLines reads Postman's bulk-edit form, where a "//" prefix disables the header.
+func parseHeaderLines(text string) []PostmanKV {
+	var out []PostmanKV
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		disabled := strings.HasPrefix(line, "//")
+		if disabled {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "//"))
+		}
+		key, value, _ := strings.Cut(line, ":")
+		out = append(out, PostmanKV{Key: strings.TrimSpace(key), Value: strings.TrimSpace(value), Disabled: disabled})
+	}
+	return out
 }
 
 type PostmanEnvironment struct {

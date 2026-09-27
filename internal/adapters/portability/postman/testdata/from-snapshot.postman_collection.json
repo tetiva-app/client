@@ -1,0 +1,668 @@
+{
+	"info": {
+		"name": "Petstore API — демо",
+		"description": "# Petstore\n\nДемо-коллекция: **все протоколы**, примеры ответов, окружение.\n\n```bash\ncurl {{baseUrl}}/pets\n```",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Питомцы",
+			"description": "CRUD по питомцам.",
+			"item": [
+				{
+					"name": "Администрирование",
+					"description": "Вложенная папка без своей авторизации.",
+					"item": [
+						{
+							"name": "Delete pet",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/pets/{{petId}}"
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Check pet exists",
+							"request": {
+								"method": "HEAD",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/pets/{{petId}}"
+								},
+								"auth": {
+									"type": "jwt",
+									"jwt": [
+										{
+											"key": "algorithm",
+											"value": "HS256"
+										},
+										{
+											"key": "secret",
+											"value": "{{jwtSecret}}"
+										},
+										{
+											"key": "isSecretBase64Encoded",
+											"value": false
+										},
+										{
+											"key": "payload",
+											"value": "{\"iss\":\"https://auth.example.com\",\"sub\":\"{{userId}}\",\"aud\":[\"petstore\",\"admin\"],\"iat\":1727222400,\"admin\":true,\"profile\":{\"name\":\"Иван\",\"roles\":[\"owner\",null]}}"
+										},
+										{
+											"key": "header",
+											"value": "{\"kid\":\"key-2026\",\"typ\":\"JWT\"}"
+										},
+										{
+											"key": "headerPrefix",
+											"value": "Bearer"
+										},
+										{
+											"key": "queryParamKey",
+											"value": "token"
+										},
+										{
+											"key": "addTokenTo",
+											"value": "header"
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Получить питомца",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							},
+							{
+								"key": "X-Api-Key",
+								"value": "<redacted>"
+							},
+							{
+								"key": "X-{{tenantHeader}}",
+								"value": "acme"
+							},
+							{
+								"key": "X-Debug",
+								"value": "1",
+								"disabled": true
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/pets/{{petId}}?expand=owner&api_key=<redacted>"
+						},
+						"description": "Возвращает питомца по `id`.\n\nПараметр `api_key` в query устарел."
+					},
+					"response": [
+						{
+							"name": "200 Успех",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{token}}"
+									},
+									{
+										"key": "X-Api-Key",
+										"value": "<redacted>"
+									},
+									{
+										"key": "X-{{tenantHeader}}",
+										"value": "acme"
+									},
+									{
+										"key": "X-Debug",
+										"value": "1",
+										"disabled": true
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/pets/{{petId}}?expand=owner&api_key=<redacted>"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json; charset=utf-8"
+								},
+								{
+									"key": "X-Request-Id",
+									"value": "req-7f3a"
+								}
+							],
+							"body": "{\n  \"id\": 42,\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"tags\": [\n    \"кот\",\n    \"рыжий\"\n  ]\n}"
+						},
+						{
+							"name": "404 Не найден",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{token}}"
+									},
+									{
+										"key": "X-Api-Key",
+										"value": "<redacted>"
+									},
+									{
+										"key": "X-{{tenantHeader}}",
+										"value": "acme"
+									},
+									{
+										"key": "X-Debug",
+										"value": "1",
+										"disabled": true
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/pets/{{petId}}?expand=owner&api_key=<redacted>"
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"pet not found\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Create pet",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"ownerId\": \"{{userId}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/pets"
+						},
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": ""
+								}
+							]
+						},
+						"description": "Creates a pet from a JSON body."
+					},
+					"response": [
+						{
+							"name": "201 Created",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"ownerId\": \"{{userId}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/pets"
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "Location",
+									"value": "/pets/43"
+								}
+							],
+							"body": "{\n  \"id\": 43\n}"
+						}
+					],
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.environment.set(\"requestId\", crypto.randomUUID());"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"created\", () => pm.response.to.have.status(201));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Загрузить фото",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "Отчёт за Q3",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"description": "report.pdf"
+								},
+								{
+									"key": "draft",
+									"value": "true",
+									"type": "text",
+									"disabled": true
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/pets/{{petId}}/photos"
+						},
+						"auth": {
+							"type": "basic",
+							"basic": [
+								{
+									"key": "username",
+									"value": "{{user}}"
+								},
+								{
+									"key": "password",
+									"value": ""
+								}
+							]
+						},
+						"description": "Multipart: текстовое поле и файл."
+					},
+					"response": []
+				},
+				{
+					"name": "Search (urlencoded)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "q",
+									"value": "рыжий кот"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/pets/search"
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Replace avatar",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "image/png"
+							}
+						],
+						"body": {
+							"mode": "file",
+							"file": {}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/pets/{{petId}}/avatar"
+						},
+						"auth": {
+							"type": "awsv4",
+							"awsv4": [
+								{
+									"key": "accessKey",
+									"value": "{{awsKeyId}}"
+								},
+								{
+									"key": "secretKey",
+									"value": ""
+								},
+								{
+									"key": "region",
+									"value": "eu-central-1"
+								},
+								{
+									"key": "service",
+									"value": "execute-api"
+								}
+							]
+						},
+						"description": "Binary body; only the file's base name is published."
+					},
+					"response": []
+				},
+				{
+					"name": "Import XML",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/xml"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<pets>\n  <pet id=\"42\">Барсик</pet>\n</pets>",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/pets/import"
+						},
+						"auth": {
+							"type": "digest",
+							"digest": [
+								{
+									"key": "username",
+									"value": ""
+								},
+								{
+									"key": "password",
+									"value": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Ping",
+					"request": {
+						"method": "OPTIONS",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "text/plain"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "ping"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/ping"
+						},
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-Api-Key"
+								},
+								{
+									"key": "value",
+									"value": "{{apiKey}}"
+								},
+								{
+									"key": "in",
+									"value": "header"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "oauth2",
+				"oauth2": [
+					{
+						"key": "grant_type",
+						"value": "client_credentials"
+					},
+					{
+						"key": "accessTokenUrl",
+						"value": "https://auth.example.com/oauth/token"
+					},
+					{
+						"key": "clientId",
+						"value": "{{clientId}}"
+					},
+					{
+						"key": "scope",
+						"value": "pets:read pets:write"
+					},
+					{
+						"key": "headerPrefix",
+						"value": "Bearer"
+					},
+					{
+						"key": "client_authentication",
+						"value": "header"
+					},
+					{
+						"key": "addTokenTo",
+						"value": "header"
+					},
+					{
+						"key": "tetivaQueryParam",
+						"value": "access_token"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"console.log(\"folder pre\");"
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Pet by id (GraphQL)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{token}}"
+					}
+				],
+				"body": {
+					"mode": "graphql",
+					"graphql": {
+						"query": "query Pet($id: ID!) {\n  pet(id: $id) {\n    id\n    name\n    status\n  }\n}",
+						"variables": "{\n  \"id\": \"{{petId}}\"\n}"
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/graphql"
+				},
+				"description": "GraphQL-запрос с переменными."
+			},
+			"response": [
+				{
+					"name": "200 OK",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "graphql",
+							"graphql": {
+								"query": "query Pet($id: ID!) {\n  pet(id: $id) {\n    id\n    name\n    status\n  }\n}",
+								"variables": "{\n  \"id\": \"{{petId}}\"\n}"
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/graphql"
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"body": "{\n  \"data\": {\n    \"pet\": {\n      \"id\": \"42\",\n      \"name\": \"Барсик\",\n      \"status\": \"available\"\n    }\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "Realtime",
+			"item": []
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"pm.environment.set(\"ts\", Date.now());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"pm.test(\"status is 2xx\", () => pm.expect(pm.response.code).to.be.below(300));"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://petstore.example.com/v1"
+		},
+		{
+			"key": "grpcHost",
+			"value": "grpc.petstore.example.com:443"
+		},
+		{
+			"key": "wsUrl",
+			"value": "wss://ws.petstore.example.com"
+		},
+		{
+			"key": "petId",
+			"value": "42"
+		},
+		{
+			"key": "userId",
+			"value": "u-1001"
+		},
+		{
+			"key": "tenantHeader",
+			"value": "Tenant"
+		},
+		{
+			"key": "user",
+			"value": "demo"
+		},
+		{
+			"key": "clientId",
+			"value": "tetiva-demo"
+		},
+		{
+			"key": "greeting",
+			"value": "Здравствуйте"
+		}
+	]
+}

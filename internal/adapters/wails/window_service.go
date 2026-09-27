@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -47,15 +48,23 @@ type windowPrefsFile struct {
 // Wails v3 beta changed the macOS coordinate space; positions saved by older builds are garbage there.
 var legacyPositionsStale = runtime.GOOS == "darwin"
 
+// A frontend that never answers the save request must not keep its window open for good.
+const defaultCloseGrace = 3 * time.Second
+
 // WindowService manages detachable child windows.
 type WindowService struct {
-	app *application.App
-	mu  sync.RWMutex
+	app  *application.App
+	emit func(name string, data any)
+	mu   sync.RWMutex
 
 	windows          map[string]*WindowInfo  // windowName → info
 	detachedRequests map[string]string       // requestID → windowName
 	schemas          map[string]*SchemaData  // schemaID → content
 	prefs            map[string]*WindowPrefs // windowType → size/position
+
+	closeGrace   time.Duration
+	closeHeld    map[string]*time.Timer // requestID → fallback close while the window saves
+	closeAllowed map[string]bool        // requestID → saved, the next close goes through
 }
 
 func NewWindowService() *WindowService {
@@ -64,6 +73,9 @@ func NewWindowService() *WindowService {
 		detachedRequests: make(map[string]string),
 		schemas:          make(map[string]*SchemaData),
 		prefs:            make(map[string]*WindowPrefs),
+		closeGrace:       defaultCloseGrace,
+		closeHeld:        make(map[string]*time.Timer),
+		closeAllowed:     make(map[string]bool),
 	}
 	ws.loadPrefs()
 	return ws
@@ -72,6 +84,16 @@ func NewWindowService() *WindowService {
 // Called after app creation in main.go.
 func (ws *WindowService) SetApp(app *application.App) {
 	ws.app = app
+}
+
+func (ws *WindowService) SetEventEmitter(emit func(name string, data any)) {
+	ws.mu.Lock()
+	ws.emit = emit
+	ws.mu.Unlock()
+}
+
+func saveAndCloseEvent(requestID string) string {
+	return "window:save-and-close:" + requestID
 }
 
 func prefsFilePath() string {
@@ -267,15 +289,85 @@ func (ws *WindowService) DetachRequest(requestID, protocol, title string) Result
 	ws.detachedRequests[requestID] = windowName
 	ws.mu.Unlock()
 
-	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+	window.RegisterHook(events.Common.WindowClosing, ws.detachedClosingHook(window, windowName, requestID))
+
+	return OK(Empty{})
+}
+
+// Wails closes a window without a beforeunload, so the first close waits for the
+// frontend to save and come back through CloseDetached.
+func (ws *WindowService) detachedClosingHook(window *application.WebviewWindow, windowName, requestID string) func(*application.WindowEvent) {
+	return func(e *application.WindowEvent) {
+		if ws.holdClose(windowName, requestID) {
+			e.Cancel()
+			return
+		}
 		ws.saveWindowPrefs(window, "detached-request")
 
 		ws.mu.Lock()
 		delete(ws.windows, windowName)
 		delete(ws.detachedRequests, requestID)
+		if timer := ws.closeHeld[requestID]; timer != nil {
+			timer.Stop()
+		}
+		delete(ws.closeHeld, requestID)
+		delete(ws.closeAllowed, requestID)
 		ws.mu.Unlock()
-	})
+	}
+}
 
+// holdClose reports whether to cancel this closing event.
+func (ws *WindowService) holdClose(windowName, requestID string) bool {
+	ws.mu.Lock()
+	// A second Close() can land after the first one let this window go; cancelling spares a second native close.
+	if ws.detachedRequests[requestID] != windowName {
+		ws.mu.Unlock()
+		return true
+	}
+	if ws.emit == nil || ws.closeAllowed[requestID] {
+		ws.mu.Unlock()
+		return false
+	}
+	if _, held := ws.closeHeld[requestID]; held {
+		ws.mu.Unlock()
+		return true
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(ws.closeGrace, func() {
+		ws.mu.Lock()
+		// Stop() can lose to a timer already firing; only the current hold may close the window.
+		current := ws.closeHeld[requestID] == timer
+		if current {
+			delete(ws.closeHeld, requestID)
+		}
+		ws.mu.Unlock()
+		if current {
+			ws.CloseDetached(requestID)
+		}
+	})
+	ws.closeHeld[requestID] = timer
+	emit := ws.emit
+	ws.mu.Unlock()
+
+	emit(saveAndCloseEvent(requestID), nil)
+	return true
+}
+
+// CloseDetached closes a detached request window without asking it to save again.
+func (ws *WindowService) CloseDetached(requestID string) Result[Empty] {
+	ws.mu.Lock()
+	windowName, ok := ws.detachedRequests[requestID]
+	if !ok {
+		ws.mu.Unlock()
+		return OK(Empty{})
+	}
+	ws.closeAllowed[requestID] = true
+	info := ws.windows[windowName]
+	ws.mu.Unlock()
+
+	if info != nil && info.Window != nil {
+		info.Window.Close()
+	}
 	return OK(Empty{})
 }
 

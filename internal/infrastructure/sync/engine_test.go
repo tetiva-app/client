@@ -27,6 +27,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
+	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
@@ -214,7 +215,7 @@ func newTestEngine(t *testing.T) *SyncEngine {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(), nil,
+		newStubVariableRepo(), sqlite.NewResponseExampleRepo(db), nil,
 	)
 }
 
@@ -266,7 +267,7 @@ func TestSyncEngine_StartWorkspace_EnablesWorkspace(t *testing.T) {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(), nil,
+		newStubVariableRepo(), sqlite.NewResponseExampleRepo(db), nil,
 	)
 
 	wsID := uuid.New().String()
@@ -421,6 +422,72 @@ func TestSyncEngine_GetWorkspaceState_KnownWorkspace(t *testing.T) {
 	assert.Equal(t, StateConnected, engine.GetWorkspaceState(wsID))
 }
 
+func TestSyncEngine_OnConnected_FiresOnEachTransitionIntoConnected(t *testing.T) {
+	engine := newTestEngine(t)
+	fired := make(chan struct{}, 10)
+	engine.OnConnected(func() { fired <- struct{}{} })
+
+	ws := &workspaceSyncer{
+		engine:           engine,
+		localWorkspaceID: uuid.New().String(),
+		state:            StateOffline,
+		pushSignal:       make(chan struct{}, 1),
+	}
+	expectFired := func(want int) {
+		t.Helper()
+		got := 0
+		deadline := time.After(time.Second)
+		for got < want {
+			select {
+			case <-fired:
+				got++
+			case <-deadline:
+				t.Fatalf("hook fired %d times, want %d", got, want)
+			}
+		}
+		select {
+		case <-fired:
+			t.Fatalf("hook fired more than %d times", want)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	ws.setState(StatePulling)
+	ws.setState(StateConnected)
+	expectFired(1)
+
+	ws.setState(StateConnected)
+	expectFired(0)
+
+	ws.setState(StatePushing)
+	ws.setState(StateConnected)
+	expectFired(1)
+}
+
+func TestSyncEngine_OnConnected_HookRunsOffTheSyncerGoroutine(t *testing.T) {
+	engine := newTestEngine(t)
+	release := make(chan struct{})
+	done := make(chan struct{})
+	engine.OnConnected(func() {
+		<-release
+		close(done)
+	})
+	ws := &workspaceSyncer{engine: engine, localWorkspaceID: uuid.New().String(), state: StateOffline, pushSignal: make(chan struct{}, 1)}
+
+	returned := make(chan struct{})
+	go func() {
+		ws.setState(StateConnected)
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("setState waited for the hook")
+	}
+	close(release)
+	<-done
+}
+
 func TestSyncEngine_GetPendingCount(t *testing.T) {
 	db := setupTestDB(t)
 	queueRepo := sqlite.NewSyncQueueRepo(db)
@@ -435,7 +502,7 @@ func TestSyncEngine_GetPendingCount(t *testing.T) {
 		newStubCollectionRepo(),
 		newStubRequestRepo(),
 		newStubEnvironmentRepo(),
-		newStubVariableRepo(), nil,
+		newStubVariableRepo(), sqlite.NewResponseExampleRepo(db), nil,
 	)
 
 	ctx := context.Background()
@@ -647,7 +714,7 @@ func TestSyncEngine_Pause_QueueRetainsWrites(t *testing.T) {
 
 	engine := NewSyncEngine(auth, queueRepo, configRepo, db,
 		newStubCollectionRepo(), newStubRequestRepo(),
-		newStubEnvironmentRepo(), newStubVariableRepo(), nil)
+		newStubEnvironmentRepo(), newStubVariableRepo(), sqlite.NewResponseExampleRepo(db), nil)
 
 	wsID := testWorkspaceID.String()
 	_, outerCancel := newSyncer(engine, wsID, StateConnected)
@@ -1324,7 +1391,7 @@ func TestWorkspaceSyncer_QuotaParked_RequeueTimerSignalsPush(t *testing.T) {
 		CreatedAt:   time.Now().Truncate(time.Second),
 	}))
 
-	entries, err := engine.syncQueue.CoalescedPending(ctx, wsID, 10)
+	entries, err := engine.syncQueue.CoalescedPending(ctx, wsID, 10, nil)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 
@@ -1444,7 +1511,7 @@ func TestWorkspaceSyncer_Start_RetriesParkedEntries(t *testing.T) {
 	require.Len(t, batches[1], 1)
 	assert.Equal(t, later, batches[1][0].GetEntityId(), "the rest must follow when their window elapses")
 
-	owed, err := engine.syncQueue.CountPendingOrFailed(ctx, wsID)
+	owed, err := engine.syncQueue.CountPendingOrFailed(ctx, wsID, nil)
 	require.NoError(t, err)
 	assert.Zero(t, owed)
 }
@@ -2341,6 +2408,7 @@ func TestPullAll_SweepsParkedRowsOncePerBatch(t *testing.T) {
 
 	counting := &countingSweepRepo{SyncQueueRepository: ws.engine.syncQueue}
 	ws.engine.syncQueue = counting
+	setPullPosition(t, ws, db, 5, "")
 	client.pull = func(*syncv1.PullRequest) (*syncv1.PullResponse, error) {
 		return syncv1.PullResponse_builder{Changes: changes, NextSyncSeq: 9}.Build(), nil
 	}
@@ -2418,4 +2486,515 @@ func TestSyncEngine_ForceResync_ReadsCursorUnderLock(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, engine.ForceResync(context.Background(), wsID))
+}
+
+var allEntityTypes = []syncv1.EntityType{
+	syncv1.EntityType_ENTITY_TYPE_COLLECTION,
+	syncv1.EntityType_ENTITY_TYPE_ENVIRONMENT,
+	syncv1.EntityType_ENTITY_TYPE_REQUEST,
+	syncv1.EntityType_ENTITY_TYPE_VARIABLE,
+	syncv1.EntityType_ENTITY_TYPE_RESPONSE_EXAMPLE,
+}
+
+type pullStep func(*syncv1.PullRequest) (*syncv1.PullResponse, error)
+
+// pullScript answers the n-th Pull with steps[n] and records every request; a Pull past the end fails the test.
+type pullScript struct {
+	t     *testing.T
+	mu    gosync.Mutex
+	reqs  []*syncv1.PullRequest
+	steps []pullStep
+}
+
+func (p *pullScript) pull(req *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+	p.mu.Lock()
+	n := len(p.reqs)
+	p.reqs = append(p.reqs, req)
+	p.mu.Unlock()
+	if n >= len(p.steps) {
+		p.t.Errorf("unexpected pull #%d: %v", n+1, req)
+		return nil, status.Error(codes.Internal, "pull script exhausted")
+	}
+	return p.steps[n](req)
+}
+
+func (p *pullScript) requests() []*syncv1.PullRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.reqs)
+}
+
+func answer(resp *syncv1.PullResponse) pullStep {
+	return func(*syncv1.PullRequest) (*syncv1.PullResponse, error) { return resp, nil }
+}
+
+func newPullSyncer(t *testing.T) (*workspaceSyncer, *sql.DB, *pullScript) {
+	t.Helper()
+	script := &pullScript{t: t}
+	ws, db, _ := newInboundSyncer(t, &fakeSyncClient{pull: script.pull})
+	return ws, db, script
+}
+
+func setPullPosition(t *testing.T, ws *workspaceSyncer, db *sql.DB, seq int64, pageToken string) {
+	t.Helper()
+	_, err := db.Exec(`UPDATE workspaces SET last_sync_seq = ?, sync_page_token = ? WHERE id = ?`,
+		seq, pageToken, ws.localWorkspaceID)
+	require.NoError(t, err)
+	ws.setCursor(seq)
+}
+
+func pullPosition(t *testing.T, db *sql.DB) (int64, string) {
+	t.Helper()
+	var seq int64
+	var token string
+	require.NoError(t, db.QueryRow(`SELECT last_sync_seq, sync_page_token FROM workspaces WHERE id = ?`,
+		testWorkspaceID.String()).Scan(&seq, &token))
+	return seq, token
+}
+
+func entityChange(e *syncv1.SyncEntity) *syncv1.SyncChange {
+	return syncv1.SyncChange_builder{EntityType: e.GetEntityType(), EntityId: e.GetEntityId(), Entity: e}.Build()
+}
+
+func collectionIsDeleted(t *testing.T, db *sql.DB, id uuid.UUID) bool {
+	t.Helper()
+	var deleted bool
+	require.NoError(t, db.QueryRow(`SELECT is_delete FROM collections WHERE id = ?`, id.String()).Scan(&deleted))
+	return deleted
+}
+
+func TestPullAndSubscribe_AnnounceEveryKnownType(t *testing.T) {
+	ws, _, script := newPullSyncer(t)
+	script.steps = []pullStep{answer(syncv1.PullResponse_builder{NextSyncSeq: 5}.Build()), answer(syncv1.PullResponse_builder{NextSyncSeq: 5}.Build())}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	reqs := script.requests()
+	require.Len(t, reqs, 2)
+	for _, r := range reqs {
+		assert.ElementsMatch(t, allEntityTypes, r.GetKnownTypes())
+	}
+
+	sub := &subscribeRecorder{}
+	ws.engine.SetGRPCClient(&GRPCClient{sync: sub})
+	_ = ws.subscribe(context.Background())
+	require.NotNil(t, sub.req)
+	assert.ElementsMatch(t, allEntityTypes, sub.req.GetKnownTypes())
+}
+
+type subscribeRecorder struct {
+	fakeSyncClient
+	req *syncv1.SubscribeRequest
+}
+
+func (c *subscribeRecorder) Subscribe(_ context.Context, req *syncv1.SubscribeRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[syncv1.SubscribeResponse], error) {
+	c.req = req
+	return &fakeSubscribeStream{}, nil
+}
+
+func TestPullAll_CursorFollowsNextSyncSeqWithoutEntities(t *testing.T) {
+	tests := []struct {
+		name string
+		resp *syncv1.PullResponse
+		want int64
+	}{
+		{"empty page", syncv1.PullResponse_builder{NextSyncSeq: 50}.Build(), 50},
+		{"cursor-only change", syncv1.PullResponse_builder{
+			Changes:     []*syncv1.SyncChange{syncv1.SyncChange_builder{SyncSeq: 60}.Build()},
+			NextSyncSeq: 60,
+		}.Build(), 60},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ws, db, script := newPullSyncer(t)
+			setPullPosition(t, ws, db, 10, "")
+			script.steps = []pullStep{answer(tc.resp)}
+
+			require.NoError(t, ws.pullAll(context.Background()))
+
+			seq, _ := pullPosition(t, db)
+			assert.Equal(t, tc.want, seq)
+			assert.Equal(t, tc.want, ws.cursor())
+		})
+	}
+}
+
+func TestPullAll_PagedSnapshotThenCatchUpFromTheBoundary(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	ctx := context.Background()
+	coll := newTestCollection("Walked", nil)
+	req := newLocalRequest("Walked", coll.ID)
+	tombstone := CollectionToProto(coll, "")
+	tombstone.SetIsDeleted(true)
+
+	script.steps = []pullStep{
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.True(t, r.GetPagedSnapshot())
+			assert.Empty(t, r.GetSnapshotPageToken())
+			return syncv1.PullResponse_builder{
+				Changes: []*syncv1.SyncChange{entityChange(CollectionToProto(coll, ""))}, HasMore: true, NextSnapshotPageToken: "t1",
+			}.Build(), nil
+		},
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.True(t, r.GetPagedSnapshot())
+			assert.Equal(t, "t1", r.GetSnapshotPageToken())
+			seq, token := pullPosition(t, db)
+			assert.Zero(t, seq, "an intermediate page leaves the cursor alone")
+			assert.Equal(t, "t1", token)
+			return syncv1.PullResponse_builder{HasMore: true, NextSnapshotPageToken: "t2"}.Build(), nil
+		},
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.Equal(t, "t2", r.GetSnapshotPageToken())
+			assert.Zero(t, r.GetLastSyncSeq())
+			return syncv1.PullResponse_builder{
+				Changes: []*syncv1.SyncChange{entityChange(RequestToProto(req, ""))}, NextSyncSeq: 30,
+			}.Build(), nil
+		},
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.False(t, r.GetPagedSnapshot())
+			assert.Empty(t, r.GetSnapshotPageToken())
+			assert.EqualValues(t, 30, r.GetLastSyncSeq())
+			seq, token := pullPosition(t, db)
+			assert.EqualValues(t, 30, seq)
+			assert.Empty(t, token)
+			return syncv1.PullResponse_builder{Changes: []*syncv1.SyncChange{entityChange(tombstone)}, NextSyncSeq: 31}.Build(), nil
+		},
+	}
+
+	require.NoError(t, ws.pullAll(ctx))
+
+	assert.Len(t, script.requests(), 4)
+	assert.True(t, collectionIsDeleted(t, db, coll.ID), "a delete made during the walk lands before the pull ends")
+	seq, token := pullPosition(t, db)
+	assert.EqualValues(t, 31, seq)
+	assert.Empty(t, token)
+	assert.EqualValues(t, 31, ws.cursor())
+}
+
+func TestPullAll_NewSyncerResumesTheSnapshotFromTheDatabase(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	ctx := context.Background()
+	coll := newTestCollection("Walked", nil)
+
+	script.steps = []pullStep{
+		answer(syncv1.PullResponse_builder{
+			Changes: []*syncv1.SyncChange{entityChange(CollectionToProto(coll, ""))}, HasMore: true, NextSnapshotPageToken: "t1",
+		}.Build()),
+		func(*syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			return nil, status.Error(codes.Unavailable, "connection reset")
+		},
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.True(t, r.GetPagedSnapshot())
+			assert.Equal(t, "t1", r.GetSnapshotPageToken())
+			assert.Zero(t, r.GetLastSyncSeq())
+			return syncv1.PullResponse_builder{NextSyncSeq: 12}.Build(), nil
+		},
+		answer(syncv1.PullResponse_builder{NextSyncSeq: 12}.Build()),
+	}
+
+	require.Error(t, ws.pullAll(ctx))
+	seq, token := pullPosition(t, db)
+	require.Zero(t, seq)
+	require.Equal(t, "t1", token)
+
+	restarted := &workspaceSyncer{
+		engine:            ws.engine,
+		localWorkspaceID:  ws.localWorkspaceID,
+		remoteWorkspaceID: ws.remoteWorkspaceID,
+		pushSignal:        make(chan struct{}, 1),
+		lastSyncSeq:       seq,
+	}
+	require.NoError(t, restarted.pullAll(ctx))
+
+	seq, token = pullPosition(t, db)
+	assert.EqualValues(t, 12, seq)
+	assert.Empty(t, token)
+	assert.Len(t, script.requests(), 4)
+}
+
+func TestPullAll_EmptySnapshotEndsAfterOnePull(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	script.steps = []pullStep{answer(syncv1.PullResponse_builder{}.Build())}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	reqs := script.requests()
+	require.Len(t, reqs, 1, "cursor 0 would route the next request into another snapshot")
+	assert.True(t, reqs[0].GetPagedSnapshot())
+	seq, _ := pullPosition(t, db)
+	assert.Zero(t, seq)
+}
+
+func TestPullAll_UnpagedSnapshotStillCatchesUp(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	coll := newTestCollection("Legacy", nil)
+	script.steps = []pullStep{
+		answer(syncv1.PullResponse_builder{
+			Changes: []*syncv1.SyncChange{entityChange(CollectionToProto(coll, ""))}, NextSyncSeq: 20,
+		}.Build()),
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.EqualValues(t, 20, r.GetLastSyncSeq())
+			assert.False(t, r.GetPagedSnapshot())
+			return syncv1.PullResponse_builder{NextSyncSeq: 20}.Build(), nil
+		},
+	}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	assert.Len(t, script.requests(), 2)
+	seq, _ := pullPosition(t, db)
+	assert.EqualValues(t, 20, seq)
+	assert.EqualValues(t, 20, ws.cursor())
+}
+
+type countingClearRepo struct {
+	sqlite.SyncQueueRepository
+	clears int
+}
+
+func (q *countingClearRepo) DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error) {
+	q.clears++
+	return q.SyncQueueRepository.DeleteByWorkspace(ctx, workspaceID)
+}
+
+func countClears(ws *workspaceSyncer) *countingClearRepo {
+	counting := &countingClearRepo{SyncQueueRepository: ws.engine.syncQueue}
+	ws.engine.syncQueue = counting
+	return counting
+}
+
+func TestPullAll_ResyncRequiredRightAfterASnapshotEndsThePull(t *testing.T) {
+	ws, _, script := newPullSyncer(t)
+	counting := countClears(ws)
+	script.steps = []pullStep{
+		answer(syncv1.PullResponse_builder{NextSyncSeq: 10}.Build()),
+		answer(syncv1.PullResponse_builder{ResyncRequired: true}.Build()),
+	}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	assert.Zero(t, counting.clears)
+	assert.Len(t, script.requests(), 2)
+}
+
+func TestResync_ResyncRequiredAfterItsSnapshotDoesNotRecurse(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	setPullPosition(t, ws, db, 40, "")
+	counting := countClears(ws)
+	script.steps = []pullStep{
+		answer(syncv1.PullResponse_builder{NextSyncSeq: 10}.Build()),
+		answer(syncv1.PullResponse_builder{ResyncRequired: true}.Build()),
+	}
+
+	require.NoError(t, ws.resync(context.Background()))
+
+	assert.Equal(t, 1, counting.clears)
+	reqs := script.requests()
+	require.Len(t, reqs, 2)
+	assert.Zero(t, reqs[0].GetLastSyncSeq())
+	assert.True(t, reqs[0].GetPagedSnapshot())
+}
+
+func TestPullAll_ResyncRequiredOnAnIncrementalPullResyncs(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	setPullPosition(t, ws, db, 40, "")
+	counting := countClears(ws)
+	script.steps = []pullStep{
+		answer(syncv1.PullResponse_builder{ResyncRequired: true}.Build()),
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.Zero(t, r.GetLastSyncSeq())
+			assert.True(t, r.GetPagedSnapshot())
+			return syncv1.PullResponse_builder{}.Build(), nil
+		},
+	}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	assert.Equal(t, 1, counting.clears)
+}
+
+func TestPullAll_RefusedPageTokenRestartsTheSnapshot(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	setPullPosition(t, ws, db, 0, "stale")
+	script.steps = []pullStep{
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.Equal(t, "stale", r.GetSnapshotPageToken())
+			return nil, status.Error(codes.InvalidArgument, "snapshot boundary expired")
+		},
+		func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.Empty(t, r.GetSnapshotPageToken())
+			assert.True(t, r.GetPagedSnapshot())
+			seq, token := pullPosition(t, db)
+			assert.Zero(t, seq)
+			assert.Empty(t, token, "the refused token must not survive a crash of the restarted walk")
+			return syncv1.PullResponse_builder{NextSyncSeq: 7}.Build(), nil
+		},
+		answer(syncv1.PullResponse_builder{NextSyncSeq: 7}.Build()),
+	}
+
+	require.NoError(t, ws.pullAll(context.Background()))
+
+	seq, _ := pullPosition(t, db)
+	assert.EqualValues(t, 7, seq)
+}
+
+func TestPullAll_FourthRefusedPageTokenInARowFails(t *testing.T) {
+	ws, db, script := newPullSyncer(t)
+	setPullPosition(t, ws, db, 0, "stale")
+	refuseTokens := func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+		if r.GetSnapshotPageToken() != "" {
+			return nil, status.Error(codes.InvalidArgument, "page token types differ from the request")
+		}
+		return syncv1.PullResponse_builder{HasMore: true, NextSnapshotPageToken: "next"}.Build(), nil
+	}
+	for range 7 {
+		script.steps = append(script.steps, refuseTokens)
+	}
+
+	err := ws.pullAll(context.Background())
+
+	require.Error(t, err)
+	code, _, ok := grpcStatusOf(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, code)
+	assert.Len(t, script.requests(), 7, "three restarts, then the fourth refusal ends the cycle")
+}
+
+func TestResync_KeepsUnsentExamplesAndLeavesPulledOnesOut(t *testing.T) {
+	env := newExampleSyncEnv(t)
+	ctx := context.Background()
+	var pushed []string
+	env.engine.SetGRPCClient(examplesCapableClient(&fakeSyncClient{
+		pull: func(r *syncv1.PullRequest) (*syncv1.PullResponse, error) {
+			assert.Empty(t, r.GetSnapshotPageToken())
+			assert.Zero(t, r.GetLastSyncSeq())
+			return syncv1.PullResponse_builder{}.Build(), nil
+		},
+		push: func(req *syncv1.PushRequest) (*syncv1.PushResponse, error) {
+			for _, e := range req.GetEntities() {
+				pushed = append(pushed, e.GetEntityId())
+			}
+			return acceptAll(req), nil
+		},
+	}))
+
+	created := env.createExample(t, "Created here")
+	edited := env.createExample(t, "Edited here")
+	deleted := env.createExample(t, "Deleted here")
+	_, err := env.db.Exec(`UPDATE response_examples SET is_synced = 1 WHERE id IN (?, ?)`, edited.ID.String(), deleted.ID.String())
+	require.NoError(t, err)
+	_, err = env.usecase.Edit(ctx, example.Edit{Name: "Edited again", StatusCode: 200, StatusText: "OK"},
+		example.EditOpt{ExampleID: edited.ID, UserID: "test_user", Version: edited.Version})
+	require.NoError(t, err)
+	require.NoError(t, env.usecase.Delete(ctx, example.DeleteOpt{ExampleID: deleted.ID, UserID: "test_user", Version: deleted.Version}))
+	pulled := uuid.New()
+	require.NoError(t, env.ws.applyEntity(ctx, exampleEntity(pulled, env.req.ID, "From the server", 1)))
+
+	_, err = env.db.Exec(`UPDATE workspaces SET last_sync_seq = 40, sync_page_token = 'walk',
+		examples_backfill_pending = 1, examples_backfill_token = 'fill' WHERE id = ?`, testWorkspaceID.String())
+	require.NoError(t, err)
+	env.ws.setCursor(40)
+
+	env.ws.examplesCap = capUnsupported
+	require.NoError(t, env.ws.resync(ctx))
+
+	wsID := testWorkspaceID.String()
+	assert.Equal(t, []queueRow{{wsID, "create", "pending", 0}}, queueRowsOf(t, env.db, created.ID.String()))
+	assert.Equal(t, []queueRow{{wsID, "create", "pending", 0}}, queueRowsOf(t, env.db, edited.ID.String()))
+	assert.Equal(t, []queueRow{{wsID, "delete", "pending", 0}}, queueRowsOf(t, env.db, deleted.ID.String()))
+	assert.Empty(t, queueRowsOf(t, env.db, pulled.String()), "the server already has what it sent")
+	assert.Empty(t, pushed, "a server without examples gets none")
+
+	var seq int64
+	var pageToken, backfillToken string
+	var backfill int
+	require.NoError(t, env.db.QueryRow(`SELECT last_sync_seq, sync_page_token, examples_backfill_pending, examples_backfill_token
+		FROM workspaces WHERE id = ?`, wsID).Scan(&seq, &pageToken, &backfill, &backfillToken))
+	assert.Zero(t, seq)
+	assert.Empty(t, pageToken)
+	assert.Zero(t, backfill)
+	assert.Empty(t, backfillToken)
+
+	env.ws.examplesCap = capSupported
+	require.NoError(t, env.ws.pushAll(ctx))
+
+	assert.ElementsMatch(t, []string{created.ID.String(), edited.ID.String(), deleted.ID.String()}, pushed)
+}
+
+func TestSyncEngine_ForceResync_ResetsThePullPositionInTheDatabase(t *testing.T) {
+	engine := newTestEngine(t)
+	ctx := context.Background()
+	_, err := engine.configRepo.GetOrCreate(ctx)
+	require.NoError(t, err)
+	engine.auth.storeTokens("access-1", "", "org-1")
+	engine.SetGRPCClient(&GRPCClient{sync: &stubSyncClient{}})
+	wsID := testWorkspaceID.String()
+	_, err = engine.db.Exec(`UPDATE workspaces SET last_sync_seq = 40, sync_page_token = 'walk',
+		examples_backfill_pending = 1, examples_backfill_token = 'fill', examples_backfill_incomplete = 1,
+		examples_backfill_failed_passes = 2 WHERE id = ?`, wsID)
+	require.NoError(t, err)
+	engine.InjectRawSyncer(wsID, "remote-"+wsID, func() {})
+	defer engine.StopAll()
+
+	require.NoError(t, engine.ForceResync(ctx, wsID))
+
+	var seq int64
+	var pageToken, backfillToken string
+	var backfill, incomplete, failed int
+	require.NoError(t, engine.db.QueryRow(`SELECT last_sync_seq, sync_page_token, examples_backfill_pending, examples_backfill_token,
+		examples_backfill_incomplete, examples_backfill_failed_passes FROM workspaces WHERE id = ?`, wsID).
+		Scan(&seq, &pageToken, &backfill, &backfillToken, &incomplete, &failed))
+	assert.Zero(t, seq)
+	assert.Empty(t, pageToken)
+	assert.Zero(t, backfill)
+	assert.Empty(t, backfillToken)
+	assert.Zero(t, incomplete)
+	assert.Zero(t, failed)
+}
+
+func TestSyncEngine_StopWorkspaceAndWait_JoinsTheSyncer(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+	close(stub.gate)
+
+	wsID := uuid.New().String()
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	<-stub.entered
+
+	require.True(t, engine.StopWorkspaceAndWait(wsID))
+
+	select {
+	case got := <-exits:
+		assert.Equal(t, wsID, got)
+	default:
+		t.Fatal("StopWorkspaceAndWait returned before the syncer goroutine finished")
+	}
+	assert.False(t, engine.IsEnabledForWorkspace(wsID))
+}
+
+func TestSyncEngine_StopWorkspaceAndWait_TimesOutOnAWedgedSyncer(t *testing.T) {
+	engine, stub, exits := gatedEngine(t)
+
+	wsID := uuid.New().String()
+	engine.StartWorkspace(wsID, "remote-"+wsID, 0)
+	<-stub.entered
+
+	assert.False(t, engine.stopWorkspaceAndWait(wsID, 50*time.Millisecond))
+
+	close(stub.gate)
+	select {
+	case <-exits:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled syncer never exited")
+	}
+}
+
+func TestSyncEngine_StopWorkspaceAndWait_WithoutAGoroutine(t *testing.T) {
+	engine := newTestEngine(t)
+
+	assert.True(t, engine.StopWorkspaceAndWait(uuid.NewString()), "nothing running is nothing to wait for")
+
+	wsID := uuid.NewString()
+	engine.InjectRawSyncer(wsID, "remote-"+wsID, func() {})
+	assert.True(t, engine.StopWorkspaceAndWait(wsID))
+	assert.Equal(t, StateDisconnected, engine.GetWorkspaceState(wsID))
 }

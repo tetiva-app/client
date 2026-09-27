@@ -122,12 +122,29 @@ func (u *usecase) DeleteVariable(ctx context.Context, opt DeleteVariableOpt) err
 func (u *usecase) ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error) {
 	const funcName = "environment.ResolveVariables"
 
+	vars, err := u.ActiveVariables(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	result := make(map[string]string, len(vars))
+	for _, v := range vars {
+		result[v.Key] = v.Value
+	}
+
+	return result, nil
+}
+
+// ActiveVariables returns the active environment's enabled variables, or none when no environment is active.
+func (u *usecase) ActiveVariables(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Variable, error) {
+	const funcName = "environment.ActiveVariables"
+
 	active, err := u.repo.GetActive(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 	if active == nil {
-		return map[string]string{}, nil
+		return nil, nil
 	}
 
 	vars, err := u.varRepo.List(ctx, active.ID)
@@ -135,12 +152,12 @@ func (u *usecase) ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	result := make(map[string]string, len(vars))
+	enabled := make([]*entities.Variable, 0, len(vars))
 	for _, v := range vars {
 		if v.Enabled {
-			result[v.Key] = v.Value
+			enabled = append(enabled, v)
 		}
 	}
 
-	return result, nil
+	return enabled, nil
 }

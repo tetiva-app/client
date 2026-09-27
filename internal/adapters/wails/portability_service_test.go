@@ -2,6 +2,9 @@ package wails
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -35,7 +38,7 @@ func TestPortabilityService_ImportCollection_Happy(t *testing.T) {
 	}
 	reqUC := &stubRequestUsecase{}
 	envUC := &stubEnvironmentUsecase{}
-	svc := NewPortabilityService(collUC, reqUC, envUC)
+	svc := NewPortabilityService(collUC, reqUC, envUC, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ImportCollection(dto.ImportCollectionRequest{
 		Content:     minimalCollectionJSON,
@@ -47,8 +50,30 @@ func TestPortabilityService_ImportCollection_Happy(t *testing.T) {
 	assert.Equal(t, 0, res.Data.RequestsCreated)
 }
 
+func TestPortabilityService_ImportCollection_NeverImportsScripts(t *testing.T) {
+	const withScript = `{"info":{"name":"x","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},` +
+		`"event":[{"listen":"prerequest","script":{"exec":["pm.environment.set('baseUrl','https://evil')"]}}],"item":[]}`
+	var got collection.Create
+	collUC := &stubCollectionUsecase{
+		createFn: func(_ context.Context, in collection.Create, opt collection.CreateOpt) (*entities.Collection, error) {
+			got = in
+			return &entities.Collection{ID: uuid.New(), Name: in.Name, WorkspaceID: opt.WorkspaceID}, nil
+		},
+	}
+	svc := NewPortabilityService(collUC, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
+	payload, err := json.Marshal(map[string]any{"content": withScript, "workspaceId": uuid.NewString(), "includeScripts": true})
+	require.NoError(t, err)
+	var req dto.ImportCollectionRequest
+	require.NoError(t, json.Unmarshal(payload, &req))
+
+	res := svc.ImportCollection(req)
+
+	require.Nil(t, res.Error)
+	assert.Empty(t, got.PreScript)
+}
+
 func TestPortabilityService_ImportCollection_Error_BadUUID(t *testing.T) {
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ImportCollection(dto.ImportCollectionRequest{
 		Content:     minimalCollectionJSON,
@@ -63,7 +88,7 @@ func TestPortabilityService_ImportCollection_Error_BadUUID(t *testing.T) {
 func TestPortabilityService_ImportCollection_Error_BadParentUUID(t *testing.T) {
 	wsID := uuid.New()
 	bad := "not-a-uuid"
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ImportCollection(dto.ImportCollectionRequest{
 		Content:     minimalCollectionJSON,
@@ -89,7 +114,7 @@ func TestPortabilityService_ImportEnvironment_Happy(t *testing.T) {
 			return &entities.Environment{ID: uuid.New(), Name: in.Name, WorkspaceID: opt.WorkspaceID}, nil
 		},
 	}
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, envUC)
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, envUC, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ImportEnvironment(dto.ImportEnvironmentRequest{
 		Content:     minimalEnvironmentJSON,
@@ -102,7 +127,7 @@ func TestPortabilityService_ImportEnvironment_Happy(t *testing.T) {
 }
 
 func TestPortabilityService_ImportEnvironment_Error_BadUUID(t *testing.T) {
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ImportEnvironment(dto.ImportEnvironmentRequest{
 		Content:     minimalEnvironmentJSON,
@@ -114,10 +139,79 @@ func TestPortabilityService_ImportEnvironment_Error_BadUUID(t *testing.T) {
 	assert.Contains(t, res.Error.Fields, "workspaceId")
 }
 
-// TODO: ExportCollection happy path needs a real *application.App — the Wails SaveFile dialog can't be stubbed; covered manually.
+func TestPortabilityService_ExportCollection_WarningsAndExamplesReachTheFile(t *testing.T) {
+	wsID, rootID := uuid.New(), uuid.New()
+	root := &entities.Collection{ID: rootID, WorkspaceID: wsID, Name: "API", AuthType: entities.AuthTypeNone, AuthData: "{}"}
+	httpReq := &entities.Request{
+		ID: uuid.New(), CollectionID: rootID, Name: "Ping", Protocol: entities.ProtocolHTTP,
+		Method: entities.MethodGET, URL: "/ping", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeInherit, AuthData: "{}",
+	}
+	grpcReq := &entities.Request{
+		ID: uuid.New(), CollectionID: rootID, Name: "SayHello", Protocol: entities.ProtocolGRPC,
+		URL: "localhost:50051", BodyType: entities.BodyTypeJSON, AuthType: entities.AuthTypeNone, AuthData: "{}",
+	}
+	collUC := &stubCollectionUsecase{
+		listFn: func(context.Context, collection.ListOpt) ([]*entities.Collection, error) {
+			return []*entities.Collection{root}, nil
+		},
+		getByIDFn: func(context.Context, uuid.UUID) (*entities.Collection, error) { return root, nil },
+	}
+	reqUC := &stubRequestUsecase{
+		listFn: func(context.Context, request.ListOpt) ([]*entities.Request, error) {
+			return []*entities.Request{httpReq, grpcReq}, nil
+		},
+	}
+	var listed []uuid.UUID
+	exUC := &stubExampleUsecase{
+		listByRequestFn: func(_ context.Context, id uuid.UUID) ([]*entities.ResponseExample, error) {
+			listed = append(listed, id)
+			return []*entities.ResponseExample{{ID: uuid.New(), RequestID: id, Name: "Pong", StatusCode: 200, Body: "pong"}}, nil
+		},
+	}
+	svc := NewPortabilityService(collUC, reqUC, &stubEnvironmentUsecase{}, exUC, nil, nil)
+	dir := t.TempDir()
+	svc.chooseSavePath = func(suggested string) (string, error) {
+		assert.Equal(t, "API.postman_collection.json", suggested)
+		return filepath.Join(dir, suggested), nil
+	}
+
+	res := svc.ExportCollection(dto.ExportCollectionRequest{ID: rootID.String(), WorkspaceID: wsID.String()})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, filepath.Join(dir, "API.postman_collection.json"), res.Data.Path)
+	assert.Equal(t, []string{`request "SayHello": gRPC requests have no Postman equivalent and were skipped`}, res.Data.Warnings)
+	assert.Equal(t, []uuid.UUID{httpReq.ID}, listed, "gRPC requests are skipped, so their examples are not loaded")
+
+	written, err := os.ReadFile(res.Data.Path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), `"name": "Pong"`)
+	assert.NotContains(t, string(written), "SayHello")
+}
+
+func TestPortabilityService_ExportCollection_CanceledDialog(t *testing.T) {
+	wsID, rootID := uuid.New(), uuid.New()
+	root := &entities.Collection{ID: rootID, WorkspaceID: wsID, Name: "API", AuthType: entities.AuthTypeNone, AuthData: "{}"}
+	collUC := &stubCollectionUsecase{
+		listFn: func(context.Context, collection.ListOpt) ([]*entities.Collection, error) {
+			return []*entities.Collection{root}, nil
+		},
+		getByIDFn: func(context.Context, uuid.UUID) (*entities.Collection, error) { return root, nil },
+	}
+	reqUC := &stubRequestUsecase{
+		listFn: func(context.Context, request.ListOpt) ([]*entities.Request, error) { return nil, nil },
+	}
+	svc := NewPortabilityService(collUC, reqUC, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
+	svc.chooseSavePath = func(string) (string, error) { return "", nil }
+
+	res := svc.ExportCollection(dto.ExportCollectionRequest{ID: rootID.String(), WorkspaceID: wsID.String()})
+
+	require.Nil(t, res.Error)
+	assert.True(t, res.Data.Canceled)
+}
 
 func TestPortabilityService_ExportCollection_Error_BadUUID(t *testing.T) {
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ExportCollection(dto.ExportCollectionRequest{
 		ID:          uuid.New().String(),
@@ -159,7 +253,7 @@ func TestPortabilityService_ExportCollection_Error_AppNotInitialized(t *testing.
 			return nil, nil
 		},
 	}
-	svc := NewPortabilityService(collUC, reqUC, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(collUC, reqUC, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ExportCollection(dto.ExportCollectionRequest{
 		ID:          rootID.String(),
@@ -174,7 +268,7 @@ func TestPortabilityService_ExportCollection_Error_AppNotInitialized(t *testing.
 // TODO: ExportEnvironment happy path needs a real *application.App — the Wails SaveFile dialog can't be stubbed; covered manually.
 
 func TestPortabilityService_ExportEnvironment_Error_BadUUID(t *testing.T) {
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{})
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ExportEnvironment(dto.ExportEnvironmentRequest{ID: "not-a-uuid"})
 
@@ -204,7 +298,7 @@ func TestPortabilityService_ExportEnvironment_Error_AppNotInitialized(t *testing
 			return nil, nil
 		},
 	}
-	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, envUC)
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, envUC, &stubExampleUsecase{}, nil, nil)
 
 	res := svc.ExportEnvironment(dto.ExportEnvironmentRequest{ID: envID.String()})
 

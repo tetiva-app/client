@@ -1,0 +1,81 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "830c44f5df19",
+    "name": "urlencoded",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "POST",
+      "url": "https://api.example.com/search",
+      "headers": [],
+      "body": {
+        "type": "form",
+        "raw": "",
+        "fields": [
+          {
+            "key": "q",
+            "value": "рыжий кот",
+            "type": "text",
+            "enabled": true
+          },
+          {
+            "key": "empty",
+            "value": "",
+            "type": "text",
+            "enabled": true
+          },
+          {
+            "key": "off",
+            "value": "1",
+            "type": "text",
+            "enabled": false
+          }
+        ],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "POST",
+    "url": "https://api.example.com/search",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/x-www-form-urlencoded"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/x-www-form-urlencoded",
+      "text": "",
+      "params": [
+        {
+          "name": "q",
+          "value": "рыжий кот"
+        },
+        {
+          "name": "empty",
+          "value": ""
+        }
+      ]
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

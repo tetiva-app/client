@@ -1,6 +1,7 @@
 export interface ResultError {
   code: string
   message: string
+  reason?: string
   fields?: Record<string, string>
 }
 

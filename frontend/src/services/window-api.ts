@@ -12,5 +12,6 @@ export interface WindowServiceAPI {
   openSchemaViewer(definition: string, source: string, title: string, language?: string, schemaJSON?: string): Promise<Result<boolean>>
   isDetached(requestId: string): Promise<Result<boolean>>
   focusDetachedWindow(requestId: string): Promise<Result<boolean>>
+  closeDetached(requestId: string): Promise<Result<boolean>>
   getSchemaContent(schemaId: string): Promise<Result<SchemaContent>>
 }

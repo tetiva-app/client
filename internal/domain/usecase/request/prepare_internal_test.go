@@ -3,6 +3,8 @@ package request
 import (
 	"context"
 	"encoding/base64"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,7 +39,7 @@ func ownAuth(req *entities.Request) ResolvedAuth {
 }
 
 func newInternalUsecase() *usecase {
-	uc := NewUsecase(nil, nil, nil, nil, nil, nil, nil, &internalScriptResolver{}, nil, NewAuthResolver(internalCollectionReader{}), nil, nil, nil, nil).(*usecase)
+	uc := NewUsecase(nil, nil, nil, nil, nil, nil, nil, &internalScriptResolver{}, nil, NewAuthResolver(internalCollectionReader{}), nil, nil, nil, nil, nil, nil).(*usecase)
 	return uc
 }
 
@@ -368,4 +370,227 @@ func TestPrepareHTTP_HeaderAuthLeavesNoRequesterAuth(t *testing.T) {
 	if len(prep.AuthQueryKeys) != 1 || prep.AuthQueryKeys[0] != "api_key" {
 		t.Errorf("AuthQueryKeys: got %v, want [api_key]", prep.AuthQueryKeys)
 	}
+}
+
+type countingScriptResolver struct {
+	pre   string
+	calls int
+}
+
+func (r *countingScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
+	r.calls++
+	return r.pre, nil
+}
+
+func (r *countingScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
+	return "", nil
+}
+
+type countingScriptEngine struct{ calls int }
+
+func (e *countingScriptEngine) RunPreScript(_ context.Context, _ string, sctx ScriptContext) (*PreScriptResult, error) {
+	e.calls++
+	return &PreScriptResult{Headers: sctx.RequestHeaders, Variables: sctx.Variables}, nil
+}
+
+func (e *countingScriptEngine) RunPostScript(_ context.Context, _ string, _ ScriptContext) (*PostScriptResult, error) {
+	return &PostScriptResult{}, nil
+}
+
+type countingAuthProvider struct{ calls int }
+
+func (p *countingAuthProvider) AccessToken(_ context.Context, _ entities.AuthOwner, _ auth.OAuth2Config) (string, error) {
+	p.calls++
+	return "live-token", nil
+}
+
+func (p *countingAuthProvider) Peek(_ context.Context, _ entities.AuthOwner, _ auth.OAuth2Config) (string, bool, error) {
+	p.calls++
+	return "cached-token", true, nil
+}
+
+func (p *countingAuthProvider) Status(_ context.Context, _ entities.AuthOwner, _ auth.OAuth2Config) (auth.TokenStatus, error) {
+	p.calls++
+	return auth.TokenStatus{}, nil
+}
+
+func (p *countingAuthProvider) Fetch(_ context.Context, _ entities.AuthOwner, _ auth.OAuth2Config) (*auth.Token, error) {
+	p.calls++
+	return &auth.Token{AccessToken: "fetched-token"}, nil
+}
+
+func (p *countingAuthProvider) Clear(_ context.Context, _ entities.AuthOwner) error {
+	p.calls++
+	return nil
+}
+
+func newSnippetOptsUsecase() (*usecase, *countingScriptResolver, *countingScriptEngine, *countingAuthProvider) {
+	uc := newInternalUsecase()
+	resolver := &countingScriptResolver{pre: `pm.environment.set("x", "1")`}
+	engine := &countingScriptEngine{}
+	provider := &countingAuthProvider{}
+	uc.scriptResolver, uc.scriptEngine, uc.authProvider = resolver, engine, provider
+	return uc, resolver, engine, provider
+}
+
+func postRequest(bodyType entities.BodyType, body string) *entities.Request {
+	return &entities.Request{
+		ID:       uuid.New(),
+		Protocol: entities.ProtocolHTTP,
+		Method:   entities.MethodPOST,
+		URL:      "https://api.example.com/upload",
+		Body:     body,
+		BodyType: bodyType,
+		AuthType: entities.AuthTypeNone,
+	}
+}
+
+func oauth2Request(authData string) *entities.Request {
+	req := postRequest(entities.BodyTypeNone, "")
+	req.AuthType = entities.AuthTypeOAuth2
+	req.AuthData = authData
+	return req
+}
+
+func formWithFile(path string) string {
+	return `[{"key":"name","value":"neo","type":"text","enabled":true},` +
+		`{"key":"avatar","value":"` + path + `","type":"file","enabled":true}]`
+}
+
+const oauth2HeaderAuthData = `{"grant":"client_credentials","tokenUrl":"https://idp.example.com/token","clientId":"cid","clientSecret":"sec"}`
+
+func TestPrepareHTTP_SnippetOptions(t *testing.T) {
+	ctx := context.Background()
+	missingFile := filepath.Join(t.TempDir(), "missing.png")
+
+	t.Run("skip_scripts_does_not_run_pre_script", func(t *testing.T) {
+		uc, resolver, engine, _ := newSnippetOptsUsecase()
+		req := postRequest(entities.BodyTypeNone, "")
+
+		prep, sr, err := uc.prepareHTTP(ctx, req, map[string]string{}, ownAuth(req), prepareOpt{SkipScripts: true})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if resolver.calls != 0 || engine.calls != 0 {
+			t.Errorf("script calls: resolver=%d engine=%d, want 0", resolver.calls, engine.calls)
+		}
+		if sr != nil {
+			t.Errorf("scriptResult: got %+v, want nil", sr)
+		}
+		if prep.URL != "https://api.example.com/upload" {
+			t.Errorf("URL: got %q", prep.URL)
+		}
+	})
+
+	t.Run("skip_file_read_multipart_missing_file", func(t *testing.T) {
+		uc, _, _, _ := newSnippetOptsUsecase()
+		req := postRequest(entities.BodyTypeForm, formWithFile(missingFile))
+
+		prep, _, err := uc.prepareHTTP(ctx, req, map[string]string{}, ownAuth(req), prepareOpt{SkipFileRead: true})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if prep.BodyReader != nil {
+			t.Error("BodyReader: got non-nil, want nil")
+		}
+		if got := prep.Headers["Content-Type"]; len(got) != 1 || got[0] != "multipart/form-data" {
+			t.Errorf("Content-Type: got %v, want [multipart/form-data]", got)
+		}
+		if len(prep.FormFields) != 2 {
+			t.Fatalf("FormFields: got %+v, want 2 fields", prep.FormFields)
+		}
+		if f := prep.FormFields[1]; f.Key != "avatar" || f.Type != "file" || f.Value != missingFile {
+			t.Errorf("file field: got %+v", f)
+		}
+	})
+
+	t.Run("skip_file_read_binary_with_placeholder", func(t *testing.T) {
+		uc, _, _, _ := newSnippetOptsUsecase()
+		req := postRequest(entities.BodyTypeBinary, "{{dir}}/a.bin")
+
+		prep, _, err := uc.prepareHTTP(ctx, req, map[string]string{}, ownAuth(req), prepareOpt{SkipFileRead: true})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if prep.BinaryPath != "{{dir}}/a.bin" {
+			t.Errorf("BinaryPath: got %q, want the body as written", prep.BinaryPath)
+		}
+	})
+
+	t.Run("token_placeholder_oauth2", func(t *testing.T) {
+		uc, _, _, provider := newSnippetOptsUsecase()
+		req := oauth2Request(oauth2HeaderAuthData)
+
+		prep, _, err := uc.prepareHTTP(ctx, req, map[string]string{}, ownAuth(req), prepareOpt{TokenPlaceholder: true})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if provider.calls != 0 {
+			t.Errorf("token provider calls: got %d, want 0", provider.calls)
+		}
+		if got := prep.Headers["Authorization"]; len(got) != 1 || got[0] != "Bearer <token>" {
+			t.Errorf("Authorization: got %v, want [Bearer <token>]", got)
+		}
+		if len(prep.Warnings) != 1 || prep.Warnings[0] != "OAuth 2.0 token is not included" {
+			t.Errorf("warnings: got %v", prep.Warnings)
+		}
+	})
+
+	t.Run("token_placeholder_oauth2_query", func(t *testing.T) {
+		uc, _, _, provider := newSnippetOptsUsecase()
+		req := oauth2Request(`{"grant":"client_credentials","tokenUrl":"https://idp.example.com/token","clientId":"cid","addTo":"query"}`)
+
+		prep, _, err := uc.prepareHTTP(ctx, req, map[string]string{}, ownAuth(req), prepareOpt{TokenPlaceholder: true})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if provider.calls != 0 {
+			t.Errorf("token provider calls: got %d, want 0", provider.calls)
+		}
+		parsed, parseErr := url.Parse(prep.URL)
+		if parseErr != nil {
+			t.Fatalf("parse URL %q: %v", prep.URL, parseErr)
+		}
+		if got := parsed.Query().Get("access_token"); got != "<token>" {
+			t.Errorf("access_token: got %q, want <token>", got)
+		}
+		if _, ok := prep.Headers["Authorization"]; ok {
+			t.Errorf("no Authorization header expected: %v", prep.Headers)
+		}
+	})
+
+	t.Run("default_opts_unchanged", func(t *testing.T) {
+		uc, resolver, engine, provider := newSnippetOptsUsecase()
+
+		plain := postRequest(entities.BodyTypeNone, "")
+		_, sr, err := uc.prepareHTTP(ctx, plain, map[string]string{}, ownAuth(plain), prepareOpt{})
+		if err != nil {
+			t.Fatalf("prepareHTTP: %v", err)
+		}
+		if resolver.calls != 1 || engine.calls != 1 || sr == nil {
+			t.Errorf("pre-script: resolver=%d engine=%d result=%v, want it run once", resolver.calls, engine.calls, sr)
+		}
+
+		form := postRequest(entities.BodyTypeForm, formWithFile(missingFile))
+		if _, _, err := uc.prepareHTTP(ctx, form, map[string]string{}, ownAuth(form), prepareOpt{}); err == nil {
+			t.Error("multipart with a missing file: expected an error")
+		}
+
+		binary := postRequest(entities.BodyTypeBinary, "{{dir}}/a.bin")
+		if _, _, err := uc.prepareHTTP(ctx, binary, map[string]string{}, ownAuth(binary), prepareOpt{}); err == nil {
+			t.Error("relative binary path: expected an error")
+		}
+
+		oauth := oauth2Request(oauth2HeaderAuthData)
+		prep, _, err := uc.prepareHTTP(ctx, oauth, map[string]string{}, ownAuth(oauth), prepareOpt{})
+		if err != nil {
+			t.Fatalf("prepareHTTP oauth2: %v", err)
+		}
+		if got := prep.Headers["Authorization"]; len(got) != 1 || got[0] != "Bearer live-token" {
+			t.Errorf("Authorization: got %v, want [Bearer live-token]", got)
+		}
+		if provider.calls != 1 {
+			t.Errorf("token provider calls: got %d, want 1", provider.calls)
+		}
+	})
 }

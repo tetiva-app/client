@@ -106,6 +106,14 @@ func (s *authEnvStub) ResolveVariables(context.Context, uuid.UUID) (map[string]s
 	return s.vars, nil
 }
 
+func (s *authEnvStub) ActiveVariables(context.Context, uuid.UUID) ([]*entities.Variable, error) {
+	var out []*entities.Variable
+	for k, v := range s.vars {
+		out = append(out, &entities.Variable{Key: k, Value: v, Enabled: true})
+	}
+	return out, nil
+}
+
 type authScriptResolverStub struct{}
 
 func (authScriptResolverStub) ResolvePreScript(context.Context, *entities.Request) (string, error) {
@@ -461,7 +469,7 @@ func TestAuthService_ConfigHashMatchesSendPath(t *testing.T) {
 	uc := request.NewUsecase(
 		f.requests, nil, nil, nil, nil,
 		f.env, nil, authScriptResolverStub{}, nil,
-		request.NewAuthResolver(f.colls), nil, f.colls, nil, f.provider,
+		request.NewAuthResolver(f.colls), nil, f.colls, nil, f.provider, nil, nil,
 	)
 
 	curl, err := uc.BuildCurl(context.Background(), f.req.ID, request.BuildCurlOpt{WorkspaceID: f.coll.WorkspaceID})

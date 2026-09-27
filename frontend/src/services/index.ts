@@ -10,6 +10,9 @@ import type { CookieServiceAPI } from './cookie-api'
 import type { HistoryServiceAPI } from './history-api'
 import type { SettingsServiceAPI } from './settings-api'
 import type { AuthServiceAPI } from './auth-api'
+import type { ExampleServiceAPI } from './example-api'
+import type { PublicationServiceAPI } from './publication-api'
+import type { DeepLinkServiceAPI } from './deeplink-api'
 
 export type { CollectionServiceAPI }
 export type {
@@ -41,9 +44,14 @@ export type {
 
 export type { PortabilityServiceAPI }
 export type {
-  ImportCollectionResult,
   ImportEnvironmentResult,
   ExportResult,
+  LinkMeta,
+  ImportScript,
+  ImportPreview,
+  ImportPreviewResult,
+  ImportConfirmRequest,
+  ImportConfirmResult,
 } from './portability-api'
 
 export type { WorkspaceServiceAPI }
@@ -100,6 +108,13 @@ export type {
   TokenState,
   TokenStatus,
 } from './auth-api'
+
+export type { ExampleServiceAPI }
+export type { CreateExampleReq, EditExampleReq, DeleteExampleReq } from './example-api'
+
+export type { PublicationServiceAPI }
+
+export type { DeepLinkServiceAPI, DeepLink } from './deeplink-api'
 
 function detectWailsEnvironment(): boolean {
   if (typeof window === 'undefined') return false
@@ -257,4 +272,34 @@ export const getAuthService = memoize<AuthServiceAPI>(async () => {
   }
   const { MockAuthService } = await import('./mock-auth')
   return new MockAuthService()
+})
+
+export const getExampleService = memoize<ExampleServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsExampleService } = await import('./wails-example')
+    return new WailsExampleService()
+  }
+  const { MockExampleService } = await import('./mock-example')
+  return new MockExampleService(async (requestId) => {
+    const res = await (await getRequestService()).getById(requestId)
+    return res.error ? null : res.data
+  })
+})
+
+export const getPublicationService = memoize<PublicationServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsPublicationService } = await import('./wails-publication')
+    return new WailsPublicationService()
+  }
+  const { MockPublicationService } = await import('./mock-publication')
+  return new MockPublicationService()
+})
+
+export const getDeepLinkService = memoize<DeepLinkServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsDeepLinkService } = await import('./wails-deeplink')
+    return new WailsDeepLinkService()
+  }
+  const { MockDeepLinkService } = await import('./mock-deeplink')
+  return new MockDeepLinkService()
 })

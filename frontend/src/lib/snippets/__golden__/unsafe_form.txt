@@ -1,0 +1,136 @@
+=== curl ===
+curl -X POST 'https://api.example.com/form' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-raw 'n%22+%2B+INJECTED+%2B+%22%5C%22%27+.+INJECTED+.+%27%5Cu0022%09%0A%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82=%22+%2B+INJECTED+%2B+%22+%5C%22+%2B+INJECTED+%2B+%5C%22+%27+.+INJECTED+.+%27+%27%3B+INJECTED%3B+%27+%5Cu0022+%2B+INJECTED+%2B+%5Cu0022+%24%7BINJECTED%7D+%7B%24%7BINJECTED%28%29%7D%7D+%24%28INJECTED%29+%60INJECTED%60+%3F%3E+%2A%2F+%5C+tab%09here+%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%0Aline+two%E2%80%A8end&machine=%22+%2B+System.Environment.MachineName+%2B+%22%5C&constructor=c&__proto__=p&toString=t'
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/form"
+headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+}
+data = [
+    ("n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two\u2028end"),
+    ("machine", "\" + System.Environment.MachineName + \"\\"),
+    ("constructor", "c"),
+    ("__proto__", "p"),
+    ("toString", "t"),
+]
+
+response = requests.request("POST", url, headers=headers, data=data)
+print(response.text)
+
+=== js-fetch ===
+const url = "https://api.example.com/form";
+const body = new URLSearchParams();
+body.append("n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two end");
+body.append("machine", "\" + System.Environment.MachineName + \"\\");
+body.append("constructor", "c");
+body.append("__proto__", "p");
+body.append("toString", "t");
+const options = {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  body,
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/form"
+
+	payload := strings.NewReader("n%22%20%2B%20INJECTED%20%2B%20%22%5C%22%27%20.%20INJECTED%20.%20%27%5Cu0022%09%0A%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82=%22%20%2B%20INJECTED%20%2B%20%22%20%5C%22%20%2B%20INJECTED%20%2B%20%5C%22%20%27%20.%20INJECTED%20.%20%27%20%27%3B%20INJECTED%3B%20%27%20%5Cu0022%20%2B%20INJECTED%20%2B%20%5Cu0022%20%24%7BINJECTED%7D%20%7B%24%7BINJECTED%28%29%7D%7D%20%24%28INJECTED%29%20%60INJECTED%60%20%3F%3E%20%2A%2F%20%5C%20tab%09here%20%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%0Aline%20two%E2%80%A8end&machine=%22%20%2B%20System.Environment.MachineName%20%2B%20%22%5C&constructor=c&__proto__=p&toString=t")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/form"))
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .method("POST", HttpRequest.BodyPublishers.ofString("n%22%20%2B%20INJECTED%20%2B%20%22%5C%22%27%20.%20INJECTED%20.%20%27%5Cu0022%09%0A%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82=%22%20%2B%20INJECTED%20%2B%20%22%20%5C%22%20%2B%20INJECTED%20%2B%20%5C%22%20%27%20.%20INJECTED%20.%20%27%20%27%3B%20INJECTED%3B%20%27%20%5Cu0022%20%2B%20INJECTED%20%2B%20%5Cu0022%20%24%7BINJECTED%7D%20%7B%24%7BINJECTED%28%29%7D%7D%20%24%28INJECTED%29%20%60INJECTED%60%20%3F%3E%20%2A%2F%20%5C%20tab%09here%20%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%0Aline%20two%E2%80%A8end&machine=%22%20%2B%20System.Environment.MachineName%20%2B%20%22%5C&constructor=c&__proto__=p&toString=t"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("application/x-www-form-urlencoded");
+RequestBody body = RequestBody.create(mediaType, "n%22%20%2B%20INJECTED%20%2B%20%22%5C%22%27%20.%20INJECTED%20.%20%27%5Cu0022%09%0A%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82=%22%20%2B%20INJECTED%20%2B%20%22%20%5C%22%20%2B%20INJECTED%20%2B%20%5C%22%20%27%20.%20INJECTED%20.%20%27%20%27%3B%20INJECTED%3B%20%27%20%5Cu0022%20%2B%20INJECTED%20%2B%20%5Cu0022%20%24%7BINJECTED%7D%20%7B%24%7BINJECTED%28%29%7D%7D%20%24%28INJECTED%29%20%60INJECTED%60%20%3F%3E%20%2A%2F%20%5C%20tab%09here%20%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82%0Aline%20two%E2%80%A8end&machine=%22%20%2B%20System.Environment.MachineName%20%2B%20%22%5C&constructor=c&__proto__=p&toString=t");
+Request request = new Request.Builder()
+  .url("https://api.example.com/form")
+  .post(body)
+  .addHeader("Content-Type", "application/x-www-form-urlencoded")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("https://api.example.com/form"),
+    Content = new FormUrlEncodedContent(new List<KeyValuePair<string, string>>
+    {
+        new("n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two\u2028end"),
+        new("machine", "\" + System.Environment.MachineName + \"\\"),
+        new("constructor", "c"),
+        new("__proto__", "p"),
+        new("toString", "t"),
+    }),
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', 'https://api.example.com/form', [
+  'form_params' => [
+    "n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет" => "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 \${INJECTED} {\${INJECTED()}} \$(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two end",
+    'machine' => '" + System.Environment.MachineName + "\\',
+    'constructor' => 'c',
+    '__proto__' => 'p',
+    'toString' => 't'
+  ],
+  'headers' => [
+    'Content-Type' => 'application/x-www-form-urlencoded',
+  ],
+]);
+
+echo $response->getBody();

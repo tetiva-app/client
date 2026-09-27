@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -14,7 +16,10 @@ import (
 
 	wailsadapter "github.com/tetiva-app/client/internal/adapters/wails"
 	appmodule "github.com/tetiva-app/client/internal/app"
+	"github.com/tetiva-app/client/internal/app/deeplink"
 	"github.com/tetiva-app/client/internal/constants"
+	"github.com/tetiva-app/client/internal/infrastructure/instance"
+	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	"github.com/tetiva-app/client/migrations"
 )
 
@@ -26,6 +31,34 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+
+	dataDir, err := sqlite.ResolveDataDir()
+	if err != nil {
+		log.Fatalf("data dir: %v", err)
+	}
+	links := deeplink.NewStore()
+	// A second launch never opens the database or a window: it hands its arguments over and exits.
+	inst, err := instance.Acquire(dataDir, os.Args[1:], func(args []string) {
+		if !links.Deliver(args) {
+			links.Activate()
+		}
+	})
+	switch {
+	case errors.Is(err, instance.ErrForwarded):
+		msg := fmt.Sprintf("Tetiva is already running with %s; the launch was passed to it (set TETIVA_DATA_DIR to run a separate copy)", dataDir)
+		fmt.Fprintln(os.Stderr, msg)
+		slog.Info(msg)
+		os.Exit(0)
+	case errors.Is(err, instance.ErrNotResponding):
+		msg := fmt.Sprintf("Tetiva holds %s but does not respond; close it or set TETIVA_DATA_DIR", dataDir)
+		fmt.Fprintln(os.Stderr, msg)
+		slog.Error(msg)
+		os.Exit(2)
+	case err != nil:
+		log.Fatalf("instance: %v", err)
+	}
+	defer func() { _ = inst.Close() }()
+	links.Deliver(os.Args[1:])
 
 	var collectionService *wailsadapter.CollectionService
 	var requestService *wailsadapter.RequestService
@@ -40,10 +73,13 @@ func main() {
 	var historyService *wailsadapter.HistoryService
 	var settingsService *wailsadapter.SettingsService
 	var authService *wailsadapter.AuthService
+	var exampleService *wailsadapter.ExampleService
+	var publicationService *wailsadapter.PublicationService
+	var deepLinkService *wailsadapter.DeepLinkService
 
 	fxApp := fx.New(
-		appmodule.NewApp(migrations.FS),
-		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService),
+		appmodule.NewApp(migrations.FS, links, sqlite.DataDir(dataDir)),
+		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService),
 		fx.NopLogger,
 	)
 
@@ -76,11 +112,29 @@ func main() {
 			application.NewService(historyService),
 			application.NewService(settingsService),
 			application.NewService(authService),
+			application.NewService(exampleService),
+			application.NewService(publicationService),
+			application.NewService(deepLinkService),
 		},
 	})
 
+	// macOS exits inside Run and never reaches the deferred Close. The lock stays until fx has
+	// stopped or the process exits, so a launch during shutdown cannot become a second owner.
+	wailsApp.OnShutdown(func() { _ = inst.StopServing() })
+
+	// Windows and Linux raise this event from the same argv links.Deliver already took, and only in Run.
+	if runtime.GOOS == "darwin" {
+		wailsApp.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(e *application.ApplicationEvent) {
+			links.Deliver([]string{e.Context().URL()})
+		})
+	}
+
 	windowService.SetApp(wailsApp)
 	portabilityService.SetApp(wailsApp)
+
+	windowService.SetEventEmitter(func(name string, data any) {
+		wailsApp.Event.Emit(name, data)
+	})
 
 	syncService.SetEventEmitter(func(name string, data any) {
 		wailsApp.Event.Emit(name, data)
@@ -129,6 +183,12 @@ func main() {
 
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		windowService.CloseAllChildWindows()
+	})
+
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		deepLinkService.Attach(mainWindow, func(name string, data any) {
+			wailsApp.Event.Emit(name, data)
+		})
 	})
 
 	if err := wailsApp.Run(); err != nil {

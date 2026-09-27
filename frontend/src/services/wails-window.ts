@@ -29,6 +29,10 @@ export class WailsWindowService implements WindowServiceAPI {
     return unwrap<boolean>(await (await svc()).FocusDetachedWindow(requestId))
   }
 
+  async closeDetached(requestId: string): Promise<Result<boolean>> {
+    return unwrap<boolean>(await (await svc()).CloseDetached(requestId))
+  }
+
   async getSchemaContent(schemaId: string): Promise<Result<SchemaContent>> {
     return unwrap<SchemaContent>(await (await svc()).GetSchemaContent(schemaId))
   }

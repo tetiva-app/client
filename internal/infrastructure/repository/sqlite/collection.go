@@ -64,14 +64,26 @@ func (r *CollectionRepo) Create(ctx context.Context, c *entities.Collection) err
 
 // Returns nil when the row is missing or soft-deleted.
 func (r *CollectionRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
+	return r.get(ctx, id, true)
+}
+
+// GetByIDIncludingDeleted returns soft-deleted rows too: a tombstone for an older server carries the last state.
+func (r *CollectionRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
+	return r.get(ctx, id, false)
+}
+
+func (r *CollectionRepo) get(ctx context.Context, id uuid.UUID, liveOnly bool) (*entities.Collection, error) {
 	const funcName = "CollectionRepo.GetByID"
 
 	query := `SELECT id, workspace_id, parent_id, name, pre_script, post_script, description, auth_type, auth_data, grpc_metadata, sort_order, version, is_delete, created_by, created_at, updated_by, updated_at
-		FROM collections WHERE id = ? AND is_delete = 0`
+		FROM collections WHERE id = ?`
+	if liveOnly {
+		query += ` AND is_delete = 0`
+	}
 
 	row := DBTXFromContext(ctx, r.db).QueryRowContext(ctx, query, id.String())
 
-	c, err := scanCollection(row)
+	e, err := scanCollection(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -79,7 +91,7 @@ func (r *CollectionRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.C
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	return c, nil
+	return e, nil
 }
 
 // Ordered by sort_order ASC, created_at ASC.

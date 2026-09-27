@@ -4,15 +4,32 @@
 
 ### Added
 
+- Publish a collection as a read-only page on share.tetiva.app: "Publish…" in the context menu of a top-level collection, or the Publish tab in its overview. The page shows the folder tree, descriptions, requests of all four protocols, code snippets, response examples, the non-secret variables of the environment you pick and, unless you turn them off, scripts. Readers open the collection in Tetiva with one click or download it as Tetiva or Postman JSON. The link (`share.tetiva.app/<name>-<8 characters>`) is fixed at the first publication and survives renames
+- Visibility: public, unlisted link (not indexed) or password. Free publishes one collection with a "Made with Tetiva" badge; Pro, Team and Business publish without a limit or badge and unlock unlisted and password pages — on Free those options are locked before you try them. Publishing needs a signed-in account with a confirmed email and a server that supports it: Tetiva Cloud does, and on an older or self-hosted server without it the Publish tab says publishing is unavailable. The Publish tab of an unpublished collection and the Publish dialog show a thumbnail of how the page looks, and on a plan with unlisted links suggest publishing one first to see the page before it can turn up in search
+- Nothing is published without a preview: the number of folders, requests and examples, which variables go out and which stay hidden, every value that was masked, and warnings for strings that look like credentials (JWTs, AWS, GitHub, Slack, Stripe, Google and Telegram keys, private keys, literal Bearer tokens) or variables named like secrets but not marked secret, with a "Make secret" button. A masked value can be published as is with its own toggle; with warnings, Publish waits for "I've checked this". Over the 8 MiB limit the preview lists the largest examples
+- Secrets are scrubbed before the snapshot leaves the device: secret auth fields, credential headers and gRPC metadata, secret query parameters and userinfo in every URL, secrets inside JSON, XML, form and GraphQL bodies, and secret variables (published empty). Cookies and OAuth tokens are never read, file paths shrink to a file name, and `{{variable}}` references always stay as written
+- The Publish tab of a published collection shows its status and link, "Changed since publication", views, opens in Tetiva and downloads, and offers "Review & update…", Copy link, Open and Unpublish. A page blocked by the platform says so with the reason. Deleting a published collection takes its page down, and retries later if you are offline
+- Import from a link: "Import from Link…" in the sidebar takes a share.tetiva.app link or its slug, and "Open in Tetiva" on the page launches the app through `tetiva://import?slug=…` — whether Tetiva is closed, running or still starting. A password-protected page asks for the password. On Linux under Wayland a link opened while Tetiva runs may raise a "Tetiva is ready" notification instead of the window; the confirmation is already open when you switch to it
+- Every import of a published collection stops at a confirmation first: its name, number of requests, environment, the workspace it goes to (a cloud workspace shares it with the whole team), the hosts its requests call and its scripts with their text. Scripts come in only when you tick "Import scripts", which is off by default. File fields and binary bodies are never bound to paths on your disk, and secret variables arrive empty and marked secret. A Tetiva collection file downloaded from a page opens through the regular Import too
+- A Code tab in the HTTP, GraphQL, gRPC and WebSocket editors shows the request as code: cURL, Python (requests), JavaScript (fetch), Go, Java (HttpClient and OkHttp), C# and PHP (Guzzle) for HTTP and GraphQL, grpcurl for gRPC, websocat and JavaScript for WebSocket. It follows unsaved edits, and the language is remembered separately for HTTP/GraphQL, gRPC and WebSocket
+- "Resolve variables" (on by default) substitutes the active environment into the snippet; unresolved `{{variables}}` stay as references, and secret ones too unless "Include secret values" is ticked. Auth is applied — OAuth 2.0 only from a token already on hand, never fetched — and workspace cookies go into a `Cookie` header. The pre-request script does not run, and the snippet says so; Digest and AWS Signature V4 are left as a comment; files named in the body are referenced by name, never read
+- Response examples: "Save as example" in the status bar of an HTTP, GraphQL or gRPC response saves it under a name (by default the status, e.g. "200 OK"), and the Examples tab of the request lists, shows, edits, creates and deletes them. Drafts are kept until you save them, even across tabs and windows. The body is limited to 256 KB and binary responses cannot be saved; `Set-Cookie`, `Authorization`, `Proxy-Authorization` and other credential headers are masked when an example is saved, and an example that still looks like it holds credentials asks before saving
+- Examples sync between your devices and with your team. It needs server 0.19: an older or self-hosted server without it keeps them on the device until it is updated. After the update the app fetches, once per workspace, the examples already in the cloud, and deleting a request deletes its examples everywhere. Clients 1.1.1 and older do not see examples
+- Postman import and export carry examples (`response`), scripts (`prerequest` and `test` events), urlencoded and multipart form bodies — file fields without their paths — and auth inheritance. gRPC requests are skipped on export with a warning
 - A `.deb` package for ARM64 Linux (Ubuntu 22.04 and newer)
 - The Windows installer's first page says how the update check works and where to turn it off
 
 ### Changed
 
 - The app checks for a new version at most once a day instead of once every ten days
+- Postman import leaves scripts out unless you tick "Import scripts" in the import dialog, which shows how many the file has: a collection-level `pm.environment.set` in someone else's file used to rewrite your `baseUrl` on the first Send
+- One copy of the app runs per data directory: launching it again hands its arguments (a `tetiva://` link, say) to the copy already running and exits. `TETIVA_DATA_DIR` gives a copy its own directory
 
 ### Fixed
 
+- Copy as cURL no longer lets curl read a local file: a body starting with `@` went out as `-d` and a text form field starting with `@` or `<` as `-F`, and curl read the file they named. They are written as `--data-raw` and `--form-string` now
+- A pasted `curl` command with `--globoff` or `-g` keeps its URL; the flag used to swallow it
+- Closing a detached request window saves its edits and example drafts first; Cmd+W, the close button or quitting from the main window used to drop them
 - macOS: text fields no longer autocorrect or capitalize what you type — a header key or collection name `address` stays `address` instead of being offered as `Address`
 - Linux: the in-window File/Edit/View/Window menu bar is gone — it was unreadable on a light GTK theme; Ctrl+W still closes the tab
 - Request docs preview no longer wraps inline code in backticks, and a quoted block loses the curly quotes and the italics it was given
@@ -22,9 +39,16 @@
 - Sidebar rows and editor tabs reached with Tab draw a focus ring inside themselves instead of the thick system outline around them
 - The font size and MCP client dropdowns in Settings are drawn by the app instead of the system
 - The "?" buttons next to section titles show the app tooltip instead of the system one
+- Buttons, tabs, menu items and dialog close buttons show the hand pointer, and a disabled one shows the not-allowed cursor instead of the arrow
+- In the dark theme the hovered item of a dropdown menu is highlighted; it used to blend into the menu
+- A collection's section tabs look like the request editor's: an underline under a tab as wide as its name, instead of a box around the active one and the rest stretched across the pane
 - A long URL fades out before the environment chip instead of being cut mid-character
 - Linux: Ctrl+W closes a detached request window and the schema window, and such a window also closes on its own when you switch workspace or delete the request it holds
 - Windows: the installer names the publisher Saveliy Yudin, and installing over 0.15.3–1.1.1 removes the copy those versions left under the old name; your data and settings stay
+- A local workspace that sync links to the cloud for the first time uploads the collections, requests, examples and environments it already holds; before, only later edits went out, and the server refused requests added to a folder it had never received. A workspace linked before, under this account or another, uploads nothing again
+- The Default environment every install starts with now syncs: it came with the same id on every install, so the server kept it for whoever uploaded it first and refused everyone else's variables ("parent environment not found"). A workspace linked for the first time gives it an id of its own and uploads it with its variables; a copy that came from the cloud and a workspace linked before keep theirs
+- A folder edited while it waits to sync still reaches the cloud before the folders and requests inside it; before, the server could refuse those and they never uploaded
+- An edit saved while its previous version was still being sent is no longer marked synced by that earlier confirmation, so a resync sends it again instead of skipping it
 
 ## [v1.1.1] — 2026-09-14 — Docs editor fixes and synced request descriptions
 

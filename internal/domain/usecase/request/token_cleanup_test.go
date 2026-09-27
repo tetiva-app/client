@@ -46,7 +46,7 @@ func (c *recordingCleaner) DeleteOrphans(_ context.Context) (int, error) {
 func newCleanupUsecase(repo *mockRepo, cleaner request.TokenCleaner) request.Usecase {
 	return request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{},
-		request.NewAuthResolver(fixtureCollections()), nil, fixtureCollections(), cleaner, nil)
+		request.NewAuthResolver(fixtureCollections()), nil, fixtureCollections(), cleaner, nil, nil, nil)
 }
 
 func seedRequest(repo *mockRepo) *entities.Request {

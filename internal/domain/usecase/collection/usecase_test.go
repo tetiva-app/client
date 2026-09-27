@@ -100,7 +100,7 @@ func (m *mockRepo) SoftDeleteDescendants(_ context.Context, parentID uuid.UUID, 
 
 func newTestUsecase() (collection.Usecase, *mockRepo) {
 	repo := newMockRepo()
-	uc := collection.NewUsecase(repo, nil)
+	uc := collection.NewUsecase(repo, nil, nil, nil)
 	return uc, repo
 }
 

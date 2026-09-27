@@ -207,5 +207,6 @@ export const useCollectionStore = defineStore('collections', () => {
     edit,
     remove,
     move,
+    collectSubtreeIds,
   }
 })

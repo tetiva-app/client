@@ -1,0 +1,13 @@
+=== grpcurl ===
+grpcurl -plaintext \
+  -H 'authorization: Bearer {{token}}' \
+  -H 'x-name: Иван' \
+  -H 'x-name: O'\''Brien' \
+  -d '{
+  "name": "Иван O'\''Brien",
+  "note": "$HOME `tick` \\ back"
+}' \
+  '{{host}}:50051' \
+  'example.v1.UserService/GetUser'
+--- warnings ---
+Tetiva sends gRPC without TLS; drop -plaintext for TLS servers

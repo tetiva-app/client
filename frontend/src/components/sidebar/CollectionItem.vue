@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ChevronRight, Folder, FolderOpen, MoreHorizontal } from 'lucide-vue-next'
+import { ChevronRight, Folder, FolderOpen, Loader2, MoreHorizontal } from 'lucide-vue-next'
 import type { CollectionTreeNode, Collection } from '@/types/collection'
 import type { Request } from '@/types/request'
 import { useRequestStore } from '@/stores/tabs'
 import { useSidebarSearchStore, type RequestHitPreview } from '@/stores/sidebarSearch'
+import { publicationMenuItem, usePublicationsStore } from '@/stores/publications'
+import { isRootCollection } from '@/lib/collections'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useHighlight } from '@/composables/useHighlight'
 import {
@@ -34,9 +36,10 @@ const emit = defineEmits<{
   (e: 'select-request', request: Request): void
   (e: 'rename-request', request: Request): void
   (e: 'delete-request', id: string): void
-  (e: 'import-postman', collectionId: string): void
+  (e: 'import-file', collectionId: string): void
   (e: 'export-postman', collectionId: string): void
   (e: 'open-details', collection: Collection): void
+  (e: 'publish', collection: Collection): void
   (e: 'move', id: string): void
   (e: 'move-selected'): void
   (e: 'delete-selected'): void
@@ -47,6 +50,7 @@ const paddingLeft = `${12 + props.depth * 16}px`
 
 const requestStore = useRequestStore()
 const search = useSidebarSearchStore()
+const publications = usePublicationsStore()
 const { isSelected, toggleSelect, rangeSelect, hasSelection, getSelectedIds } = useTreeSelection()
 
 const isMultiSelected = computed(() => isSelected(props.node.id) && hasSelection() && getSelectedIds().length > 1)
@@ -59,6 +63,14 @@ const isContextOnly = computed(() => search.isContextOnly(props.node.id, 'collec
 const forceExpanded = computed(() => search.isSearchExpanded(props.node.id))
 const effectiveExpanded = computed(() => userExpanded.value || forceExpanded.value)
 const highlightedName = useHighlight(() => props.node.name, () => search.query)
+
+const isRoot = computed(() => isRootCollection(props.node))
+const publishItemLabel = computed(() => publicationMenuItem(publications.statusOf(props.node.id)))
+const publishItemLoading = computed(() => publications.isLoading(props.node.id))
+
+function handleMenuOpen(open: boolean) {
+  if (open && isRoot.value) void publications.ensure(props.node.id)
+}
 
 // Fetch on mount so the chevron reflects content before expansion. CollectionItem
 // only mounts once its parent is expanded, so this stays lazy in depth.
@@ -121,7 +133,7 @@ function handleMoreClick(e: MouseEvent) {
 <template>
   <div v-if="visible">
   <Collapsible :open="effectiveExpanded" @update:open="userExpanded = $event">
-    <ContextMenu>
+    <ContextMenu @update:open="handleMenuOpen">
       <ContextMenuTrigger as-child>
         <button
           :data-tree-item-id="node.id"
@@ -170,9 +182,18 @@ function handleMoreClick(e: MouseEvent) {
         <ContextMenuItem @click="emit('open-details', node)">
           Open Details
         </ContextMenuItem>
+        <template v-if="isRoot">
+          <ContextMenuSeparator />
+          <ContextMenuItem data-testid="collection-publish" :disabled="publishItemLoading" @click="emit('publish', node)">
+            <template v-if="publishItemLoading">
+              <Loader2 class="size-3.5 animate-spin" />Checking…
+            </template>
+            <template v-else>{{ publishItemLabel }}</template>
+          </ContextMenuItem>
+        </template>
         <ContextMenuSeparator />
-        <ContextMenuItem @click="emit('import-postman', node.id)">
-          Import Postman Collection
+        <ContextMenuItem @click="emit('import-file', node.id)">
+          Import File…
         </ContextMenuItem>
         <ContextMenuItem @click="emit('export-postman', node.id)">
           Export as Postman
@@ -216,9 +237,10 @@ function handleMoreClick(e: MouseEvent) {
         @select-request="(request: Request) => emit('select-request', request)"
         @rename-request="(request: Request) => emit('rename-request', request)"
         @delete-request="(id: string) => emit('delete-request', id)"
-        @import-postman="(id: string) => emit('import-postman', id)"
+        @import-file="(id: string) => emit('import-file', id)"
         @export-postman="(id: string) => emit('export-postman', id)"
         @open-details="(collection: Collection) => emit('open-details', collection)"
+        @publish="(collection: Collection) => emit('publish', collection)"
         @move="(id: string) => emit('move', id)"
         @move-selected="emit('move-selected')"
         @delete-selected="emit('delete-selected')"

@@ -1,0 +1,63 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "6fadabbd48cd",
+    "name": "bearer_variable",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "GET",
+      "url": "{{baseUrl}}/me",
+      "headers": [],
+      "body": {
+        "type": "none",
+        "raw": "",
+        "fields": [],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "bearer",
+      "fields": {
+        "prefix": "Bearer",
+        "token": "{{token}}"
+      },
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": {
+    "name": "prod",
+    "variables": [
+      {
+        "key": "token",
+        "value": "",
+        "secret": true
+      }
+    ]
+  },
+  "auth": {
+    "type": "bearer",
+    "fields": {
+      "prefix": "Bearer",
+      "token": "{{token}}"
+    },
+    "redacted": []
+  },
+  "har": {
+    "method": "GET",
+    "url": "{{baseUrl}}/me",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer {{token}}"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

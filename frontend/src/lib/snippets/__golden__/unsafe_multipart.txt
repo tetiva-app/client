@@ -1,0 +1,148 @@
+=== curl ===
+
+--- warnings ---
+Field name "n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет" is not supported by curl -F
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/upload"
+data = [
+    ("n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two\u2028end"),
+    ("empty", ""),
+]
+files = [
+    ("file", ("r\" + INJECTED + \"\\'.INJECTED.'\nПривет.pdf", open("r\" + INJECTED + \"\\'.INJECTED.'\nПривет.pdf", "rb"), "text/plain; x=\"a\\\"b\"")),
+]
+
+response = requests.request("POST", url, data=data, files=files)
+print(response.text)
+
+=== js-fetch ===
+// attach file "r" + INJECTED + "\'.INJECTED.' Привет.pdf" as field "file"
+const url = "https://api.example.com/upload";
+const body = new FormData();
+body.append("n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет", "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two end");
+body.append("empty", "");
+const options = {
+  method: "POST",
+  body,
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+// attach file "r" + INJECTED + "\'.INJECTED.' Привет.pdf" as field "file"
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/upload"
+
+	payload := strings.NewReader("-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"n%22 + INJECTED + %22\\%22' . INJECTED . '\\u0022\t%0D%0AПривет\"\r\n\r\n\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\r\nline two end\r\n-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"empty\"\r\n\r\n\r\n-----011000010111000001101001--")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("content-type", "multipart/form-data; boundary=---011000010111000001101001")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+// attach file "r" + INJECTED + "\\'.INJECTED.' Привет.pdf" as field "file"
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/upload"))
+    .header("content-type", "multipart/form-data; boundary=---011000010111000001101001")
+    .method("POST", HttpRequest.BodyPublishers.ofString("-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"n%22 + INJECTED + %22\\%22' . INJECTED . '\\u0022\t%0D%0AПривет\"\r\n\r\n\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\r\nline two end\r\n-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"empty\"\r\n\r\n\r\n-----011000010111000001101001--"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+// attach file "r" + INJECTED + "\\'.INJECTED.' Привет.pdf" as field "file"
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("multipart/form-data; boundary=---011000010111000001101001");
+RequestBody body = RequestBody.create(mediaType, "-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"n%22 + INJECTED + %22\\%22' . INJECTED . '\\u0022\t%0D%0AПривет\"\r\n\r\n\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\r\nline two end\r\n-----011000010111000001101001\r\nContent-Disposition: form-data; name=\"empty\"\r\n\r\n\r\n-----011000010111000001101001--");
+Request request = new Request.Builder()
+  .url("https://api.example.com/upload")
+  .post(body)
+  .addHeader("content-type", "multipart/form-data; boundary=---011000010111000001101001")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+// attach file "r" + INJECTED + "\'.INJECTED.' Привет.pdf" as field "file"
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("https://api.example.com/upload"),
+    Content = new MultipartFormDataContent
+    {
+        new StringContent("\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 ${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two\u2028end")
+        {
+            Headers =
+            {
+                ContentDisposition = new ContentDispositionHeaderValue("form-data")
+                {
+                    Name = "n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет",
+                }
+            }
+        },
+        new StringContent("")
+        {
+            Headers =
+            {
+                ContentDisposition = new ContentDispositionHeaderValue("form-data")
+                {
+                    Name = "empty",
+                }
+            }
+        },
+    },
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+// attach file "r" + INJECTED + "\'.INJECTED.' Привет.pdf" as field "file"
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', 'https://api.example.com/upload', [
+  'multipart' => [
+    [
+        'name' => "n\" + INJECTED + \"\\\"' . INJECTED . '\\u0022\t\nПривет",
+        'contents' => "\" + INJECTED + \" \\\" + INJECTED + \\\" ' . INJECTED . ' '; INJECTED; ' \\u0022 + INJECTED + \\u0022 \${INJECTED} {\${INJECTED()}} \$(INJECTED) `INJECTED` ?> */ \\ tab\there Привет\nline two end"
+    ],
+    [
+        'name' => 'empty',
+        'contents' => ''
+    ]
+  ],
+]);
+
+echo $response->getBody();

@@ -2,6 +2,7 @@ import type { Request, HeaderItem } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
+import type { BuildSnippetReq, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 
@@ -89,6 +90,7 @@ export interface RequestServiceAPI {
   execute(req: { requestId: string; workspaceId: string }): Promise<Result<ExecuteResponse>>
   generateCurl(req: { requestId: string; workspaceId: string }): Promise<Result<GenerateCurlResponse>>
   parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>>
+  buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>>
   move(req: MoveRequestReq): Promise<Result<Request>>
   promoteDraft(req: PromoteDraftReq): Promise<Result<Request>>
   saveResponseToFile(tempPath: string, destPath: string): Promise<Result<string>>

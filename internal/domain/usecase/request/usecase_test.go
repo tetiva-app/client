@@ -187,8 +187,11 @@ func (m *mockRequester) Execute(_ context.Context, req request.HTTPExecuteReques
 }
 
 type mockEnvResolver struct {
-	vars  map[string]string
-	calls int
+	vars   map[string]string
+	secret map[string]bool
+	// active, when set, is what ActiveVariables returns instead of vars.
+	active []*entities.Variable
+	calls  int
 }
 
 func (m *mockEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[string]string, error) {
@@ -197,6 +200,18 @@ func (m *mockEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[
 		return m.vars, nil
 	}
 	return map[string]string{}, nil
+}
+
+func (m *mockEnvResolver) ActiveVariables(_ context.Context, _ uuid.UUID) ([]*entities.Variable, error) {
+	m.calls++
+	if m.active != nil {
+		return m.active, nil
+	}
+	out := make([]*entities.Variable, 0, len(m.vars))
+	for k, v := range m.vars {
+		out = append(out, &entities.Variable{Key: k, Value: v, IsSecret: m.secret[k], Enabled: true})
+	}
+	return out, nil
 }
 
 type noopScriptEngine struct{}
@@ -229,7 +244,7 @@ func newTestUsecase() (request.Usecase, *mockRepo, *mockHistoryRepo, *mockReques
 	repo := newMockRepo()
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 	return uc, repo, historyRepo, requester
 }
 
@@ -1188,7 +1203,7 @@ func newTestUsecaseWithVars(vars map[string]string) (request.Usecase, *mockRepo,
 	repo := newMockRepo()
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{vars: vars}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{vars: vars}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 	return uc, repo, historyRepo, requester
 }
 
@@ -1585,7 +1600,7 @@ func TestExecute_HistoryRecordsBinaryWithSubstitutedPath(t *testing.T) {
 	historyRepo := &mockHistoryRepo{}
 	requester := &mockRequester{response: &entities.Response{StatusCode: 200, Headers: map[string][]string{}}}
 	envResolver := &mockEnvResolver{vars: map[string]string{"root": tempDir}}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, envResolver, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, envResolver, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{
@@ -1860,7 +1875,7 @@ func (m *mockGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ 
 func ucWithPreScript(repo *mockRepo, vars map[string]string, engine request.ScriptEngine, httpReq *mockRequester, gqlReq *mockGraphQLRequester) request.Usecase {
 	return request.NewUsecase(repo, &mockHistoryRepo{}, httpReq, nil, gqlReq,
 		&mockEnvResolver{vars: vars}, engine, &scriptResolverWithPre{pre: "// script"},
-		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 }
 
 func TestExecute_HTTP_ScriptHeaderPlaceholderIsResolved(t *testing.T) {

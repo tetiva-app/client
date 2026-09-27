@@ -1,0 +1,89 @@
+{
+	"info": {
+		"name": "Examples",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Get user",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{host}}/users/1" }
+			},
+			"response": [
+				{
+					"name": "Found",
+					"originalRequest": { "method": "GET", "header": [], "url": "{{host}}/users/1" },
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{ "key": "content-type", "value": "application/json" },
+						{ "key": "Set-Cookie", "value": "a=1" },
+						{ "key": "Set-Cookie", "value": "b=2" },
+						{ "key": "Vary", "value": "Accept" },
+						{ "key": "Vary", "value": "Origin" }
+					],
+					"cookie": [],
+					"body": "{\"id\":1}"
+				},
+				{
+					"name": "Broken",
+					"status": "OK",
+					"code": "abc",
+					"header": [],
+					"body": ""
+				},
+				{
+					"name": "",
+					"status": "Not Found",
+					"code": 404,
+					"header": null,
+					"body": null
+				}
+			]
+		},
+		{
+			"name": "Odd examples",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{host}}/odd" }
+			},
+			"response": [
+				{ "name": "   ", "status": "", "code": 0, "header": [], "body": "" },
+				{ "name": "Out of range", "status": "Weird", "code": 1500, "header": [], "body": "x" },
+				{ "name": "Negative", "status": "", "code": -1, "header": [], "body": "" },
+				"not an object",
+				{ "name": "Overflow", "code": 99999999999999999999999, "header": [], "body": "" }
+			]
+		},
+		{
+			"name": "Users query",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "graphql",
+					"graphql": { "query": "{ users { id } }" }
+				},
+				"url": { "raw": "{{host}}/graphql" }
+			},
+			"response": [
+				{
+					"name": "Two users",
+					"status": "OK",
+					"code": 200,
+					"header": [
+						{ "key": "Content-Type", "value": "application/json; charset=utf-8" },
+						{ "key": "Authorization", "value": "Bearer abc" },
+						{ "key": "{{hdr}}", "value": "literal" },
+						{ "key": "X-Token", "value": "Bearer {{token}}" }
+					],
+					"body": "{\"data\":{\"users\":[{\"id\":1},{\"id\":2}]}}"
+				}
+			]
+		}
+	]
+}

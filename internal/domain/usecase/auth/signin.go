@@ -36,6 +36,8 @@ type ServerInfo struct {
 	DesktopSignIn    bool
 	DesktopSignInURL string
 	RegistrationOpen bool
+	ResponseExamples bool
+	Publish          bool
 }
 
 // SignInStart is the accepted request the browser is about to be sent to.

@@ -1,0 +1,29 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "PUT",
+    "url": "https://api.example.com/blobs/1",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/octet-stream"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/octet-stream",
+      "text": "",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1,
+    "_tetiva": {
+      "binaryFile": "payload.bin"
+    }
+  },
+  "warnings": [
+    "Binary body is shown as a file reference"
+  ]
+}

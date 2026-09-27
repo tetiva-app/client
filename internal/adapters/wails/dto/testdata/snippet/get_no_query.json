@@ -1,0 +1,19 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "GET",
+    "url": "https://api.example.com/users",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Accept",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "warnings": []
+}

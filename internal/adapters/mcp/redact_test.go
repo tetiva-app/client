@@ -544,3 +544,31 @@ func TestMaskSecrets_NewAuthSchemeKeys(t *testing.T) {
 		assert.Equal(t, c.want, maskURLSecrets(c.in), "input %q", c.in)
 	}
 }
+
+func TestMaskSecrets_SharedClassification(t *testing.T) {
+	headers := maskHeaderItems([]entities.HeaderItem{
+		{Key: "X-Vault-Token", Value: "s.abc", Enabled: true},
+		{Key: "X-Client-Secret-V2", Value: "abc", Enabled: true},
+		{Key: "{{authHeader}}", Value: "literal", Enabled: true},
+		{Key: "{{authHeader}}", Value: "{{authValue}}", Enabled: true},
+	})
+	assert.Equal(t, redactedValue, headers[0].Value)
+	assert.Equal(t, redactedValue, headers[1].Value)
+	assert.Equal(t, redactedValue, headers[2].Value)
+	assert.Equal(t, "{{authValue}}", headers[3].Value)
+
+	assert.Equal(t, "https://api.example.com/u?my_session="+redactedValue+"&page=2",
+		maskURLSecrets("https://api.example.com/u?my_session=abc&page=2"))
+}
+
+func TestMaskSecrets_WholeNameTokensOnly(t *testing.T) {
+	assert.Equal(t, "https://api.example.com/search?keyword=shoes&author=bob&page=2",
+		maskURLSecrets("https://api.example.com/search?keyword=shoes&author=bob&page=2"))
+
+	resp := maskResponseHeaders(map[string][]string{
+		"Access-Control-Allow-Credentials": {"true"},
+		"Idempotency-Key":                  {"k-1"},
+	})
+	assert.Equal(t, []string{"true"}, resp["Access-Control-Allow-Credentials"])
+	assert.Equal(t, []string{redactedValue}, resp["Idempotency-Key"])
+}

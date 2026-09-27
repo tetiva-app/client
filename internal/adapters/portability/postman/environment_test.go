@@ -59,6 +59,9 @@ func (s *stubEnvironmentUC) ListVariables(context.Context, uuid.UUID) ([]*entiti
 func (s *stubEnvironmentUC) ResolveVariables(context.Context, uuid.UUID) (map[string]string, error) {
 	return nil, nil
 }
+func (s *stubEnvironmentUC) ActiveVariables(context.Context, uuid.UUID) ([]*entities.Variable, error) {
+	return nil, nil
+}
 func (s *stubEnvironmentUC) PersistVariableChanges(context.Context, uuid.UUID, string, map[string]string) error {
 	return nil
 }

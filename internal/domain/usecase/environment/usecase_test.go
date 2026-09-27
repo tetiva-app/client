@@ -3,6 +3,7 @@ package environment_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/google/uuid"
@@ -484,6 +485,54 @@ func TestResolveVariables(t *testing.T) {
 	}
 	if vars["token"] != "sk-123" {
 		t.Errorf("token = %q", vars["token"])
+	}
+}
+
+func TestActiveVariables(t *testing.T) {
+	uc, _, varRepo := newTestUsecase()
+	env := createTestEnv(t, uc, "Dev")
+	_ = uc.SetActive(context.Background(), environment.SetActiveOpt{
+		WorkspaceID:   testWorkspaceID,
+		EnvironmentID: env.ID,
+	})
+	for _, v := range []environment.AddVariable{
+		{EnvironmentID: env.ID, Key: "base_url", Value: "https://api.dev.example.com"},
+		{EnvironmentID: env.ID, Key: "token", Value: "sk-123", IsSecret: true},
+		{EnvironmentID: env.ID, Key: "off", Value: "x"},
+	} {
+		added, err := uc.AddVariable(context.Background(), v, environment.AddVariableOpt{UserID: "local_user"})
+		if err != nil {
+			t.Fatalf("AddVariable: %v", err)
+		}
+		if v.Key == "off" {
+			varRepo.vars[added.ID].Enabled = false
+		}
+	}
+
+	vars, err := uc.ActiveVariables(context.Background(), testWorkspaceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, v := range vars {
+		got[v.Key] = v.IsSecret
+	}
+	want := map[string]bool{"base_url": false, "token": true}
+	if !maps.Equal(got, want) {
+		t.Errorf("ActiveVariables keys and secrecy = %v, want %v", got, want)
+	}
+}
+
+func TestActiveVariables_NoActiveEnv(t *testing.T) {
+	uc, _, _ := newTestUsecase()
+
+	vars, err := uc.ActiveVariables(context.Background(), testWorkspaceID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vars) != 0 {
+		t.Errorf("expected no variables, got %d", len(vars))
 	}
 }
 

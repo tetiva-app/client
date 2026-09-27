@@ -2,6 +2,7 @@ import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
+import type { BuildSnippetReq, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 import type {
@@ -25,6 +26,8 @@ import {
   ExecuteRequestRequest as BindingExecuteRequestRequest,
   GenerateCurlRequest as BindingGenerateCurlRequest,
   ParseCurlRequest as BindingParseCurlRequest,
+  BuildSnippetRequest as BindingBuildSnippetRequest,
+  SnippetRequestDTO as BindingSnippetRequestDTO,
   GRPCConnectRequest as BindingGRPCConnectRequest,
   GRPCGenerateExampleRequest as BindingGRPCGenerateExampleRequest,
   GRPCGetProtoDefinitionRequest as BindingGRPCGetProtoDefinitionRequest,
@@ -133,6 +136,34 @@ export class WailsRequestService implements RequestServiceAPI {
     return unwrap<ParseCurlResponse>(await RequestService.ParseCurl(new BindingParseCurlRequest({
       text: req.text,
     })) as unknown as BindingResult<ParseCurlResponse>)
+  }
+
+  async buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>> {
+    const r = req.request
+    return unwrap<SnippetInput>(await RequestService.BuildSnippetInput(new BindingBuildSnippetRequest({
+      workspaceId: req.workspaceId,
+      resolveVariables: req.resolveVariables,
+      includeSecrets: req.includeSecrets ?? false,
+      request: new BindingSnippetRequestDTO({
+        id: r.id,
+        collectionId: r.collectionId,
+        protocol: r.protocol,
+        method: r.method,
+        url: r.url,
+        headers: r.headers,
+        body: r.body,
+        bodyType: r.bodyType,
+        authType: r.authType,
+        authData: r.authData,
+        preScript: r.preScript,
+        grpcService: r.grpcService,
+        grpcMethod: r.grpcMethod,
+        grpcMetadata: r.grpcMetadata,
+        graphqlQuery: r.graphqlQuery,
+        graphqlVariables: r.graphqlVariables,
+        graphqlOperation: r.graphqlOperation,
+      }),
+    })) as unknown as BindingResult<SnippetInput>)
   }
 
   async move(req: MoveRequestReq): Promise<Result<Request>> {

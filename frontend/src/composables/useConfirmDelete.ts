@@ -1,10 +1,10 @@
-import { ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import { useToast } from './useToast'
 
 interface ConfirmRequest<T> {
   payload: T
   title: string
-  description: string
+  description: string | (() => string)
   confirmLabel?: string
 }
 
@@ -12,14 +12,16 @@ export function useConfirmDelete<T>(onConfirm: (payload: T) => Promise<void> | v
   const toast = useToast()
   const open = ref(false)
   const title = ref('')
-  const description = ref('')
+  const describe = shallowRef<() => string>(() => '')
+  const description = computed(() => describe.value())
   const confirmLabel = ref<string | undefined>(undefined)
   let pending: T | null = null
 
   function ask(req: ConfirmRequest<T>) {
     pending = req.payload
     title.value = req.title
-    description.value = req.description
+    const text = req.description
+    describe.value = typeof text === 'function' ? text : () => text
     confirmLabel.value = req.confirmLabel
     open.value = true
   }

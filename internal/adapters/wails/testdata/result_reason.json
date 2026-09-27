@@ -1,0 +1,8 @@
+{
+  "data": {},
+  "error": {
+    "code": "rate_limited",
+    "message": "publicationRemote.Publish: publish rpc: rpc error: code = ResourceExhausted desc = quota",
+    "reason": "PUBLISH_QUOTA_EXCEEDED"
+  }
+}

@@ -140,7 +140,7 @@ func TestExecute_HTTPParity_PreScriptInjectsHeader(t *testing.T) {
 		preHeaders: map[string][]string{"X-Trace": {"abc"}},
 		preVars:    map[string]string{},
 	}
-	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+	uc := request.NewUsecase(repo, historyRepo, requester, nil, nil, &mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	id := uuid.New()
 	repo.requests[id] = &entities.Request{

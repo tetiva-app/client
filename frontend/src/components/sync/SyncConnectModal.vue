@@ -10,6 +10,7 @@ import type {
 import type { SyncModalTab } from '@/stores/syncModalUi'
 import { useBrowserSignInStore } from '@/stores/browserSignIn'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { usePublicationsStore } from '@/stores/publications'
 import { Cloud, ChevronRight, MailCheck, Laptop } from 'lucide-vue-next'
 import {
   DEFAULT_SYNC_SERVER,
@@ -55,6 +56,7 @@ const emit = defineEmits<{
 }>()
 
 const workspaceStore = useWorkspaceStore()
+const publications = usePublicationsStore()
 const toast = useToast()
 const signIn = useBrowserSignInStore()
 // The sync modal is English throughout; only the onboarding wizard is localized,
@@ -269,6 +271,7 @@ watch(() => signIn.state, async (state) => {
   } else {
     await applyStatus()
   }
+  publications.accountChanged()
   await workspaceStore.fetchAll()
   signIn.reset()
 })
@@ -391,6 +394,7 @@ async function handleConnect() {
   }
 
   serverUrl.value = target
+  publications.accountChanged()
   if (enterWaitingIfNeeded(result.data)) return
 
   connected.value = true
@@ -418,6 +422,7 @@ async function handleRegister() {
   }
 
   serverUrl.value = target
+  publications.accountChanged()
   if (enterWaitingIfNeeded(result.data)) return
 
   connected.value = true
@@ -439,6 +444,7 @@ function onEmailVerified() {
   connected.value = true
   error.value = ''
   cooldown.stop()
+  publications.accountChanged()
   toast.success(verify.verifiedToast)
   // Remote workspaces appear only now — the engine was dark until confirmation.
   void workspaceStore.fetchAll()
@@ -478,6 +484,7 @@ async function handleResend() {
 async function handleLogout() {
   if (!syncService) return
   await guarded(syncService.logout())
+  publications.accountChanged()
   awaiting.value = false
   rateLimited.value = false
   cooldown.stop()
@@ -552,6 +559,7 @@ async function handleLogoutAll() {
 async function handleDisconnect() {
   if (!syncService) return
   await guarded(syncService.logout())
+  publications.accountChanged()
   connected.value = false
   sessions.value = []
   error.value = ''

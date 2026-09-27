@@ -22,7 +22,7 @@ type preparedHTTP struct {
 	RawBody    string      // body after var substitution but BEFORE encoding (for history/UI)
 	BodyReader io.Reader   // for multipart with files (Execute path)
 	FormFields []formField // for multipart, when curl needs -F flags
-	BinaryPath string      // absolute path for BodyTypeBinary
+	BinaryPath string      // absolute path for BodyTypeBinary; as typed under SkipFileRead
 	Vars       map[string]string
 
 	// Auth is set for the schemes the requester applies itself (digest, aws_sigv4).
@@ -33,10 +33,14 @@ type preparedHTTP struct {
 	Warnings      []string
 }
 
-// prepareOpt tunes the pipeline for callers that must not send anything:
-// Copy as cURL renders from cached tokens only, never acquiring one.
+// prepareOpt tunes the pipeline for callers that must not send anything: Copy as cURL renders
+// from cached tokens only; snippets run no scripts, open no files and never acquire a token,
+// reading a cached one when resolving and printing a placeholder otherwise.
 type prepareOpt struct {
 	TokenFromCacheOnly bool
+	TokenPlaceholder   bool
+	SkipScripts        bool
+	SkipFileRead       bool
 	UserID             string
 }
 
@@ -59,9 +63,13 @@ func (u *usecase) prepareHTTP(
 	headers := substituteHeaders(rawHeaders, vars)
 
 	var scriptResult *entities.ScriptResult
-	preScript, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
-	if preResolveErr != nil {
-		return preparedHTTP{}, nil, fmt.Errorf("%s: %w", funcName, preResolveErr)
+	var preScript string
+	if !opt.SkipScripts {
+		resolved, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
+		if preResolveErr != nil {
+			return preparedHTTP{}, nil, fmt.Errorf("%s: %w", funcName, preResolveErr)
+		}
+		preScript = resolved
 	}
 	if preScript != "" && u.scriptEngine != nil {
 		scriptResult = &entities.ScriptResult{}
@@ -130,7 +138,12 @@ func (u *usecase) prepareHTTP(
 		if parseErr != nil {
 			return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, parseErr)
 		}
-		if FormHasFiles(body) {
+		hasFiles := FormHasFiles(body)
+		switch {
+		case hasFiles && opt.SkipFileRead:
+			prep.FormFields = fields
+			prep.Headers["Content-Type"] = []string{"multipart/form-data"}
+		case hasFiles:
 			ct, reader, encErr := encodeMultipartFormBody(body)
 			if encErr != nil {
 				return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, encErr)
@@ -138,7 +151,7 @@ func (u *usecase) prepareHTTP(
 			prep.BodyReader = reader
 			prep.FormFields = fields
 			prep.Headers["Content-Type"] = []string{ct}
-		} else {
+		default:
 			encoded, encErr := encodeFormBody(body)
 			if encErr != nil {
 				return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, encErr)
@@ -147,7 +160,10 @@ func (u *usecase) prepareHTTP(
 			prep.FormFields = fields
 		}
 	case entities.BodyTypeBinary:
-		if body != "" {
+		switch {
+		case opt.SkipFileRead:
+			prep.BinaryPath = body
+		case body != "":
 			cleanPath, pathErr := validateAbsoluteFilePath(body)
 			if pathErr != nil {
 				return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, pathErr)

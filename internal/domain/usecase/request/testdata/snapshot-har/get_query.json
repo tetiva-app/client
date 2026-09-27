@@ -1,0 +1,78 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "c44c7f25ec78",
+    "name": "get_query",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "GET",
+      "url": "https://api.example.com/users?page=2\u0026q=a+b%20c\u0026tag=x\u0026tag=y",
+      "headers": [
+        {
+          "key": "Accept",
+          "value": "application/json",
+          "enabled": true,
+          "redacted": false
+        },
+        {
+          "key": "X-Off",
+          "value": "1",
+          "enabled": false,
+          "redacted": false
+        }
+      ],
+      "body": {
+        "type": "none",
+        "raw": "",
+        "fields": [],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "GET",
+    "url": "https://api.example.com/users",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Accept",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [
+      {
+        "name": "page",
+        "value": "2"
+      },
+      {
+        "name": "q",
+        "value": "a b c"
+      },
+      {
+        "name": "tag",
+        "value": "x"
+      },
+      {
+        "name": "tag",
+        "value": "y"
+      }
+    ],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

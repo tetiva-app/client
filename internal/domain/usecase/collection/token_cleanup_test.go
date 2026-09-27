@@ -40,7 +40,7 @@ func TestDelete_SurvivesAFailingSweep(t *testing.T) {
 	// The collection is already soft-deleted when the sweep runs; reporting its
 	// failure would tell the user a delete that did happen did not.
 	repo := newMockRepo()
-	uc := collection.NewUsecase(repo, &recordingCleaner{sweepErr: errors.New("database is locked")})
+	uc := collection.NewUsecase(repo, &recordingCleaner{sweepErr: errors.New("database is locked")}, nil, nil)
 	ctx := context.Background()
 
 	col := &entities.Collection{ID: uuid.New(), WorkspaceID: testWorkspaceID, Name: "Doomed", Version: 1}
@@ -63,7 +63,7 @@ func TestDelete_SurvivesAFailingSweep(t *testing.T) {
 func TestDelete_ClearsTokenAndSweeps(t *testing.T) {
 	repo := newMockRepo()
 	cleaner := &recordingCleaner{}
-	uc := collection.NewUsecase(repo, cleaner)
+	uc := collection.NewUsecase(repo, cleaner, nil, nil)
 	ctx := context.Background()
 
 	parent := &entities.Collection{
@@ -109,7 +109,7 @@ func TestDelete_ClearsTokenAndSweeps(t *testing.T) {
 func TestEdit_ClearsTokenOnlyWhenTheAcquisitionConfigChanges(t *testing.T) {
 	repo := newMockRepo()
 	cleaner := &recordingCleaner{}
-	uc := collection.NewUsecase(repo, cleaner)
+	uc := collection.NewUsecase(repo, cleaner, nil, nil)
 	ctx := context.Background()
 
 	const authData = `{"grant":"client_credentials","tokenUrl":"https://idp.example/token","clientId":"cid","scope":"read"}`

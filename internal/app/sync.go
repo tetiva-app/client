@@ -21,7 +21,7 @@ func SyncModule() fx.Option {
 		// SyncEngine — uses inner (non-decorated) repos
 		fx.Provide(fx.Annotate(
 			syncsvc.NewSyncEngine,
-			fx.ParamTags(``, ``, ``, ``, `name:"innerCollectionRepo"`, `name:"innerRequestRepo"`, `name:"innerEnvironmentRepo"`, `name:"innerVariableRepo"`, ``),
+			fx.ParamTags(``, ``, ``, ``, `name:"innerCollectionRepo"`, `name:"innerRequestRepo"`, `name:"innerEnvironmentRepo"`, `name:"innerVariableRepo"`, `name:"innerResponseExampleRepo"`, ``),
 		)),
 		fx.Provide(wailsadapter.NewSignInEventSink),
 		fx.Provide(func(s *wailsadapter.SignInEventSink) auth.SignInSink { return s }),

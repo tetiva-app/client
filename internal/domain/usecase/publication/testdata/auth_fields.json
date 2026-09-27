@@ -1,0 +1,76 @@
+{
+  "public": {
+    "api_key": [
+      "addTo",
+      "in",
+      "key"
+    ],
+    "aws_sigv4": [
+      "region",
+      "service"
+    ],
+    "basic": [],
+    "bearer": [
+      "prefix"
+    ],
+    "digest": [],
+    "inherit": [],
+    "jwt": [
+      "addTo",
+      "alg",
+      "claims",
+      "header",
+      "headerPrefix",
+      "queryParam"
+    ],
+    "none": [],
+    "oauth2": [
+      "addTo",
+      "audience",
+      "authUrl",
+      "clientAuth",
+      "deviceAuthUrl",
+      "grant",
+      "headerPrefix",
+      "queryParam",
+      "scope",
+      "tokenUrl"
+    ]
+  },
+  "secret": {
+    "api_key": [
+      "value"
+    ],
+    "aws_sigv4": [
+      "accessKeyId",
+      "secretAccessKey",
+      "sessionToken"
+    ],
+    "basic": [
+      "password",
+      "username"
+    ],
+    "bearer": [
+      "token"
+    ],
+    "digest": [
+      "password",
+      "username"
+    ],
+    "inherit": [],
+    "jwt": [
+      "expiresIn",
+      "privateKey",
+      "secret",
+      "secretBase64"
+    ],
+    "none": [],
+    "oauth2": [
+      "clientId",
+      "clientSecret",
+      "password",
+      "redirectPort",
+      "username"
+    ]
+  }
+}

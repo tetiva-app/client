@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -73,6 +74,146 @@ func TestWindowService_DetachRequest_Error_AppNotInitialized(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeInternal, res.Error.Code)
 	assert.Contains(t, res.Error.Message, "app not initialized")
+}
+
+func detachedForTest(t *testing.T) (*WindowService, string, *[]string) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	ws := NewWindowService()
+	emitted := []string{}
+	ws.SetEventEmitter(func(name string, _ any) { emitted = append(emitted, name) })
+	requestID := uuid.New().String()
+	ws.mu.Lock()
+	ws.detachedRequests[requestID] = "detached-request-" + requestID
+	ws.mu.Unlock()
+	return ws, requestID, &emitted
+}
+
+func TestWindowService_DetachedClosing_WaitsForSaveOnce(t *testing.T) {
+	ws, requestID, emitted := detachedForTest(t)
+	hook := ws.detachedClosingHook(nil, "detached-request-"+requestID, requestID)
+
+	first := application.NewWindowEvent()
+	hook(first)
+	second := application.NewWindowEvent()
+	hook(second)
+
+	assert.True(t, first.IsCancelled())
+	assert.True(t, second.IsCancelled())
+	assert.Equal(t, []string{"window:save-and-close:" + requestID}, *emitted)
+	assert.True(t, ws.IsDetached(requestID).Data)
+
+	require.Nil(t, ws.CloseDetached(requestID).Error)
+	third := application.NewWindowEvent()
+	hook(third)
+
+	assert.False(t, third.IsCancelled())
+	assert.False(t, ws.IsDetached(requestID).Data)
+}
+
+func TestWindowService_DetachedClosing_ClosesWhenTheFrontendNeverAnswers(t *testing.T) {
+	ws, requestID, _ := detachedForTest(t)
+	ws.closeGrace = 10 * time.Millisecond
+	hook := ws.detachedClosingHook(nil, "detached-request-"+requestID, requestID)
+
+	held := application.NewWindowEvent()
+	hook(held)
+	require.True(t, held.IsCancelled())
+
+	require.Eventually(t, func() bool {
+		next := application.NewWindowEvent()
+		hook(next)
+		return !next.IsCancelled()
+	}, time.Second, 5*time.Millisecond)
+}
+
+func TestWindowService_DetachedClosing_NoEmitterClosesAtOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := NewWindowService()
+	requestID := uuid.New().String()
+	ws.mu.Lock()
+	ws.detachedRequests[requestID] = "detached-request-" + requestID
+	ws.mu.Unlock()
+
+	e := application.NewWindowEvent()
+	ws.detachedClosingHook(nil, "detached-request-"+requestID, requestID)(e)
+
+	assert.False(t, e.IsCancelled())
+	assert.False(t, ws.IsDetached(requestID).Data)
+}
+
+func TestWindowService_DetachedClosing_ReopenedWindowSavesAgain(t *testing.T) {
+	ws, requestID, emitted := detachedForTest(t)
+	windowName := "detached-request-" + requestID
+	hook := ws.detachedClosingHook(nil, windowName, requestID)
+	hook(application.NewWindowEvent())
+	require.Nil(t, ws.CloseDetached(requestID).Error)
+	hook(application.NewWindowEvent())
+
+	ws.mu.Lock()
+	ws.detachedRequests[requestID] = windowName
+	ws.mu.Unlock()
+	reopened := application.NewWindowEvent()
+	ws.detachedClosingHook(nil, windowName, requestID)(reopened)
+
+	assert.True(t, reopened.IsCancelled())
+	assert.Len(t, *emitted, 2)
+}
+
+func TestWindowService_DetachedClosing_LateEventAfterCloseLeavesNoHold(t *testing.T) {
+	ws, requestID, emitted := detachedForTest(t)
+	windowName := "detached-request-" + requestID
+	hook := ws.detachedClosingHook(nil, windowName, requestID)
+	hook(application.NewWindowEvent())
+	require.Nil(t, ws.CloseDetached(requestID).Error)
+	allowed := application.NewWindowEvent()
+	hook(allowed)
+	require.False(t, allowed.IsCancelled())
+
+	late := application.NewWindowEvent()
+	hook(late)
+
+	assert.True(t, late.IsCancelled())
+	assert.Len(t, *emitted, 1)
+	ws.mu.RLock()
+	assert.Empty(t, ws.closeHeld)
+	ws.mu.RUnlock()
+
+	ws.mu.Lock()
+	ws.detachedRequests[requestID] = windowName
+	ws.mu.Unlock()
+	reopened := application.NewWindowEvent()
+	ws.detachedClosingHook(nil, windowName, requestID)(reopened)
+
+	assert.True(t, reopened.IsCancelled())
+	assert.Equal(t, []string{saveAndCloseEvent(requestID), saveAndCloseEvent(requestID)}, *emitted)
+}
+
+func TestWindowService_DetachedClosing_FallbackReleasesItsHold(t *testing.T) {
+	ws, requestID, _ := detachedForTest(t)
+	ws.closeGrace = 10 * time.Millisecond
+	held := application.NewWindowEvent()
+	ws.detachedClosingHook(nil, "detached-request-"+requestID, requestID)(held)
+	require.True(t, held.IsCancelled())
+
+	require.Eventually(t, func() bool {
+		ws.mu.RLock()
+		defer ws.mu.RUnlock()
+		return ws.closeAllowed[requestID]
+	}, time.Second, 5*time.Millisecond)
+	ws.mu.RLock()
+	assert.Empty(t, ws.closeHeld)
+	ws.mu.RUnlock()
+}
+
+func TestWindowService_CloseDetached_UnknownRequest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := NewWindowService()
+
+	res := ws.CloseDetached(uuid.New().String())
+
+	require.Nil(t, res.Error)
+	assert.Empty(t, ws.closeAllowed)
 }
 
 // TODO: OpenSchemaViewer happy path needs a real *application.App; covered by manual testing.

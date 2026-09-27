@@ -208,7 +208,7 @@ func newGuardUsecase(repo *mockRepo, env *mockEnvResolver) request.Usecase {
 func newGuardUsecaseWith(repo *mockRepo, env *mockEnvResolver, reader request.CollectionReader) request.Usecase {
 	return request.NewUsecase(repo, &mockHistoryRepo{}, nil, nil, nil,
 		env, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{},
-		request.NewAuthResolver(reader), nil, nil, nil, nil)
+		request.NewAuthResolver(reader), nil, nil, nil, nil, nil, nil)
 }
 
 func guardRequest(id uuid.UUID, protocol entities.Protocol, authType entities.AuthType) *entities.Request {

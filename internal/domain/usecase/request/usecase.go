@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/har"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
@@ -143,6 +144,7 @@ type GraphQLExampleResponse struct {
 
 type EnvironmentResolver interface {
 	ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error)
+	ActiveVariables(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Variable, error)
 }
 
 // CookieReader returns cookies to send with a request URL. workspaceID is ignored
@@ -180,6 +182,22 @@ func (noopTokenCleaner) ClearOwnersUnlessHash(context.Context, string, []uuid.UU
 }
 
 func (noopTokenCleaner) DeleteOrphans(context.Context) (int, error) { return 0, nil }
+
+// ExampleCleaner carries a request's examples along when it is deleted or moved between workspaces;
+// both calls run inside the request's transaction.
+type ExampleCleaner interface {
+	DeleteByRequest(ctx context.Context, requestID uuid.UUID, userID string) error
+	MoveToWorkspace(ctx context.Context, requestID, newWorkspaceID uuid.UUID, userID string) error
+}
+
+type TxRunner interface {
+	Run(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// directTx stands in for test constructors built without a database: fn runs without atomicity.
+type directTx struct{}
+
+func (directTx) Run(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
 
 // ScriptResolver walks up the collection hierarchy when the request has no script of its own.
 type ScriptResolver interface {
@@ -226,6 +244,37 @@ type CurlResult struct {
 	ScriptResult *entities.ScriptResult
 }
 
+type BuildSnippetOpt struct {
+	WorkspaceID      uuid.UUID
+	ResolveVariables bool
+	// IncludeSecrets lets resolution print variables marked secret; otherwise they stay {{name}}.
+	IncludeSecrets bool
+}
+
+type GRPCSnippet struct {
+	Target, Service, Method, Message string
+	Metadata                         map[string][]string
+}
+
+type WSSnippetMessage struct{ Name, Format, Data string } // Format: json | text | binary (Data base64)
+
+type WSSnippet struct {
+	URL          string
+	Headers      map[string][]string
+	Subprotocols []string
+	Messages     []WSSnippetMessage
+}
+
+// SnippetInput is what the snippet generators render; exactly one of HAR, GRPC and WS is set.
+// Unresolved {{name}} references appear in it verbatim.
+type SnippetInput struct {
+	Protocol entities.Protocol
+	HAR      *har.Request
+	GRPC     *GRPCSnippet
+	WS       *WSSnippet
+	Warnings []string
+}
+
 type Usecase interface {
 	Create(ctx context.Context, input Create, opt CreateOpt) (*entities.Request, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error)
@@ -235,6 +284,7 @@ type Usecase interface {
 	Reorder(ctx context.Context, id uuid.UUID, sortOrder int) error
 	Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*entities.Response, error)
 	BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error)
+	BuildSnippetInput(ctx context.Context, req *entities.Request, opt BuildSnippetOpt) (SnippetInput, error)
 	Move(ctx context.Context, opt MoveOpt) (*entities.Request, error)
 	GRPCListServices(ctx context.Context, req GRPCConnectRequest) (*GRPCSchema, error)
 	GRPCGenerateExample(ctx context.Context, req GRPCConnectRequest, service, method string) (string, error)
@@ -265,9 +315,11 @@ type usecase struct {
 	collectionReader CollectionReader
 	tokenCleaner     TokenCleaner
 	authProvider     auth.Provider
+	exampleCleaner   ExampleCleaner
+	txRunner         TxRunner
 }
 
-func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRequester, grpcRequester GRPCRequester, graphqlRequester GraphQLRequester, envResolver EnvironmentResolver, scriptEngine ScriptEngine, scriptResolver ScriptResolver, varPersister VariablePersister, authResolver AuthResolver, cookieReader CookieReader, collectionReader CollectionReader, tokenCleaner TokenCleaner, authProvider auth.Provider) Usecase {
+func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRequester, grpcRequester GRPCRequester, graphqlRequester GraphQLRequester, envResolver EnvironmentResolver, scriptEngine ScriptEngine, scriptResolver ScriptResolver, varPersister VariablePersister, authResolver AuthResolver, cookieReader CookieReader, collectionReader CollectionReader, tokenCleaner TokenCleaner, authProvider auth.Provider, exampleCleaner ExampleCleaner, txRunner TxRunner) Usecase {
 	return &usecase{
 		repo:             repo,
 		historyRepo:      historyRepo,
@@ -283,6 +335,8 @@ func NewUsecase(repo Repository, historyRepo HistoryRepository, requester HTTPRe
 		collectionReader: collectionReader,
 		tokenCleaner:     tokenCleaner,
 		authProvider:     authProvider,
+		exampleCleaner:   exampleCleaner,
+		txRunner:         txRunner,
 	}
 }
 
@@ -292,4 +346,11 @@ func (u *usecase) tokens() TokenCleaner {
 		return noopTokenCleaner{}
 	}
 	return u.tokenCleaner
+}
+
+func (u *usecase) tx() TxRunner {
+	if u.txRunner == nil {
+		return directTx{}
+	}
+	return u.txRunner
 }

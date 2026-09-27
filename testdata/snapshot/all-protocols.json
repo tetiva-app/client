@@ -1,0 +1,769 @@
+{
+  "format": "tetiva.collection-snapshot",
+  "version": 1,
+  "generator": "Tetiva 1.2.0",
+  "locale": "ru",
+  "collection": {
+    "id": "d93148ea5eb1",
+    "name": "Petstore API — демо",
+    "description": "# Petstore\n\nДемо-коллекция: **все протоколы**, примеры ответов, окружение.\n\n```bash\ncurl {{baseUrl}}/pets\n```",
+    "auth": {
+      "type": "bearer",
+      "fields": {
+        "prefix": "Bearer",
+        "token": "{{token}}"
+      },
+      "redacted": []
+    },
+    "scripts": {
+      "pre": "pm.environment.set(\"ts\", Date.now());",
+      "post": "pm.test(\"status is 2xx\", () => pm.expect(pm.response.code).to.be.below(300));"
+    },
+    "grpcMetadata": [
+      {
+        "key": "x-client",
+        "value": "tetiva",
+        "enabled": true,
+        "redacted": false
+      },
+      {
+        "key": "x-api-version",
+        "value": "2026-09",
+        "enabled": true,
+        "redacted": false
+      }
+    ],
+    "items": [
+      {
+        "kind": "folder",
+        "id": "eb2f6f5548f4",
+        "name": "Питомцы",
+        "description": "CRUD по питомцам.",
+        "auth": {
+          "type": "oauth2",
+          "fields": {
+            "grant": "client_credentials",
+            "tokenUrl": "https://auth.example.com/oauth/token",
+            "authUrl": "",
+            "deviceAuthUrl": "",
+            "scope": "pets:read pets:write",
+            "audience": "",
+            "clientAuth": "basic",
+            "addTo": "header",
+            "headerPrefix": "Bearer",
+            "queryParam": "access_token",
+            "clientId": "{{clientId}}",
+            "clientSecret": ""
+          },
+          "redacted": [
+            "clientSecret"
+          ]
+        },
+        "scripts": {
+          "pre": "console.log(\"folder pre\");",
+          "post": ""
+        },
+        "items": [
+          {
+            "kind": "folder",
+            "id": "f1801563a7bc",
+            "name": "Администрирование",
+            "description": "Вложенная папка без своей авторизации.",
+            "auth": null,
+            "scripts": null,
+            "items": [
+              {
+                "kind": "request",
+                "id": "ddafd56c0b52",
+                "name": "Delete pet",
+                "description": "",
+                "protocol": "http",
+                "http": {
+                  "method": "DELETE",
+                  "url": "{{baseUrl}}/pets/{{petId}}",
+                  "headers": [],
+                  "body": {
+                    "type": "none",
+                    "raw": "",
+                    "fields": [],
+                    "fileName": ""
+                  }
+                },
+                "auth": {
+                  "type": "inherit",
+                  "fields": {},
+                  "redacted": []
+                },
+                "scripts": null,
+                "examples": []
+              },
+              {
+                "kind": "request",
+                "id": "4d6aba9f7c47",
+                "name": "Check pet exists",
+                "description": "",
+                "protocol": "http",
+                "http": {
+                  "method": "HEAD",
+                  "url": "{{baseUrl}}/pets/{{petId}}",
+                  "headers": [],
+                  "body": {
+                    "type": "none",
+                    "raw": "",
+                    "fields": [],
+                    "fileName": ""
+                  }
+                },
+                "auth": {
+                  "type": "jwt",
+                  "fields": {
+                    "alg": "HS256",
+                    "addTo": "header",
+                    "headerPrefix": "Bearer",
+                    "queryParam": "token",
+                    "header": {
+                      "kid": "key-2026",
+                      "typ": "JWT"
+                    },
+                    "claims": {
+                      "iss": "https://auth.example.com",
+                      "sub": "{{userId}}",
+                      "aud": [
+                        "petstore",
+                        "admin"
+                      ],
+                      "iat": 1727222400,
+                      "admin": true,
+                      "profile": {
+                        "name": "Иван",
+                        "roles": [
+                          "owner",
+                          null
+                        ]
+                      }
+                    },
+                    "secret": "{{jwtSecret}}",
+                    "secretBase64": "",
+                    "expiresIn": ""
+                  },
+                  "redacted": [
+                    "secretBase64",
+                    "expiresIn"
+                  ]
+                },
+                "scripts": null,
+                "examples": []
+              }
+            ]
+          },
+          {
+            "kind": "request",
+            "id": "807a06a0217b",
+            "name": "Получить питомца",
+            "description": "Возвращает питомца по `id`.\n\nПараметр `api_key` в query устарел.",
+            "protocol": "http",
+            "http": {
+              "method": "GET",
+              "url": "{{baseUrl}}/pets/{{petId}}?expand=owner&api_key=<redacted>",
+              "headers": [
+                {
+                  "key": "Accept",
+                  "value": "application/json",
+                  "enabled": true,
+                  "redacted": false
+                },
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{token}}",
+                  "enabled": true,
+                  "redacted": false
+                },
+                {
+                  "key": "X-Api-Key",
+                  "value": "<redacted>",
+                  "enabled": true,
+                  "redacted": true
+                },
+                {
+                  "key": "X-{{tenantHeader}}",
+                  "value": "acme",
+                  "enabled": true,
+                  "redacted": false
+                },
+                {
+                  "key": "X-Debug",
+                  "value": "1",
+                  "enabled": false,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "none",
+                "raw": "",
+                "fields": [],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "inherit",
+              "fields": {},
+              "redacted": []
+            },
+            "scripts": null,
+            "examples": [
+              {
+                "id": "38526b71014e",
+                "name": "200 Успех",
+                "status": 200,
+                "statusText": "OK",
+                "headers": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json; charset=utf-8",
+                    "enabled": true,
+                    "redacted": false
+                  },
+                  {
+                    "key": "X-Request-Id",
+                    "value": "req-7f3a",
+                    "enabled": true,
+                    "redacted": false
+                  }
+                ],
+                "body": "{\n  \"id\": 42,\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"tags\": [\n    \"кот\",\n    \"рыжий\"\n  ]\n}",
+                "contentType": "application/json"
+              },
+              {
+                "id": "3bae01a9d276",
+                "name": "404 Не найден",
+                "status": 404,
+                "statusText": "Not Found",
+                "headers": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "enabled": true,
+                    "redacted": false
+                  }
+                ],
+                "body": "{\n  \"error\": \"pet not found\"\n}",
+                "contentType": "application/json"
+              }
+            ]
+          },
+          {
+            "kind": "request",
+            "id": "cc078184e8c7",
+            "name": "Create pet",
+            "description": "Creates a pet from a JSON body.",
+            "protocol": "http",
+            "http": {
+              "method": "POST",
+              "url": "{{baseUrl}}/pets",
+              "headers": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "json",
+                "raw": "{\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"ownerId\": \"{{userId}}\"\n}",
+                "fields": [],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "fields": {
+                "prefix": "Bearer",
+                "token": ""
+              },
+              "redacted": [
+                "token"
+              ]
+            },
+            "scripts": {
+              "pre": "pm.environment.set(\"requestId\", crypto.randomUUID());",
+              "post": "pm.test(\"created\", () => pm.response.to.have.status(201));"
+            },
+            "examples": [
+              {
+                "id": "fa0f2b1b1d82",
+                "name": "201 Created",
+                "status": 201,
+                "statusText": "Created",
+                "headers": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "enabled": true,
+                    "redacted": false
+                  },
+                  {
+                    "key": "Location",
+                    "value": "/pets/43",
+                    "enabled": true,
+                    "redacted": false
+                  }
+                ],
+                "body": "{\n  \"id\": 43\n}",
+                "contentType": "application/json"
+              }
+            ]
+          },
+          {
+            "kind": "request",
+            "id": "dfd23706a141",
+            "name": "Загрузить фото",
+            "description": "Multipart: текстовое поле и файл.",
+            "protocol": "http",
+            "http": {
+              "method": "POST",
+              "url": "{{baseUrl}}/pets/{{petId}}/photos",
+              "headers": [],
+              "body": {
+                "type": "form",
+                "raw": "",
+                "fields": [
+                  {
+                    "key": "title",
+                    "value": "Отчёт за Q3",
+                    "type": "text",
+                    "enabled": true
+                  },
+                  {
+                    "key": "file",
+                    "value": "report.pdf",
+                    "type": "file",
+                    "enabled": true
+                  },
+                  {
+                    "key": "draft",
+                    "value": "true",
+                    "type": "text",
+                    "enabled": false
+                  }
+                ],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "basic",
+              "fields": {
+                "username": "{{user}}",
+                "password": ""
+              },
+              "redacted": [
+                "password"
+              ]
+            },
+            "scripts": null,
+            "examples": []
+          },
+          {
+            "kind": "request",
+            "id": "cd0edfb9ed2a",
+            "name": "Search (urlencoded)",
+            "description": "",
+            "protocol": "http",
+            "http": {
+              "method": "POST",
+              "url": "{{baseUrl}}/pets/search",
+              "headers": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/x-www-form-urlencoded",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "form",
+                "raw": "",
+                "fields": [
+                  {
+                    "key": "q",
+                    "value": "рыжий кот",
+                    "type": "text",
+                    "enabled": true
+                  },
+                  {
+                    "key": "limit",
+                    "value": "20",
+                    "type": "text",
+                    "enabled": true
+                  }
+                ],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "none",
+              "fields": {},
+              "redacted": []
+            },
+            "scripts": null,
+            "examples": []
+          },
+          {
+            "kind": "request",
+            "id": "9212b50055f1",
+            "name": "Replace avatar",
+            "description": "Binary body; only the file's base name is published.",
+            "protocol": "http",
+            "http": {
+              "method": "PUT",
+              "url": "{{baseUrl}}/pets/{{petId}}/avatar",
+              "headers": [
+                {
+                  "key": "Content-Type",
+                  "value": "image/png",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "binary",
+                "raw": "",
+                "fields": [],
+                "fileName": "avatar.png"
+              }
+            },
+            "auth": {
+              "type": "aws_sigv4",
+              "fields": {
+                "region": "eu-central-1",
+                "service": "execute-api",
+                "accessKeyId": "{{awsKeyId}}",
+                "secretAccessKey": "",
+                "sessionToken": ""
+              },
+              "redacted": [
+                "secretAccessKey"
+              ]
+            },
+            "scripts": null,
+            "examples": []
+          },
+          {
+            "kind": "request",
+            "id": "3a9495cb5e9b",
+            "name": "Import XML",
+            "description": "",
+            "protocol": "http",
+            "http": {
+              "method": "PATCH",
+              "url": "{{baseUrl}}/pets/import",
+              "headers": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/xml",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "xml",
+                "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<pets>\n  <pet id=\"42\">Барсик</pet>\n</pets>",
+                "fields": [],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "digest",
+              "fields": {
+                "username": "",
+                "password": ""
+              },
+              "redacted": [
+                "username",
+                "password"
+              ]
+            },
+            "scripts": null,
+            "examples": []
+          },
+          {
+            "kind": "request",
+            "id": "a9fe1e0313cf",
+            "name": "Ping",
+            "description": "",
+            "protocol": "http",
+            "http": {
+              "method": "OPTIONS",
+              "url": "{{baseUrl}}/ping",
+              "headers": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/plain",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "body": {
+                "type": "raw",
+                "raw": "ping",
+                "fields": [],
+                "fileName": ""
+              }
+            },
+            "auth": {
+              "type": "api_key",
+              "fields": {
+                "key": "X-Api-Key",
+                "value": "{{apiKey}}",
+                "addTo": "header"
+              },
+              "redacted": []
+            },
+            "scripts": null,
+            "examples": []
+          }
+        ]
+      },
+      {
+        "kind": "request",
+        "id": "c7237e2fa8bb",
+        "name": "Pet by id (GraphQL)",
+        "description": "GraphQL-запрос с переменными.",
+        "protocol": "graphql",
+        "graphql": {
+          "url": "{{baseUrl}}/graphql",
+          "headers": [
+            {
+              "key": "Authorization",
+              "value": "Bearer {{token}}",
+              "enabled": true,
+              "redacted": false
+            }
+          ],
+          "query": "query Pet($id: ID!) {\n  pet(id: $id) {\n    id\n    name\n    status\n  }\n}",
+          "variables": "{\n  \"id\": \"{{petId}}\"\n}",
+          "operationName": "Pet"
+        },
+        "auth": {
+          "type": "inherit",
+          "fields": {},
+          "redacted": []
+        },
+        "scripts": null,
+        "examples": [
+          {
+            "id": "3750fb905566",
+            "name": "200 OK",
+            "status": 200,
+            "statusText": "OK",
+            "headers": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "enabled": true,
+                "redacted": false
+              }
+            ],
+            "body": "{\n  \"data\": {\n    \"pet\": {\n      \"id\": \"42\",\n      \"name\": \"Барсик\",\n      \"status\": \"available\"\n    }\n  }\n}",
+            "contentType": "application/json"
+          }
+        ]
+      },
+      {
+        "kind": "request",
+        "id": "8a7b82984f63",
+        "name": "GetPet (gRPC)",
+        "description": "Unary-вызов.",
+        "protocol": "grpc",
+        "grpc": {
+          "target": "{{grpcHost}}",
+          "service": "petstore.v1.PetService",
+          "method": "GetPet",
+          "message": "{\n  \"id\": \"42\"\n}",
+          "metadata": [
+            {
+              "key": "x-request-id",
+              "value": "{{requestId}}",
+              "enabled": true,
+              "redacted": false
+            },
+            {
+              "key": "x-tenant",
+              "value": "acme",
+              "enabled": true,
+              "redacted": false
+            },
+            {
+              "key": "authorization",
+              "value": "Bearer {{token}}",
+              "enabled": true,
+              "redacted": false
+            }
+          ]
+        },
+        "auth": {
+          "type": "inherit",
+          "fields": {},
+          "redacted": []
+        },
+        "scripts": null,
+        "examples": [
+          {
+            "id": "683430dab802",
+            "name": "OK",
+            "status": 0,
+            "statusText": "OK",
+            "headers": [
+              {
+                "key": "content-type",
+                "value": "application/grpc",
+                "enabled": true,
+                "redacted": false
+              }
+            ],
+            "body": "{\n  \"id\": \"42\",\n  \"name\": \"Барсик\"\n}",
+            "contentType": "application/json"
+          },
+          {
+            "id": "298af887c8b5",
+            "name": "NOT_FOUND",
+            "status": 5,
+            "statusText": "NOT_FOUND",
+            "headers": [],
+            "body": "pet 7 not found",
+            "contentType": "text/plain"
+          }
+        ]
+      },
+      {
+        "kind": "folder",
+        "id": "03a15b7dc912",
+        "name": "Realtime",
+        "description": "",
+        "auth": null,
+        "scripts": null,
+        "items": [
+          {
+            "kind": "request",
+            "id": "c5859a6b3912",
+            "name": "Чат питомника",
+            "description": "Подписка на события.",
+            "protocol": "websocket",
+            "websocket": {
+              "url": "{{wsUrl}}/events?room=general",
+              "headers": [
+                {
+                  "key": "Origin",
+                  "value": "https://app.example.com",
+                  "enabled": true,
+                  "redacted": false
+                }
+              ],
+              "subprotocols": [
+                "events.v1",
+                "json"
+              ],
+              "messages": [
+                {
+                  "name": "Подписка",
+                  "format": "json",
+                  "data": "{\"type\":\"subscribe\",\"channel\":\"pets\"}"
+                },
+                {
+                  "name": "Привет",
+                  "format": "text",
+                  "data": "Привет, мир"
+                },
+                {
+                  "name": "Ping frame",
+                  "format": "binary",
+                  "data": "3q2+7w=="
+                }
+              ]
+            },
+            "auth": {
+              "type": "inherit",
+              "fields": {},
+              "redacted": []
+            },
+            "scripts": {
+              "pre": "",
+              "post": "console.log(pm.response.text());"
+            },
+            "examples": []
+          }
+        ]
+      }
+    ]
+  },
+  "environment": {
+    "name": "prod",
+    "variables": [
+      {
+        "key": "baseUrl",
+        "value": "https://petstore.example.com/v1",
+        "secret": false
+      },
+      {
+        "key": "grpcHost",
+        "value": "grpc.petstore.example.com:443",
+        "secret": false
+      },
+      {
+        "key": "wsUrl",
+        "value": "wss://ws.petstore.example.com",
+        "secret": false
+      },
+      {
+        "key": "petId",
+        "value": "42",
+        "secret": false
+      },
+      {
+        "key": "userId",
+        "value": "u-1001",
+        "secret": false
+      },
+      {
+        "key": "tenantHeader",
+        "value": "Tenant",
+        "secret": false
+      },
+      {
+        "key": "user",
+        "value": "demo",
+        "secret": false
+      },
+      {
+        "key": "clientId",
+        "value": "tetiva-demo",
+        "secret": false
+      },
+      {
+        "key": "greeting",
+        "value": "Здравствуйте",
+        "secret": false
+      },
+      {
+        "key": "token",
+        "value": "",
+        "secret": true
+      },
+      {
+        "key": "apiKey",
+        "value": "",
+        "secret": true
+      },
+      {
+        "key": "jwtSecret",
+        "value": "",
+        "secret": true
+      },
+      {
+        "key": "awsKeyId",
+        "value": "",
+        "secret": true
+      }
+    ]
+  }
+}

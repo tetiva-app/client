@@ -117,6 +117,10 @@ func (s *stubEnvironmentUsecase) ResolveVariables(ctx context.Context, workspace
 	return s.resolveVariablesFn(ctx, workspaceID)
 }
 
+func (s *stubEnvironmentUsecase) ActiveVariables(context.Context, uuid.UUID) ([]*entities.Variable, error) {
+	panic("ActiveVariables not stubbed")
+}
+
 func (s *stubEnvironmentUsecase) PersistVariableChanges(ctx context.Context, workspaceID uuid.UUID, userID string, newVars map[string]string) error {
 	if s.persistVariableChanges == nil {
 		panic("persistVariableChanges not set")

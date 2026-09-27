@@ -5,8 +5,9 @@ import { useAuthTokenStore } from '@/stores/auth-tokens'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
+import { exampleWindowEvents, useExamplesStore } from '@/stores/examples'
 import { useEnvModalUi } from '@/stores/envModalUi'
-import { getRequestService } from '@/services'
+import { getRequestService, getWindowService } from '@/services'
 import { useWindowEvents } from '@/composables/useWindowEvents'
 import { closeCurrentWindow } from '@/lib/close-window'
 import RequestEditor from '@/components/editor/RequestEditor.vue'
@@ -24,6 +25,7 @@ const store = useRequestStore()
 const workspaceStore = useWorkspaceStore()
 const collectionStore = useCollectionStore()
 const environmentStore = useEnvironmentStore()
+const examplesStore = useExamplesStore()
 const envModalUi = useEnvModalUi()
 
 const loading = ref(true)
@@ -58,9 +60,22 @@ onMounted(async () => {
   }
 })
 
-async function autoSave() {
-  if (store.isRequestDirty(props.requestId)) {
-    await store.saveToBackend(props.requestId)
+function autoSave() {
+  return store.saveRequestAndExamples(props.requestId)
+}
+
+// Go holds a close until this window saves, so closing from here has to go around that hold.
+async function closeWindow() {
+  const windows = await getWindowService()
+  if (windows) await windows.closeDetached(props.requestId)
+  else await closeCurrentWindow()
+}
+
+async function saveAndClose() {
+  try {
+    await autoSave()
+  } finally {
+    await closeWindow()
   }
 }
 
@@ -90,13 +105,12 @@ useWindowEvents({
     const wsId = workspaceStore.activeWorkspace?.id
     if (wsId) collectionStore.fetchAll(wsId)
   },
-  onWorkspaceSwitched: async () => {
-    await autoSave()
-    await closeCurrentWindow()
-  },
+  onWorkspaceSwitched: saveAndClose,
   onRequestDeleted: () => {
-    void closeCurrentWindow()
+    void closeWindow()
   },
+  onSaveAndClose: saveAndClose,
+  ...exampleWindowEvents(examplesStore),
 })
 </script>
 

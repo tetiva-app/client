@@ -1,0 +1,248 @@
+{
+  "ddafd56c0b52 Delete pet": {
+    "method": "DELETE",
+    "url": "https://petstore.example.com/v1/pets/42",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer <token>"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "4d6aba9f7c47 Check pet exists": {
+    "method": "HEAD",
+    "url": "https://petstore.example.com/v1/pets/42",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer <JWT signed with {{jwtSecret}}>"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "807a06a0217b Получить питомца": {
+    "method": "GET",
+    "url": "https://petstore.example.com/v1/pets/42",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Accept",
+        "value": "application/json"
+      },
+      {
+        "name": "Authorization",
+        "value": "Bearer <token>"
+      },
+      {
+        "name": "X-Api-Key",
+        "value": "<redacted>"
+      },
+      {
+        "name": "X-Tenant",
+        "value": "acme"
+      }
+    ],
+    "queryString": [
+      {
+        "name": "expand",
+        "value": "owner"
+      },
+      {
+        "name": "api_key",
+        "value": "<redacted>"
+      }
+    ],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "cc078184e8c7 Create pet": {
+    "method": "POST",
+    "url": "https://petstore.example.com/v1/pets",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer <token>"
+      },
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\n  \"name\": \"Барсик\",\n  \"status\": \"available\",\n  \"ownerId\": \"u-1001\"\n}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "dfd23706a141 Загрузить фото": {
+    "method": "POST",
+    "url": "https://petstore.example.com/v1/pets/42/photos",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Basic <credentials>"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "multipart/form-data",
+      "text": "",
+      "params": [
+        {
+          "name": "title",
+          "value": "Отчёт за Q3"
+        },
+        {
+          "name": "file",
+          "value": "",
+          "fileName": "report.pdf"
+        }
+      ]
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "cd0edfb9ed2a Search (urlencoded)": {
+    "method": "POST",
+    "url": "https://petstore.example.com/v1/pets/search",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/x-www-form-urlencoded"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/x-www-form-urlencoded",
+      "text": "",
+      "params": [
+        {
+          "name": "q",
+          "value": "рыжий кот"
+        },
+        {
+          "name": "limit",
+          "value": "20"
+        }
+      ]
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "9212b50055f1 Replace avatar": {
+    "method": "PUT",
+    "url": "https://petstore.example.com/v1/pets/42/avatar",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "image/png"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "image/png",
+      "text": "",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1,
+    "_tetiva": {
+      "binaryFile": "avatar.png",
+      "authNote": "aws_sigv4"
+    }
+  },
+  "3a9495cb5e9b Import XML": {
+    "method": "PATCH",
+    "url": "https://petstore.example.com/v1/pets/import",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/xml"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/xml",
+      "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<pets>\n  <pet id=\"42\">Барсик</pet>\n</pets>",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1,
+    "_tetiva": {
+      "authNote": "digest"
+    }
+  },
+  "a9fe1e0313cf Ping": {
+    "method": "OPTIONS",
+    "url": "https://petstore.example.com/v1/ping",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "text/plain"
+      },
+      {
+        "name": "X-Api-Key",
+        "value": "{{apiKey}}"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "text/plain",
+      "text": "ping",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "c7237e2fa8bb Pet by id (GraphQL)": {
+    "method": "POST",
+    "url": "https://petstore.example.com/v1/graphql",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer {{token}}"
+      },
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\"query\":\"query Pet($id: ID!) {\\n  pet(id: $id) {\\n    id\\n    name\\n    status\\n  }\\n}\",\"variables\":{\"id\":\"42\"},\"operationName\":\"Pet\"}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "8a7b82984f63 GetPet (gRPC)": null,
+  "c5859a6b3912 Чат питомника": null
+}

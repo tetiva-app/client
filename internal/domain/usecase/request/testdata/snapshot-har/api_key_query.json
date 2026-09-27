@@ -1,0 +1,69 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "21051a64edb9",
+    "name": "api_key_query",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "GET",
+      "url": "https://api.example.com/pets?limit=10",
+      "headers": [],
+      "body": {
+        "type": "none",
+        "raw": "",
+        "fields": [],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "api_key",
+      "fields": {
+        "addTo": "query",
+        "key": "api_key",
+        "value": "{{apiKey}}"
+      },
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": {
+    "name": "prod",
+    "variables": [
+      {
+        "key": "apiKey",
+        "value": "",
+        "secret": true
+      }
+    ]
+  },
+  "auth": {
+    "type": "api_key",
+    "fields": {
+      "addTo": "query",
+      "key": "api_key",
+      "value": "{{apiKey}}"
+    },
+    "redacted": []
+  },
+  "har": {
+    "method": "GET",
+    "url": "https://api.example.com/pets",
+    "httpVersion": "HTTP/1.1",
+    "headers": [],
+    "queryString": [
+      {
+        "name": "api_key",
+        "value": "{{apiKey}}"
+      },
+      {
+        "name": "limit",
+        "value": "10"
+      }
+    ],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

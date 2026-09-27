@@ -40,6 +40,7 @@ type Usecase interface {
 	ListVariables(ctx context.Context, environmentID uuid.UUID) ([]*entities.Variable, error)
 
 	ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error)
+	ActiveVariables(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Variable, error)
 
 	PersistVariableChanges(ctx context.Context, workspaceID uuid.UUID, userID string, newVars map[string]string) error
 }

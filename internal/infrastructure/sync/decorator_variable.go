@@ -40,11 +40,11 @@ func (r *SyncedVariableRepo) Create(ctx context.Context, v *entities.Variable) e
 	if err != nil || !r.isSyncEnabled(wsID) {
 		return r.inner.Create(ctx, v)
 	}
-	txErr := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Create(txCtx, v); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "variable",
 			EntityID:    v.ID.String(),
@@ -52,12 +52,12 @@ func (r *SyncedVariableRepo) Create(ctx context.Context, v *entities.Variable) e
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if txErr == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return txErr
 }
 
 func (r *SyncedVariableRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Variable, error) {
@@ -78,11 +78,11 @@ func (r *SyncedVariableRepo) Update(ctx context.Context, v *entities.Variable) e
 	if v.IsDelete {
 		action = "delete"
 	}
-	txErr := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
 		if err := r.inner.Update(txCtx, v); err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "variable",
 			EntityID:    v.ID.String(),
@@ -90,25 +90,36 @@ func (r *SyncedVariableRepo) Update(ctx context.Context, v *entities.Variable) e
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if txErr == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return txErr
 }
 
-// Delete removes a variable and enqueues a sync "delete" entry within the same TX.
+// Delete enqueues a sync "delete" entry within the same TX. A synced variable is soft-deleted:
+// an older server stores the tombstone as sent, and it must still name the environment.
 func (r *SyncedVariableRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	wsID, err := r.getWorkspaceIDByVariable(ctx, id)
 	if err != nil || !r.isSyncEnabled(wsID) {
 		return r.inner.Delete(ctx, id)
 	}
-	txErr := sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
-		if err := r.inner.Delete(txCtx, id); err != nil {
+	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
+		v, err := r.inner.GetByID(txCtx, id)
+		if err != nil {
 			return err
 		}
-		return r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
+		if v == nil {
+			return nil
+		}
+		v.IsDelete = true
+		v.Version++
+		v.UpdatedAt = time.Now()
+		if err := r.inner.Update(txCtx, v); err != nil {
+			return err
+		}
+		if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{
 			WorkspaceID: wsID,
 			EntityType:  "variable",
 			EntityID:    id.String(),
@@ -116,12 +127,12 @@ func (r *SyncedVariableRepo) Delete(ctx context.Context, id uuid.UUID) error {
 			OperationID: uuid.New().String(),
 			Status:      "pending",
 			CreatedAt:   time.Now(),
-		})
+		}); err != nil {
+			return err
+		}
+		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
+		return nil
 	})
-	if txErr == nil {
-		r.engine.NotifyWrite(wsID)
-	}
-	return txErr
 }
 
 func (r *SyncedVariableRepo) getWorkspaceIDByEnvironment(ctx context.Context, environmentID uuid.UUID) (string, error) {

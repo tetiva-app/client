@@ -1,0 +1,111 @@
+=== curl ===
+curl 'https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4' \
+  -H 'Accept: application/json'
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/users"
+params = [
+    ("existing", "1"),
+    ("page", "2"),
+    ("tag", "a b&c"),
+    ("tag", "д"),
+]
+headers = {
+    "Accept": "application/json",
+}
+
+response = requests.request("GET", url, params=params, headers=headers)
+print(response.text)
+
+=== js-fetch ===
+const url = "https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4";
+const options = {
+  method: "GET",
+  headers: {
+    "Accept": "application/json",
+  },
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4"
+
+	req, _ := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("Accept", "application/json")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4"))
+    .header("Accept", "application/json")
+    .method("GET", HttpRequest.BodyPublishers.noBody())
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+Request request = new Request.Builder()
+  .url("https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4")
+  .get()
+  .addHeader("Accept", "application/json")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Get,
+    RequestUri = new Uri("https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4"),
+    Headers =
+    {
+        { "Accept", "application/json" },
+    },
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('GET', 'https://api.example.com/users?existing=1&page=2&tag=a%20b%26c&tag=%D0%B4', [
+  'headers' => [
+    'Accept' => 'application/json',
+  ],
+]);
+
+echo $response->getBody();

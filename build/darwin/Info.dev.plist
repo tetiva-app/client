@@ -28,5 +28,16 @@
             <key>NSAllowsLocalNetworking</key>
             <true/>
         </dict>
+        <key>CFBundleURLTypes</key>
+        <array>
+            <dict>
+                <key>CFBundleURLName</key>
+                <string>yudinsv.com.Tetiva.dev</string>
+                <key>CFBundleURLSchemes</key>
+                <array>
+                    <string>tetiva-dev</string>
+                </array>
+            </dict>
+        </array>
     </dict>
 </plist>

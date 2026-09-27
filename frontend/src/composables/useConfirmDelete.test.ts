@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { ref } from 'vue'
 import { useConfirmDelete } from './useConfirmDelete'
 
 describe('useConfirmDelete', () => {
@@ -12,6 +13,17 @@ describe('useConfirmDelete', () => {
     await confirm()
     expect(onConfirm).toHaveBeenCalledWith('item-1')
     expect(open.value).toBe(false)
+  })
+
+  it('keeps a getter description live while the dialog is open', () => {
+    const note = ref('')
+    const { ask, description } = useConfirmDelete(vi.fn())
+
+    ask({ payload: 'item-3', title: 'Delete?', description: () => `sure?${note.value}` })
+    expect(description.value).toBe('sure?')
+
+    note.value = ' It is published.'
+    expect(description.value).toBe('sure? It is published.')
   })
 
   it('keeps the dialog open when onConfirm rejects', async () => {

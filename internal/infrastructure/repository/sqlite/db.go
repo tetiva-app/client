@@ -36,26 +36,46 @@ func DSN(path string) string {
 	return path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 }
 
-// Opens ~/.tetiva/data.db, renaming a legacy ~/.gophercourier dir in place so data carries over.
-func NewDB() (*sql.DB, error) {
-	const funcName = "sqlite.NewDB"
+// DataDir is the resolved profile directory; the instance lock and the database share it.
+type DataDir string
 
-	var dbDir string
+// ResolveDataDir runs once, in main.go, so the instance lock and the database cannot end up
+// in different directories.
+func ResolveDataDir() (string, error) {
+	const funcName = "sqlite.ResolveDataDir"
+
+	var dir string
 	if envDir := dataDirFromEnv(); envDir != "" {
-		dbDir = envDir
+		dir = envDir
 	} else {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("%s: get home dir: %w", funcName, err)
+			return "", fmt.Errorf("%s: get home dir: %w", funcName, err)
 		}
-		dbDir = filepath.Join(homeDir, constants.AppDir)
-		dbDir = migrateLegacyDataDir(homeDir, dbDir)
+		dir = migrateLegacyDataDir(homeDir, filepath.Join(homeDir, constants.AppDir))
 	}
-	if err := os.MkdirAll(dbDir, 0o750); err != nil {
-		return nil, fmt.Errorf("%s: create db dir: %w", funcName, err)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", fmt.Errorf("%s: create dir: %w", funcName, err)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", funcName, err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	dbPath := filepath.Join(dbDir, constants.DBFileName)
+	return resolved, nil
+}
+
+func NewDB(dir DataDir) (*sql.DB, error) {
+	const funcName = "sqlite.NewDB"
+
+	if dir == "" {
+		return nil, fmt.Errorf("%s: empty data dir", funcName)
+	}
+	dbPath := filepath.Join(string(dir), constants.DBFileName)
 	db, err := sql.Open("sqlite", DSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("%s: open: %w", funcName, err)
@@ -67,8 +87,7 @@ func NewDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("%s: open: %w", funcName, err)
 	}
 
-	// Deliberately left on the pool, not in the DSN: enforcing foreign keys on
-	// every connection would silently drop out-of-order rows on inbound sync.
+	// Reaches one pooled connection only; inbound sync turns it off on its own (WithInboundTx).
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		_ = db.Close()
 
@@ -86,6 +105,8 @@ func dataDirFromEnv() string {
 	return os.Getenv("GOPHERCOURIER_DATA_DIR")
 }
 
+var rename = os.Rename
+
 // If the new dir already exists or the rename fails, the legacy dir keeps being used.
 func migrateLegacyDataDir(homeDir, newDir string) string {
 	legacyDir := filepath.Join(homeDir, constants.LegacyAppDir)
@@ -95,7 +116,7 @@ func migrateLegacyDataDir(homeDir, newDir string) string {
 	if _, err := os.Stat(legacyDir); err != nil {
 		return newDir
 	}
-	if err := os.Rename(legacyDir, newDir); err != nil {
+	if err := rename(legacyDir, newDir); err != nil {
 		return legacyDir
 	}
 	return newDir

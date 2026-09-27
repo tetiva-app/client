@@ -1,0 +1,37 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "POST",
+    "url": "{{baseUrl}}/users/{{id}}",
+    "httpVersion": "HTTP/1.1",
+    "headers": [
+      {
+        "name": "Authorization",
+        "value": "Bearer {{token}}"
+      },
+      {
+        "name": "Content-Type",
+        "value": "application/json"
+      }
+    ],
+    "queryString": [
+      {
+        "name": "limit",
+        "value": "{{limit}}"
+      },
+      {
+        "name": "sort",
+        "value": "name"
+      }
+    ],
+    "cookies": [],
+    "postData": {
+      "mimeType": "application/json",
+      "text": "{\"name\":\"{{name}}\"}",
+      "params": []
+    },
+    "headersSize": -1,
+    "bodySize": -1
+  },
+  "warnings": []
+}

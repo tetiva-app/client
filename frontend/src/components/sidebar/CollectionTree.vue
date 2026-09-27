@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
-import { Plus, Download, Search, X } from 'lucide-vue-next'
+import { Plus, Download, FileJson, Link, Search, X } from 'lucide-vue-next'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useSidebarSearchStore } from '@/stores/sidebarSearch'
+import { usePublicationsStore } from '@/stores/publications'
 import { getPortabilityService } from '@/services'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useToast } from '@/composables/useToast'
+import { useImportFlow } from '@/composables/useImportFlow'
 import { warningsToastMessage } from '@/lib/auth-warnings'
 import { removeEach } from '@/lib/bulk-delete'
 import { isModShortcut } from '@/lib/shortcut-guards'
+import { isRootCollection } from '@/lib/collections'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
 import type { Collection } from '@/types/collection'
 import type { Request } from '@/types/request'
@@ -18,6 +21,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import CollectionItem from './CollectionItem.vue'
 import CreateCollectionDialog from './CreateCollectionDialog.vue'
 import CreateRequestDialog from './CreateRequestDialog.vue'
@@ -32,8 +41,10 @@ const emit = defineEmits<{
 const store = useCollectionStore()
 const requestStore = useRequestStore()
 const search = useSidebarSearchStore()
+const publications = usePublicationsStore()
 const { hasSelection, clearSelection, setSelection, getSelectedIds } = useTreeSelection()
 const toast = useToast()
+const importFlow = useImportFlow()
 
 const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
 
@@ -110,13 +121,24 @@ function handleRename(collection: Collection) {
   renameDialogOpen.value = true
 }
 
+// The dialog doesn't wait for the fetch, which can hang until the network timeout; the note appears later.
+function publishedCount(ids: string[]): () => number {
+  for (const id of ids) {
+    const collection = store.collectionsMap.get(id)
+    if (collection && isRootCollection(collection)) void publications.ensure(id)
+  }
+  return () => ids.filter(id => publications.isPublished(id)).length
+}
+
 function handleDelete(id: string) {
   const collection = store.collectionsMap.get(id)
   if (!collection) return
+  const published = publishedCount([id])
   singleDelete.ask({
     payload: { kind: 'collection', id, version: collection.version },
     title: 'Delete collection',
-    description: `Delete "${collection.name}" and all its contents? This action cannot be undone.`,
+    description: () => `Delete "${collection.name}" and all its contents? This action cannot be undone.`
+      + (published() ? ' The collection is published — its page will be taken down.' : ''),
     confirmLabel: 'Delete',
   })
 }
@@ -163,15 +185,27 @@ function handleOpenDetails(collection: Collection) {
   requestStore.openCollectionTab(collection.id, collection.name)
 }
 
+function handlePublish(collection: Collection) {
+  void publications.openFromMenu(collection)
+}
+
 function handleRequestCreated(request: Request) {
   emit('select-request', request)
 }
 
+function bulkPublishedNote(count: number): string {
+  if (count === 0) return ''
+  if (count === 1) return ' A published collection is among them — its page will be taken down.'
+  return ` ${count} published collections are among them — their pages will be taken down.`
+}
+
 function handleBulkDelete() {
+  const ids = getSelectedIds()
+  const published = publishedCount(ids)
   bulkDelete.ask({
-    payload: getSelectedIds(),
+    payload: ids,
     title: 'Delete selected items',
-    description: 'Delete all selected items? This action cannot be undone.',
+    description: () => `Delete all selected items? This action cannot be undone.${bulkPublishedNote(published())}`,
     confirmLabel: 'Delete',
   })
 }
@@ -253,7 +287,7 @@ onUnmounted(() => {
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importTargetParentId = ref<string | null>(null)
 
-function handleImportPostman(parentId: string | null) {
+function handleImportFile(parentId: string | null) {
   importTargetParentId.value = parentId
   fileInputRef.value?.click()
 }
@@ -262,26 +296,8 @@ async function handleFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-
-  const content = await file.text()
-  const service = await getPortabilityService()
-  const wsId = useWorkspaceStore().activeWorkspace?.id
-  if (!wsId) {
-    toast.error('No active workspace')
-    return
-  }
-  const result = await service.importCollection(content, importTargetParentId.value, wsId)
-
-  if (result.error) {
-    toast.error(result.error.message)
-  } else {
-    toast.success(`Imported: ${result.data.foldersCreated} folders, ${result.data.requestsCreated} requests`)
-    const warning = warningsToastMessage(result.data.warnings)
-    if (warning) toast.info(warning, undefined, { sticky: true })
-    await store.fetchAll()
-  }
-
   input.value = ''
+  await importFlow.openFile(file, importTargetParentId.value)
 }
 
 async function handleExportPostman(collectionId: string) {
@@ -302,21 +318,38 @@ async function handleExportPostman(collectionId: string) {
   if (result.data.path) {
     toast.success(`Exported to ${result.data.path}`)
   }
+  const { warnings } = result.data
+  const list = warningsToastMessage(warnings)
+  if (list) {
+    const count = warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`
+    toast.info(`Exported with ${count}: ${list}`, undefined, { sticky: true })
+  }
 }
 </script>
 
 <template>
   <div class="flex items-center gap-2 px-3 py-2">
     <div class="flex gap-0.5 shrink-0">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="size-6 cursor-pointer"
-        title="Import Postman Collection"
-        @click="handleImportPostman(null)"
-      >
-        <Download class="size-4" />
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="size-6 cursor-pointer"
+            title="Import"
+          >
+            <Download class="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" class="min-w-44">
+          <DropdownMenuItem class="text-xs" @select="handleImportFile(null)">
+            <FileJson class="size-3.5" />Import File…
+          </DropdownMenuItem>
+          <DropdownMenuItem class="text-xs" @select="importFlow.openLinkDialog()">
+            <Link class="size-3.5" />Import from Link…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -374,9 +407,10 @@ async function handleExportPostman(collectionId: string) {
         @select-request="handleSelectRequest"
         @rename-request="handleRenameRequest"
         @delete-request="handleDeleteRequest"
-        @import-postman="handleImportPostman"
+        @import-file="handleImportFile"
         @export-postman="handleExportPostman"
         @open-details="handleOpenDetails"
+        @publish="handlePublish"
         @move="handleMoveSingle"
         @move-selected="handleMoveSelected"
         @delete-selected="handleBulkDelete"

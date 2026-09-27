@@ -142,12 +142,20 @@ func (u *usecase) Delete(ctx context.Context, opt DeleteOpt) error {
 	existing.UpdatedBy = opt.UserID
 	existing.UpdatedAt = now
 
-	if err := u.repo.Update(ctx, existing); err != nil {
+	err = u.tx().Run(ctx, func(ctx context.Context) error {
+		if err := u.repo.Update(ctx, existing); err != nil {
+			return err
+		}
+		if err := u.repo.SoftDeleteDescendants(ctx, opt.CollectionID, opt.UserID, now); err != nil {
+			return fmt.Errorf("soft delete descendants: %w", err)
+		}
+		if err := u.publicationMarker().MarkPendingUnpublish(ctx, []uuid.UUID{opt.CollectionID}); err != nil {
+			return fmt.Errorf("mark pending unpublish: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
-	}
-
-	if err := u.repo.SoftDeleteDescendants(ctx, opt.CollectionID, opt.UserID, now); err != nil {
-		return fmt.Errorf("%s: soft delete descendants: %w", funcName, err)
 	}
 
 	owner := entities.AuthOwner{

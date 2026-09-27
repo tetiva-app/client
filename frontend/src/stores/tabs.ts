@@ -1,12 +1,13 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Request, Protocol } from '@/types/request'
-import { getRequestService } from '@/services'
+import { getRequestService, getWindowService } from '@/services'
 import { DEFAULT_PROTOCOL, DEFAULT_METHOD, DEFAULT_BODY_TYPE, DEFAULT_AUTH_TYPE, DEFAULT_AUTH_DATA } from '@/constants/defaults'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { clearDrafts } from '@/composables/useBodyDrafts'
 import { descriptionSaveBlocked } from '@/lib/description'
 import { useResponseStore } from '@/stores/responses'
+import { useExamplesStore } from '@/stores/examples'
 import { runMutation } from '@/stores/runMutation'
 import { formatResultError } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
@@ -14,6 +15,8 @@ import { useToast } from '@/composables/useToast'
 export type Tab =
   | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
   | { id: string; type: 'collection'; collectionId: string; name: string }
+
+export type CollectionSection = 'overview' | 'authorization' | 'scripts' | 'publish'
 
 export const AUTOSAVE_DELAY_MS = 1500
 
@@ -206,6 +209,33 @@ export const useRequestStore = defineStore('requests', () => {
     await Promise.all([
       ...requestIds.map(id => flush(id)),
       ...editors.map(e => e.saveScripts().catch(() => false)),
+      useExamplesStore().flushDrafts(),
+    ])
+  }
+
+  // Saves what a publish of these collections would read; false when any save failed.
+  async function flushCollections(collectionIds: Iterable<string>): Promise<boolean> {
+    const ids = new Set(collectionIds)
+    const requestIds = Array.from(requestsMap.value.values())
+      .filter(r => ids.has(r.collectionId) && !r.isDraft)
+      .map(r => r.id)
+    const editors = Array.from(collectionEditorRefs.value)
+      .filter(([id, e]) => ids.has(id) && e.scriptsDirty)
+      .map(([, e]) => e)
+    const examples = useExamplesStore()
+    const results = await Promise.all([
+      ...requestIds.filter(isRequestDirty).map(id => flush(id)),
+      ...editors.map(e => e.saveScripts().catch(() => false)),
+      ...requestIds.map(id => examples.flushDrafts(id)),
+    ])
+    return results.every(Boolean)
+  }
+
+  // A detached window saves this way when it closes or its workspace switches.
+  async function saveRequestAndExamples(requestId: string): Promise<void> {
+    await Promise.all([
+      isRequestDirty(requestId) ? saveToBackend(requestId) : null,
+      useExamplesStore().flushDrafts(requestId),
     ])
   }
 
@@ -400,6 +430,7 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.delete(id)
     useResponseStore().deleteResponse(id)
     clearDrafts(id)
+    useExamplesStore().dropDrafts(id)
     await forgetTokenStatus([{ kind: 'request', id }])
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
@@ -461,6 +492,41 @@ export const useRequestStore = defineStore('requests', () => {
     if (idx === -1) return
     openTabs.value.splice(idx, 1)
     if (activeTabId.value === tabId) {
+      const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
+      activeTabId.value = next?.id ?? null
+    }
+  }
+
+  async function detachTab(tab: Tab) {
+    if (tab.type !== 'request') return
+    const windows = await getWindowService()
+    if (!windows) return
+
+    if (!(await flushForHandoff(tab.requestId))) return
+    // The new window reads examples from the backend; a draft left here would come back later.
+    const examples = useExamplesStore()
+    await examples.flushDrafts(tab.requestId)
+    if (examples.hasUnsaved(tab.requestId)) {
+      useToast().error('Save or discard the unsaved examples before opening this request in a window')
+      return
+    }
+    examples.dropDrafts(tab.requestId)
+    // The detached window owns the version; a pending timer here would conflict with it.
+    cancelAutosave(tab.requestId)
+
+    const req = requestsMap.value.get(tab.requestId)
+    const method = req?.protocol === 'grpc' ? 'gRPC' : (req?.method ?? 'GET')
+    const title = `${method} ${req?.url || 'Untitled'} — Tetiva`
+    await windows.detachRequest(tab.requestId, req?.protocol ?? 'http', title)
+
+    // This path bypasses releaseTab, so a browser flow started here is forgotten by hand.
+    await forgetTokenStatus([{ kind: 'request', id: tab.requestId }])
+
+    // Request data stays in the map for sidebar display.
+    const idx = openTabs.value.findIndex(t => t.id === tab.id)
+    if (idx === -1) return
+    openTabs.value.splice(idx, 1)
+    if (activeTabId.value === tab.id) {
       const next = openTabs.value[Math.min(idx, openTabs.value.length - 1)]
       activeTabId.value = next?.id ?? null
     }
@@ -597,6 +663,8 @@ export const useRequestStore = defineStore('requests', () => {
   }
 
   async function move(id: string, targetCollectionId: string, version: number): Promise<boolean> {
+    // Examples change ids when the request lands in another workspace, orphaning their drafts.
+    await useExamplesStore().flushDrafts(id)
     const data = await runMutation('Failed to move request', () =>
       getRequestService().then(s => s.move({ id, targetCollectionId, version }))
     )
@@ -611,7 +679,7 @@ export const useRequestStore = defineStore('requests', () => {
   function openCollectionTab(
     collectionId: string,
     name: string,
-    options?: { initialSection?: 'overview' | 'authorization' | 'scripts' }
+    options?: { initialSection?: CollectionSection }
   ) {
     const tabId = `collection:${collectionId}`
     const existing = openTabs.value.find(t => t.id === tabId)
@@ -673,6 +741,7 @@ export const useRequestStore = defineStore('requests', () => {
       savedSnapshots.value.delete(req.id)
       useResponseStore().deleteResponse(req.id)
       clearDrafts(req.id)
+      useExamplesStore().dropDrafts(req.id)
     }
     const doomedRequestIds = new Set(doomed.map(r => r.id))
     await forgetTokenStatus([
@@ -696,6 +765,10 @@ export const useRequestStore = defineStore('requests', () => {
     return section
   }
 
+  function hasInitialSection(collectionId: string): boolean {
+    return collectionInitialSections.value.has(collectionId)
+  }
+
   return {
     requestsMap,
     loading,
@@ -715,6 +788,8 @@ export const useRequestStore = defineStore('requests', () => {
     flush,
     flushForHandoff,
     flushAllDirty,
+    flushCollections,
+    saveRequestAndExamples,
     cancelAutosave,
     remove,
     rename,
@@ -722,9 +797,11 @@ export const useRequestStore = defineStore('requests', () => {
     openTab,
     openCollectionTab,
     consumeInitialSection,
+    hasInitialSection,
     closeTab,
     closeAllTabs,
     closeOtherTabs,
+    detachTab,
     syncTabMeta,
     executeRequest,
     registerCollectionEditor,

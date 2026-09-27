@@ -77,6 +77,8 @@ type SyncService struct {
 	focusMu sync.Mutex
 	// nil in tests; main.go closes over the "main" window.
 	focusMain func()
+
+	emit syncsvc.EventEmitter
 }
 
 func NewSyncService(
@@ -118,9 +120,13 @@ func (s *SyncService) setClient(client *syncsvc.GRPCClient) {
 	s.grpcClient = client
 }
 
-// Dials from the saved config when a failed startup left no client, or Retry in the
-// UI could never recover. A disabled or serverless config stays ErrNotConnected.
-func (s *SyncService) ensureClient(ctx context.Context) (*syncsvc.GRPCClient, error) {
+var _ syncsvc.ClientProvider = (*SyncService)(nil)
+
+// EnsureClient dials from the saved config when a failed startup left no client, or Retry
+// in the UI could never recover. A disabled or serverless config stays ErrNotConnected.
+//
+//wails:ignore
+func (s *SyncService) EnsureClient(ctx context.Context) (*syncsvc.GRPCClient, error) {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
 
@@ -150,6 +156,7 @@ func (s *SyncService) ensureClient(ctx context.Context) (*syncsvc.GRPCClient, er
 
 // Wires the Wails event system to the sync engine and to the browser sign-in events.
 func (s *SyncService) SetEventEmitter(fn syncsvc.EventEmitter) {
+	s.emit = fn
 	s.engine.SetEventEmitter(fn)
 	if s.signInSink != nil {
 		s.signInSink.SetEmit(fn)
@@ -444,7 +451,7 @@ func (s *SyncService) startLinkedWorkspaces(ctx context.Context) {
 func (s *SyncService) GetMe() Result[dto.MeResult] {
 	ctx := context.Background()
 
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return Err[dto.MeResult](fmt.Errorf("getMe: %w", err))
 	}
@@ -468,7 +475,7 @@ func (s *SyncService) GetMe() Result[dto.MeResult] {
 func (s *SyncService) ResendVerification() Result[Empty] {
 	ctx := context.Background()
 
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return Err[Empty](fmt.Errorf("resendVerification: %w", err))
 	}
@@ -499,9 +506,9 @@ func activeWorkspaceNeedingLink(ctx context.Context, db *sql.DB) (id, name strin
 var errNoActiveOrg = errors.New("no active organization")
 
 func (s *SyncService) createRemoteWorkspace(ctx context.Context, name string) (string, error) {
-	// ensureClient, not client(): a failed startup leaves the service without a
+	// EnsureClient, not client(): a failed startup leaves the service without a
 	// client, and the user asking for a cloud workspace is a fine moment to dial.
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -639,7 +646,7 @@ func (s *SyncService) ListSessions() Result[[]dto.SessionInfo] {
 	ctx, cancel := context.WithTimeout(context.Background(), sessionRPCTimeout)
 	defer cancel()
 
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return Err[[]dto.SessionInfo](fmt.Errorf("listSessions: %w", err))
 	}
@@ -674,7 +681,7 @@ func (s *SyncService) RevokeSession(req dto.RevokeSessionRequest) Result[Empty] 
 	ctx, cancel := context.WithTimeout(context.Background(), sessionRPCTimeout)
 	defer cancel()
 
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return Err[Empty](fmt.Errorf("revokeSession: %w", err))
 	}
@@ -690,7 +697,7 @@ func (s *SyncService) LogoutAll() Result[dto.LogoutAllResult] {
 	ctx, cancel := context.WithTimeout(context.Background(), sessionRPCTimeout)
 	defer cancel()
 
-	client, err := s.ensureClient(ctx)
+	client, err := s.EnsureClient(ctx)
 	if err != nil {
 		return Err[dto.LogoutAllResult](fmt.Errorf("logoutAll: %w", err))
 	}
@@ -749,16 +756,68 @@ func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 
 // linkLocalWorkspace maps a local workspace to a remote one and starts its syncer.
 func (s *SyncService) linkLocalWorkspace(ctx context.Context, localID, remoteID string) error {
-	// last_sync_seq is a position in the previous remote's change log, so a
-	// re-link to a different remote must start from scratch.
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE workspaces
-		 SET remote_workspace_id = ?,
-		     last_sync_seq = CASE WHEN remote_workspace_id IS ? THEN last_sync_seq ELSE 0 END
-		 WHERE id = ?`,
-		remoteID, remoteID, localID)
-	if err != nil {
+	// A pull the previous syncer still has in flight would write its position over the reset below.
+	if !s.engine.StopWorkspaceAndWait(localID) {
+		s.restartLinkedSyncer(ctx, localID)
+		return errSyncStillStopping
+	}
+
+	// The cursor, both page tokens and what the walks saw belong to the previous
+	// remote's change log, so a re-link to a different remote must start from scratch.
+	queued, firstLink, reissued := 0, false, ""
+	err := sqlite.WithTx(ctx, s.db, func(txCtx context.Context) error {
+		db := sqlite.DBTXFromContext(txCtx, s.db)
+		var newRemote, wasLinked bool
+		if err := db.QueryRowContext(txCtx,
+			`SELECT remote_workspace_id IS NOT ?, was_linked FROM workspaces WHERE id = ?`, remoteID, localID).Scan(&newRemote, &wasLinked); err != nil {
+			return fmt.Errorf("read the mapping: %w", err)
+		}
+		// Writes made while the workspace was local never reached the outbox. A workspace linked before
+		// holds an earlier remote's rows, maybe another account's, and those must not reach this one.
+		firstLink = newRemote && !wasLinked
+		if firstLink {
+			var err error
+			if reissued, err = s.queueRepo.ReissueSeededEnvironment(txCtx, localID); err != nil {
+				return fmt.Errorf("reissue the seeded environment: %w", err)
+			}
+			n, err := s.queueRepo.EnqueueWorkspace(txCtx, localID)
+			if err != nil {
+				return fmt.Errorf("queue existing entities: %w", err)
+			}
+			queued = n
+		}
+		if _, err := db.ExecContext(txCtx,
+			`DELETE FROM sync_snapshot_seen WHERE workspace_id = ?
+			 AND (SELECT remote_workspace_id FROM workspaces WHERE id = ?) IS NOT ?`,
+			localID, localID, remoteID); err != nil {
+			return err
+		}
+		_, err := db.ExecContext(txCtx,
+			`UPDATE workspaces
+			 SET remote_workspace_id = ?,
+			     was_linked = 1,
+			     last_sync_seq = CASE WHEN remote_workspace_id IS ? THEN last_sync_seq ELSE 0 END,
+			     sync_page_token = CASE WHEN remote_workspace_id IS ? THEN sync_page_token ELSE '' END,
+			     examples_backfill_pending = CASE WHEN remote_workspace_id IS ? THEN examples_backfill_pending ELSE 0 END,
+			     examples_backfill_token = CASE WHEN remote_workspace_id IS ? THEN examples_backfill_token ELSE '' END,
+			     examples_backfill_incomplete = CASE WHEN remote_workspace_id IS ? THEN examples_backfill_incomplete ELSE 0 END,
+			     examples_backfill_failed_passes = CASE WHEN remote_workspace_id IS ? THEN examples_backfill_failed_passes ELSE 0 END
+			 WHERE id = ?`,
+			remoteID, remoteID, remoteID, remoteID, remoteID, remoteID, remoteID, localID)
 		return err
+	})
+	if err != nil {
+		s.restartLinkedSyncer(ctx, localID)
+		return err
+	}
+	if queued > 0 {
+		slog.Info("sync: queued the entities a newly linked workspace already holds", "local_id", localID, "count", queued)
+	}
+	if reissued != "" {
+		slog.Info("sync: gave the seeded Default environment an id of its own", "local_id", localID, "environment_id", reissued)
+		if s.emit != nil {
+			s.emit("env:changed", map[string]any{"workspaceId": localID})
+		}
 	}
 
 	var lastSyncSeq int64
@@ -766,7 +825,33 @@ func (s *SyncService) linkLocalWorkspace(ctx context.Context, localID, remoteID 
 		`SELECT last_sync_seq FROM workspaces WHERE id = ?`, localID).Scan(&lastSyncSeq)
 
 	s.engine.StartWorkspace(localID, remoteID, lastSyncSeq)
+	if firstLink {
+		// A write that committed between the transaction and StartWorkspace skipped the outbox.
+		if n, err := s.queueRepo.EnqueueUnsyncedWorkspace(ctx, localID); err != nil {
+			slog.Warn("sync: queueing the writes made during the link failed", "local_id", localID, "err", err)
+		} else if n > 0 {
+			s.engine.NotifyWrite(localID)
+		}
+	}
 	return nil
+}
+
+// errSyncStillStopping means a syncer outlived the wait for its goroutine; retrying later is safe.
+var errSyncStillStopping = errors.New("sync is still stopping, try again in a moment")
+
+// unlinkWorkspace clears the mapping with every pull position that belonged to it.
+func unlinkWorkspace(ctx context.Context, db *sql.DB, localID string) error {
+	return sqlite.WithTx(ctx, db, func(txCtx context.Context) error {
+		tx := sqlite.DBTXFromContext(txCtx, db)
+		if _, err := tx.ExecContext(txCtx, `UPDATE workspaces
+			SET remote_workspace_id = NULL, sync_page_token = '', examples_backfill_pending = 0, examples_backfill_token = '',
+			    examples_backfill_incomplete = 0, examples_backfill_failed_passes = 0
+			WHERE id = ?`, localID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(txCtx, `DELETE FROM sync_snapshot_seen WHERE workspace_id = ?`, localID)
+		return err
+	})
 }
 
 func (s *SyncService) LinkWorkspace(req dto.LinkWorkspaceRequest) Result[Empty] {
@@ -784,9 +869,7 @@ func (s *SyncService) UnlinkWorkspace(req dto.UnlinkWorkspaceRequest) Result[Emp
 
 	// Mapping and outbox drop together: a surviving outbox reaches the next account.
 	err := sqlite.WithTx(ctx, s.db, func(txCtx context.Context) error {
-		if _, err := sqlite.DBTXFromContext(txCtx, s.db).ExecContext(txCtx,
-			`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`,
-			req.LocalWorkspaceID); err != nil {
+		if err := unlinkWorkspace(txCtx, s.db, req.LocalWorkspaceID); err != nil {
 			return fmt.Errorf("clear remote mapping: %w", err)
 		}
 		if _, err := s.queueRepo.DeleteByWorkspace(txCtx, req.LocalWorkspaceID); err != nil {
@@ -915,8 +998,7 @@ func (s *SyncService) dropForeignWorkspaceMappings(ctx context.Context, remotes 
 			slog.Warn("sync: clearing the outbox of a foreign workspace failed", "local_id", localID, "err", err)
 			continue
 		}
-		if _, err := s.db.ExecContext(ctx,
-			`UPDATE workspaces SET remote_workspace_id = NULL WHERE id = ?`, localID); err != nil {
+		if err := unlinkWorkspace(ctx, s.db, localID); err != nil {
 			slog.Warn("sync: unlinking foreign workspace failed", "local_id", localID, "err", err)
 			continue
 		}
@@ -978,8 +1060,8 @@ func (s *SyncService) upsertLocalForRemote(ctx context.Context, w *workspacev1.W
 		_, execErr := s.db.ExecContext(ctx, `
 			INSERT INTO workspaces
 				(id, name, version, is_delete, created_by, created_at, updated_by, updated_at,
-				 remote_workspace_id, last_sync_seq, is_active)
-			VALUES (?, ?, 1, 0, 'sync', ?, 'sync', ?, ?, 0, 0)
+				 remote_workspace_id, was_linked, last_sync_seq, is_active)
+			VALUES (?, ?, 1, 0, 'sync', ?, 'sync', ?, ?, 1, 0, 0)
 		`, localID, w.GetName(), now, now, w.GetId())
 		if execErr != nil {
 			return "", 0, fmt.Errorf("insert workspace: %w", execErr)

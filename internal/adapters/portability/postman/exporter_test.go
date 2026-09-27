@@ -50,7 +50,7 @@ func TestExportCollection(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -102,7 +102,7 @@ func TestExportCollection_Headers(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -134,7 +134,7 @@ func TestExportCollection_DisabledHeaders(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -166,7 +166,7 @@ func TestExportCollection_FormBody(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -207,7 +207,7 @@ func TestExportCollection_WithDescriptionAndAuth(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -232,7 +232,7 @@ func TestExportCollection_NoAuthOmitted(t *testing.T) {
 		{ID: rootID, Name: "No Auth", AuthType: entities.AuthTypeNone, AuthData: "{}"},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, nil)
+	data, _, err := postman.ExportCollection(rootID, collections, nil, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -242,7 +242,7 @@ func TestExportCollection_NoAuthOmitted(t *testing.T) {
 }
 
 func TestExportCollection_RootNotFound(t *testing.T) {
-	_, err := postman.ExportCollection(uuid.New(), nil, nil)
+	_, _, err := postman.ExportCollection(uuid.New(), nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "root collection not found")
 }
@@ -280,7 +280,7 @@ func TestExportCollection_GraphQL(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -335,7 +335,7 @@ func TestExportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -366,14 +366,14 @@ func TestExportImportRoundTrip_KeepsDescriptions(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	collUC := &stubCollectionUC{}
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC)
+	}, collUC, reqUC, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -415,7 +415,7 @@ func TestExportCollection_WebSocketOmitsSettingsBody(t *testing.T) {
 		},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, requests)
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
 	require.NoError(t, err)
 
 	var pc postman.PostmanCollection
@@ -443,14 +443,14 @@ func TestExportImportRoundTrip_KeepsEmptyFolder(t *testing.T) {
 		{ID: emptyID, Name: "Empty", Description: "Chapter stub.", ParentID: &rootID},
 	}
 
-	data, err := postman.ExportCollection(rootID, collections, nil)
+	data, _, err := postman.ExportCollection(rootID, collections, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"item": []`)
 
 	collUC := &stubCollectionUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, &stubRequestUC{})
+	}, collUC, &stubRequestUC{}, &stubExampleUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -461,7 +461,105 @@ func TestExportImportRoundTrip_KeepsEmptyFolder(t *testing.T) {
 func TestExportCollection_EmptyRootWritesItemArray(t *testing.T) {
 	rootID := uuid.New()
 
-	data, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, nil)
+	data, _, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, nil, nil)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), `"item": null`)
+}
+
+func TestExportCollection_Scripts(t *testing.T) {
+	rootID, folderID := uuid.New(), uuid.New()
+	collections := []*entities.Collection{
+		{ID: rootID, Name: "API", PreScript: "pm.environment.set('a', '1');"},
+		{ID: folderID, Name: "Admin", ParentID: &rootID, PostScript: "pm.test('ok', () => {});"},
+	}
+	requests := []*entities.Request{{
+		ID: uuid.New(), CollectionID: folderID, Name: "Reindex", Protocol: entities.ProtocolHTTP,
+		Method: entities.MethodPOST, URL: "/reindex", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeInherit, AuthData: "{}",
+		PreScript: "const a = 1;\nconsole.log(a);", PostScript: "  ",
+	}}
+
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
+	require.NoError(t, err)
+
+	var pc postman.PostmanCollection
+	require.NoError(t, json.Unmarshal(data, &pc))
+
+	require.Len(t, pc.Event, 1)
+	assert.Equal(t, "prerequest", pc.Event[0].Listen)
+	assert.Equal(t, "text/javascript", pc.Event[0].Script.Type)
+	assert.Equal(t, postman.PostmanExec{"pm.environment.set('a', '1');"}, pc.Event[0].Script.Exec)
+
+	folder := pc.Item[0]
+	require.Len(t, folder.Event, 1)
+	assert.Equal(t, "test", folder.Event[0].Listen)
+
+	req := (*folder.Item)[0]
+	require.Len(t, req.Event, 1, "a blank script is not exported")
+	assert.Equal(t, "prerequest", req.Event[0].Listen)
+	assert.Equal(t, postman.PostmanExec{"const a = 1;", "console.log(a);"}, req.Event[0].Script.Exec)
+}
+
+func TestExportCollection_RequestAuthNoneAndInherit(t *testing.T) {
+	rootID := uuid.New()
+	requests := []*entities.Request{
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Public", Protocol: entities.ProtocolHTTP,
+			Method: entities.MethodGET, URL: "/public", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeNone, AuthData: "{}",
+		},
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Inherited", Protocol: entities.ProtocolHTTP,
+			Method: entities.MethodGET, URL: "/inherited", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeInherit, AuthData: "{}",
+		},
+	}
+
+	data, _, err := postman.ExportCollection(rootID, []*entities.Collection{{ID: rootID, Name: "API"}}, requests, nil)
+	require.NoError(t, err)
+
+	var raw struct {
+		Item []struct {
+			Request map[string]json.RawMessage `json:"request"`
+		} `json:"item"`
+	}
+	require.NoError(t, json.Unmarshal(data, &raw))
+	require.Len(t, raw.Item, 2)
+	assert.JSONEq(t, `{"type":"noauth"}`, string(raw.Item[0].Request["auth"]))
+	assert.NotContains(t, raw.Item[1].Request, "auth")
+}
+
+func TestExportImportRoundTrip_ScriptsAndRequestAuth(t *testing.T) {
+	rootID := uuid.New()
+	collections := []*entities.Collection{{ID: rootID, Name: "API", PostScript: "pm.test('root', () => {});"}}
+	requests := []*entities.Request{
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Public", Protocol: entities.ProtocolHTTP,
+			Method: entities.MethodGET, URL: "/public", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeNone, AuthData: "{}", PreScript: "a();\nb();",
+		},
+		{
+			ID: uuid.New(), CollectionID: rootID, Name: "Inherited", Protocol: entities.ProtocolHTTP,
+			Method: entities.MethodGET, URL: "/inherited", BodyType: entities.BodyTypeNone,
+			AuthType: entities.AuthTypeInherit, AuthData: "{}", PostScript: "c();",
+		},
+	}
+
+	data, _, err := postman.ExportCollection(rootID, collections, requests, nil)
+	require.NoError(t, err)
+
+	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
+	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
+		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
+	}, collUC, reqUC, &stubExampleUC{})
+	require.NoError(t, err)
+
+	require.Len(t, collUC.created, 1)
+	assert.Equal(t, "pm.test('root', () => {});", collUC.created[0].PostScript)
+	require.Len(t, reqUC.created, 2)
+	assert.Equal(t, entities.AuthTypeNone, reqUC.created[0].AuthType)
+	assert.Equal(t, "a();\nb();", reqUC.created[0].PreScript)
+	assert.Equal(t, entities.AuthTypeInherit, reqUC.created[1].AuthType)
+	assert.Equal(t, "c();", reqUC.created[1].PostScript)
+	require.Len(t, res.Warnings, 1, "only the pm.* notice")
 }

@@ -1,0 +1,128 @@
+=== curl ===
+curl -X POST '{{baseUrl}}/graphql' \
+  -H 'Authorization: Bearer {{token}}' \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"query":"query User($id: ID!) { user(id: $id) { name } }","variables":{"id":"42"},"operationName":"User"}'
+
+=== python-requests ===
+import requests
+
+url = "{{baseUrl}}/graphql"
+headers = {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json",
+}
+data = "{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}"
+
+response = requests.request("POST", url, headers=headers, data=data)
+print(response.text)
+
+=== js-fetch ===
+const url = "{{baseUrl}}/graphql";
+const options = {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json",
+  },
+  body: "{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}",
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "{{baseUrl}}/graphql"
+
+	payload := strings.NewReader("{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Authorization", "Bearer {{token}}")
+	req.Header.Add("Content-Type", "application/json")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("{{baseUrl}}/graphql"))
+    .header("Authorization", "Bearer {{token}}")
+    .header("Content-Type", "application/json")
+    .method("POST", HttpRequest.BodyPublishers.ofString("{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("application/json");
+RequestBody body = RequestBody.create(mediaType, "{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}");
+Request request = new Request.Builder()
+  .url("{{baseUrl}}/graphql")
+  .post(body)
+  .addHeader("Authorization", "Bearer {{token}}")
+  .addHeader("Content-Type", "application/json")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("{{baseUrl}}/graphql"),
+    Headers =
+    {
+        { "Authorization", "Bearer {{token}}" },
+    },
+    Content = new StringContent("{\"query\":\"query User($id: ID!) { user(id: $id) { name } }\",\"variables\":{\"id\":\"42\"},\"operationName\":\"User\"}")
+    {
+        Headers =
+        {
+            ContentType = MediaTypeHeaderValue.Parse("application/json")
+        }
+    }
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', '{{baseUrl}}/graphql', [
+  'body' => '{"query":"query User($id: ID!) { user(id: $id) { name } }","variables":{"id":"42"},"operationName":"User"}',
+  'headers' => [
+    'Authorization' => 'Bearer {{token}}',
+    'Content-Type' => 'application/json',
+  ],
+]);
+
+echo $response->getBody();

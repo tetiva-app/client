@@ -23,7 +23,7 @@ func ucWithRequest(t *testing.T, r *entities.Request) request.Usecase {
 	repo.requests[r.ID] = r
 	return request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 }
 
 func TestBuildCurl_GETPlain(t *testing.T) {
@@ -65,8 +65,8 @@ func TestBuildCurl_POSTJSONAddsContentType(t *testing.T) {
 	if !strings.Contains(got, "-H 'Content-Type: application/json'") {
 		t.Errorf("missing Content-Type header: %s", got)
 	}
-	if !strings.Contains(got, `-d '{"name":"Alice"}'`) {
-		t.Errorf("missing -d body: %s", got)
+	if !strings.Contains(got, `--data-raw '{"name":"Alice"}'`) {
+		t.Errorf("missing --data-raw body: %s", got)
 	}
 }
 
@@ -118,8 +118,8 @@ func TestBuildCurl_FormUrlencoded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if !strings.Contains(got, "-d 'user=alice'") {
-		t.Errorf("expected -d 'user=alice' for urlencoded form, got: %s", got)
+	if !strings.Contains(got, "--data-raw 'user=alice'") {
+		t.Errorf("expected --data-raw 'user=alice' for urlencoded form, got: %s", got)
 	}
 	if strings.Contains(got, "-F ") {
 		t.Errorf("urlencoded form must NOT use -F, got: %s", got)
@@ -151,14 +151,64 @@ func TestBuildCurl_FormMultipartWithFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if !strings.Contains(got, "-F 'name=alice'") {
-		t.Errorf("expected text field as -F: %s", got)
+	if !strings.Contains(got, "--form-string 'name=alice'") {
+		t.Errorf("expected text field as --form-string: %s", got)
 	}
 	if !strings.Contains(got, "-F 'avatar=@"+filePath+"'") {
 		t.Errorf("expected file field as -F with @path: %s", got)
 	}
-	if strings.Contains(got, "-d ") {
-		t.Errorf("multipart must NOT use -d: %s", got)
+	if strings.Contains(got, "-d ") || strings.Contains(got, "--data-raw ") {
+		t.Errorf("multipart must NOT send a data body: %s", got)
+	}
+}
+
+func TestBuildCurl_RawBodyStartingWithAtIsNotAFile(t *testing.T) {
+	id := uuid.New()
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		URL:  "https://api.example.com/echo",
+		Body: "@/etc/hosts", BodyType: entities.BodyTypeRaw, AuthType: entities.AuthTypeNone,
+	})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(res.Command, "--data-raw '@/etc/hosts'") {
+		t.Errorf("expected --data-raw for an @-body: %s", res.Command)
+	}
+	if strings.Contains(res.Command, "-d ") {
+		t.Errorf("-d would make curl read /etc/hosts: %s", res.Command)
+	}
+}
+
+func TestBuildCurl_MultipartTextFieldStartingWithAtIsNotAFile(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "doc.txt")
+	if err := os.WriteFile(filePath, []byte("doc"), 0644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	id := uuid.New()
+	body, _ := json.Marshal([]map[string]any{
+		{"key": "k", "value": "@x", "type": "text", "enabled": true},
+		{"key": "doc", "value": filePath, "type": "file", "enabled": true},
+	})
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		URL:  "https://api.example.com/upload",
+		Body: string(body), BodyType: entities.BodyTypeForm, AuthType: entities.AuthTypeNone,
+	})
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(res.Command, "--form-string 'k=@x'") {
+		t.Errorf("expected text field as --form-string: %s", res.Command)
+	}
+	if strings.Contains(res.Command, "-F 'k=") {
+		t.Errorf("-F would make curl read file x: %s", res.Command)
+	}
+	if !strings.Contains(res.Command, "-F 'doc=@"+filePath+"'") {
+		t.Errorf("expected file field as -F with @path: %s", res.Command)
 	}
 }
 
@@ -211,7 +261,7 @@ func TestBuildCurl_PreScriptInjectsHeader(t *testing.T) {
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// inject"},
-		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
 	got, sr := res.Command, res.ScriptResult
@@ -250,7 +300,7 @@ func TestBuildCurl_DryRunVsExecuteVarPersist(t *testing.T) {
 	persister := &recordingPersister{}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{response: &entities.Response{StatusCode: 200}}, nil, nil,
 		&mockEnvResolver{}, cap, &scriptResolverWithPre{pre: "// set var"},
-		persister, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		persister, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	// positive control — Execute does persist vars
 	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
@@ -289,7 +339,7 @@ func TestBuildCurl_EmitsCookiesFromJar(t *testing.T) {
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
 		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
-		&fakeCookieReader{cookies: cookies}, nil, nil, nil)
+		&fakeCookieReader{cookies: cookies}, nil, nil, nil, nil, nil)
 
 	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
 	got := res.Command
@@ -310,7 +360,7 @@ func TestBuildCurl_NoCookieReaderProducesNoB(t *testing.T) {
 	}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
 	got := res.Command
@@ -332,7 +382,7 @@ func TestBuildCurl_EmptyCookieListProducesNoB(t *testing.T) {
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
 		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()),
-		&fakeCookieReader{cookies: nil}, nil, nil, nil)
+		&fakeCookieReader{cookies: nil}, nil, nil, nil, nil, nil)
 
 	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
 	got := res.Command

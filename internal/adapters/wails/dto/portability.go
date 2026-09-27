@@ -1,12 +1,14 @@
 package dto
 
+import "github.com/tetiva-app/client/internal/adapters/portability"
+
 type ImportCollectionRequest struct {
 	Content     string  `json:"content"`
 	ParentID    *string `json:"parentId,omitempty"`
 	WorkspaceID string  `json:"workspaceId"`
 }
 
-// Warnings name the items whose auth could not be imported as-is.
+// Warnings name what could not be imported as-is.
 type ImportCollectionResponse struct {
 	FoldersCreated  int      `json:"foldersCreated"`
 	RequestsCreated int      `json:"requestsCreated"`
@@ -32,8 +34,101 @@ type ExportEnvironmentRequest struct {
 	ID string `json:"id"`
 }
 
-// Either the saved path or a canceled flag.
+// Either the saved path or a canceled flag. Warnings name what the export left out.
 type ExportResponse struct {
-	Path     string `json:"path"`
-	Canceled bool   `json:"canceled"`
+	Path     string   `json:"path"`
+	Canceled bool     `json:"canceled"`
+	Warnings []string `json:"warnings"`
+}
+
+type LinkMetaRequest struct {
+	Slug string `json:"slug"`
+}
+
+// UpdatedAt is RFC 3339, or "" when the server sent none.
+type LinkMeta struct {
+	Slug             string `json:"slug"`
+	Title            string `json:"title"`
+	PasswordRequired bool   `json:"passwordRequired"`
+	Revision         int    `json:"revision"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
+type LinkUnlockRequest struct {
+	Slug     string `json:"slug"`
+	Password string `json:"password"`
+}
+
+type LinkUnlockResult struct {
+	Token string `json:"token"`
+}
+
+// Token is a view token from LinkUnlock or a one-time import token from a deep link.
+type LinkFetchRequest struct {
+	Slug  string `json:"slug"`
+	Token string `json:"token"`
+}
+
+type ImportPreviewRequest struct {
+	Content string `json:"content"`
+}
+
+type ScriptPreview struct {
+	Path  string `json:"path"`
+	Phase string `json:"phase"`
+	Text  string `json:"text"`
+}
+
+// Folders counts folders below the imported collection.
+type ImportPreview struct {
+	Format          string          `json:"format"`
+	Title           string          `json:"title"`
+	Folders         int             `json:"folders"`
+	Requests        int             `json:"requests"`
+	Examples        int             `json:"examples"`
+	EnvironmentName string          `json:"environmentName"`
+	Hosts           []string        `json:"hosts"`
+	Scripts         []ScriptPreview `json:"scripts"`
+	Warnings        []string        `json:"warnings"`
+}
+
+// PreviewID names the downloaded snapshot kept in memory until ImportConfirm.
+type ImportPreviewResult struct {
+	PreviewID string        `json:"previewId"`
+	Preview   ImportPreview `json:"preview"`
+}
+
+// Exactly one of PreviewID (a link) and Content (a file) is set; ParentID applies to Postman files only.
+type ImportConfirmRequest struct {
+	PreviewID      string  `json:"previewId,omitempty"`
+	Content        string  `json:"content,omitempty"`
+	IncludeScripts bool    `json:"includeScripts"`
+	WorkspaceID    string  `json:"workspaceId"`
+	ParentID       *string `json:"parentId,omitempty"`
+}
+
+type ImportConfirmResult struct {
+	CollectionID string   `json:"collectionId"`
+	Folders      int      `json:"folders"`
+	Requests     int      `json:"requests"`
+	Examples     int      `json:"examples"`
+	Warnings     []string `json:"warnings"`
+}
+
+func ImportPreviewFrom(p *portability.ImportPreview) ImportPreview {
+	scripts := make([]ScriptPreview, 0, len(p.Scripts))
+	for _, s := range p.Scripts {
+		scripts = append(scripts, ScriptPreview{Path: s.Path, Phase: s.Phase, Text: s.Text})
+	}
+	return ImportPreview{
+		Format: p.Format, Title: p.Title, Folders: p.Folders, Requests: p.Requests, Examples: p.Examples,
+		EnvironmentName: p.EnvironmentName, Hosts: nonNilStrings(p.Hosts), Scripts: scripts, Warnings: nonNilStrings(p.Warnings),
+	}
+}
+
+func ImportConfirmResultFrom(r *portability.ImportResult) ImportConfirmResult {
+	return ImportConfirmResult{
+		CollectionID: r.CollectionID.String(), Folders: r.Folders, Requests: r.Requests, Examples: r.Examples,
+		Warnings: nonNilStrings(r.Warnings),
+	}
 }

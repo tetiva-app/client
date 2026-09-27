@@ -5,19 +5,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCollectionStore, type StashedLocals } from '@/stores/collections'
 import { useRequestStore, AUTOSAVE_DELAY_MS } from '@/stores/tabs'
 import { useEnvironmentStore } from '@/stores/environments'
+import { publishTabLabel, usePublicationsStore } from '@/stores/publications'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { adoptStoreValue, descriptionSaveBlocked } from '@/lib/description'
+import { isRootCollection } from '@/lib/collections'
 import CollectionOverview from './CollectionOverview.vue'
 import CollectionAuth from './CollectionAuth.vue'
 import ScriptEditor from './ScriptEditor.vue'
+import PublicationPanel from '@/components/publication/PublicationPanel.vue'
 
 const props = defineProps<{
   collectionId: string
 }>()
 
+// The request editor's tab look: an underline sized to the label, not the stock shadcn box stretched across.
+const SECTION_TAB = 'h-auto flex-none rounded-none border-0 border-b-[3px] border-transparent px-4 py-2.5 text-[13px] font-medium '
+  + 'text-muted-foreground shadow-none hover:text-foreground focus-visible:border-transparent focus-visible:ring-1 '
+  + 'focus-visible:ring-inset focus-visible:outline-none data-[state=active]:border-primary data-[state=active]:bg-transparent '
+  + 'data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:focus-visible:border-primary '
+  + 'dark:text-muted-foreground dark:data-[state=active]:border-primary dark:data-[state=active]:bg-transparent'
+
 const collectionStore = useCollectionStore()
 const tabStore = useRequestStore()
 const envStore = useEnvironmentStore()
+const publications = usePublicationsStore()
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -29,6 +40,12 @@ const secretKeys = computed(() => {
 const collection = computed(() =>
   collectionStore.collectionsMap.get(props.collectionId)
 )
+
+const publishStatus = computed(() => publications.statusOf(props.collectionId))
+const publishLabel = computed(() => publishTabLabel(publishStatus.value))
+const isRoot = computed(() => !!collection.value && isRootCollection(collection.value))
+// A nested collection gets the tab only while it still has a page, to take it down.
+const showPublishTab = computed(() => isRoot.value || publishStatus.value?.published === true)
 
 const isActiveTab = computed(
   () => tabStore.activeTab?.type === 'collection' && tabStore.activeTab.collectionId === props.collectionId,
@@ -46,6 +63,17 @@ watch(activeSection, section => { visited.add(section) }, { immediate: true })
 onActivated(() => {
   const section = tabStore.consumeInitialSection(props.collectionId)
   if (section) activeSection.value = section
+})
+
+// An already active tab gets no activation hook when it is asked to open a section again.
+watch(() => tabStore.hasInitialSection(props.collectionId), pending => {
+  if (!pending || !isActiveTab.value) return
+  const section = tabStore.consumeInitialSection(props.collectionId)
+  if (section) activeSection.value = section
+})
+
+watch(showPublishTab, show => {
+  if (!show && activeSection.value === 'publish') activeSection.value = 'overview'
 })
 
 const stashed = collectionStore.takeLocals(props.collectionId, collection.value)
@@ -111,6 +139,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
+  if (isRoot.value) void publications.refresh(props.collectionId)
   tabStore.registerCollectionEditor(props.collectionId, {
     saveScripts: saveCollection,
     get scriptsDirty() { return isDirty.value },
@@ -161,15 +190,29 @@ onUnmounted(() => {
 <template>
   <div v-if="collection" class="flex flex-col h-full">
     <Tabs v-model="activeSection" :unmount-on-hide="false" class="flex flex-col h-full">
-      <TabsList class="w-full justify-start rounded-none border-b border-border bg-transparent px-2 h-9 shrink-0">
-        <TabsTrigger value="overview" class="text-xs data-[state=active]:shadow-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+      <TabsList class="h-auto w-full shrink-0 justify-start rounded-none border-b border-border bg-transparent p-0 px-3">
+        <TabsTrigger value="overview" :class="SECTION_TAB">
           Overview
         </TabsTrigger>
-        <TabsTrigger value="authorization" class="text-xs data-[state=active]:shadow-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+        <TabsTrigger value="authorization" :class="SECTION_TAB">
           Authorization
         </TabsTrigger>
-        <TabsTrigger value="scripts" class="text-xs data-[state=active]:shadow-none rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+        <TabsTrigger value="scripts" :class="SECTION_TAB">
           Scripts
+        </TabsTrigger>
+        <TabsTrigger
+          v-if="showPublishTab"
+          value="publish"
+          :class="SECTION_TAB"
+          data-testid="collection-publish-tab"
+        >
+          {{ publishLabel.label }}
+          <span v-if="publishLabel.badge" class="text-[var(--gc-success)]">({{ publishLabel.badge }})</span>
+          <span
+            v-if="publishLabel.changed"
+            class="inline-block size-1.5 rounded-full bg-[var(--gc-warning)]"
+            title="Changed since publication"
+          />
         </TabsTrigger>
       </TabsList>
 
@@ -204,6 +247,14 @@ onUnmounted(() => {
           :secret-keys="secretKeys"
           @update:pre-script="localPreScript = $event"
           @update:post-script="localPostScript = $event"
+        />
+      </TabsContent>
+
+      <TabsContent v-if="showPublishTab" value="publish" class="flex-1 min-h-0 overflow-auto mt-0">
+        <PublicationPanel
+          v-if="visited.has('publish')"
+          :collection-id="collectionId"
+          :active="activeSection === 'publish'"
         />
       </TabsContent>
     </Tabs>

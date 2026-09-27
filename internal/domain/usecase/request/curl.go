@@ -93,8 +93,8 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 
 	switch prep.BodyType {
 	case entities.BodyTypeForm:
-		// -F only when prepareHTTP produced a multipart body (files involved);
-		// urlencoded forms use -d so the explicit Content-Type header is honored.
+		// Multipart only when prepareHTTP produced one (files involved);
+		// urlencoded forms use --data-raw so the explicit Content-Type header is honored.
 		if prep.BodyReader != nil {
 			for _, f := range prep.FormFields {
 				if !f.Enabled || f.Key == "" {
@@ -103,11 +103,12 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 				if f.Type == "file" && f.Value != "" {
 					parts = append(parts, "-F "+shellQuote(f.Key+"=@"+f.Value))
 				} else {
-					parts = append(parts, "-F "+shellQuote(f.Key+"="+f.Value))
+					// -F would read a text value starting with @ or < as a local file.
+					parts = append(parts, "--form-string "+shellQuote(f.Key+"="+f.Value))
 				}
 			}
 		} else if prep.Body != "" {
-			parts = append(parts, "-d "+shellQuote(prep.Body))
+			parts = append(parts, "--data-raw "+shellQuote(prep.Body))
 		}
 	case entities.BodyTypeBinary:
 		if prep.BinaryPath != "" {
@@ -115,8 +116,9 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 		}
 	case entities.BodyTypeNone:
 	default:
+		// -d would read a body starting with @ as a local file.
 		if prep.Body != "" {
-			parts = append(parts, "-d "+shellQuote(prep.Body))
+			parts = append(parts, "--data-raw "+shellQuote(prep.Body))
 		}
 	}
 

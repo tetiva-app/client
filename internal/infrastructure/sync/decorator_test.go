@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -245,5 +246,70 @@ func TestSyncedCollectionRepo_SoftDeleteDescendants_SyncDisabled(t *testing.T) {
 	n := countQueueEntries(t, db, "collection", child.ID.String())
 	if n != 0 {
 		t.Errorf("expected 0 queue entries when sync disabled, got %d", n)
+	}
+}
+
+func newSignalledRequestRepo(t *testing.T) (*SyncedRequestRepo, *sql.DB, *entities.Request, chan struct{}) {
+	t.Helper()
+	db := setupTestDB(t)
+	ctx := context.Background()
+	col := newTestCollection("Owner", nil)
+	if err := sqlite.NewCollectionRepo(db).Create(ctx, col); err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	inner := sqlite.NewRequestRepo(db)
+	req := newLocalRequest("Ping", col.ID)
+	if err := inner.Create(ctx, req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	engine := &SyncEngine{}
+	engine.InjectRawSyncer(testWorkspaceID.String(), "remote", func() {})
+	v, _ := engine.workspaces.Load(testWorkspaceID.String())
+	return NewSyncedRequestRepo(inner, sqlite.NewSyncQueueRepo(db), db, engine), db, req, v.(*workspaceSyncer).pushSignal
+}
+
+func TestSyncedRequestRepo_Update_NotifiesAfterOuterCommit(t *testing.T) {
+	decorator, db, req, signal := newSignalledRequestRepo(t)
+
+	req.IsDelete = true
+	err := sqlite.WithTx(context.Background(), db, func(txCtx context.Context) error {
+		if err := decorator.Update(txCtx, req); err != nil {
+			return err
+		}
+		if len(signal) != 0 {
+			t.Error("push signalled before the outer transaction committed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx: %v", err)
+	}
+	if len(signal) != 1 {
+		t.Error("expected a push signal once the outer transaction committed")
+	}
+	if n := countQueueEntriesWithAction(t, db, req.ID.String(), "delete"); n != 1 {
+		t.Errorf("expected 1 delete queue entry, got %d", n)
+	}
+}
+
+func TestSyncedRequestRepo_Update_NoNotifyOnOuterRollback(t *testing.T) {
+	decorator, db, req, signal := newSignalledRequestRepo(t)
+
+	req.IsDelete = true
+	boom := errors.New("cascade failed")
+	err := sqlite.WithTx(context.Background(), db, func(txCtx context.Context) error {
+		if err := decorator.Update(txCtx, req); err != nil {
+			return err
+		}
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected the cascade error, got %v", err)
+	}
+	if len(signal) != 0 {
+		t.Error("push signalled for a rolled-back transaction")
+	}
+	if n := countQueueEntries(t, db, "request", req.ID.String()); n != 0 {
+		t.Errorf("expected an empty queue after rollback, got %d", n)
 	}
 }

@@ -193,7 +193,7 @@ func TestParseCurl_UrlencodedBodyIsSendable(t *testing.T) {
 	requester := &mockRequester{response: &entities.Response{StatusCode: 200}}
 	uc := request.NewUsecase(repo, &mockHistoryRepo{}, requester, nil, nil,
 		&mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{},
-		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil)
+		&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
 
 	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -470,6 +470,23 @@ func TestParseCurl_IgnoredValueFlagsKeepTheURL(t *testing.T) {
 				t.Errorf("secret leaked into the request: url=%q auth=%q", got.URL, got.AuthData)
 			}
 		})
+	}
+}
+
+func TestParseCurl_GlobOffKeepsTheURL(t *testing.T) {
+	for _, cmd := range []string{
+		`curl --globoff '{{baseUrl}}/items[0]'`,
+		`curl -g '{{baseUrl}}/items[0]'`,
+		`curl -sg '{{baseUrl}}/items[0]'`,
+	} {
+		got := parseCurl(t, cmd)
+
+		if !strings.HasSuffix(got.URL, "{{baseUrl}}/items[0]") {
+			t.Errorf("%s: url = %q", cmd, got.URL)
+		}
+		if warningWith(got.Warnings, "unknown flag") {
+			t.Errorf("%s: warnings = %v", cmd, got.Warnings)
+		}
 	}
 }
 

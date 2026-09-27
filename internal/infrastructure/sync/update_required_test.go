@@ -175,7 +175,7 @@ func TestPushAll_ConflictWinnerUnknownAuthType_KeepsOutboxEntry(t *testing.T) {
 		t.Fatalf("pushAll error = %v, want ErrUpdateRequired", err)
 	}
 
-	pending, err := ws.engine.syncQueue.CountPendingOrFailed(ctx, testWorkspaceID.String())
+	pending, err := ws.engine.syncQueue.CountPendingOrFailed(ctx, testWorkspaceID.String(), nil)
 	if err != nil {
 		t.Fatalf("count pending: %v", err)
 	}

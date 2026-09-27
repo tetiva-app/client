@@ -1,0 +1,132 @@
+=== curl ===
+curl -X POST '{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name' \
+  -H 'Authorization: Bearer {{token}}' \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"name":"{{name}}"}'
+
+=== python-requests ===
+import requests
+
+url = "{{baseUrl}}/users/{{id}}"
+params = [
+    ("limit", "{{limit}}"),
+    ("sort", "name"),
+]
+headers = {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json",
+}
+data = "{\"name\":\"{{name}}\"}"
+
+response = requests.request("POST", url, params=params, headers=headers, data=data)
+print(response.text)
+
+=== js-fetch ===
+const url = "{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name";
+const options = {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json",
+  },
+  body: "{\"name\":\"{{name}}\"}",
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name"
+
+	payload := strings.NewReader("{\"name\":\"{{name}}\"}")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Authorization", "Bearer {{token}}")
+	req.Header.Add("Content-Type", "application/json")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name"))
+    .header("Authorization", "Bearer {{token}}")
+    .header("Content-Type", "application/json")
+    .method("POST", HttpRequest.BodyPublishers.ofString("{\"name\":\"{{name}}\"}"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("application/json");
+RequestBody body = RequestBody.create(mediaType, "{\"name\":\"{{name}}\"}");
+Request request = new Request.Builder()
+  .url("{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name")
+  .post(body)
+  .addHeader("Authorization", "Bearer {{token}}")
+  .addHeader("Content-Type", "application/json")
+  .build();
+
+Response response = client.newCall(request).execute();
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name"),
+    Headers =
+    {
+        { "Authorization", "Bearer {{token}}" },
+    },
+    Content = new StringContent("{\"name\":\"{{name}}\"}")
+    {
+        Headers =
+        {
+            ContentType = MediaTypeHeaderValue.Parse("application/json")
+        }
+    }
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', '{{baseUrl}}/users/{{id}}?limit={{limit}}&sort=name', [
+  'body' => '{"name":"{{name}}"}',
+  'headers' => [
+    'Authorization' => 'Bearer {{token}}',
+    'Content-Type' => 'application/json',
+  ],
+]);
+
+echo $response->getBody();

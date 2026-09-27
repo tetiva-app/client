@@ -450,7 +450,7 @@ func (p *curlParser) longFlag(arg string) {
 	case "head":
 		p.headFlag = true
 	case "location", "location-trusted", "compressed", "silent", "verbose",
-		"include", "remote-name", "progress-bar", "fail", "no-progress-meter":
+		"include", "remote-name", "progress-bar", "fail", "no-progress-meter", "globoff":
 	case "insecure", "http1.0", "http1.1", "http2", "http2-prior-knowledge", "http3",
 		"tlsv1", "tlsv1.0", "tlsv1.1", "tlsv1.2", "tlsv1.3", "sslv2", "sslv3":
 		p.warnf("%s is not supported and was ignored", flag)
@@ -577,7 +577,7 @@ func (p *curlParser) shortFlags(arg string) {
 			p.getFlag = true
 		case 'I':
 			p.headFlag = true
-		case 'o', 'L', 's', 'v', 'i', 'O', 'f', '#':
+		case 'o', 'L', 's', 'v', 'i', 'O', 'f', '#', 'g':
 		case 'k', 'x', 'm', 'T', 'U', 'r', 'c', 'w', 'K', 'E', 'C', 'D', 'z', 'y', 'Y', 'P', 'Q', 't':
 			p.warnf("%s is not supported and was ignored", flag)
 		default:

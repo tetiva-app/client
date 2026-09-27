@@ -2,6 +2,7 @@ import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
+import type { BuildSnippetReq, HarNameValue, HarPostData, HarRequest, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
 import type { GraphQLSchema, GraphQLExampleResponse, GraphQLIntrospectRequest, GraphQLGenerateExampleRequest, GraphQLGetTypeDefinitionRequest } from '@/types/graphql'
 import type {
@@ -311,6 +312,33 @@ export class MockRequestService implements RequestServiceAPI {
     }
   }
 
+  // No Go in browser mode: variables, auth and cookies are not applied, only the editor fields are reshaped.
+  async buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>> {
+    const r = req.request
+    const headers = r.headers.filter(h => h.enabled && h.key).map(h => ({ name: h.key, value: h.value }))
+    switch (r.protocol) {
+      case 'grpc':
+        return { data: { protocol: 'grpc', grpc: { target: r.url, service: r.grpcService, method: r.grpcMethod, message: r.body, metadata: {} }, warnings: [] } }
+      case 'websocket':
+        return { data: { protocol: 'websocket', ws: { url: r.url, headers: {}, subprotocols: [], messages: [] }, warnings: [] } }
+      case 'graphql': {
+        if (!headers.some(h => h.name.toLowerCase() === 'content-type')) {
+          headers.push({ name: 'Content-Type', value: 'application/json' })
+        }
+        const text = JSON.stringify(r.graphqlOperation ? { query: r.graphqlQuery, operationName: r.graphqlOperation } : { query: r.graphqlQuery })
+        return { data: { protocol: 'graphql', har: mockHar('POST', r.url, headers, { mimeType: 'application/json', text, params: [] }), warnings: [] } }
+      }
+      case 'http': {
+        const textBody = r.body !== '' && (r.bodyType === 'json' || r.bodyType === 'raw' || r.bodyType === 'xml')
+        const contentType = headers.find(h => h.name.toLowerCase() === 'content-type')?.value
+        const postData = textBody ? { mimeType: contentType ?? MOCK_MIME[r.bodyType], text: r.body, params: [] } : undefined
+        return { data: { protocol: 'http', har: mockHar(r.method, r.url, headers, postData), warnings: [] } }
+      }
+      default:
+        return makeError<SnippetInput>('validation', 'validation failed', { protocol: 'unknown protocol' })
+    }
+  }
+
   async grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {
     return {
       data: {
@@ -419,5 +447,32 @@ export class MockRequestService implements RequestServiceAPI {
       if (t) return { data: t.definition }
     }
     return { data: '' }
+  }
+}
+
+const MOCK_MIME: Record<string, string> = { json: 'application/json', xml: 'application/xml', raw: 'text/plain' }
+
+function mockHar(method: string, rawUrl: string, headers: HarNameValue[], postData?: HarPostData): HarRequest {
+  const [withoutFragment] = rawUrl.split('#')
+  const q = withoutFragment.indexOf('?')
+  const url = q < 0 ? withoutFragment : withoutFragment.slice(0, q)
+  const queryString = q < 0 ? [] : withoutFragment.slice(q + 1).split('&').filter(Boolean).map((pair) => {
+    const eq = pair.indexOf('=')
+    return eq < 0
+      ? { name: decodeQuery(pair), value: '' }
+      : { name: decodeQuery(pair.slice(0, eq)), value: decodeQuery(pair.slice(eq + 1)) }
+  })
+  return {
+    method, url, httpVersion: 'HTTP/1.1', headers, queryString, cookies: [],
+    ...(postData ? { postData } : {}),
+    headersSize: -1, bodySize: -1,
+  }
+}
+
+function decodeQuery(s: string): string {
+  try {
+    return decodeURIComponent(s.replace(/\+/g, ' '))
+  } catch {
+    return s
   }
 }

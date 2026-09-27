@@ -1,0 +1,179 @@
+=== curl ===
+curl -X POST 'https://api.example.com/form' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -H 'X-Id: VAR_0' \
+  --data-raw 'cmd=VAR_1&home=VAR_2&q=VAR_3'
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== python-requests ===
+import requests
+
+url = "https://api.example.com/form"
+headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "X-Id": "VAR_0",
+}
+data = [
+    ("cmd", "VAR_1"),
+    ("home", "VAR_2"),
+    ("q", "VAR_3"),
+]
+
+response = requests.request("POST", url, headers=headers, data=data)
+print(response.text)
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== js-fetch ===
+const url = "https://api.example.com/form";
+const body = new URLSearchParams();
+body.append("cmd", "VAR_1");
+body.append("home", "VAR_2");
+body.append("q", "VAR_3");
+const options = {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "X-Id": "VAR_0",
+  },
+  body,
+};
+
+const response = await fetch(url, options);
+console.log(await response.text());
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== go ===
+package main
+
+import (
+	"fmt"
+	"strings"
+	"net/http"
+	"io"
+)
+
+func main() {
+
+	url := "https://api.example.com/form"
+
+	payload := strings.NewReader("cmd=VAR_1&home=VAR_2&q=VAR_3")
+
+	req, _ := http.NewRequest("POST", url, payload)
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("X-Id", "VAR_0")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+
+}
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== java-httpclient ===
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.example.com/form"))
+    .header("Content-Type", "application/x-www-form-urlencoded")
+    .header("X-Id", "VAR_0")
+    .method("POST", HttpRequest.BodyPublishers.ofString("cmd=VAR_1&home=VAR_2&q=VAR_3"))
+    .build();
+HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== java-okhttp ===
+OkHttpClient client = new OkHttpClient();
+
+MediaType mediaType = MediaType.parse("application/x-www-form-urlencoded");
+RequestBody body = RequestBody.create(mediaType, "cmd=VAR_1&home=VAR_2&q=VAR_3");
+Request request = new Request.Builder()
+  .url("https://api.example.com/form")
+  .post(body)
+  .addHeader("Content-Type", "application/x-www-form-urlencoded")
+  .addHeader("X-Id", "VAR_0")
+  .build();
+
+Response response = client.newCall(request).execute();
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== csharp-httpclient ===
+using System.Net.Http.Headers;
+var client = new HttpClient();
+var request = new HttpRequestMessage
+{
+    Method = HttpMethod.Post,
+    RequestUri = new Uri("https://api.example.com/form"),
+    Headers =
+    {
+        { "X-Id", "VAR_0" },
+    },
+    Content = new FormUrlEncodedContent(new List<KeyValuePair<string, string>>
+    {
+        new("cmd", "VAR_1"),
+        new("home", "VAR_2"),
+        new("q", "VAR_3"),
+    }),
+};
+using (var response = await client.SendAsync(request))
+{
+    response.EnsureSuccessStatusCode();
+    var body = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(body);
+}
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3
+
+=== php-guzzle ===
+<?php
+require_once('vendor/autoload.php');
+
+$client = new \GuzzleHttp\Client();
+
+$response = $client->request('POST', 'https://api.example.com/form', [
+  'form_params' => [
+    'cmd' => 'VAR_1',
+    'home' => 'VAR_2',
+    'q' => 'VAR_3'
+  ],
+  'headers' => [
+    'Content-Type' => 'application/x-www-form-urlencoded',
+    'X-Id' => 'VAR_0',
+  ],
+]);
+
+echo $response->getBody();
+--- warnings ---
+Variable "$(id)" contains unsafe characters and is shown as VAR_0
+Variable "x'; printf injected; #" contains unsafe characters and is shown as VAR_1
+Variable "$HOME" contains unsafe characters and is shown as VAR_2
+Variable ""q"" contains unsafe characters and is shown as VAR_3

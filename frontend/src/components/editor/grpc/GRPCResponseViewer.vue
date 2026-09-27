@@ -3,12 +3,15 @@ import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { AlertCircle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import type { ResponseState } from '@/stores/responses'
+import { grpcStatusColor, grpcStatusName } from '@/constants/grpc-status'
+import SaveExampleInline from '../examples/SaveExampleInline.vue'
 
 const CodeViewer = defineAsyncComponent(() => import('../CodeViewer.vue'))
 
 const props = defineProps<{
   state: ResponseState
   loading: boolean
+  requestId: string
 }>()
 
 const emit = defineEmits<{
@@ -37,41 +40,13 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 
-const grpcStatusNames: Record<number, string> = {
-  0: 'OK',
-  1: 'CANCELLED',
-  2: 'UNKNOWN',
-  3: 'INVALID_ARGUMENT',
-  4: 'DEADLINE_EXCEEDED',
-  5: 'NOT_FOUND',
-  6: 'ALREADY_EXISTS',
-  7: 'PERMISSION_DENIED',
-  8: 'RESOURCE_EXHAUSTED',
-  9: 'FAILED_PRECONDITION',
-  10: 'ABORTED',
-  11: 'OUT_OF_RANGE',
-  12: 'UNIMPLEMENTED',
-  13: 'INTERNAL',
-  14: 'UNAVAILABLE',
-  15: 'DATA_LOSS',
-  16: 'UNAUTHENTICATED',
-}
-
-function grpcStatusColor(code: number): string {
-  if (code === 0) return 'var(--gc-success)'
-  if (code >= 1 && code <= 7 || code === 16) return 'var(--gc-warning)'
-  return 'var(--gc-error)'
-}
-
 const statusCode = computed(() => {
   if (props.state.status !== 'success') return -1
   // statusCode carries the gRPC status code here, not an HTTP status
   return props.state.data.statusCode
 })
 
-const statusName = computed(() => {
-  return grpcStatusNames[statusCode.value] ?? 'UNKNOWN'
-})
+const statusName = computed(() => grpcStatusName(statusCode.value))
 
 const statusColor = computed(() => {
   if (props.state.status !== 'success') return ''
@@ -165,6 +140,12 @@ function formatSize(bytes: number): string {
         </span>
         <span class="text-muted-foreground tabular-nums">{{ state.data.durationMs }}ms</span>
         <span class="text-muted-foreground tabular-nums">{{ formatSize(state.data.size || state.data.body?.length || 0) }}</span>
+        <SaveExampleInline
+          class="ml-auto"
+          :request-id="requestId"
+          protocol="grpc"
+          :response="state.data"
+        />
       </div>
 
       <div class="flex items-center border-b border-border px-3">

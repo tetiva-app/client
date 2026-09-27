@@ -1,0 +1,17 @@
+{
+  "protocol": "http",
+  "har": {
+    "method": "GET",
+    "url": "https://api.example.com/secure",
+    "httpVersion": "HTTP/1.1",
+    "headers": [],
+    "queryString": [],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1,
+    "_tetiva": {
+      "authNote": "digest"
+    }
+  },
+  "warnings": []
+}

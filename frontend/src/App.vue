@@ -5,11 +5,15 @@ import { useRequestStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
+import { exampleWindowEvents, useExamplesStore } from '@/stores/examples'
 import { useEnvModalUi } from '@/stores/envModalUi'
 import { useSettingsStore } from '@/stores/settings'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
 import { useOnboardingUi } from '@/stores/onboardingUi'
 import { useSyncModalUi } from '@/stores/syncModalUi'
+import { usePublicationsStore } from '@/stores/publications'
+import { useImportUi } from '@/stores/importUi'
+import { useImportFlow } from '@/composables/useImportFlow'
 import { checkForUpdates } from '@/lib/updates'
 import { shouldCheckForUpdates, shouldShowWhatsNew } from '@/lib/update-decisions'
 import { shouldShowOnboarding } from '@/lib/onboarding-decisions'
@@ -20,6 +24,7 @@ import { quotaNotice, rejectNotice, type SyncNotice } from '@/lib/sync-notices'
 import { openExternal } from '@/lib/open-external'
 import { PRICING_URL } from '@/constants/pricing'
 import { isWailsEnvironment } from '@/services'
+import { eventPayload, useWindowEvents } from '@/composables/useWindowEvents'
 import ActivityBar from '@/components/ActivityBar.vue'
 import AppSidebar from '@/components/sidebar/AppSidebar.vue'
 import TabBar from '@/components/editor/TabBar.vue'
@@ -56,12 +61,22 @@ const SchemaViewerWindow = defineAsyncComponent(
 const WhatsNewModal = defineAsyncComponent(
   () => import('@/components/WhatsNewModal.vue'),
 )
+const PublishDialog = defineAsyncComponent(
+  () => import('@/components/publication/PublishDialog.vue'),
+)
+const ImportLinkDialog = defineAsyncComponent(
+  () => import('@/components/import/ImportLinkDialog.vue'),
+)
+const ImportConfirmDialog = defineAsyncComponent(
+  () => import('@/components/import/ImportConfirmDialog.vue'),
+)
 
 const activeSection = ref('collections')
 const store = useRequestStore()
 const workspaceStore = useWorkspaceStore()
 const collectionStore = useCollectionStore()
 const environmentStore = useEnvironmentStore()
+const examplesStore = useExamplesStore()
 const envModalUi = useEnvModalUi()
 const cookieModalUi = useCookieModalUi()
 const settingsModalUi = useSettingsModalUi()
@@ -69,6 +84,9 @@ const settingsStore = useSettingsStore()
 const whatsNewUi = useWhatsNewUi()
 const onboardingUi = useOnboardingUi()
 const syncModalUi = useSyncModalUi()
+const publications = usePublicationsStore()
+const importUi = useImportUi()
+const importFlow = useImportFlow()
 const historyStore = useHistoryStore()
 const toast = useToast()
 const linux = isLinux()
@@ -185,11 +203,8 @@ function disableTextAssist(e: FocusEvent) {
 
 const syncUnsubscribers: (() => void)[] = []
 
-// The Wails runtime may wrap the emitted map in `data` depending on version.
-function eventPayload(evt: unknown): Record<string, unknown> {
-  const wrapped = (evt as { data?: unknown })?.data
-  return ((wrapped ?? evt) as Record<string, unknown>) ?? {}
-}
+// A child window subscribes its own examples store in DetachedRequestWindow.
+if (!windowMode) useWindowEvents({ mode: 'main', ...exampleWindowEvents(examplesStore) })
 
 function showSyncNotice(notice: SyncNotice | null) {
   if (!notice) return
@@ -307,13 +322,34 @@ function flushOnUnload() {
   void store.flushAllDirty()
 }
 
+let stopDeepLinks: (() => void) | null = null
+let unmounted = false
+
+// Only the main window takes deep links; a detached window would steal them from it.
+async function listenDeepLinks() {
+  if (windowMode) return
+  const stop = await importFlow.listenDeepLinks()
+  if (unmounted) stop()
+  else stopDeepLinks = stop
+}
+
+// A fresh install opened from a share page shows that import first and the welcome after it.
+async function listenDeepLinksThenWelcome() {
+  try {
+    await listenDeepLinks()
+  } catch (err) {
+    console.error('Failed to listen for deep links:', err)
+  }
+  if (!unmounted) importFlow.afterImports(runStartupWelcomeFlow)
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('contextmenu', blockNativeContextMenu)
   window.addEventListener('focusin', disableTextAssist)
   window.addEventListener('beforeunload', flushOnUnload)
   setupSyncEvents()
-  runStartupWelcomeFlow()
+  void listenDeepLinksThenWelcome()
   void runStartupUpdateFlow()
   void runStartupReauthNotice()
 })
@@ -323,6 +359,8 @@ onUnmounted(() => {
   window.removeEventListener('focusin', disableTextAssist)
   window.removeEventListener('beforeunload', flushOnUnload)
   for (const unsub of syncUnsubscribers) unsub()
+  unmounted = true
+  stopDeepLinks?.()
 })
 </script>
 
@@ -409,6 +447,14 @@ onUnmounted(() => {
         @update:open="val => val ? settingsModalUi.show() : settingsModalUi.hide()"
       />
       <WhatsNewModal v-if="whatsNewUi.open" @close="onWhatsNewClose" />
+      <PublishDialog
+        v-if="publications.dialogCollectionId"
+        :key="publications.dialogCollectionId"
+        :collection-id="publications.dialogCollectionId"
+        @close="publications.closeDialog()"
+      />
+      <ImportLinkDialog v-if="importUi.linkOpen" :key="importUi.flow" />
+      <ImportConfirmDialog v-if="importUi.source && importUi.preview" :key="importUi.flow" />
       <OnboardingModal
         v-if="onboardingUi.open"
         @select-account="syncModalUi.show('register')"

@@ -1,0 +1,9 @@
+=== websocat ===
+websocat 'wss://echo.example.com/ws'
+
+=== js-websocket ===
+const ws = new WebSocket("wss://echo.example.com/ws");
+
+ws.addEventListener("message", (e) => {
+  console.log(e.data);
+});

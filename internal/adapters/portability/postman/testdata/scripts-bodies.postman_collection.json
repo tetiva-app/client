@@ -1,0 +1,83 @@
+{
+	"info": {
+		"name": "Scripts and bodies",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": { "type": "text/javascript", "exec": ["pm.environment.set('ts', Date.now());"] }
+		},
+		{
+			"listen": "test",
+			"script": { "type": "text/javascript", "exec": [""] }
+		}
+	],
+	"item": [
+		{
+			"name": "Forms",
+			"event": [
+				{
+					"listen": "test",
+					"script": { "type": "text/javascript", "exec": "pm.test('ok', () => pm.response.to.have.status(200));" }
+				}
+			],
+			"item": [
+				{
+					"name": "Login form",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": { "type": "text/javascript", "exec": ["const a = 1;", "pm.request.headers.upsert({key: 'X-A', value: String(a)});"] }
+						},
+						{
+							"listen": "test",
+							"disabled": true,
+							"script": { "type": "text/javascript", "exec": ["pm.environment.set('leak', 'yes');"] }
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "user", "value": "alice", "type": "text" },
+								{ "key": "remember", "value": "1", "disabled": true }
+							]
+						},
+						"url": { "raw": "{{host}}/login" }
+					}
+				},
+				{
+					"name": "Upload avatar",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"auth": { "type": "noauth" },
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "title", "value": "me", "type": "text" },
+								{ "key": "avatar", "type": "file", "src": "/Users/alice/.ssh/id_rsa", "value": "/Users/alice/.ssh/id_rsa" }
+							]
+						},
+						"url": { "raw": "{{host}}/avatar" }
+					}
+				},
+				{
+					"name": "Put blob",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "file",
+							"file": { "src": "/etc/passwd" }
+						},
+						"url": { "raw": "{{host}}/blob" }
+					}
+				}
+			]
+		}
+	]
+}

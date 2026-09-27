@@ -26,12 +26,12 @@ function dismiss() {
 
 <template>
   <Dialog :open="open" @update:open="(v) => { if (!v) dismiss() }">
-    <DialogContent class="sm:max-w-md">
-      <DialogHeader>
+    <DialogContent class="flex max-h-[calc(100vh-2rem)] w-[92vw] flex-col gap-0 p-0 sm:max-w-xl">
+      <DialogHeader class="shrink-0 px-6 pt-6 pb-3">
         <DialogTitle class="text-primary">{{ t.title }}</DialogTitle>
       </DialogHeader>
 
-      <div data-testid="whats-new-modal" class="flex flex-col gap-4 py-1">
+      <div data-testid="whats-new-modal" class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pt-1 pb-4">
         <section v-if="copy.added.length" class="flex flex-col gap-2">
           <h3 class="flex items-center gap-1.5 text-[13px] font-semibold text-primary">
             <Sparkles class="size-4" />
@@ -53,7 +53,7 @@ function dismiss() {
         </section>
       </div>
 
-      <div class="flex justify-end">
+      <div class="flex shrink-0 justify-end border-t border-border px-6 py-3">
         <button
           type="button"
           class="h-8 cursor-pointer rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"

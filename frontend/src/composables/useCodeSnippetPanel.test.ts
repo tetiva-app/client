@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRenderer, defineComponent, h, KeepAlive, nextTick, ref, type Ref, type RendererOptions } from 'vue'
-import { createPinia, setActivePinia, type Pinia } from 'pinia'
+import { effectScope, nextTick, ref, type Ref } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import type { Environment, Variable } from '@/types/environment'
 import type { Request } from '@/types/request'
 import type { SnippetInput } from '@/types/snippet'
@@ -35,44 +35,6 @@ vi.mock('@/composables/useToast', () => ({
 
 const WS_ID = '00000000-0000-4000-a000-000000000001'
 const REQ_ID = '11111111-1111-4111-8111-111111111111'
-
-interface TestNode {
-  tag: string
-  text?: string
-  parent: TestNode | null
-  children: TestNode[]
-}
-
-function node(tag: string, text?: string): TestNode {
-  return { tag, text, parent: null, children: [] }
-}
-
-function detach(child: TestNode) {
-  const p = child.parent
-  if (!p) return
-  p.children.splice(p.children.indexOf(child), 1)
-  child.parent = null
-}
-
-// A DOM-less renderer: enough for KeepAlive to activate and deactivate the panel.
-const nodeOps: RendererOptions<TestNode, TestNode> = {
-  createElement: (tag) => node(tag),
-  createText: (text) => node('#text', text),
-  createComment: (text) => node('#comment', text),
-  setText: (n, text) => { n.text = text },
-  setElementText: (el, text) => { el.children = []; el.text = text },
-  insert: (child, parent, anchor) => {
-    detach(child)
-    const at = anchor ? parent.children.indexOf(anchor) : -1
-    if (at < 0) parent.children.push(child)
-    else parent.children.splice(at, 0, child)
-    child.parent = parent
-  },
-  remove: detach,
-  parentNode: (n) => n.parent,
-  nextSibling: (n) => (n.parent ? n.parent.children[n.parent.children.indexOf(n) + 1] ?? null : null),
-  patchProp: () => {},
-}
 
 function makeRequest(patch: Partial<Request> = {}): Request {
   return {
@@ -120,36 +82,21 @@ function mockEnv() {
   })
 }
 
-function mount(pinia: Pinia, request: Ref<Request>) {
-  let panel!: ReturnType<typeof useCodeSnippetPanel>
-  const shown = ref(true)
-  const Panel = defineComponent({
-    setup() {
-      panel = useCodeSnippetPanel(request)
-      return () => null
-    },
-  })
-  // The panel sits inside the cached editor, as it does under App.vue's KeepAlive.
-  const Editor = defineComponent({ render: () => h(Panel) })
-  const Elsewhere = defineComponent({ render: () => null })
-  const Root = defineComponent({ render: () => h(KeepAlive, null, [shown.value ? h(Editor) : h(Elsewhere)]) })
-  const app = createRenderer(nodeOps).createApp(Root)
-  app.use(pinia)
-  app.mount(node('root'))
-  return { panel, shown, request, unmount: () => app.unmount() }
+function mount(request: Ref<Request>) {
+  const scope = effectScope()
+  const panel = scope.run(() => useCodeSnippetPanel(request))!
+  return { panel, request, unmount: () => scope.stop() }
 }
 
 const settle = () => vi.advanceTimersByTimeAsync(0)
 
 describe('useCodeSnippetPanel', () => {
-  let pinia: Pinia
   let unmount: (() => void) | undefined
 
   beforeEach(() => {
     vi.useFakeTimers()
     mockEnv()
-    pinia = createPinia()
-    setActivePinia(pinia)
+    setActivePinia(createPinia())
     useWorkspaceStore().workspaces = [{ id: WS_ID, isActive: true } as Workspace]
     const envStore = useEnvironmentStore()
     envStore.environments = [environment('e1', true), environment('e2', false)]
@@ -171,7 +118,7 @@ describe('useCodeSnippetPanel', () => {
   })
 
   function start(request: Ref<Request> = ref(makeRequest())) {
-    const mounted = mount(pinia, request)
+    const mounted = mount(request)
     unmount = mounted.unmount
     return mounted
   }
@@ -232,21 +179,6 @@ describe('useCodeSnippetPanel', () => {
 
     expect(panel.canCopy.value).toBe(false)
     expect(copyText).toHaveBeenCalledTimes(1)
-  })
-
-  it('pauses while its editor is cached and rebuilds when the editor comes back', async () => {
-    const { shown } = start()
-    await settle()
-
-    shown.value = false
-    await settle()
-    useEnvironmentStore().variablesMap = new Map([['e1', [variable(2)]]])
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(buildSnippetInput).toHaveBeenCalledTimes(1)
-
-    shown.value = true
-    await settle()
-    expect(buildSnippetInput).toHaveBeenCalledTimes(2)
   })
 
   it('rebuilds once its own request finishes a send', async () => {

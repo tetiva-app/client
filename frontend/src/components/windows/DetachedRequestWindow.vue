@@ -7,14 +7,19 @@ import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
 import { exampleWindowEvents, useExamplesStore } from '@/stores/examples'
 import { useEnvModalUi } from '@/stores/envModalUi'
+import { useCodeDialogUi } from '@/stores/codeDialog'
 import { getRequestService, getWindowService } from '@/services'
 import { useWindowEvents } from '@/composables/useWindowEvents'
 import { closeCurrentWindow } from '@/lib/close-window'
 import RequestEditor from '@/components/editor/RequestEditor.vue'
 import EnvironmentModal from '@/components/EnvironmentModal.vue'
+import { ToastContainer } from '@/components/ui/toast'
 
 const GRPCRequestEditor = defineAsyncComponent(
   () => import('@/components/editor/grpc/GRPCRequestEditor.vue'),
+)
+const GenerateCodeDialog = defineAsyncComponent(
+  () => import('@/components/editor/GenerateCodeDialog.vue'),
 )
 
 const props = defineProps<{
@@ -27,6 +32,7 @@ const collectionStore = useCollectionStore()
 const environmentStore = useEnvironmentStore()
 const examplesStore = useExamplesStore()
 const envModalUi = useEnvModalUi()
+const codeDialog = useCodeDialogUi()
 
 const loading = ref(true)
 const error = ref('')
@@ -138,5 +144,7 @@ useWindowEvents({
       :open="envModalUi.open"
       @update:open="val => val ? null : envModalUi.close()"
     />
+    <GenerateCodeDialog v-if="codeDialog.requestId" :key="codeDialog.requestId" />
+    <ToastContainer />
   </div>
 </template>

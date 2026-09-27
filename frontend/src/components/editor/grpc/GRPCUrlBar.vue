@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Square } from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
+import { targetMetaFor } from '@/lib/snippets/targets'
+import RunSplitButton from '../RunSplitButton.vue'
 
 defineProps<{
   host: string
@@ -13,7 +13,12 @@ const emit = defineEmits<{
   (e: 'update:host', value: string): void
   (e: 'invoke'): void
   (e: 'connect'): void
+  (e: 'cancel'): void
+  (e: 'copy', key: string): void
+  (e: 'generate'): void
 }>()
+
+const copyTargets = targetMetaFor('grpc')
 </script>
 
 <template>
@@ -47,25 +52,16 @@ const emit = defineEmits<{
     </div>
 
     <div class="shrink-0 mr-2 flex items-center">
-      <Button
-        v-if="loading"
-        size="sm"
-        variant="destructive"
-        class="h-7 px-4 cursor-pointer"
-        @click="emit('invoke')"
-      >
-        <Square class="size-3 mr-1.5 fill-current" />
-        Cancel
-      </Button>
-      <Button
-        v-else
-        size="sm"
-        class="h-7 px-4 cursor-pointer bg-[#6C5CE7] hover:bg-[#5B4BD5] text-white"
+      <RunSplitButton
+        label="Invoke"
+        :loading="loading"
         :disabled="!host || !service || !method"
-        @click="emit('invoke')"
-      >
-        Invoke
-      </Button>
+        :targets="copyTargets"
+        @run="emit('invoke')"
+        @cancel="emit('cancel')"
+        @copy="(key) => emit('copy', key)"
+        @generate="emit('generate')"
+      />
     </div>
   </div>
 </template>

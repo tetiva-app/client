@@ -19,7 +19,7 @@ const selectedLabel = computed(() => targets.value.find((t) => t.key === selecte
 </script>
 
 <template>
-  <div class="flex h-full flex-col" data-testid="code-snippet-panel">
+  <div class="flex h-full min-h-0 flex-col" data-testid="code-snippet-panel">
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-3 py-1.5">
       <Select v-model="selected">
         <SelectTrigger aria-label="Language" class="min-w-36">

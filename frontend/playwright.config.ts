@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 import pkg from './package.json' with { type: 'json' };
 
-const MOCK_URL = 'http://127.0.0.1:5173';
+// E2E_PORT lets parallel worktrees run their own dev servers; a set port is never reused.
+const MOCK_PORT = process.env.E2E_PORT ?? '5173';
+const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const REAL_URL = 'http://127.0.0.1:8080';
 const REAL_BACKEND = process.env.TETIVA_REAL_BACKEND === '1';
 
@@ -55,8 +57,8 @@ export default defineConfig({
     },
   ],
   webServer: REAL_BACKEND ? undefined : {
-    command: 'npm run dev',
+    command: `npm run dev -- --port ${MOCK_PORT} --strictPort`,
     url: MOCK_URL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI && !process.env.E2E_PORT,
   },
 });

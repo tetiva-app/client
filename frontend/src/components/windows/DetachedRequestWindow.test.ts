@@ -42,6 +42,8 @@ vi.mock('@/services', async () => {
 
 vi.mock('@/components/editor/RequestEditor.vue', () => ({ default: { render: () => null } }))
 vi.mock('@/components/EnvironmentModal.vue', () => ({ default: { render: () => null } }))
+// The DOM-less test renderer cannot resolve a Teleport target.
+vi.mock('@/components/ui/toast', () => ({ ToastContainer: { render: () => null } }))
 
 import DetachedRequestWindow from './DetachedRequestWindow.vue'
 import { useRequestStore } from '@/stores/tabs'

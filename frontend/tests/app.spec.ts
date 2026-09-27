@@ -66,3 +66,18 @@ test('documentation buttons use the app tooltip, not the native one', async ({ p
   // Reka renders the visible bubble without role=tooltip; the slot is the handle.
   await expect(page.locator('[data-slot="tooltip-content"]')).toContainText('Documentation: mcp server');
 });
+
+test('a dialog opens without its help tooltip, which still shows on keyboard focus', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sync', exact: true }).click();
+
+  const help = page.getByRole('dialog').getByRole('button', { name: 'Documentation: sync' });
+  const tooltip = page.locator('[data-slot="tooltip-content"]', { hasText: 'Documentation: sync' });
+  await expect(help).toBeFocused();
+  await expect(tooltip).toHaveCount(0);
+
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(help).toBeFocused();
+  await expect(tooltip).toBeVisible();
+});

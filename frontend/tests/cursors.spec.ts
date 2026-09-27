@@ -68,11 +68,13 @@ const PUBLISHED = {
 };
 
 test.describe('Pointer over the controls of the new screens', () => {
-  test('Code tab and its language list', async ({ page }) => {
+  test('Copy as menu, Generate code dialog and its language list', async ({ page }) => {
     await createCollection(page, 'Code');
     await addRequest(page, 'Code', 'List');
     await page.locator('[aria-placeholder="Enter request URL"]').fill('https://api.example.com/users');
-    await requestTab(page, 'Code').click();
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await expectCursors(page.getByRole('menu'), 'copy as menu');
+    await page.getByRole('menuitem', { name: 'Generate code…' }).click();
     await expect(page.getByRole('textbox', { name: 'Generated code' })).toContainText('curl');
 
     await expectCursors(page.getByTestId('code-snippet-panel'), 'code toolbar');

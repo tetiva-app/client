@@ -3,9 +3,9 @@ import { test, expect, type Page } from '@playwright/test';
 type Protocol = 'HTTP' | 'gRPC' | 'GraphQL';
 
 const TABS: Record<Protocol, string[]> = {
-  HTTP: ['Params', 'Auth', 'Headers', 'Body', 'Scripts', 'Docs', 'Examples', 'Code'],
-  GraphQL: ['Query', 'Headers', 'Auth', 'Schema', 'Scripts', 'Docs', 'Examples', 'Code'],
-  gRPC: ['Body', 'Metadata', 'Schema', 'Scripts', 'Docs', 'Examples', 'Code'],
+  HTTP: ['Params', 'Auth', 'Headers', 'Body', 'Scripts', 'Docs', 'Examples'],
+  GraphQL: ['Query', 'Headers', 'Auth', 'Schema', 'Scripts', 'Docs', 'Examples'],
+  gRPC: ['Body', 'Metadata', 'Schema', 'Scripts', 'Docs', 'Examples'],
 };
 
 async function createRequest(page: Page, protocol: Protocol) {
@@ -30,12 +30,11 @@ async function createRequest(page: Page, protocol: Protocol) {
 
 const tabStrip = (page: Page) => page.getByRole('button', { name: /^Docs\b/ }).locator('..');
 const tab = (page: Page, label: string) => tabStrip(page).getByRole('button', { name: new RegExp(`^${label}\\b`) });
-const generatedCode = (page: Page) => page.getByRole('textbox', { name: 'Generated code' });
 const examplesEmpty = (page: Page) => page.getByText('No examples yet.');
 
 for (const protocol of Object.keys(TABS) as Protocol[]) {
   test.describe(`${protocol} request tabs`, () => {
-    test('put Examples before Code and switch between them', async ({ page }) => {
+    test('list the tabs in order and switch to Examples and back', async ({ page }) => {
       await createRequest(page, protocol);
 
       await expect(tabStrip(page).getByRole('button')).toHaveText(TABS[protocol].map((l) => new RegExp(`^\\s*${l}\\b`)));
@@ -43,16 +42,14 @@ for (const protocol of Object.keys(TABS) as Protocol[]) {
       await tab(page, 'Examples').click();
       await expect(examplesEmpty(page)).toBeVisible();
 
-      await tab(page, 'Code').click();
-      await expect(generatedCode(page)).toBeVisible();
+      await tab(page, 'Docs').click();
       await expect(examplesEmpty(page)).toBeHidden();
 
       await tab(page, 'Examples').click();
       await expect(examplesEmpty(page)).toBeVisible();
-      await expect(generatedCode(page)).toHaveCount(0);
     });
 
-    test('Cmd+S saves the example on Examples and the request on Code', async ({ page }) => {
+    test('Cmd+S saves the example on Examples', async ({ page }) => {
       await createRequest(page, protocol);
 
       await tab(page, 'Examples').click();
@@ -65,19 +62,6 @@ for (const protocol of Object.keys(TABS) as Protocol[]) {
       await page.keyboard.press('Meta+s');
       await expect(list.getByTitle('Unsaved changes')).toHaveCount(0);
       await expect(list).toContainText('Renamed');
-
-      await tab(page, 'Code').click();
-      await expect(generatedCode(page)).toBeVisible();
-      await tab(page, 'Docs').click();
-      await page.getByRole('button', { name: 'Add description' }).click();
-      await page.locator('[aria-placeholder^="Document this request"]').fill('Saved from the Code tab.');
-      const dirty = page.locator('span[title="Unsaved changes"]');
-      await expect(dirty.first()).toBeVisible();
-
-      await tab(page, 'Code').click();
-      await page.keyboard.press('Meta+s');
-      // Well under AUTOSAVE_DELAY_MS, so only the shortcut can clear the dot.
-      await expect(dirty).toHaveCount(0, { timeout: 500 });
     });
 
     test('Cmd+S on Examples saves the request when no example has edits', async ({ page }) => {

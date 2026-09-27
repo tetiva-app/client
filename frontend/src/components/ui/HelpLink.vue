@@ -19,7 +19,8 @@ function open() {
 </script>
 
 <template>
-  <Tooltip>
+  <!-- A dialog auto-focuses its header help link; only Tab focus should pop the tooltip. -->
+  <Tooltip ignore-non-keyboard-focus>
     <TooltipTrigger as-child>
       <button
         v-bind="$attrs"

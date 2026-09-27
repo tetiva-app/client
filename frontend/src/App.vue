@@ -12,6 +12,7 @@ import { useWhatsNewUi } from '@/stores/whatsNewUi'
 import { useOnboardingUi } from '@/stores/onboardingUi'
 import { useSyncModalUi } from '@/stores/syncModalUi'
 import { usePublicationsStore } from '@/stores/publications'
+import { useCodeDialogUi } from '@/stores/codeDialog'
 import { useImportUi } from '@/stores/importUi'
 import { useImportFlow } from '@/composables/useImportFlow'
 import { checkForUpdates } from '@/lib/updates'
@@ -64,6 +65,9 @@ const WhatsNewModal = defineAsyncComponent(
 const PublishDialog = defineAsyncComponent(
   () => import('@/components/publication/PublishDialog.vue'),
 )
+const GenerateCodeDialog = defineAsyncComponent(
+  () => import('@/components/editor/GenerateCodeDialog.vue'),
+)
 const ImportLinkDialog = defineAsyncComponent(
   () => import('@/components/import/ImportLinkDialog.vue'),
 )
@@ -85,6 +89,7 @@ const whatsNewUi = useWhatsNewUi()
 const onboardingUi = useOnboardingUi()
 const syncModalUi = useSyncModalUi()
 const publications = usePublicationsStore()
+const codeDialog = useCodeDialogUi()
 const importUi = useImportUi()
 const importFlow = useImportFlow()
 const historyStore = useHistoryStore()
@@ -150,6 +155,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   const tabs = store.openTabs
   if (tabs.length === 0) return
+  // A portaled menu or dialog would stay on screen over the next tab.
+  if (isInsideOverlay(event)) return
 
   const bracket = isModShortcut(event, 'BracketLeft', '[') ? -1 : (isModShortcut(event, 'BracketRight', ']') ? 1 : 0)
   if (bracket !== 0) {
@@ -453,6 +460,7 @@ onUnmounted(() => {
         :collection-id="publications.dialogCollectionId"
         @close="publications.closeDialog()"
       />
+      <GenerateCodeDialog v-if="codeDialog.requestId" :key="codeDialog.requestId" />
       <ImportLinkDialog v-if="importUi.linkOpen" :key="importUi.flow" />
       <ImportConfirmDialog v-if="importUi.source && importUi.preview" :key="importUi.flow" />
       <OnboardingModal

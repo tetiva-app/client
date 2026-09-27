@@ -20,6 +20,8 @@ async function createCollectionWithRequests(page: Page, requestNames: string[]) 
     await reqDialog.getByPlaceholder('Request name').press('Enter');
   }
 
+  // Tab shortcuts are ignored while focus is still in the closing dialog.
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('[aria-placeholder="Enter request URL"]')).toBeVisible();
 }
 
@@ -93,6 +95,21 @@ test.describe('Keyboard Shortcuts', () => {
     await nameInput.press('Meta+Enter');
     await page.waitForTimeout(1000);
     await expect(page.getByText('200')).toHaveCount(0);
+  });
+
+  test('Cmd+1 under an open menu does not switch tabs', async ({ page }) => {
+    await createCollectionWithRequests(page, ['Menu One', 'Menu Two']);
+    const tabBar = page.locator('.flex.items-center.h-9.border-b');
+    const tab2 = tabBar.getByText('Menu Two').locator('..');
+    await expect(tab2).toHaveClass(/border-b-primary/);
+
+    await page.getByTitle('Import').click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Meta+1');
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(tab2).toHaveClass(/border-b-primary/);
   });
 
   test('should handle Cmd+Enter for slow request (shows loading)', async ({ page }) => {

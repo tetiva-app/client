@@ -10,11 +10,11 @@ export function isEditingTarget(event: KeyboardEvent): boolean {
   return el.isContentEditable === true
 }
 
-// Open modal layer (Reka dialogs render with role="dialog"/"alertdialog").
+// Open modal layer: Reka dialogs render with role="dialog"/"alertdialog", menus with role="menu".
 export function isInsideOverlay(event: KeyboardEvent): boolean {
   const el = event.target as HTMLElement | null
   if (!el || typeof el.closest !== 'function') return false
-  return el.closest('[role="dialog"], [role="alertdialog"]') !== null
+  return el.closest('[role="dialog"], [role="alertdialog"], [role="menu"]') !== null
 }
 
 // Matched by code and by layout key ('ы' on Cyrillic); AltGr arrives as Ctrl+Alt.

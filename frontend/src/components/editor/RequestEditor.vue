@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue'
+import { computed, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, ref, toRef, watch, defineAsyncComponent } from 'vue'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -34,15 +34,13 @@ import {
 } from '@/lib/curl-paste'
 import type { CurlImportFields } from '@/lib/curl-paste'
 import { useToast } from '@/composables/useToast'
+import { useCopyAs } from '@/composables/useCopyAs'
 import { authBadgeLabel } from '@/constants/auth'
-import { warningsToastMessage } from '@/lib/auth-warnings'
-import { copyText } from '@/lib/clipboard'
 
 const GRPCRequestEditor = defineAsyncComponent(() => import('./grpc/GRPCRequestEditor.vue'))
 const GraphQLRequestEditor = defineAsyncComponent(() => import('./graphql/GraphQLRequestEditor.vue'))
 const WebSocketEditor = defineAsyncComponent(() => import('./ws/WebSocketEditor.vue'))
 const ExamplesPanel = defineAsyncComponent(() => import('./examples/ExamplesPanel.vue'))
-const CodeSnippetPanel = defineAsyncComponent(() => import('./CodeSnippetPanel.vue'))
 
 const bodyTypeContentType: Partial<Record<BodyType, string>> = {
   json: 'application/json',
@@ -81,7 +79,7 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.requestId,
 )
 
-const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs' | 'examples' | 'code'>('params')
+const activeTab = ref<'params' | 'auth' | 'headers' | 'body' | 'scripts' | 'docs' | 'examples'>('params')
 
 // Docs stays mounted once visited: recreating CodeMirror would drop its undo history.
 const docsMounted = ref(false)
@@ -154,7 +152,6 @@ const tabs = computed(() => [
   { id: 'scripts' as const, label: 'Scripts', badge: (() => { const count = (request.value?.preScript ? 1 : 0) + (request.value?.postScript ? 1 : 0); return count > 0 ? String(count) : '' })() },
   { id: 'docs' as const, label: 'Docs', badge: request.value?.description ? '•' : '' },
   { id: 'examples' as const, label: 'Examples', badge: examplesBadge.value },
-  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -200,20 +197,7 @@ function onShowHistory() {
   emit('switch-section', 'history')
 }
 
-async function handleCopyCurl() {
-  if (!request.value) return
-  const wsId = useWorkspaceStore().activeWorkspace?.id
-  if (!wsId) return
-  const service = await getRequestService()
-  const result = await service.generateCurl({ requestId: props.requestId, workspaceId: wsId })
-  if (result.error) {
-    console.error('generateCurl failed:', result.error)
-    return
-  }
-  const warning = warningsToastMessage(result.data.warnings)
-  if (warning) toast.info(warning)
-  await copyText(result.data.command)
-}
+const { copy: copyAs, generate: generateCode } = useCopyAs(toRef(props, 'requestId'))
 
 // The sticky Undo toast can hang around for minutes, so the import it belongs to
 // is remembered and dropped as soon as the request stops matching it.
@@ -365,7 +349,8 @@ function updateField(field: string, value: any) {
           @send="store.executeRequest(props.requestId)"
           @cancel="responseStore.cancelRequest(props.requestId)"
           @manage-environments="$emit('manage-environments')"
-          @copy-curl="handleCopyCurl"
+          @copy="copyAs"
+          @generate="generateCode"
           @show-history="onShowHistory"
           @paste-curl="handlePasteCurl"
         />
@@ -443,7 +428,6 @@ function updateField(field: string, value: any) {
                 @update:pre-script="(v) => updateField('preScript', v)"
                 @update:post-script="(v) => updateField('postScript', v)"
               />
-              <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
               <RequestDocs
                 v-if="docsMounted"
                 v-show="activeTab === 'docs'"

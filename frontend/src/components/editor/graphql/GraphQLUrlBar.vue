@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Square } from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
+import { targetMetaFor } from '@/lib/snippets/targets'
 import type { Request } from '@/types/request'
+import RunSplitButton from '../RunSplitButton.vue'
 
 defineProps<{
   request: Request
@@ -11,7 +11,12 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'update:url', value: string): void
   (e: 'execute'): void
+  (e: 'cancel'): void
+  (e: 'copy', key: string): void
+  (e: 'generate'): void
 }>()
+
+const copyTargets = targetMetaFor('graphql')
 </script>
 
 <template>
@@ -47,25 +52,16 @@ const emit = defineEmits<{
     </div>
 
     <div class="shrink-0 mr-2 flex items-center">
-      <Button
-        v-if="loading"
-        size="sm"
-        variant="destructive"
-        class="h-7 px-4 cursor-pointer"
-        @click="emit('execute')"
-      >
-        <Square class="size-3 mr-1.5 fill-current" />
-        Cancel
-      </Button>
-      <Button
-        v-else
-        size="sm"
-        class="h-7 px-4 cursor-pointer bg-[#6C5CE7] hover:bg-[#5B4BD5] text-white"
+      <RunSplitButton
+        label="Query"
+        :loading="loading"
         :disabled="!request.url"
-        @click="emit('execute')"
-      >
-        Query
-      </Button>
+        :targets="copyTargets"
+        @run="emit('execute')"
+        @cancel="emit('cancel')"
+        @copy="(key) => emit('copy', key)"
+        @generate="emit('generate')"
+      />
     </div>
   </div>
 </template>

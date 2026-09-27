@@ -114,12 +114,9 @@ test.describe('URL Bar', () => {
   test('should show Copy as cURL option in send dropdown', async ({ page }) => {
     await createAndOpenRequest(page, 'https://api.example.com/test');
 
-    const sendArea = page.locator('.relative.flex.items-center');
-    // The dropdown trigger is the last small button in the send area
-    const dropdownArrow = sendArea.locator('button').last();
-    await dropdownArrow.click();
+    await page.getByRole('button', { name: 'More actions' }).click();
 
-    await expect(page.getByText('Copy as cURL')).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Copy as cURL' })).toBeVisible();
   });
 
   test('should show error state for error URLs', async ({ page }) => {

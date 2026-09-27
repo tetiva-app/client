@@ -603,6 +603,9 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
+  // Cancel only resets the UI; the call keeps running, and its late answer is dropped by token.
+  const runTokens = new Map<string, number>()
+
   async function executeRequest(id: string) {
     const req = requestsMap.value.get(id)
     if (!req) return
@@ -613,6 +616,9 @@ export const useRequestStore = defineStore('requests', () => {
 
     if (!(await flushForHandoff(id))) return
 
+    const token = (runTokens.get(id) ?? 0) + 1
+    runTokens.set(id, token)
+    const superseded = () => runTokens.get(id) !== token || responses.getResponseState(id).status !== 'loading'
     responses.setResponse(id, { status: 'loading', startedAt: Date.now() })
 
     try {
@@ -622,7 +628,7 @@ export const useRequestStore = defineStore('requests', () => {
       const result = await service.execute({ requestId: id, workspaceId: wsId })
 
       // Check if request still exists (may have been deleted during execution)
-      if (!requestsMap.value.has(id)) return
+      if (!requestsMap.value.has(id) || superseded()) return
 
       if (result.error) {
         responses.setResponse(id, {
@@ -637,6 +643,7 @@ export const useRequestStore = defineStore('requests', () => {
         responses.setResponse(id, { status: 'success', data: result.data })
       }
     } catch (err) {
+      if (superseded()) return
       responses.setResponse(id, {
         status: 'error',
         error: {

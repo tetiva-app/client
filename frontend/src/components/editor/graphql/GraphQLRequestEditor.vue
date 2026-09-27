@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { computed, ref, toRef, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { Loader2, RefreshCw, X } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useExamplesStore } from '@/stores/examples'
 import { getRequestService } from '@/services'
 import { useToast } from '@/composables/useToast'
+import { useCopyAs } from '@/composables/useCopyAs'
 import type { Request } from '@/types/request'
 import type { GraphQLSchema, GraphQLIntrospectRequest } from '@/types/graphql'
 import GraphQLUrlBar from './GraphQLUrlBar.vue'
@@ -29,7 +30,6 @@ const KeyValueEditor = defineAsyncComponent(() => import('../KeyValueEditor.vue'
 const AuthEditor = defineAsyncComponent(() => import('../AuthEditor.vue'))
 const ScriptEditor = defineAsyncComponent(() => import('../ScriptEditor.vue'))
 const ExamplesPanel = defineAsyncComponent(() => import('../examples/ExamplesPanel.vue'))
-const CodeSnippetPanel = defineAsyncComponent(() => import('../CodeSnippetPanel.vue'))
 
 const props = defineProps<{
   request: Request
@@ -48,6 +48,8 @@ const secretKeys = computed(() => {
   return new Set(vars.filter(v => v.isSecret).map(v => v.key))
 })
 
+const { copy: copyAs, generate: generateCode } = useCopyAs(toRef(() => props.request.id))
+
 const dirty = computed(() => store.isDirty(`request:${props.request.id}`))
 const responseState = computed(() => responseStore.getResponseState(props.request.id))
 
@@ -55,7 +57,7 @@ const isActiveTab = computed(
   () => store.activeTab?.type === 'request' && store.activeTab.requestId === props.request.id,
 )
 
-const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs' | 'examples' | 'code'>('query')
+const activeTab = ref<'query' | 'headers' | 'auth' | 'schema' | 'scripts' | 'docs' | 'examples'>('query')
 
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
@@ -201,7 +203,6 @@ const tabs = computed(() => [
   { id: 'scripts' as const, label: 'Scripts', badge: scriptsBadge.value },
   { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
   { id: 'examples' as const, label: 'Examples', badge: examplesBadge.value },
-  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function handleKeydown(event: KeyboardEvent) {
@@ -238,6 +239,9 @@ onUnmounted(() => {
         :loading="responseState.status === 'loading'"
         @update:url="(v) => updateField('url', v)"
         @execute="store.executeRequest(request.id)"
+        @cancel="responseStore.cancelRequest(request.id)"
+        @copy="copyAs"
+        @generate="generateCode"
       />
     </div>
 
@@ -376,8 +380,6 @@ onUnmounted(() => {
               @update:pre-script="(v) => updateField('preScript', v)"
               @update:post-script="(v) => updateField('postScript', v)"
             />
-
-            <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
 
             <RequestDocs
               v-if="docsMounted"

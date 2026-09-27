@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ChevronDown, History, Square, Terminal } from 'lucide-vue-next'
-import { Button } from '@/components/ui/button'
+import { ChevronDown, History } from 'lucide-vue-next'
 import { methods, methodColors, METHOD_COLOR_FALLBACK } from '@/lib/http-methods'
 import EnvironmentSelector from '@/components/EnvironmentSelector.vue'
 import VariableInput from '@/components/ui/VariableInput.vue'
 import { useEnvironmentStore } from '@/stores/environments'
+import { targetMetaFor } from '@/lib/snippets/targets'
+import RunSplitButton from './RunSplitButton.vue'
 
 const props = defineProps<{
   method: string
@@ -19,15 +20,17 @@ const emit = defineEmits<{
   (e: 'send'): void
   (e: 'cancel'): void
   (e: 'manage-environments'): void
-  (e: 'copy-curl'): void
+  (e: 'copy', key: string): void
+  (e: 'generate'): void
   (e: 'show-history'): void
   (e: 'paste-curl', text: string): void
 }>()
 
 const dropdownOpen = ref(false)
 const selectedMethodIndex = ref(0)
-const sendDropdownOpen = ref(false)
 const variableInputRef = ref<InstanceType<typeof VariableInput> | null>(null)
+
+const copyTargets = targetMetaFor('http')
 
 const envStore = useEnvironmentStore()
 const resolvedVars = computed(() => envStore.resolvedVariables)
@@ -151,51 +154,15 @@ function handleClickOutside() {
         <History class="size-4" />
       </button>
 
-      <div class="relative flex items-center">
-        <Button
-          v-if="loading"
-          size="sm"
-          variant="destructive"
-          class="h-7 px-4 cursor-pointer rounded-r-none"
-          @click="emit('cancel')"
-        >
-          <Square class="size-3 mr-1.5 fill-current" />
-          Cancel
-        </Button>
-        <Button
-          v-else
-          size="sm"
-          class="h-7 px-5 cursor-pointer rounded-r-none"
-          @click="emit('send')"
-        >
-          Send
-        </Button>
-        <div class="w-px h-7 bg-primary-foreground/30" />
-        <Button
-          size="sm"
-          :variant="loading ? 'destructive' : 'default'"
-          class="h-7 w-7 px-0 cursor-pointer rounded-l-none"
-          @click="sendDropdownOpen = !sendDropdownOpen"
-        >
-          <ChevronDown class="size-3" />
-        </Button>
-
-        <Teleport to="body">
-          <div v-if="sendDropdownOpen" class="fixed inset-0 z-40" @click="sendDropdownOpen = false" />
-        </Teleport>
-        <div
-          v-if="sendDropdownOpen"
-          class="absolute top-full right-0 z-50 mt-1 min-w-[180px] rounded-md border border-border bg-popover py-1 shadow-md"
-        >
-          <button
-            class="flex w-full items-center gap-2 px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
-            @click="emit('copy-curl'); sendDropdownOpen = false"
-          >
-            <Terminal class="size-3.5 text-muted-foreground" />
-            Copy as cURL
-          </button>
-        </div>
-      </div>
+      <RunSplitButton
+        label="Send"
+        :loading="loading"
+        :targets="copyTargets"
+        @run="emit('send')"
+        @cancel="emit('cancel')"
+        @copy="(key) => emit('copy', key)"
+        @generate="emit('generate')"
+      />
     </div>
   </div>
 </template>

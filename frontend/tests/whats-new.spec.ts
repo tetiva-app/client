@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import pkg from '../package.json' with { type: 'json' };
 
 const KEY = 'gophercourier.settings';
@@ -6,6 +6,15 @@ const KEY = 'gophercourier.settings';
 // Opt out of the global seeded storageState — these tests drive the seen-version
 // themselves (fresh profile must start with an empty store).
 test.use({ storageState: { cookies: [], origins: [] } });
+
+async function seedUpgrade(page: Page) {
+  await page.addInitScript(([key]) => {
+    // Re-runs on reload — never clobber what the app has written since.
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, JSON.stringify({ lastSeenWhatsNewVersion: '0.0.1' }));
+    }
+  }, [KEY]);
+}
 
 test.describe("What's New & update badge", () => {
   test('fresh profile: the welcome takes over and both flags land on dismissal', async ({ page }) => {
@@ -29,12 +38,7 @@ test.describe("What's New & update badge", () => {
   });
 
   test('upgrade: modal shows once and records the version', async ({ page }) => {
-    await page.addInitScript(([key]) => {
-      // Re-runs on reload — never clobber what the app has written since.
-      if (!localStorage.getItem(key)) {
-        localStorage.setItem(key, JSON.stringify({ lastSeenWhatsNewVersion: '0.0.1' }));
-      }
-    }, [KEY]);
+    await seedUpgrade(page);
     await page.goto('/');
     await expect(page.getByTestId('whats-new-modal')).toBeVisible();
     // A seen version means the install is not new — the welcome stays away.
@@ -46,6 +50,43 @@ test.describe("What's New & update badge", () => {
     await page.reload();
     await expect(page.getByTestId('whats-new-modal')).toHaveCount(0);
   });
+
+  // The 1.1.1 notes need a scrolling list at 960x640 but fit whole at 1280x800 in both languages.
+  const viewports = [
+    { width: 960, height: 640, listOverflows: true },
+    { width: 1280, height: 800, listOverflows: false },
+  ];
+  for (const locale of ['en-US', 'ru-RU']) {
+    test.describe(`upgrade modal in ${locale}`, () => {
+      test.use({ locale });
+
+      for (const size of viewports) {
+        test(`fits a ${size.width}x${size.height} window with every note reachable`, async ({ page }) => {
+          await page.setViewportSize(size);
+          await seedUpgrade(page);
+          await page.goto('/');
+          const dialog = page.getByRole('dialog');
+          const list = page.getByTestId('whats-new-modal');
+          await expect(list).toBeVisible();
+          const title = dialog.getByRole('heading', { name: /What's New|Что нового/ });
+          const gotIt = dialog.getByRole('button', { name: /Got it|Понятно/ });
+          const close = dialog.getByRole('button', { name: 'Close', exact: true });
+          await expect(title).toBeInViewport({ ratio: 1 });
+          await expect(gotIt).toBeInViewport({ ratio: 1 });
+          await expect(close).toBeInViewport({ ratio: 1 });
+          if (size.listOverflows) {
+            expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+          }
+
+          const lastItem = list.locator('li').last();
+          await lastItem.scrollIntoViewIfNeeded();
+          await expect(lastItem).toBeInViewport({ ratio: 1 });
+          await expect(title).toBeInViewport({ ratio: 1 });
+          await expect(gotIt).toBeInViewport({ ratio: 1 });
+        });
+      }
+    });
+  }
 
   test('badge renders when a newer update is stored', async ({ page }) => {
     await page.addInitScript(([key, v]) => {

@@ -1,11 +1,11 @@
 import { computed, effectScope, onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue'
 import { getRequestService } from '@/services'
 import { loadSnippets, type Snippets } from '@/lib/snippets/runtime'
+import { familyOf, snippetRequest } from '@/lib/snippets/snippet-request'
 import type { SnippetTarget } from '@/lib/snippets/types'
-import type { SnippetFamily } from '@/lib/settings-storage'
 import { useSettingsStore } from '@/stores/settings'
-import type { Protocol, Request } from '@/types/request'
-import type { SnippetInput, SnippetRequest } from '@/types/snippet'
+import type { Request } from '@/types/request'
+import type { SnippetInput } from '@/types/snippet'
 
 const DEBOUNCE_MS = 300
 
@@ -25,32 +25,6 @@ export interface CodeSnippet {
   pause(): void
   resume(): void
   dispose(): void
-}
-
-function familyOf(protocol: Protocol): SnippetFamily {
-  return protocol === 'grpc' || protocol === 'websocket' ? protocol : 'http'
-}
-
-function snippetRequest(r: Request): SnippetRequest {
-  return {
-    id: r.id,
-    collectionId: r.collectionId,
-    protocol: r.protocol,
-    method: r.method,
-    url: r.url,
-    headers: r.headers,
-    body: r.body,
-    bodyType: r.bodyType,
-    authType: r.authType,
-    authData: r.authData,
-    preScript: r.preScript,
-    grpcService: r.grpcService,
-    grpcMethod: r.grpcMethod,
-    grpcMetadata: r.grpcMetadata,
-    graphqlQuery: r.graphqlQuery,
-    graphqlVariables: r.graphqlVariables,
-    graphqlOperation: r.graphqlOperation,
-  }
 }
 
 function message(e: unknown): string {

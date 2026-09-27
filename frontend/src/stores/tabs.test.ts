@@ -9,9 +9,12 @@ const deleteMock = vi.fn()
 const moveMock = vi.fn()
 const exampleEditMock = vi.fn()
 const detachMock = vi.fn()
+const executeMock = vi.fn()
 
 vi.mock('@/services', () => ({
-  getRequestService: () => Promise.resolve({ edit: editMock, list: listMock, getById: getByIdMock, delete: deleteMock, move: moveMock }),
+  getRequestService: () => Promise.resolve({
+    edit: editMock, list: listMock, getById: getByIdMock, delete: deleteMock, move: moveMock, execute: executeMock,
+  }),
   getExampleService: () => Promise.resolve({ edit: exampleEditMock }),
   getWebSocketService: () => Promise.resolve({
     connect: vi.fn(), send: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn(),
@@ -22,7 +25,11 @@ vi.mock('@/services', () => ({
 
 import { useRequestStore, AUTOSAVE_DELAY_MS } from './tabs'
 import { useExamplesStore } from './examples'
+import { useResponseStore } from './responses'
+import { useWorkspaceStore } from './workspace'
 import type { Example } from '@/types/example'
+import type { ExecuteResponse } from '@/types/execute'
+import type { Workspace } from '@/types/workspace'
 import { MAX_DESCRIPTION_BYTES } from '@/lib/description'
 import { useToast } from '@/composables/useToast'
 
@@ -463,6 +470,73 @@ describe('executeRequest', () => {
 
     expect(editMock).toHaveBeenCalledTimes(1)
     expect(store.isRequestDirty('r1')).toBe(false)
+  })
+
+  describe('after Cancel', () => {
+    function deferred<T>() {
+      let resolve!: (v: T) => void
+      let reject!: (e: unknown) => void
+      const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+      return { promise, resolve, reject }
+    }
+
+    function response(body: string): ExecuteResponse {
+      return { statusCode: 200, statusText: '200 OK', url: '/x', headers: {}, body, size: body.length, durationMs: 1 }
+    }
+
+    beforeEach(() => {
+      executeMock.mockReset()
+      useWorkspaceStore().workspaces = [{ id: 'ws-1', isActive: true } as Workspace]
+      useRequestStore().loadRequest(makeRequest())
+    })
+
+    it('drops a result that arrives after Cancel', async () => {
+      const call = deferred<{ data: ExecuteResponse }>()
+      executeMock.mockReturnValueOnce(call.promise)
+      const run = useRequestStore().executeRequest('r1')
+      await vi.waitFor(() => expect(executeMock).toHaveBeenCalledTimes(1))
+
+      useResponseStore().cancelRequest('r1')
+      call.resolve({ data: response('late') })
+      await run
+
+      expect(useResponseStore().getResponseState('r1')).toEqual({ status: 'idle' })
+    })
+
+    it('drops a failure that arrives after Cancel', async () => {
+      const call = deferred<never>()
+      executeMock.mockReturnValueOnce(call.promise)
+      const run = useRequestStore().executeRequest('r1')
+      await vi.waitFor(() => expect(executeMock).toHaveBeenCalledTimes(1))
+
+      useResponseStore().cancelRequest('r1')
+      call.reject(new Error('connection reset'))
+      await run
+
+      expect(useResponseStore().getResponseState('r1')).toEqual({ status: 'idle' })
+    })
+
+    it('applies only the newer run when the cancelled one answers late', async () => {
+      const first = deferred<{ data: ExecuteResponse }>()
+      const second = deferred<{ data: ExecuteResponse }>()
+      executeMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+      const store = useRequestStore()
+      const responses = useResponseStore()
+
+      const run1 = store.executeRequest('r1')
+      await vi.waitFor(() => expect(executeMock).toHaveBeenCalledTimes(1))
+      responses.cancelRequest('r1')
+      const run2 = store.executeRequest('r1')
+      await vi.waitFor(() => expect(executeMock).toHaveBeenCalledTimes(2))
+
+      first.resolve({ data: response('first') })
+      await run1
+      expect(responses.getResponseState('r1').status).toBe('loading')
+
+      second.resolve({ data: response('second') })
+      await run2
+      expect(responses.getResponseState('r1')).toEqual({ status: 'success', data: response('second') })
+    })
   })
 })
 

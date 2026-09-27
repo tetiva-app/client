@@ -1,4 +1,4 @@
-import { computed, onActivated, onDeactivated, type Ref } from 'vue'
+import { computed, type Ref } from 'vue'
 import { useCodeSnippet } from '@/composables/useCodeSnippet'
 import { useToast } from '@/composables/useToast'
 import { copyText } from '@/lib/clipboard'
@@ -8,7 +8,7 @@ import { useWebSocketStore } from '@/stores/websocket'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { Request } from '@/types/request'
 
-// Binds the Code tab to the stores; the component itself only lays it out.
+// Binds the code panel to the stores; the component itself only lays it out.
 export function useCodeSnippetPanel(request: Ref<Request>) {
   const envStore = useEnvironmentStore()
   const workspaceStore = useWorkspaceStore()
@@ -33,10 +33,6 @@ export function useCodeSnippetPanel(request: Ref<Request>) {
     envVersion,
     executing,
   })
-
-  // A cached editor misses collection auth and cookie changes, and should not rebuild for them while hidden.
-  onActivated(snippet.resume)
-  onDeactivated(snippet.pause)
 
   const selected = computed({
     get: () => snippet.selectedKey.value,

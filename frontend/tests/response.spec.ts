@@ -121,7 +121,7 @@ test.describe('Response Viewer', () => {
 
     await cancelBtn.click();
 
-    await expect(page.getByText('⌘ Enter')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/(⌘|Ctrl) Enter/)).toBeVisible({ timeout: 3000 });
   });
 
   test('should show Body tab active by default in response', async ({ page }) => {

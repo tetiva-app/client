@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue'
+import { computed, ref, toRef, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import type { Request } from '@/types/request'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRequestStore } from '@/stores/tabs'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useCopyAs } from '@/composables/useCopyAs'
+import { targetMetaFor } from '@/lib/snippets/targets'
 import { parseWsSettings, type WsFormat, type WsSavedMessage } from '@/lib/ws-settings'
 import WebSocketLogViewer from './WebSocketLogViewer.vue'
 import WsSavedMessages from './WsSavedMessages.vue'
@@ -17,10 +19,9 @@ import HeadersEditor from '../HeadersEditor.vue'
 import ScriptEditor from '../ScriptEditor.vue'
 import RequestDocs from '../RequestDocs.vue'
 import EnvironmentSelector from '@/components/EnvironmentSelector.vue'
-import { Button } from '@/components/ui/button'
+import RunSplitButton from '../RunSplitButton.vue'
 
 const CodeEditor = defineAsyncComponent(() => import('../CodeEditor.vue'))
-const CodeSnippetPanel = defineAsyncComponent(() => import('../CodeSnippetPanel.vue'))
 
 const props = defineProps<{ request: Request }>()
 const emit = defineEmits<{ (e: 'manage-environments'): void }>()
@@ -33,6 +34,9 @@ const envStore = useEnvironmentStore()
 const state = computed(() => wsStore.stateFor(props.request.id))
 const connected = computed(() => state.value.status === 'connected')
 const connecting = computed(() => state.value.status === 'connecting')
+
+const copyTargets = targetMetaFor('websocket')
+const { copy: copyAs, generate: generateCode } = useCopyAs(toRef(() => props.request.id))
 
 const settings = computed(() => parseWsSettings(props.request.body))
 
@@ -54,7 +58,7 @@ const composeFormat = ref<WsFormat>('json')
 const composeError = ref('')
 const savedMessages = ref<InstanceType<typeof WsSavedMessages> | null>(null)
 
-const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs' | 'code'>('messages')
+const activeTab = ref<'messages' | 'params' | 'auth' | 'headers' | 'scripts' | 'docs'>('messages')
 
 const docsMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'docs') docsMounted.value = true }, { immediate: true })
@@ -113,7 +117,6 @@ const tabs = computed(() => [
   },
   { id: 'scripts' as const, label: 'Scripts', badge: props.request.preScript ? '1' : '' },
   { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
-  { id: 'code' as const, label: 'Code', badge: '' },
 ])
 
 function update(patch: Partial<Request>) {
@@ -180,12 +183,14 @@ onUnmounted(() => {
       <div class="shrink-0 flex items-center gap-2">
         <EnvironmentSelector @manage="emit('manage-environments')" />
         <WsConnectionSettings :request-id="request.id" :settings="settings" />
-        <Button
-          :variant="connected || connecting ? 'destructive' : 'default'"
-          size="sm"
-          class="h-7 px-5 cursor-pointer"
-          @click="toggleConnection"
-        >{{ connected || connecting ? 'Disconnect' : 'Connect' }}</Button>
+        <RunSplitButton
+          :label="connected || connecting ? 'Disconnect' : 'Connect'"
+          :toggle-variant="connected || connecting ? 'destructive' : 'default'"
+          :targets="copyTargets"
+          @run="toggleConnection"
+          @copy="copyAs"
+          @generate="generateCode"
+        />
       </div>
     </div>
 
@@ -258,7 +263,6 @@ onUnmounted(() => {
         @update:pre-script="(v) => update({ preScript: v })"
         @update:post-script="(v) => update({ postScript: v })"
       />
-      <CodeSnippetPanel v-else-if="activeTab === 'code'" :request="request" />
       <RequestDocs
         v-if="docsMounted"
         v-show="activeTab === 'docs'"

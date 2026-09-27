@@ -49,7 +49,7 @@ test.describe('Body Editor', () => {
     await listbox.locator('[role="option"]', { hasText: 'JSON' }).click();
     await expect(typeSelector).toContainText('JSON');
 
-    await expect(page.locator('.cm-editor')).toBeVisible();
+    await expect(page.locator('.cm-content:not([aria-placeholder*="request URL"])')).toBeVisible();
 
     await expect(page.getByText('Format')).toBeVisible();
 
@@ -95,7 +95,7 @@ test.describe('Body Editor', () => {
     await page.locator('[role="listbox"] [role="option"]', { hasText: 'XML' }).click();
 
     await expect(typeSelector).toContainText('XML');
-    await expect(page.locator('.cm-editor')).toBeVisible();
+    await expect(page.locator('.cm-content:not([aria-placeholder*="request URL"])')).toBeVisible();
     await expect(page.getByText('Format')).toBeVisible();
   });
 
@@ -107,7 +107,7 @@ test.describe('Body Editor', () => {
     await page.locator('[role="listbox"] [role="option"]', { hasText: 'Raw' }).click();
 
     await expect(typeSelector).toContainText('Raw');
-    await expect(page.locator('.cm-editor')).toBeVisible();
+    await expect(page.locator('.cm-content:not([aria-placeholder*="request URL"])')).toBeVisible();
 
     await expect(page.getByText('Format')).not.toBeVisible();
 

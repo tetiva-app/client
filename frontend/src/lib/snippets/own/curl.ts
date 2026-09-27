@@ -2,11 +2,9 @@ import type { HarParam, HarRequest } from '@/types/snippet'
 import { Unsupported } from '../types'
 import { buildURL, formEncode, harBody, sentHeaders, shellQuote } from './encode'
 
-// curl reads these as glob ranges and sets; the sentinel swap has already hidden {{placeholders}}.
 const GLOB_CHARS = /[[\]{}]/
 
-// Names -F would split, rewrite or drop: curl ends a name at =, percent-encodes " and line breaks
-// in it, and sends an empty one as no name at all.
+// Names curl -F would split, rewrite or drop.
 const BAD_FIELD_NAME = /^$|^[@<]|[=;"\p{Cc}]/u
 
 export function renderCurl(har: HarRequest): string {
@@ -15,7 +13,7 @@ export function renderCurl(har: HarRequest): string {
     `-H ${shellQuote(h.value ? `${h.name}: ${h.value}` : `${h.name};`)}`)
 
   const body = harBody(har)
-  // --data-raw and --form-string: with -d or -F a value starting with @ makes curl read a local file.
+  // With -d or -F, a value starting with @ makes curl read a local file.
   if (body.kind === 'text') lines.push(`--data-raw ${shellQuote(body.text)}`)
   else if (body.kind === 'form') lines.push(`--data-raw ${shellQuote(formEncode(body.params))}`)
   else if (body.kind === 'file') lines.push(`--data-binary ${shellQuote(`@${body.name}`)}`)
@@ -34,7 +32,7 @@ function formPart(p: HarParam): string {
   return `-F ${shellQuote(`${p.name}=@${file};filename=${file}`)}`
 }
 
-// The quoting of curl's form parser: inside double quotes only \\ and \" are escapes.
+// curl's form parser takes only \\ and \" as escapes inside double quotes.
 function formWord(s: string): string {
   return `"${s.replace(/["\\]/g, '\\$&')}"`
 }

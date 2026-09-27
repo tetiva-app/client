@@ -334,8 +334,6 @@ func TestSyncRemoteWorkspaces_ResetsPullStateOfForeignWorkspace(t *testing.T) {
 	assert.Equal(t, pullState{}, pullStateOf(t, f.db, seededWorkspaceID))
 }
 
-// latePullClient holds the first pull until its caller gives up on it, then answers anyway,
-// the way a slow server does; later pulls find an empty workspace.
 type latePullClient struct {
 	syncv1.SyncServiceClient
 	calls    atomic.Int32
@@ -433,8 +431,6 @@ func seedLocalTree(t *testing.T, db *sql.DB, workspaceID string) (root, folder, 
 	return root, folder, req
 }
 
-// The stand repro: a local workspace auto-linked on connect never uploaded what it held, so the
-// server refused its children ("parent collection not found") and its publication forever.
 func TestEnableSync_AutoLinkQueuesTheEntitiesTheWorkspaceAlreadyHolds(t *testing.T) {
 	f := newVerificationFixture(t)
 	ctx := context.Background()
@@ -562,7 +558,6 @@ func TestLinkWorkspace_SameRemoteQueuesNothing(t *testing.T) {
 	assert.Zero(t, outboxRows(t, f.db, seededWorkspaceID), "a link the workspace already had uploads nothing again")
 }
 
-// linkGapQueue lands a write the moment the link's transaction commits, before the syncer is back.
 type linkGapQueue struct {
 	sqlite.SyncQueueRepository
 	write func()

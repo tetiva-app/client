@@ -21,7 +21,6 @@ const props = defineProps<{
   collectionId: string
 }>()
 
-// The request editor's tab look: an underline sized to the label, not the stock shadcn box stretched across.
 const SECTION_TAB = 'h-auto flex-none rounded-none border-0 border-b-[3px] border-transparent px-4 py-2.5 text-[13px] font-medium '
   + 'text-muted-foreground shadow-none hover:text-foreground focus-visible:border-transparent focus-visible:ring-1 '
   + 'focus-visible:ring-inset focus-visible:outline-none data-[state=active]:border-primary data-[state=active]:bg-transparent '
@@ -49,7 +48,6 @@ const collection = computed(() =>
 const publishStatus = computed(() => publications.statusOf(props.collectionId))
 const publishLabel = computed(() => publishTabLabel(publishStatus.value))
 const isRoot = computed(() => !!collection.value && isRootCollection(collection.value))
-// A nested collection gets the tab only while it still has a page, to take it down.
 const showPublishTab = computed(() =>
   settings.publishingEnabled && (isRoot.value || publishStatus.value?.published === true))
 

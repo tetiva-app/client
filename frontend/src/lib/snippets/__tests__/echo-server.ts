@@ -7,7 +7,7 @@ export interface Echo {
   query: [string, string][]
   headers: [string, string][]
   contentType: string
-  body: string // base64
+  body: string
 }
 
 export interface EchoServer {
@@ -18,7 +18,6 @@ export interface EchoServer {
 // Node decodes header bytes as latin1; the clients send UTF-8.
 const utf8 = (s: string): string => Buffer.from(s, 'latin1').toString('utf8')
 
-// ASCII-only, so a client that guesses the response charset still prints it unchanged.
 function asciiJSON(value: unknown): string {
   return JSON.stringify(value).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 }

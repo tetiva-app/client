@@ -23,7 +23,6 @@ func backfillFailedPasses(t *testing.T, db *sql.DB) int {
 	return n
 }
 
-// restartedSyncer is what a new process builds from the database: nothing carried over in memory.
 func restartedSyncer(env *exampleSyncEnv) *workspaceSyncer {
 	return &workspaceSyncer{
 		engine:            env.engine,

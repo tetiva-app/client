@@ -1,4 +1,4 @@
--- Only a workspace never linked uploads what it holds when it gets a remote: the rows of an earlier remote belong to that account.
+-- Only a never-linked workspace uploads its rows on link: others hold an earlier account's.
 ALTER TABLE workspaces ADD COLUMN was_linked INTEGER NOT NULL DEFAULT 0;
 UPDATE workspaces SET was_linked = 1
 WHERE (remote_workspace_id IS NOT NULL AND remote_workspace_id != '')

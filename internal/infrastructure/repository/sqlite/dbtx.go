@@ -37,8 +37,7 @@ func WithTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context) error)
 	return runTx(ctx, db, fn)
 }
 
-// WithInboundTx is WithTx on a connection with foreign keys off: a sync page may carry a child
-// before its parent. The pragma is a no-op inside a transaction, so a caller's TX is joined as is.
+// WithInboundTx turns foreign keys off: a sync page may carry a child before its parent.
 func WithInboundTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context) error) error {
 	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		return fn(ctx)
@@ -63,7 +62,7 @@ func WithInboundTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context)
 	return runTx(ctx, conn, fn)
 }
 
-// restoreForeignKeys discards a connection it cannot restore rather than pool it with the check off.
+// restoreForeignKeys discards a connection it cannot restore rather than pool it.
 func restoreForeignKeys(conn *sql.Conn) {
 	if _, err := conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON"); err != nil {
 		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
@@ -97,7 +96,7 @@ func runTx(ctx context.Context, db txBeginner, fn func(ctx context.Context) erro
 	return nil
 }
 
-// Inside WithTx fn runs once the outermost transaction commits and never on rollback; elsewhere it runs at once.
+// Inside a TX fn waits for the outermost commit and is dropped on rollback.
 func AfterCommit(ctx context.Context, fn func()) {
 	if hooks, ok := ctx.Value(afterCommitKey{}).(*[]func()); ok {
 		*hooks = append(*hooks, fn)

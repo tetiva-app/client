@@ -13,7 +13,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 )
 
-// barrierRepo holds every reader until all of them have read, so both saves start from the same version.
 type barrierRepo struct {
 	*ResponseExampleRepo
 	reads *sync.WaitGroup
@@ -42,7 +41,6 @@ func newLockingEnv(t *testing.T) *lockingEnv {
 	return &lockingEnv{cascadeEnv: env, repo: NewResponseExampleRepo(env.db), ex: list[0]}
 }
 
-// racing runs both calls after each has read the example.
 func (env *lockingEnv) racing(t *testing.T, a, b func(uc example.Usecase) error) (errA, errB error) {
 	t.Helper()
 	reads := &sync.WaitGroup{}

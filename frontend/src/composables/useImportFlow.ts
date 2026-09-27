@@ -31,8 +31,6 @@ const REASON_TEXT: Record<string, string> = {
   UNSUPPORTED_FILE: "This file isn't a Postman or Tetiva collection",
 }
 
-// Dev builds flip together with the Go side's !production tag, which lets TETIVA_PUBLIC_API point at a
-// local stand or a self-hosted server: the links that server shows live on its own host.
 const ANY_SHARE_HOST = import.meta.env.MODE !== 'production'
 
 export function parseShareLink(input: string, anyHost = ANY_SHARE_HOST): string | null {
@@ -53,7 +51,6 @@ export function parseShareLink(input: string, anyHost = ANY_SHARE_HOST): string 
   return SLUG.test(slug) ? slug : null
 }
 
-// Go checks the size again; this spares the webview a large snapshot while a large Postman file still passes.
 export async function snapshotFileTooLarge(file: Blob): Promise<boolean> {
   if (file.size <= MAX_SNAPSHOT_FILE_BYTES) return false
   return (await file.slice(0, 4096).text()).includes(SNAPSHOT_MARKER)
@@ -82,7 +79,6 @@ export function useImportFlow() {
   const collections = useCollectionStore()
   const toast = useToast()
 
-  // Imported requests without auth inherit it, and a folder with none passes its parent's on (request/auth_resolver.go).
   function authOwnerName(folderId: string): string {
     const seen = new Set<string>()
     let c = collections.collectionsMap.get(folderId)
@@ -159,7 +155,7 @@ export function useImportFlow() {
       return
     }
     ui.title = meta.data.title
-    // Any token here is a deep link's, possibly one enqueue took from a page clicked during the check.
+    // Any token here is a deep link's, possibly one enqueue took during the check.
     if (meta.data.passwordRequired && !ui.token) {
       ui.linkStep = 'password'
       return
@@ -186,7 +182,6 @@ export function useImportFlow() {
     await fetchPreview(flow, res.data.token, false)
   }
 
-  // The download counts as an import on the server and spends a one-time token, so it runs once per link.
   async function fetchPreview(flow: number, token: string, oneTimeToken: boolean) {
     ui.busy = 'Downloading the collection…'
     const res = await guarded((await getPortabilityService()).linkFetch(ui.slug, token))
@@ -300,19 +295,17 @@ export function useImportFlow() {
     if (created) useRequestStore().openCollectionTab(created.id, created.name)
   }
 
-  // The backend finishes a started import regardless, so the dialog waits for its answer.
+  // A started import finishes in the backend regardless; the dialog waits for its answer.
   function cancel() {
     if (ui.importing) return
     finish()
   }
 
-  // A flow stopped on an error or an expired link can't import, so a new click for it starts over.
   function canFinish(): boolean {
     if (ui.source) return !ui.expired && !ui.confirmError
     return ui.busy !== '' || ui.linkStep === 'password'
   }
 
-  // Every click on the page mints a new import token, so links are matched by slug; the one with a token wins.
   function enqueue(link: DeepLink) {
     if (ui.active && ui.slug === link.slug) {
       if (!canFinish()) {
@@ -336,7 +329,6 @@ export function useImportFlow() {
     await fetchPreview(ui.flow, token, true)
   }
 
-  // Subscribing first means a link that arrives before the first take triggers a take of its own.
   async function listenDeepLinks(): Promise<() => void> {
     const links = await getDeepLinkService()
     const drain = async () => {
@@ -350,7 +342,6 @@ export function useImportFlow() {
     return off
   }
 
-  // Runs fn once no import is open or queued: the startup welcome must not open over a deep link's import.
   function afterImports(fn: () => void) {
     const idle = () => !ui.active && ui.queue.length === 0
     if (idle()) {

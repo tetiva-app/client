@@ -2,7 +2,6 @@ import type { HarRequest } from '@/types/snippet'
 import { replaceVars, varRefs } from './vars'
 
 const PORT_AFTER_BASE = /^:(\d+|\{\{[^}]+\}\})(?=[/?#]|$)/
-// The port of a URL printed as a string literal: "://", the host with any userinfo, ":" and the digits.
 const URL_PORT = /(:\/\/[^\s/?#'"`\\]*:)(\d+)(?!\d)/g
 const SAFE_NAME = /^[A-Za-z0-9_.-]+$/
 const PREFIX_RUN = /(?=zqv(z*))/g
@@ -15,12 +14,11 @@ export interface Sentinels {
   warnings: string[]
 }
 
-// httpsnippet runs the URL through url.parse, which percent-encodes {{…}} and loses a {{host}};
-// lowercase alphanumeric tokens survive it, and so does a numeric port.
+// httpsnippet's url.parse mangles {{…}}; lowercase alphanumeric tokens and ports survive.
 export function withSentinels(input: HarRequest): Sentinels {
   const har = structuredClone(input)
   const seen = JSON.stringify(input)
-  // Absent from the request even lowercased, as url.parse lowercases the host, so restore rewrites only tokens.
+  // Picked absent even lowercased, as url.parse lowercases the host.
   const lower = seen.toLowerCase()
   let run = -1
   for (const m of lower.matchAll(PREFIX_RUN)) run = Math.max(run, m[1].length)
@@ -86,7 +84,7 @@ export function withSentinels(input: HarRequest): Sentinels {
   const unsafe = new Map<string, number>()
   const shown = names.map((name) => showName(name, unsafe, warnings))
 
-  // Ports go first, while a base variable's host still carries the https:// the URL context needs.
+  // Ports first, while a base variable's host still carries the https:// URL_PORT needs.
   const restore = (code: string): string => {
     let out = code.replace(URL_PORT, (whole, head: string, port: string) => {
       const tok = portTokens.get(port)
@@ -99,14 +97,13 @@ export function withSentinels(input: HarRequest): Sentinels {
   return { har, restore, warnings }
 }
 
-// seen carries the numbering across calls: a name keeps one VAR_<i> and is warned about once.
 export function restoreUnsafeNames(text: string, seen = new Map<string, number>()): { text: string; warnings: string[] } {
   const warnings: string[] = []
   const out = replaceVars(text, (name) => showName(name, seen, warnings))
   return { text: out, warnings }
 }
 
-// One per snippet. Each part is fixed on its own, so a {{ in one field never pairs with a }} in the next.
+// One per snippet; each part is fixed alone, so a {{ never pairs with a }} in the next.
 export function snippetNames(): { safe(...parts: string[]): string; warnings: string[] } {
   const seen = new Map<string, number>()
   const warnings: string[] = []
@@ -129,7 +126,6 @@ function showName(name: string, seen: Map<string, number>, warnings: string[]): 
   return `VAR_${i}`
 }
 
-// The authority ends at the first / ? or # outside a {{…}} reference, whose name may contain them.
 function authorityRange(url: string): [number, number] | null {
   const scheme = url.indexOf('://')
   if (scheme < 0) return null

@@ -57,7 +57,7 @@ test.describe('Publication', () => {
     const dialog = page.getByRole('dialog');
     const environment = dialog.getByRole('combobox', { name: 'Environment' });
     await expect(environment).toHaveText('None');
-    // The closing menu hands focus back to its row when it unmounts, which would pull it out of an open list.
+    // The closing menu refocuses its row on unmount, which would pull focus out of an open list.
     await expect(page.getByRole('menu', { includeHidden: true })).toHaveCount(0);
 
     await environment.focus();

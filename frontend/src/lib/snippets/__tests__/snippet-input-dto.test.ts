@@ -2,12 +2,10 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import type { SnippetInput, SnippetRequest } from '@/types/snippet'
 
-// Written by TestSnippetContractFixtures (Go) in the shape the Wails method returns.
 const GO_CONTRACT_DIR = new URL('../../../../../internal/adapters/wails/dto/testdata/snippet/', import.meta.url)
 
 const reply = vi.hoisted(() => ({ json: '' }))
 
-// Only the transport is faked: the binding classes and their createFrom run as in the app.
 vi.mock('@wailsio/runtime', async (importOriginal) => ({
   ...await importOriginal<typeof import('@wailsio/runtime')>(),
   Call: { ByID: async () => JSON.parse(reply.json) },

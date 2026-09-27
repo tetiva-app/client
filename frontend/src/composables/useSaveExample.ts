@@ -54,7 +54,7 @@ export function exampleFromResponse(src: SaveExampleSource, name: string): Creat
   }
 }
 
-// A failed scan must not stop the save: it only decides whether to ask first.
+// A failed scan never blocks the save; it only decides whether to ask first.
 async function suspectedSecrets(input: CreateExampleInput): Promise<string[]> {
   try {
     const res = await (await getExampleService()).scanSecrets({ headers: input.headers, body: input.body })
@@ -92,8 +92,7 @@ export function useSaveExample(source: () => SaveExampleSource | null) {
     }
   }
 
-  // save returns false without saving when the response looks like it holds a credential;
-  // secretsOpen then asks, and saveAnyway stores what was held.
+  // False on a suspected credential: secretsOpen asks, and saveAnyway stores what was held.
   async function save(name: string): Promise<boolean> {
     const src = source()
     if (!src || saving.value || saveExampleBlocker(src)) return false

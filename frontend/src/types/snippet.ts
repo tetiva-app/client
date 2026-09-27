@@ -1,7 +1,6 @@
 import type { Protocol, Request } from './request'
 
-// Mirrors dto.SnippetInputDTO. The HAR objects keep HAR 1.2 names because the
-// snippet bundle passes them to httpsnippet unchanged.
+// Mirrors dto.SnippetInputDTO; HAR objects keep HAR 1.2 names, passed to httpsnippet as is.
 
 export interface HarNameValue {
   name: string
@@ -72,7 +71,6 @@ export type SnippetRequest = Pick<Request,
 export interface BuildSnippetReq {
   workspaceId: string
   resolveVariables: boolean
-  // Variables marked secret stay {{name}} unless this is set; it has no effect without resolveVariables.
   includeSecrets?: boolean
   request: SnippetRequest
 }

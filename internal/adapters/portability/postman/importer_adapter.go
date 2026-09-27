@@ -17,7 +17,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// Importer is the portability.Importer for Postman Collection v2.1 files.
 type Importer struct {
 	collections CollectionCreator
 	requests    RequestCreator
@@ -41,7 +40,6 @@ func (i *Importer) Detect(data []byte) bool {
 	return bytes.HasPrefix(bytes.TrimSpace(probe.Item), []byte("["))
 }
 
-// Preview runs the real import against recorders, so counts and warnings are the ones Import gives.
 func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 	const funcName = "postman.Importer.Preview"
 
@@ -83,7 +81,6 @@ func (i *Importer) Import(ctx context.Context, data []byte, opt portability.Impo
 	}, nil
 }
 
-// recorder collects the URLs a dry run would have written: request URLs and OAuth 2.0 endpoints.
 type recorder struct {
 	urls []string
 }
@@ -124,7 +121,7 @@ func (exampleRecorder) Create(_ context.Context, in example.Create, _ example.Cr
 	return &entities.ResponseExample{ID: uuid.New(), RequestID: in.RequestID, Name: in.Name}, nil
 }
 
-// scriptPreviews lists the scripts an import with scripts on would keep, in the order collectScripts reads them.
+// scriptPreviews mirrors collectScripts: the same scripts, in the same order.
 func scriptPreviews(pc PostmanCollection) []portability.ScriptPreview {
 	out := []portability.ScriptPreview{}
 	var walk func(path string, events []PostmanEvent, items []PostmanItem)

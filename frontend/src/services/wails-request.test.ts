@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SnippetRequest } from '@/types/snippet'
 
-// Vitest hoists vi.mock above imports: the fakes live inside the factories.
 vi.mock('../../bindings/github.com/tetiva-app/client/internal/adapters/wails', () => ({
   RequestService: {
     BuildSnippetInput: vi.fn(async () => ({ data: { protocol: 'http', warnings: [] }, error: null })),

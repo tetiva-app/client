@@ -8,7 +8,6 @@ import { useWebSocketStore } from '@/stores/websocket'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { Request } from '@/types/request'
 
-// Binds the code panel to the stores; the component itself only lays it out.
 export function useCodeSnippetPanel(request: Ref<Request>) {
   const envStore = useEnvironmentStore()
   const workspaceStore = useWorkspaceStore()

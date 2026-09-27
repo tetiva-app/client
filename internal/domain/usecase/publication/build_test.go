@@ -89,7 +89,6 @@ func TestBuild_OrderIsSortOrderThenCreatedAtThenID(t *testing.T) {
 			names = append(names, it.Request.Name)
 		}
 	}
-	// Folders come first as in the sidebar; r1, tieA, tieB share sort order and created_at, so ids decide.
 	assert.Equal(t, []string{"folder after requests in storage order", "first by sort order", "second by created_at", "tie a", "tie b"}, names)
 }
 

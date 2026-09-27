@@ -29,7 +29,6 @@ type Store = ReturnType<typeof useExamplesStore>
 
 const unmounts: (() => void)[] = []
 
-// Mounts a window the way App.vue (main) and DetachedRequestWindow subscribe it.
 function openWindow(mode: 'main' | 'detached-request'): Store {
   let store!: Store
   const Root = defineComponent({
@@ -46,7 +45,6 @@ function openWindow(mode: 'main' | 'detached-request'): Store {
 
 const settle = () => new Promise(r => setTimeout(r, 0))
 
-// Events travel through a dynamic import, so the other window catches up a few ticks later.
 function seen(store: Store, id: string, version: number) {
   return vi.waitFor(() => expect(store.byRequest.r1?.find(e => e.id === id)?.version).toBe(version))
 }
@@ -75,7 +73,7 @@ function input(over: Partial<CreateExampleInput> = {}): CreateExampleInput {
 }
 
 async function twoWindows(): Promise<[Store, Store]> {
-  // One at a time: vitest can hand the real module to a dynamic import racing the first mocked one.
+  // One at a time: vitest may give the real module to a dynamic import racing the mocked one.
   const a = openWindow('main')
   await vi.waitFor(() => expect(wailsBus.listeners('examples:changed')).toBe(1))
   const b = openWindow('detached-request')

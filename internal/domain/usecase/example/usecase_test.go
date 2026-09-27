@@ -553,7 +553,6 @@ func TestDeleteByRequest_IgnoresChainLiveness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	// Inside the cascade the request row is already soft-deleted.
 	f.requests[f.req.ID].IsDelete = true
 
 	if err := f.uc.DeleteByRequest(context.Background(), f.req.ID, "u2"); err != nil {
@@ -585,7 +584,6 @@ func TestMoveToWorkspace_CopiesAndTombstonesOriginals(t *testing.T) {
 	f := newFixture()
 	a := f.seed(t)
 	b := f.seed(t)
-	// The request already points at a collection of wsB when the cascade runs.
 	target := &entities.Collection{ID: uuid.New(), WorkspaceID: wsB}
 	f.collections[target.ID] = target
 	f.requests[f.req.ID].CollectionID = target.ID

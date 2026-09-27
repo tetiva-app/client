@@ -80,7 +80,6 @@ func openDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// store writes the fixture in the given order and reads it back the way the publication service will.
 func store(t *testing.T, in publication.BuildInput, reverse bool) publication.BuildInput {
 	t.Helper()
 	ctx := context.Background()
@@ -156,7 +155,7 @@ func TestContentHash_SameDataInTwoDatabases(t *testing.T) {
 	for _, c := range in.Collections {
 		c.SortOrder = 0
 	}
-	// Equal sort order and timestamps leave only the id to break ties, which the repositories do not order by.
+	// Forces ties on sort order and time: the repositories do not order by id.
 	for _, r := range in.Requests {
 		r.CreatedAt = in.Root.CreatedAt
 	}

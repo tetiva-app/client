@@ -22,7 +22,7 @@ const passwordInput = ref<InstanceType<typeof Input> | null>(null)
 
 const locked = computed(() => ui.linkStep === 'password')
 
-// The field is disabled while a request runs, which drops focus; a wrong password should be retyped at once.
+// Disabling the field while busy drops its focus; a wrong password is retyped at once.
 watch([locked, () => ui.busy], async ([on, busy]) => {
   if (!on || busy) return
   await nextTick()

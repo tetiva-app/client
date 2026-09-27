@@ -68,17 +68,14 @@ const (
 	// planLimitMarker is the text of the server's domain.ErrQuotaExceeded: sync shares
 	// ResourceExhausted with transport limits, so the status code alone means nothing.
 	planLimitMarker = "quota exceeded"
-	// maxParentRetries bounds how often an example waits for a request the server never received.
-	maxParentRetries = 5
-	// maxSnapshotRestarts bounds how often one pull starts a snapshot over after its page token was refused.
+	// maxParentRetries bounds the waits of an example for a request the server never got.
+	maxParentRetries    = 5
 	maxSnapshotRestarts = 3
-	// maxBackfillFailedPasses drops the backfill flag after this many failed passes in a row: otherwise
-	// every recheck would download all examples again.
+	// maxBackfillFailedPasses drops the flag, or every recheck would refetch all examples.
 	maxBackfillFailedPasses = 3
 )
 
-// knownTypes tells the server this build stores every entity type: an empty list reads as a client
-// that predates response examples.
+// An empty knownTypes reads to the server as a client that predates response examples.
 var knownTypes = []syncv1.EntityType{
 	syncv1.EntityType_ENTITY_TYPE_COLLECTION,
 	syncv1.EntityType_ENTITY_TYPE_ENVIRONMENT,
@@ -101,7 +98,6 @@ const requeueFloor = 250 * time.Millisecond
 // sign-in or shutdown hostage.
 const stopAllTimeout = 5 * time.Second
 
-// capability is what the connected server said about response examples.
 type capability int
 
 const (
@@ -110,13 +106,10 @@ const (
 	capUnsupported
 )
 
-// serverInfoTimeout bounds the capability check at the start of a cycle; a var so tests can shorten it.
 var serverInfoTimeout = 5 * time.Second
 
-// capabilityRecheckInterval restarts a cycle whose capability stayed unknown; a var so tests can shorten it.
 var capabilityRecheckInterval = 15 * time.Minute
 
-// errRecheck ends a subscribe so the reconnect path reads the capability again.
 var errRecheck = errors.New("sync: recheck cycle")
 
 // EventEmitter is a function that emits events to the frontend via Wails.
@@ -163,8 +156,7 @@ type SyncEngine struct {
 	// startBarrier serializes starts against stopAll: a start landing after the
 	// cancel sweep would outlive the barrier the client swap relies on.
 	startBarrier gosync.RWMutex
-	// examplesClient is the client whose server confirmed response examples; capMu
-	// also covers the grpcClient swap so a late answer cannot land on the new client.
+	// capMu also guards the grpcClient swap, so a late answer cannot land on the new client.
 	capMu          gosync.Mutex
 	examplesClient *GRPCClient
 
@@ -254,8 +246,7 @@ func (e *SyncEngine) tokenCleaner() TokenCleaner {
 	return e.tokens
 }
 
-// OnConnected registers fn to run in its own goroutine whenever a workspace syncer comes back to
-// StateConnected, which is when work waiting for the server can be retried.
+// OnConnected runs fn in its own goroutine whenever a workspace syncer gets connected.
 func (e *SyncEngine) OnConnected(fn func()) {
 	e.connectedMu.Lock()
 	defer e.connectedMu.Unlock()
@@ -288,8 +279,6 @@ func (e *SyncEngine) GRPCClient() *GRPCClient {
 	return e.grpcClient.Load()
 }
 
-// examplesCapability asks the server whether it takes response examples. Only support
-// is cached: an unknown or negative answer is asked again on the next cycle.
 func (e *SyncEngine) examplesCapability(ctx context.Context) capability {
 	client := e.grpcClient.Load()
 	if client == nil || client.auth == nil {
@@ -335,7 +324,6 @@ func (e *SyncEngine) forgetExamplesCapability() {
 	e.examplesClient = nil
 }
 
-// excludedTypes lists the entity types a server without the examples capability must not be sent.
 func excludedTypes(c capability) []string {
 	if c == capSupported {
 		return nil
@@ -392,7 +380,6 @@ func (e *SyncEngine) StopWorkspace(localWorkspaceID string) {
 	e.stopWorkspace(localWorkspaceID)
 }
 
-// stopWorkspace returns the syncer it cancelled, nil when none was tracked.
 func (e *SyncEngine) stopWorkspace(localWorkspaceID string) *workspaceSyncer {
 	e.enabledWorkspaces.Delete(localWorkspaceID)
 	v, ok := e.workspaces.LoadAndDelete(localWorkspaceID)
@@ -404,8 +391,7 @@ func (e *SyncEngine) stopWorkspace(localWorkspaceID string) *workspaceSyncer {
 	return ws
 }
 
-// StopWorkspaceAndWait also waits for the syncer's goroutine, so a pull it still has in flight cannot
-// land after the caller's next write. False when the goroutine outlived stopAllTimeout.
+// StopWorkspaceAndWait is false when the syncer's goroutine outlived stopAllTimeout.
 func (e *SyncEngine) StopWorkspaceAndWait(localWorkspaceID string) bool {
 	return e.stopWorkspaceAndWait(localWorkspaceID, stopAllTimeout)
 }
@@ -475,8 +461,7 @@ func (e *SyncEngine) GetWorkspaceState(localWorkspaceID string) SyncState {
 	return StateDisconnected
 }
 
-// GetPendingCount counts entries that still owe the server a push, parked retries included;
-// examples only once the current server confirmed it takes them, without asking it here.
+// GetPendingCount counts examples only once the server confirmed them; it makes no RPC.
 func (e *SyncEngine) GetPendingCount(ctx context.Context, workspaceID string) (int, error) {
 	confirmed := capUnknown
 	if e.examplesConfirmed(e.grpcClient.Load()) {
@@ -493,7 +478,7 @@ func (e *SyncEngine) GetTooLargeCount(ctx context.Context, workspaceID string) (
 	return e.syncQueue.CountTooLarge(ctx, workspaceID)
 }
 
-// QueueUnsyncedTree queues the parts of a collection tree the server never confirmed and wakes the push.
+// QueueUnsyncedTree queues what the server never confirmed of a tree and wakes the push.
 func (e *SyncEngine) QueueUnsyncedTree(ctx context.Context, workspaceID, collectionID string) (int, error) {
 	n, err := e.syncQueue.EnqueueUnsyncedTree(ctx, workspaceID, collectionID)
 	if err != nil {
@@ -555,8 +540,7 @@ func (e *SyncEngine) ForceResync(ctx context.Context, workspaceID string) error 
 	return nil
 }
 
-// clearOutbox sends the workspace back to cursor 0 and returns how many queued rows are gone for good.
-// The clear, the re-offers and the reset share one transaction: a clear alone drops unsent docs and examples.
+// The clear and the re-offers share one TX: a clear alone drops unsent docs and examples.
 func (e *SyncEngine) clearOutbox(ctx context.Context, workspaceID string) (int, error) {
 	var lost, reoffered, examples int
 
@@ -587,7 +571,6 @@ func (e *SyncEngine) clearOutbox(ctx context.Context, workspaceID string) (int, 
 			`DELETE FROM sync_snapshot_seen WHERE workspace_id = ?`, workspaceID); err != nil {
 			return fmt.Errorf("forget the walks: %w", err)
 		}
-		// The snapshot from cursor 0 brings every example, so no backfill is owed.
 		if _, err := sqlite.DBTXFromContext(txCtx, e.db).ExecContext(txCtx,
 			`UPDATE workspaces
 			 SET last_sync_seq = 0, sync_page_token = '', examples_backfill_pending = 0, examples_backfill_token = '',
@@ -610,7 +593,6 @@ func (e *SyncEngine) clearOutbox(ctx context.Context, workspaceID string) (int, 
 	return lost, nil
 }
 
-// queuedEntities counts the queue rows of each entity, keyed by type and id.
 func (e *SyncEngine) queuedEntities(ctx context.Context, workspaceID string) (map[string]int, error) {
 	rows, err := sqlite.DBTXFromContext(ctx, e.db).QueryContext(ctx,
 		`SELECT entity_type || ':' || entity_id, COUNT(*) FROM sync_queue WHERE workspace_id = ? GROUP BY entity_type, entity_id`,
@@ -738,18 +720,14 @@ type workspaceSyncer struct {
 	// requeueTimer wakes the syncer once when parked entries fall due: no local
 	// write is coming to trigger the push that would requeue them.
 	requeueTimer *time.Timer
-	// examplesCap is set once per cycle and read by drain, which runs inside subscribe's
-	// select and must not wait on an RPC. Only the run goroutine touches it.
-	examplesCap capability
-	// backfillPending is examples_backfill_pending as the latest backfill attempt left it; like
-	// examplesCap, it belongs to the run goroutine.
+	// Cached per cycle for drain, which cannot wait on an RPC; run goroutine only, no lock.
+	examplesCap     capability
 	backfillPending bool
 	// done closes when run returns; nil for a syncer that never had a goroutine.
 	done chan struct{}
 }
 
-// refreshCapability runs at the start of every cycle, before its first push. Only a recheck
-// of an unbroken stream may reuse the cache: a restart can put an older server behind the same address.
+// Only a recheck of an unbroken stream reuses the cache: a restart may swap the server.
 func (ws *workspaceSyncer) refreshCapability(ctx context.Context, reuseCached bool) {
 	if !reuseCached {
 		ws.engine.forgetExamplesCapability()
@@ -757,8 +735,7 @@ func (ws *workspaceSyncer) refreshCapability(ctx context.Context, reuseCached bo
 	ws.examplesCap = ws.engine.examplesCapability(ctx)
 }
 
-// needsRecheck arms no timer for an older server: migration 021 flags every workspace linked
-// before it, and the cycle would restart every interval for nothing.
+// No timer for an older server: migration 021 flags every linked workspace for backfill.
 func (ws *workspaceSyncer) needsRecheck() bool {
 	return ws.examplesCap == capUnknown || (ws.examplesCap == capSupported && ws.backfillPending)
 }
@@ -939,11 +916,10 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 
 		var protoEntities []*syncv1.SyncEntity
 		var entryIDs []int64
-		// Every row accounted for in this pass stands for its entity; its older pending rows go after it.
 		var handled []*sqlite.SyncEntry
 		exampleParents := make(map[string]string)
 		sizes := make(map[int64]int)
-		// sent holds the row version each entity went out with: an ACK confirms that version only.
+		// sent holds the version each entity went out with: an ACK confirms that version only.
 		sent := make(map[string]int)
 		batchBytes := 0
 
@@ -1115,15 +1091,12 @@ func (ws *workspaceSyncer) drainOutbox(ctx context.Context) error {
 	}
 }
 
-// dropOlderPending keeps a coalesced entity from going out again under each of its older rows.
 func (ws *workspaceSyncer) dropOlderPending(ctx context.Context, handled []*sqlite.SyncEntry) {
 	if err := ws.engine.syncQueue.DropOlderPending(ctx, handled); err != nil {
 		slog.Warn("sync: failed to drop superseded pending entries", "workspace", ws.localWorkspaceID, "err", err)
 	}
 }
 
-// deferOrphanExamples holds examples the server refused for a missing request; the first miss re-offers
-// the request, and a miss while the request itself is held in the queue spends no attempt.
 func (ws *workspaceSyncer) deferOrphanExamples(ctx context.Context, entryIDs []int64, orphans []*sqlite.SyncEntry, parents map[string]string) []int64 {
 	if len(orphans) == 0 {
 		return entryIDs
@@ -1220,8 +1193,7 @@ func entityProto(entity any, operationID string) *syncv1.SyncEntity {
 	return nil
 }
 
-// tombstone builds a delete push and the row version it confirms. An older server stores a tombstone
-// as sent, so it gets the deleted row stamped with the push time: a bare one reaches peers unreadable.
+// An older server stores a tombstone as sent: a bare one would reach peers unreadable.
 func (ws *workspaceSyncer) tombstone(ctx context.Context, entry *sqlite.SyncEntry) (*syncv1.SyncEntity, int, bool) {
 	serverDated := ws.examplesCap == capSupported
 	if !serverDated {
@@ -1244,12 +1216,10 @@ func (ws *workspaceSyncer) tombstone(ctx context.Context, entry *sqlite.SyncEntr
 	return p, version, ok
 }
 
-// deletedRowReader is offered by the SQLite repositories the engine runs on; without it a delete goes out bare.
 type deletedRowReader[T any] interface {
 	GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (T, error)
 }
 
-// readDeletedEntity returns (nil, nil) when the row is gone for good, like a hard-deleted draft.
 func (ws *workspaceSyncer) readDeletedEntity(ctx context.Context, entityType, entityID string) (any, error) {
 	id, err := uuid.Parse(entityID)
 	if err != nil {
@@ -1284,8 +1254,7 @@ func readDeleted[T comparable](ctx context.Context, repo any, id uuid.UUID) (any
 	return row, nil
 }
 
-// buildDeleteProto builds the minimal SyncEntity server-side deletion needs. A serverDated
-// tombstone carries no time and the server dates it; an older server needs the push time to win LWW.
+// A serverDated tombstone has no time; an older server needs the push time to win LWW.
 func buildDeleteProto(entry *sqlite.SyncEntry, serverDated bool) *syncv1.SyncEntity {
 	var entityType syncv1.EntityType
 	switch entry.EntityType {
@@ -1314,7 +1283,7 @@ func buildDeleteProto(entry *sqlite.SyncEntry, serverDated bool) *syncv1.SyncEnt
 	return b.Build()
 }
 
-// markSynced leaves a row edited during the push unsynced: its newer version is still owed to the server.
+// markSynced skips a row edited during the push: its newer version is still owed.
 func (ws *workspaceSyncer) markSynced(ctx context.Context, entityID string, entries []*sqlite.SyncEntry, sent map[string]int) {
 	table, ok := syncedTable(entityTypeOf(entityID, entries))
 	version, known := sent[entityID]
@@ -1328,7 +1297,7 @@ func (ws *workspaceSyncer) markSynced(ctx context.Context, entityID string, entr
 	}
 }
 
-// rowVersion reads the version of a row whatever its is_delete; false when the row is gone.
+// rowVersion ignores is_delete; false only when the row is gone.
 func (ws *workspaceSyncer) rowVersion(ctx context.Context, entityType, entityID string) (int, bool) {
 	table, ok := syncedTable(entityType)
 	if !ok {
@@ -1523,8 +1492,7 @@ func (ws *workspaceSyncer) pullCycle(ctx context.Context) error {
 	return ws.pullAll(ctx)
 }
 
-// pullAll walks a snapshot page by page when there is no cursor or a walk to resume, then pulls
-// incrementally from the snapshot's boundary until the server has nothing more.
+// pullAll walks a snapshot if needed, then pulls incrementally until nothing is left.
 func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 	pageToken, err := ws.loadPageToken(ctx)
 	if err != nil {
@@ -1568,7 +1536,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 		}
 
 		if resp.GetResyncRequired() {
-			// Resyncing here would pull the same snapshot again and could be told to resync again.
+			// Resyncing here would pull the same snapshot and could be told to resync again.
 			if snapshotted {
 				slog.Warn("sync: resync required right after a snapshot, ending the pull", "workspace", ws.localWorkspaceID)
 				return nil
@@ -1586,7 +1554,7 @@ func (ws *workspaceSyncer) pullAll(ctx context.Context) error {
 		}
 		if snapshot {
 			pageToken = ""
-			// An empty workspace leaves the cursor at 0, where the next request would be a snapshot again.
+			// An empty workspace keeps the cursor at 0, where the next request is a snapshot again.
 			if resp.GetNextSyncSeq() == 0 {
 				return nil
 			}
@@ -1626,8 +1594,6 @@ func (ws *workspaceSyncer) restartSnapshot(ctx context.Context) error {
 	return nil
 }
 
-// applyPullPage stores a page together with the position it reached: a snapshot page keeps its
-// token and leaves the cursor alone, any other page moves the cursor forward.
 func (ws *workspaceSyncer) applyPullPage(ctx context.Context, resp *syncv1.PullResponse, snapshot bool) error {
 	pageToken := resp.GetNextSnapshotPageToken()
 	nextSeq := resp.GetNextSyncSeq()
@@ -1683,8 +1649,7 @@ func (ws *workspaceSyncer) applyPullPage(ctx context.Context, resp *syncv1.PullR
 	return nil
 }
 
-// backfillExamples fetches the examples that clients before 1.2.0 skipped while their cursor moved
-// past them. Only an expired session, an update-required entity or cancellation end the cycle.
+// backfillExamples refetches examples pre-1.2.0 clients skipped as their cursor moved on.
 func (ws *workspaceSyncer) backfillExamples(ctx context.Context) error {
 	var err error
 	if ws.examplesCap == capSupported {
@@ -1717,7 +1682,6 @@ func (ws *workspaceSyncer) backfillExamples(ctx context.Context) error {
 	return nil
 }
 
-// isConnectivityErr is a failure that says nothing about the backfill itself: no answer came back.
 func isConnectivityErr(err error) bool {
 	code, _, ok := grpcStatusOf(err)
 	if !ok {
@@ -1738,7 +1702,7 @@ type backfillState struct {
 	failedPasses int
 }
 
-// loadBackfillState reads the database on every attempt: a resync may have cleared the flag since.
+// loadBackfillState reads the database every time: a resync may have cleared the flag.
 func (ws *workspaceSyncer) loadBackfillState(ctx context.Context) (backfillState, error) {
 	var s backfillState
 	err := sqlite.DBTXFromContext(ctx, ws.engine.db).QueryRowContext(ctx,
@@ -1812,8 +1776,7 @@ func (ws *workspaceSyncer) runBackfill(ctx context.Context) error {
 	}
 }
 
-// applyBackfillPage stores a page with the walk's position and whether the pass left an example
-// unstored; the cursor, next_sync_seq and resync_required belong to the regular pull.
+// The cursor, next_sync_seq and resync_required stay with the regular pull.
 func (ws *workspaceSyncer) applyBackfillPage(ctx context.Context, changes []*syncv1.SyncChange, next string) error {
 	var applied, reconciled int
 
@@ -1856,8 +1819,6 @@ func (ws *workspaceSyncer) applyBackfillPage(ctx context.Context, changes []*syn
 	return nil
 }
 
-// applyBackfillExamples skips examples with a queued local change: that change is pushed next and
-// the server settles it. A failed example is skipped like in the regular pull, but counted.
 func (ws *workspaceSyncer) applyBackfillExamples(ctx context.Context, changes []*syncv1.SyncChange) (applied, unapplied int, err error) {
 	for _, change := range changes {
 		entity := change.GetEntity()
@@ -1893,7 +1854,6 @@ func (ws *workspaceSyncer) saveBackfillPage(ctx context.Context, token string, u
 	return nil
 }
 
-// restartBackfillPass sends the next attempt back to the first page as a pass of its own.
 func (ws *workspaceSyncer) restartBackfillPass(ctx context.Context) error {
 	err := sqlite.WithTx(ctx, ws.engine.db, func(txCtx context.Context) error {
 		if _, err := sqlite.DBTXFromContext(txCtx, ws.engine.db).ExecContext(txCtx,
@@ -1909,7 +1869,6 @@ func (ws *workspaceSyncer) restartBackfillPass(ctx context.Context) error {
 	return nil
 }
 
-// failBackfillPass counts a pass that failed and drops the flag once maxBackfillFailedPasses fail in a row.
 func (ws *workspaceSyncer) failBackfillPass(ctx context.Context) error {
 	return sqlite.WithTx(ctx, ws.engine.db, func(txCtx context.Context) error {
 		state, err := ws.loadBackfillState(txCtx)
@@ -1957,8 +1916,7 @@ func (ws *workspaceSyncer) clearBackfill(ctx context.Context) error {
 	return nil
 }
 
-// applyChanges leaves an example with a queued local change out of a snapshot page, as the backfill
-// does: a server without the capability never got it, and the page would overwrite it.
+// A queued example stays out of a snapshot page: a server without examples never got it.
 func (ws *workspaceSyncer) applyChanges(ctx context.Context, changes []*syncv1.SyncChange, snapshot bool) error {
 	var deleted bool
 	for _, change := range changes {
@@ -2001,7 +1959,6 @@ func (ws *workspaceSyncer) applyChange(ctx context.Context, change *syncv1.SyncC
 	return ws.applyInbound(ctx, entity)
 }
 
-// applyInbound stores one entity that did not come with a page: a stream event or a conflict winner.
 func (ws *workspaceSyncer) applyInbound(ctx context.Context, entity *syncv1.SyncEntity) error {
 	return sqlite.WithInboundTx(ctx, ws.engine.db, func(txCtx context.Context) error {
 		return ws.applyEntity(txCtx, entity)
@@ -2025,8 +1982,6 @@ func (ws *workspaceSyncer) dropParkedForGoneEntities(ctx context.Context) {
 	ws.dropHeldExamplesNotLive(ctx)
 }
 
-// dropHeldExamplesNotLive applies the usecase's liveness rule, which SQL alone cannot: the
-// chain of ancestor collections has no fixed depth.
 func (ws *workspaceSyncer) dropHeldExamplesNotLive(ctx context.Context) {
 	held, err := ws.engine.syncQueue.ListHeld(ctx, ws.localWorkspaceID, "response_example")
 	if err != nil {
@@ -2131,7 +2086,7 @@ func (ws *workspaceSyncer) applyEntityData(ctx context.Context, entity *syncv1.S
 	}
 }
 
-// markInboundSynced records that the row holds what the server has; a restarted walk deletes only such rows.
+// A restarted walk deletes only rows marked here as holding the server's copy.
 func (ws *workspaceSyncer) markInboundSynced(ctx context.Context, table string, id uuid.UUID) error {
 	if _, err := sqlite.DBTXFromContext(ctx, ws.engine.db).ExecContext(ctx,
 		fmt.Sprintf("UPDATE %s SET is_synced = 1 WHERE id = ?", table), id.String()); err != nil {
@@ -2193,8 +2148,7 @@ func (ws *workspaceSyncer) upsertVariable(ctx context.Context, v *entities.Varia
 	return ws.engine.variables.Create(ctx, v)
 }
 
-// applyExample upserts without checking the request: an example may arrive before it. A tombstone
-// only marks the row: the server still sends a payload for it, but one holding just request_id.
+// No request check: an example may come first. Tombstone payloads hold only request_id.
 func (ws *workspaceSyncer) applyExample(ctx context.Context, entity *syncv1.SyncEntity, workspaceID uuid.UUID) error {
 	const funcName = "workspaceSyncer.applyExample"
 
@@ -2234,7 +2188,7 @@ func (ws *workspaceSyncer) applyExample(ctx context.Context, entity *syncv1.Sync
 	return nil
 }
 
-// entityExists sees soft-deleted rows too: the server's copy overwrites them, a Create would hit the primary key.
+// entityExists counts soft-deleted rows too: a Create over one would hit the primary key.
 func (ws *workspaceSyncer) entityExists(ctx context.Context, table, id string) (bool, error) {
 	var count int
 	err := sqlite.DBTXFromContext(ctx, ws.engine.db).QueryRowContext(ctx,
@@ -2381,7 +2335,6 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 		}
 
 		err := ws.subscribe(ctx)
-		// A recheck is not a failure: no log, no offline state, no backoff before the new cycle.
 		recheck := errors.Is(err, errRecheck)
 		backoff := time.Duration(0)
 		if !recheck {
@@ -2442,7 +2395,6 @@ func (ws *workspaceSyncer) subscribeLoop(ctx context.Context) {
 	}
 }
 
-// nextBackoff doubles the wait; a recheck that failed starts from the initial one.
 func nextBackoff(d time.Duration) time.Duration {
 	return min(max(d*2, initialBackoff), maxBackoff)
 }
@@ -2651,7 +2603,7 @@ func (ws *workspaceSyncer) retryLoop(ctx context.Context, backoff time.Duration)
 	}
 }
 
-// entityTypePriority orders pushes parent-first: collections, environments, requests, variables, examples.
+// entityTypePriority orders pushes parent-first.
 func entityTypePriority(t syncv1.EntityType) int {
 	switch t {
 	case syncv1.EntityType_ENTITY_TYPE_COLLECTION:

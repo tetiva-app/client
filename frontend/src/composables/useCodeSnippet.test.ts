@@ -96,7 +96,6 @@ function setup(req: Request = makeRequest('http')) {
   return { request, workspaceId, envVersion, executing, snippet }
 }
 
-// Mirrors tabs.ts updateLocal, which swaps in a new object on every edit.
 function replace(request: { value: Request | undefined }, patch: Partial<Request>) {
   request.value = { ...request.value!, ...patch }
 }

@@ -33,8 +33,7 @@ func unlockFile(f *os.File) error {
 
 var procAllowSetForegroundWindow = windows.NewLazySystemDLL("user32.dll").NewProc("AllowSetForegroundWindow")
 
-// Only the process the user just launched may take the foreground; this lends that right
-// to the running instance, otherwise its window only flashes in the taskbar.
+// Only the launched process may take the foreground; this lends the right to the owner.
 func yieldForeground() {
 	const asfwAny = 0xFFFFFFFF
 	_, _, _ = procAllowSetForegroundWindow.Call(asfwAny)

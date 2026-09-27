@@ -1,7 +1,6 @@
 import type { Result } from '@/types/common'
 import type { DeepLink, DeepLinkServiceAPI } from './deeplink-api'
 
-// Browser mode and tests: links arrive only through deliver().
 export class MockDeepLinkService implements DeepLinkServiceAPI {
   private queue: DeepLink[] = []
   private listeners = new Set<() => void>()

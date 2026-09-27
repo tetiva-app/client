@@ -8,7 +8,6 @@ import { javascript } from '@codemirror/lang-javascript'
 export type ViewerLanguage =
   | 'json' | 'xml' | 'html' | 'text' | 'shell' | 'python' | 'go' | 'java' | 'csharp' | 'php' | 'javascript'
 
-// Snippet languages load on demand so the response viewer's chunk does not carry them.
 export function languageSupport(lang?: ViewerLanguage): Extension | Promise<Extension> {
   switch (lang) {
     case 'json': return json()

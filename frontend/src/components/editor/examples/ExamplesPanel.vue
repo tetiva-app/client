@@ -91,7 +91,6 @@ function askDelete(id: string, name: string) {
   })
 }
 
-// False when the selected example has nothing to save, so Cmd+S can save the request instead.
 function save(): boolean {
   return editorRef.value?.save() ?? false
 }

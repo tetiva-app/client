@@ -1,6 +1,4 @@
--- One row per collection and account: a pending unpublish waits for its account while another one is signed in.
--- cloud is the server's word (Publication.workspace_id != ''); until the next refresh the local mapping stands in.
--- unpublish_attempts/unpublish_error count the server's refusals of a pending unpublish; network failures do not count.
+-- One row per collection and account: a pending unpublish waits for its own account.
 CREATE TABLE publications_by_owner (
   collection_id TEXT NOT NULL, workspace_id TEXT NOT NULL, owner_key TEXT NOT NULL, publication_id TEXT NOT NULL,
   slug TEXT NOT NULL DEFAULT '', public_url TEXT NOT NULL DEFAULT '', visibility TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '',

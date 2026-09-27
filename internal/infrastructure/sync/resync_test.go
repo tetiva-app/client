@@ -15,7 +15,6 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// storingServer keeps what it is pushed and serves it back as a one-page snapshot.
 type storingServer struct {
 	mu       gosync.Mutex
 	entities map[string]*syncv1.SyncEntity
@@ -71,7 +70,6 @@ func uuidOf(t *testing.T, e *syncv1.SyncEntity) uuid.UUID {
 	return id
 }
 
-// unsentExampleChanges leaves one confirmed example edited and another deleted, neither pushed yet.
 func unsentExampleChanges(t *testing.T, env *exampleSyncEnv) (edited, deleted, serverEdited, serverDeleted *syncv1.SyncEntity) {
 	t.Helper()
 	ctx := context.Background()

@@ -14,7 +14,6 @@ const RUN_TIMEOUT_MS = 20_000
 type Target = 'curl' | 'python-requests' | 'js-fetch' | 'go' | 'java-httpclient'
 const ALL: Target[] = ['curl', 'python-requests', 'js-fetch', 'go']
 const LIBRARY: Target[] = ['go', 'java-httpclient']
-// These two send multipart line breaks as they are; the others turn them into CRLF, like a browser.
 const RAW_MULTIPART = new Set<Target>(['curl', 'python-requests'])
 const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
@@ -27,7 +26,6 @@ const HAS: Record<Target, boolean> = {
   'java-httpclient': available('java', ['-version']),
 }
 
-// curl -F must read this file whole, not stop at the ; or take ;type= as a parameter.
 const ODD_FILE = "semi;colon 'q' back\\slash ;type=text.pdf"
 
 const FILES: Record<string, Buffer> = {
@@ -50,7 +48,6 @@ const asciiHeaders = (har: HarRequest) => {
   har.headers = har.headers.filter((h) => /^[\x20-\x7e]*$/.test(h.value))
 }
 
-// Java, requests and fetch refuse header values beyond Latin-1.
 const latinHeaderValues = (har: HarRequest) => {
   har.headers = har.headers.map((h) => ({ ...h, value: h.value.replace(/[^\t\x20-\x7e]/g, '?') }))
 }
@@ -59,12 +56,10 @@ const CASES: [string, SnippetInput, Target[]][] = [
   ['get_query', FIXTURES.get_query, ALL],
   ['post_json', FIXTURES.post_json, ALL],
   ['form_urlencoded', FIXTURES.form_urlencoded, ['curl', 'python-requests', 'js-fetch']],
-  // httpsnippet prints a repeated form key as role[0]=a&role[1]=b; har.Build warns about it.
   ['form_urlencoded without a repeated key', withHar('form_urlencoded', (h) => {
     h.postData!.params = h.postData!.params.filter((p, i, all) => all.findIndex((q) => q.name === p.name) === i)
   }), ['go']],
   ['multi_headers', FIXTURES.multi_headers, ALL],
-  // Globbing would turn this into two requests, /items1 and /items2.
   ['glob_brackets', withHar('get_query', (h) => { h.url = 'https://api.example.com/items[1-2]' }), ['curl']],
   ['special_chars', FIXTURES.special_chars, ['curl', 'go']],
   ['special_chars_ascii', withHar('special_chars', asciiHeaders), ['python-requests', 'js-fetch']],
@@ -159,12 +154,10 @@ function expectedBody(har: HarRequest, key: Target): Body {
   if (binaryFile) return { bytes: FILES[binaryFile].toString('base64') }
   const params = har.postData?.params ?? []
   const form = har.postData?.mimeType.startsWith('application/x-www-form-urlencoded') ?? false
-  // Library targets re-encode a raw form body, so it is compared field by field.
   if (!params.length && form) return { pairs: [...new URLSearchParams(har.postData!.text)] }
   if (!params.length) return { text: har.postData?.text ?? '' }
   if (!har.postData!.mimeType.startsWith('multipart/form-data')) return { pairs: params.map((p) => [p.name, p.value]) }
   const line = RAW_MULTIPART.has(key) ? (s: string) => s : crlf
-  // requests sends text fields before files, so parts are compared as a set.
   return {
     parts: sorted(params.filter((p) => RAW_MULTIPART.has(key) || !p.fileName).map((p): Part => (p.fileName
       ? { name: line(p.name), fileName: p.fileName, bytes: FILES[p.fileName].toString('base64') }

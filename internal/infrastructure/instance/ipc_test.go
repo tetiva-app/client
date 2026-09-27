@@ -50,8 +50,6 @@ func expectedProof(t *testing.T, token string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// send greets the running instance with testNonce, then writes raw; it returns the proof the
-// instance answered with and everything it said after raw.
 func send(t *testing.T, info instanceInfo, raw []byte) (proof, reply string) {
 	t.Helper()
 
@@ -75,7 +73,7 @@ func send(t *testing.T, info instanceInfo, raw []byte) (proof, reply string) {
 	if err := json.Unmarshal([]byte(line), &p); err != nil {
 		t.Fatalf("proof %q: %v", line, err)
 	}
-	// A rejected write surfaces as an empty reply, which is what rejection tests expect.
+	// A rejected write surfaces as the empty reply rejection tests expect.
 	_, _ = conn.Write(raw)
 	rest, _ := io.ReadAll(r)
 	return p.Proof, string(rest)
@@ -252,7 +250,6 @@ func TestStopServingKeepsTheLockUntilClose(t *testing.T) {
 	}
 }
 
-// impostor listens where a dead owner used to and answers like one without knowing the token.
 func impostor(t *testing.T) (port int, heard func() string) {
 	t.Helper()
 

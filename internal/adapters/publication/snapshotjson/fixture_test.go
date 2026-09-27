@@ -18,8 +18,7 @@ func fixedID(n int) uuid.UUID {
 	return uuid.MustParse(fmt.Sprintf("00000000-0000-4000-a000-%012d", 1000+n))
 }
 
-// petstore mirrors testdata/snapshot/all-protocols.json on the entity side: every protocol,
-// body type and auth type, nested folders, examples and an environment.
+// petstore mirrors testdata/snapshot/all-protocols.json on the entity side.
 func petstore() publication.BuildInput {
 	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	n := 0

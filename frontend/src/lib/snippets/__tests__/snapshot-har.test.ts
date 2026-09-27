@@ -153,8 +153,6 @@ describe('effectiveAuth', () => {
   })
 })
 
-// Hand-written snapshot counterparts of the Go wire fixtures: the same request built by
-// either side must give the same normalised HAR.
 const goCounterparts: Record<string, { request: SnapshotRequest; environment: SnapshotEnvironment | null; auth: SnapshotAuth | null }> = {
   binary: {
     request: httpRequest('PUT', 'https://api.example.com/blobs/1', [],

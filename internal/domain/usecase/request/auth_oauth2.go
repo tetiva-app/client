@@ -76,8 +76,6 @@ func (u *usecase) applyResolvedAuth(
 	return headers, rawURL, nil, warnings, nil
 }
 
-// oauth2Token returns "" with a warning when the caller accepts only a cached token and there is none,
-// and a placeholder with a warning when the caller wants no real token at all.
 func (u *usecase) oauth2Token(ctx context.Context, owner entities.AuthOwner, f auth.Fields, opt prepareOpt) (string, []string, error) {
 	if opt.TokenPlaceholder {
 		return oauth2TokenPlaceholder, []string{oauth2TokenNotIncludedWarning}, nil

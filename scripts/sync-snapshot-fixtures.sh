@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Copies the snapshot contract from the sibling proto repo; tests read only these copies,
-# so a clean clone of the public client passes without proto next to it.
-# --check compares bytes only and exits 1 on any difference.
+# Tests read these copies, so a clean clone passes without the sibling proto repo.
 
 cd "$(dirname "$0")/.."
 src=../proto-tetiva/snapshot

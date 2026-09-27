@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import type { GrpcSnippet, HarRequest, SnippetInput, WsSnippet } from '@/types/snippet'
 
-// Written by TestSnippetContractFixtures (Go) in the shape the Wails method returns.
 const GO_CONTRACT_DIR = new URL('../../../../../internal/adapters/wails/dto/testdata/snippet/', import.meta.url)
 
 type HarFields = Partial<HarRequest> & Pick<HarRequest, 'method' | 'url'>
@@ -32,7 +31,6 @@ function ws(fields: Partial<WsSnippet>): SnippetInput {
 
 const UNSAFE_CMD = "{{x'; printf injected; #}}"
 
-// One breakout per quoting style the targets print; INJECTED must only ever land inside a string.
 const BREAKOUTS = [
   '" + INJECTED + "',
   '\\" + INJECTED + \\"',
@@ -42,16 +40,13 @@ const BREAKOUTS = [
   '${INJECTED} {${INJECTED()}} $(INJECTED) `INJECTED`',
   '?> */ \\',
 ].join(' ')
-// A header value cannot carry a line break.
 export const UNSAFE_VALUE = `${BREAKOUTS} tab\there Привет`
 export const UNSAFE_TEXT = `${UNSAFE_VALUE}\nline two\u2028end`
 export const UNSAFE_NAME = `n" + INJECTED + "\\"' . INJECTED . '\\u0022\t\nПривет`
-// Everything UNSAFE_NAME breaks out with, minus what curl -F cannot put in a field name.
 export const UNSAFE_CURL_NAME = `n' + INJECTED + '\\' . INJECTED . '\\u0022 $(INJECTED) \`INJECTED\` a@b<c Привет`
 export const UNSAFE_FILE = `r" + INJECTED + "\\'.INJECTED.'\nПривет.pdf`
 export const QUOTED_CONTENT_TYPE = 'text/plain; x="a\\"b"'
 
-// httpsnippet probe cases, normalised the way har.Build emits them.
 export const FIXTURES: Record<string, SnippetInput> = {
   get_query: http({
     method: 'GET',
@@ -259,7 +254,7 @@ export const FIXTURES: Record<string, SnippetInput> = {
     headers: [{ name: 'Content-Type', value: QUOTED_CONTENT_TYPE }],
     postData: { mimeType: QUOTED_CONTENT_TYPE, text: UNSAFE_TEXT, params: [] },
   }),
-  // url.format leaves ' raw in the userinfo; url.parse ends the authority at a \, so backslashes come later.
+  // url.format leaves ' raw in userinfo; a \ would end the authority for url.parse.
   unsafe_url_userinfo: http({
     method: 'GET',
     url: `https://a'.INJECTED.'b"c:p'w@api.example.com/p'a"t\\h?q'"=\\v#f'"\\`,
@@ -302,20 +297,16 @@ export const FIXTURES: Record<string, SnippetInput> = {
   }),
 }
 
-// Fixtures whose placeholder names would inject code or interpolation if printed verbatim.
 export const CORPUS = new Set([
   'security_json', 'security_text', 'security_form', 'security_grpc', 'security_ws', 'go_unsafe_names',
 ])
 
-// Fixtures whose literal values would break out of a string or change the sent bytes if printed unescaped.
 export const LITERAL_CORPUS = [
   'unsafe_headers', 'unsafe_form', 'unsafe_multipart', 'unsafe_text', 'unsafe_url_userinfo', 'unsafe_url_scheme',
 ] as const
 
-// generate refuses every HTTP target for these, so they print no code.
 export const REFUSED = new Set(['unsafe_url_scheme'])
 
-// Their multipart field names do not fit the curl -F grammar, so only the curl target refuses them.
 export const CURL_REFUSED = new Set(['unsafe_multipart'])
 
 export function goContractFixtures(): Record<string, SnippetInput> {

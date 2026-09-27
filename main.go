@@ -37,7 +37,6 @@ func main() {
 		log.Fatalf("data dir: %v", err)
 	}
 	links := deeplink.NewStore()
-	// A second launch never opens the database or a window: it hands its arguments over and exits.
 	inst, err := instance.Acquire(dataDir, os.Args[1:], func(args []string) {
 		if !links.Deliver(args) {
 			links.Activate()
@@ -118,11 +117,10 @@ func main() {
 		},
 	})
 
-	// macOS exits inside Run and never reaches the deferred Close. The lock stays until fx has
-	// stopped or the process exits, so a launch during shutdown cannot become a second owner.
+	// macOS exits inside Run and never reaches the deferred Close.
 	wailsApp.OnShutdown(func() { _ = inst.StopServing() })
 
-	// Windows and Linux raise this event from the same argv links.Deliver already took, and only in Run.
+	// Elsewhere Wails raises this event from the argv links.Deliver already took.
 	if runtime.GOOS == "darwin" {
 		wailsApp.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(e *application.ApplicationEvent) {
 			links.Deliver([]string{e.Context().URL()})

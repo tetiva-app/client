@@ -1,7 +1,6 @@
 import type { ImportScript } from '@/services'
 
-// Lists what postman.scriptPreviews reports for the browser-mode mock: enabled, non-blank
-// prerequest and test scripts of the collection, its folders and requests.
+// Browser-mode mock of postman.scriptPreviews.
 export function listPostmanScripts(content: string): ImportScript[] {
   let data: unknown
   try {

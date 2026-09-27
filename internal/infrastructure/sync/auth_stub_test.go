@@ -150,13 +150,11 @@ func (s *stubAuthClient) CancelDesktopSignIn(ctx context.Context, req *authv1.Ca
 	return authv1.CancelDesktopSignInResponse_builder{}.Build(), nil
 }
 
-// capabilityAuthClient answers only GetServerInfo and is safe to call from any number of syncer goroutines.
 type capabilityAuthClient struct {
 	authv1.AuthServiceClient
 	capabilities []string
 	calls        atomic.Int32
-	// answer replaces the fixed capabilities when set; call counts from 1.
-	answer func(ctx context.Context, call int32) (*authv1.GetServerInfoResponse, error)
+	answer       func(ctx context.Context, call int32) (*authv1.GetServerInfoResponse, error)
 }
 
 func (c *capabilityAuthClient) GetServerInfo(ctx context.Context, _ *authv1.GetServerInfoRequest, _ ...grpc.CallOption) (*authv1.GetServerInfoResponse, error) {
@@ -171,7 +169,6 @@ func serverInfoWith(capabilities ...string) *authv1.GetServerInfoResponse {
 	return authv1.GetServerInfoResponse_builder{Capabilities: capabilities}.Build()
 }
 
-// examplesCapableClient pairs a sync stub with a server that advertises response examples.
 func examplesCapableClient(sync syncv1.SyncServiceClient) *GRPCClient {
 	return &GRPCClient{sync: sync, auth: &capabilityAuthClient{capabilities: []string{"response_examples"}}}
 }

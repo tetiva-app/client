@@ -33,9 +33,8 @@ type preparedHTTP struct {
 	Warnings      []string
 }
 
-// prepareOpt tunes the pipeline for callers that must not send anything: Copy as cURL renders
-// from cached tokens only; snippets run no scripts, open no files and never acquire a token,
-// reading a cached one when resolving and printing a placeholder otherwise.
+// prepareOpt tunes the pipeline for callers that must not send anything:
+// Copy as cURL renders from cached tokens only, never acquiring one.
 type prepareOpt struct {
 	TokenFromCacheOnly bool
 	TokenPlaceholder   bool

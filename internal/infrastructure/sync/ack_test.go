@@ -15,7 +15,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 )
 
-// clientWon answers every entity the way the server answers an edit that overwrote another client's copy.
 func clientWon(req *syncv1.PushRequest) *syncv1.PushResponse {
 	results := make([]*syncv1.PushResult, 0, len(req.GetEntities()))
 	for _, e := range req.GetEntities() {

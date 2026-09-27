@@ -5,7 +5,6 @@ import type {
 
 const SCHEMA = 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
 
-// Our grant names onto Postman's, as the Go exporter writes them; unknown ones go out verbatim.
 const POSTMAN_GRANTS: Record<string, string> = {
   client_credentials: 'client_credentials',
   password: 'password_credentials',
@@ -15,8 +14,6 @@ const POSTMAN_GRANTS: Record<string, string> = {
 
 type Json = Record<string, unknown>
 
-// snapshotToPostman writes the Postman v2.1 file the share page offers for download. It follows the
-// Go exporter's auth blocks (extension keys included), so the client's importer reads it back.
 export function snapshotToPostman(s: Snapshot): { json: string; warnings: string[] } {
   const warnings: string[] = []
   const c = s.collection
@@ -90,7 +87,6 @@ function headers(rows: SnapshotHeader[] | undefined): Json[] {
   }))
 }
 
-// File contents never travel: a file field keeps its base name in the description and Postman asks for the file.
 function body(b: SnapshotBody | undefined, label: string, warnings: string[]): { body?: Json } {
   const attach = (name: string) => warnings.push(`${label}: attach file ${JSON.stringify(name)} in Postman`)
   switch (b?.type) {
@@ -157,7 +153,7 @@ function requestAuth(a: SnapshotAuth | null | undefined, label: string, warnings
   return block ? { auth: block } : {}
 }
 
-// A folder's none is pass-through, which is what a missing Postman block means too.
+// A folder's none is pass-through, as is a missing Postman block.
 function folderAuth(a: SnapshotAuth | null | undefined, label: string, warnings: string[]): { auth?: Json } {
   if (!a || a.type === 'none' || a.type === 'inherit') return {}
   const block = authBlock(a, label, warnings)
@@ -238,7 +234,7 @@ function events(scripts: SnapshotScripts | null | undefined): { event?: Json[] }
   return list.length ? { event: list } : {}
 }
 
-// Secret values are empty in a snapshot; as collection variables they would silently resolve to "".
+// Secret values are empty in a snapshot and would resolve to "" as collection variables.
 function publicVariables(env: SnapshotEnvironment | null | undefined): Json[] {
   const all: unknown = env?.variables
   return (Array.isArray(all) ? all as SnapshotVariable[] : [])
@@ -255,7 +251,6 @@ function addTokenTo(v: string): string {
   return v === 'header' ? 'header' : v === 'query' ? 'queryParams' : ''
 }
 
-// A leaf the forms write as text but an import may carry as a JSON number.
 function fieldText(v: unknown): string {
   return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : ''
 }

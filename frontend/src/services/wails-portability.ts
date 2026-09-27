@@ -86,7 +86,6 @@ function mapData<S, T>(res: { data?: S | null; error?: unknown }, map: (data: S)
   return { ...out, data: (out.data ? map(out.data) : undefined) as T }
 }
 
-// Go sends the slices non-nil; the guard keeps a null from ever reaching v-for.
 function toPreview(p: ImportPreviewDTO): ImportPreview {
   return {
     format: p.format === 'postman' ? 'postman' : 'tetiva',

@@ -39,7 +39,6 @@ function slugFor(collectionId: string): string {
   return `mock-collection-${tail}`
 }
 
-// Browser mode: an in-memory stand-in with a sample report, so the dialog can be driven without Go.
 export class MockPublicationService implements PublicationServiceAPI {
   readonly calls: string[] = []
   readonly previews: PublishPreviewRequest[] = []

@@ -218,7 +218,7 @@ func TestSnippetRequestDTO_ToEntity_InvalidIDs(t *testing.T) {
 	}
 }
 
-// snippetFromHAR mirrors BuildSnippetInput: references are protected before Build and restored after it.
+// snippetFromHAR mirrors BuildSnippetInput: protect before Build, restore after.
 func snippetFromHAR(in har.Input) request.SnippetInput {
 	ph := har.NewPlaceholders(harTexts(in)...)
 	req, warnings := har.Build(protectHARInput(ph, in))
@@ -241,8 +241,6 @@ func harTexts(in har.Input) []string {
 	return texts
 }
 
-// protectHARInput covers every field BuildSnippetInput protects: the request body holds the form
-// fields and the binary path, so they are tokens by the time Build sees them.
 func protectHARInput(ph *har.Placeholders, in har.Input) har.Input {
 	out := in
 	out.URL = ph.Protect(in.URL, nil)
@@ -389,8 +387,7 @@ func encodeFixture(v any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// The snippet bundle tests (frontend/src/lib/snippets) load these files, so the Go
-// wire shape and the TS generators are checked against the same inputs.
+// frontend/src/lib/snippets tests run the TS generators on these same fixtures.
 func TestSnippetContractFixtures(t *testing.T) {
 	dir := filepath.Join("testdata", "snippet")
 	update := os.Getenv("UPDATE_SNIPPET_FIXTURES") == "1"

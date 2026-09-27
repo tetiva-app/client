@@ -39,6 +39,5 @@ export interface ExampleServiceAPI {
   create(req: CreateExampleReq): Promise<Result<Example>>
   edit(req: EditExampleReq): Promise<Result<Example>>
   delete(req: DeleteExampleReq): Promise<Result<boolean>>
-  // Names what looks like a credential and would survive masking, e.g. ["JWT"].
   scanSecrets(req: ScanExampleReq): Promise<Result<string[]>>
 }

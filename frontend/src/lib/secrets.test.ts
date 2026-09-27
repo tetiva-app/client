@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { isSensitiveHeader, isSensitiveQueryParam, redactHeaders, redactURL, redactValue } from './secrets'
 import type { HeaderItem } from '@/types/request'
 
-// The cases mirror internal/domain/secrets/*_test.go; a change there belongs here too.
 describe('secrets (browser-mode port of the Go package)', () => {
   it('isSensitiveHeader', () => {
     const sensitive = [

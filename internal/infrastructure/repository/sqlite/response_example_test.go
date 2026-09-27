@@ -35,7 +35,7 @@ func newTestExample(requestID uuid.UUID, name string, sortOrder int) *entities.R
 	}
 }
 
-// Bounded so a query that skips the caller's tx fails instead of waiting on the single pooled connection.
+// Bounded: a query that skips the caller's tx would hang on the single pooled connection.
 func testCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

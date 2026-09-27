@@ -337,7 +337,6 @@ func TestPublicationRemote_PlanFeatures_CloudWorkspaceAsksTheActiveOrg(t *testin
 	assertBudget(t, 10*time.Second, sub.budgets[0])
 }
 
-// The server counts a local collection against the author's personal org, whatever org is active.
 func TestPublicationRemote_PlanFeatures_LocalWorkspaceAsksThePersonalOrg(t *testing.T) {
 	remote, sub, auth := newPlanRemote(t, []*authv1.Membership{
 		authv1.Membership_builder{OrgId: "org-team"}.Build(),

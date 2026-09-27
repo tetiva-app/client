@@ -11,15 +11,12 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-// Hidden variable reasons.
 const (
 	HiddenSecret     = "secret"
 	HiddenReferenced = "referenced"
 	HiddenSuspicious = "suspicious"
 )
 
-// BuildInput is the collection as stored. Collections and Requests may hold more than the
-// subtree of Root; deleted rows, drafts and anything outside the live tree are skipped.
 type BuildInput struct {
 	Root           *entities.Collection
 	Collections    []*entities.Collection
@@ -30,11 +27,9 @@ type BuildInput struct {
 	IncludeScripts bool
 	Generator      string
 	Locale         string
-	// PublishAsIs holds the selectors the author chose to publish unmasked.
-	PublishAsIs []string
+	PublishAsIs    []string
 }
 
-// Redaction.Path is for display only and is never parsed: "Folder A / Get user / headers / X-Api-Key".
 type Redaction struct {
 	Selector    string
 	Path        string
@@ -44,7 +39,6 @@ type Redaction struct {
 	Overridden  bool
 }
 
-// Warning is a scan hit; Excerpt is its first four characters and an ellipsis.
 type Warning struct {
 	Selector   string
 	Path       string
@@ -62,7 +56,6 @@ type HiddenVar struct {
 	Overridden  bool
 }
 
-// BlockingError is a problem the server would reject the snapshot for.
 type BlockingError struct {
 	Path    string
 	Code    string
@@ -83,8 +76,7 @@ type Report struct {
 	IgnoredOverrides  []string
 }
 
-// Build returns an error only for input it cannot read (no root, unparsable stored JSON); what the
-// server would refuse goes to Report.Errors.
+// Build fails only on unreadable input; what the server would refuse is in Report.Errors.
 func Build(in BuildInput) (*Snapshot, Report, error) {
 	const funcName = "publication.Build"
 
@@ -98,8 +90,7 @@ func Build(in BuildInput) (*Snapshot, Report, error) {
 	t := newTree(in)
 	vars := newVarState(t.variables, func(v *entities.Variable) string { return OpaqueID(in.Root.ID, v.ID) }, overrides)
 
-	// Hiding a variable can leave a header name unresolved, which makes more places sensitive, so
-	// passes repeat until the referenced set stops growing; it only grows, so this ends.
+	// A hidden variable can make more places sensitive; repeat while the set grows.
 	referenced := map[string]bool{}
 	var p *pass
 	for {
@@ -127,7 +118,6 @@ func Build(in BuildInput) (*Snapshot, Report, error) {
 	return p.snap, report, nil
 }
 
-// envOwners are the selector owners of the environment and its published rows, in snapshot order.
 type envOwners struct {
 	env  string
 	vars []string
@@ -187,7 +177,6 @@ func (p *pass) run() error {
 	return nil
 }
 
-// folder walks c and its live descendants; names is the display path below the root.
 func (p *pass) folder(c *entities.Collection, chain []*entities.Collection, names []string) (*Folder, error) {
 	owner := p.id(c.ID)
 	path := joinPath(names...)

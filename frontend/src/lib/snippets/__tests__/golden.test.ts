@@ -30,7 +30,6 @@ function harTexts(har: HarRequest): string[] {
 
 const mapTexts = (m: Record<string, string[]>): string[] => Object.entries(m).flatMap(([k, v]) => [k, ...v])
 
-// WebSocket snippets send only the first message.
 function printedTexts(input: SnippetInput): string[] {
   if (input.har) return harTexts(input.har)
   if (input.grpc) return [input.grpc.target, input.grpc.service, input.grpc.method, input.grpc.message, ...mapTexts(input.grpc.metadata)]

@@ -33,7 +33,6 @@ async function openExamples(page: Page, protocol: Protocol = 'HTTP') {
   await tab(page, 'Examples').click();
 }
 
-// Mock services are module singletons, so the page can reach the "backend" the app talks to.
 async function deleteOnBackend(page: Page, name: string) {
   await page.evaluate(async (exampleName) => {
     const { getExampleService } = await import('/src/services/index.ts');

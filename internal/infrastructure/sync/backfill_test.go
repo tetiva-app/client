@@ -19,7 +19,6 @@ import (
 	syncv1 "github.com/tetiva-app/proto/go/gophercourier/sync/v1"
 )
 
-// newBackfillEnv is an examples-capable workspace at cursor 10 that still owes the backfill.
 func newBackfillEnv(t *testing.T) (*exampleSyncEnv, *pullScript) {
 	t.Helper()
 	env := newExampleSyncEnv(t)
@@ -56,7 +55,6 @@ func isBackfillPull(r *syncv1.PullRequest) bool {
 	return len(r.GetEntityTypes()) > 0
 }
 
-// brokenExample carries a request id that is not a UUID, so the mapper refuses it.
 func brokenExample(id uuid.UUID) *syncv1.SyncEntity {
 	e := exampleEntity(id, uuid.New(), "Broken", 1)
 	e.GetResponseExample().SetRequestId("not-a-uuid")
@@ -332,8 +330,6 @@ func TestBackfill_AnnouncesPagesThatStoredExamples(t *testing.T) {
 	assert.Equal(t, testWorkspaceID.String(), data["workspaceId"])
 }
 
-// backfillCycleClient serves whole cycles like cycleClient: backfill pages come from backfill, the
-// regular pull finds nothing new, and calls keeps the order of pushes and pulls.
 type backfillCycleClient struct {
 	*cycleClient
 	backfill func(n int, req *syncv1.PullRequest) *syncv1.PullResponse
@@ -383,7 +379,6 @@ func (c *backfillCycleClient) Pull(_ context.Context, req *syncv1.PullRequest, _
 	return c.backfill(c.record("backfill"), req), nil
 }
 
-// startBackfillCycling runs a syncer at cursor 10 over a cycle client that serves backfill pages.
 func (env *exampleSyncEnv) startBackfillCycling(t *testing.T, capabilities []string,
 	backfill func(n int, req *syncv1.PullRequest) *syncv1.PullResponse,
 ) (*backfillCycleClient, *capabilityAuthClient, *stateLog) {

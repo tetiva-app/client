@@ -15,8 +15,7 @@ const (
 	previewMaxBytes   = 8 << 20
 )
 
-// previewCache holds a downloaded snapshot between LinkFetch and ImportConfirm: the download counts as
-// an import and burns a one-time token, so it must not repeat. Memory only, never the disk.
+// A download counts as an import and burns a one-time token, so it must not repeat.
 type previewCache struct {
 	mu      sync.Mutex
 	now     func() time.Time

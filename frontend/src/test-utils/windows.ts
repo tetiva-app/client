@@ -1,7 +1,6 @@
 import { createRenderer, type App, type Component, type RendererOptions } from 'vue'
 import { createPinia } from 'pinia'
 
-// One bus for every "window", like the Wails runtime: an emit reaches all of them.
 const handlers = new Map<string, Set<(evt: unknown) => void>>()
 
 export const wailsBus = {
@@ -42,7 +41,6 @@ const nodeOps: RendererOptions<Node, Node> = {
   patchProp: () => {},
 }
 
-// Each call is a separate window: its own app and its own Pinia. Vitest runs in node, so there is no DOM.
 export function mountWindow(root: Component, props?: Record<string, unknown>, seed?: (app: App) => void): App {
   const app = createRenderer(nodeOps).createApp(root, props)
   app.use(createPinia())

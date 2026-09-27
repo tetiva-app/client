@@ -16,7 +16,6 @@ export interface CodeSnippet {
   warnings: Ref<string[]>
   error: Ref<string | null>
   loading: Ref<boolean>
-  // True from the moment an input changes until the code built from it arrives.
   stale: Ref<boolean>
   canCopy: Ref<boolean>
   resolveVariables: Ref<boolean>
@@ -33,7 +32,6 @@ export function useCodeSnippet(opts: {
   request: Ref<Request | undefined>
   workspaceId: Ref<string | undefined>
   envVersion: Ref<unknown>
-  // Cookies, a fresh OAuth token or a post-script can change the snippet once a send ends.
   executing?: Ref<boolean>
 }): CodeSnippet {
   const settings = useSettingsStore()
@@ -91,7 +89,6 @@ export function useCodeSnippet(opts: {
     stale.value = false
   }
 
-  // Bumping the generation drops whatever build is in flight, so no older answer can land after this.
   function invalidate(clear: boolean) {
     generation++
     clearTimeout(timer)

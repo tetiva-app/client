@@ -135,7 +135,6 @@ func (u *usecase) ResolveVariables(ctx context.Context, workspaceID uuid.UUID) (
 	return result, nil
 }
 
-// ActiveVariables returns the active environment's enabled variables, or none when no environment is active.
 func (u *usecase) ActiveVariables(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Variable, error) {
 	const funcName = "environment.ActiveVariables"
 

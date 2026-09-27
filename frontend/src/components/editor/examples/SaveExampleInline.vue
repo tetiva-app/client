@@ -48,7 +48,6 @@ async function confirmSecrets() {
   if (await saveAnyway()) naming.value = false
 }
 
-// The name was proposed for the response on screen; a new one makes it stale.
 watch(() => props.response, cancelNaming)
 </script>
 

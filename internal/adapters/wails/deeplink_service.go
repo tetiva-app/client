@@ -10,7 +10,6 @@ import (
 	"github.com/tetiva-app/client/internal/app/deeplink"
 )
 
-// DeepLinkReceivedEvent tells the main window to call TakePending; it carries no data.
 const DeepLinkReceivedEvent = "deeplink:received"
 
 // DeepLinkService hands queued tetiva:// import links to the main window.
@@ -32,8 +31,7 @@ func (s *DeepLinkService) TakePending() Result[[]dto.DeepLink] {
 	return OK(out)
 }
 
-// Attach runs on ApplicationStarted: InvokeAsync panics before application.New and has
-// no main-thread loop to post to until Run has started.
+// Attach runs on ApplicationStarted: before Run, InvokeAsync has no main-thread loop.
 //
 //wails:ignore
 func (s *DeepLinkService) Attach(w *application.WebviewWindow, emit func(name string, data any)) {

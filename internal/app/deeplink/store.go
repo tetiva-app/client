@@ -16,17 +16,15 @@ const dedupWindow = 2 * time.Second
 
 var (
 	slugPattern = regexp.MustCompile(`^[a-z0-9-]{1,40}-[a-z0-9]{8}$`)
-	// The token goes into an Authorization header later, so only URL-unreserved characters pass.
+	// The token ends up in an Authorization header: URL-unreserved characters only.
 	tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,512}$`)
 )
 
-// Link is an accepted import link; Token is the optional one-time import token.
 type Link struct {
 	Slug  string
 	Token string
 }
 
-// Store is the one delivery point for links from IPC, macOS URL events and cold-start argv.
 type Store struct {
 	mu      sync.Mutex
 	pending []Link
@@ -40,8 +38,7 @@ func NewStore() *Store {
 	return &Store{recent: map[string]time.Time{}, now: time.Now}
 }
 
-// Offer queues a valid import link. The same rawURL within 2 s (a double click) is dropped, and so is
-// a link still waiting in the queue: a slow cold start outlasts the 2 s.
+// Offer also drops a link still queued: a slow cold start outlasts dedupWindow.
 func (s *Store) Offer(rawURL string) bool {
 	link, err := parseLink(rawURL)
 	if err != nil {
@@ -66,8 +63,6 @@ func (s *Store) Offer(rawURL string) bool {
 	return true
 }
 
-// Deliver offers every argument with a tetiva scheme, wherever it sits in args, and
-// notifies the window and raises it when at least one link was queued.
 func (s *Store) Deliver(args []string) bool {
 	queued := false
 	for _, arg := range args {
@@ -88,14 +83,12 @@ func (s *Store) Deliver(args []string) bool {
 	return true
 }
 
-// Activate brings the window up for a repeated launch that carried no link.
 func (s *Store) Activate() {
 	if _, raise := s.hooks(); raise != nil {
 		raise()
 	}
 }
 
-// Take returns pending links in arrival order and clears the queue.
 func (s *Store) Take() []Link {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,7 +100,6 @@ func (s *Store) Take() []Link {
 	return out
 }
 
-// SetHooks wires the window once it exists; hooks run outside the lock and must not block.
 func (s *Store) SetHooks(notify, raise func()) {
 	s.mu.Lock()
 	s.notify, s.raise = notify, raise

@@ -2,15 +2,12 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { DeepLink, ImportPreview } from '@/services'
 
-// 'opening' is a deep link on its way to the confirmation: there is no link to type.
 export type LinkStep = 'url' | 'password' | 'opening'
 
-// oneTimeToken: the deep link's import token, spent by the first download.
 export type ImportSource =
   | { kind: 'link'; slug: string; token: string; previewId: string; oneTimeToken: boolean }
   | { kind: 'file'; content: string; parentId: string | null }
 
-// The dialogs live in App.vue; the sidebar menus and deep links start the flow in useImportFlow.
 export const useImportUi = defineStore('importUi', () => {
   const flow = ref(0)
 

@@ -25,7 +25,6 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// recordingPushClient records every push and answers through respond, ACCEPTED for all by default.
 type recordingPushClient struct {
 	syncv1.SyncServiceClient
 	mu      gosync.Mutex
@@ -73,8 +72,6 @@ func acceptAll(req *syncv1.PushRequest) *syncv1.PushResponse {
 	return syncv1.PushResponse_builder{Results: results}.Build()
 }
 
-// exampleSyncEnv is a syncing workspace over real SQLite: inner repos for the engine,
-// sync decorators for the usecases, one live collection and request.
 type exampleSyncEnv struct {
 	db          *sql.DB
 	engine      *SyncEngine
@@ -263,7 +260,6 @@ func TestApplyEntity_ExampleTombstoneOnlyMarksTheRow(t *testing.T) {
 	stamp := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	shapes := map[string]func(id, requestID uuid.UUID) *syncv1.ResponseExampleData{
 		"bare": func(uuid.UUID, uuid.UUID) *syncv1.ResponseExampleData { return nil },
-		// Server 0.19 keeps only request_id in tombstone data but still builds the payload.
 		"server request_id only": func(_, requestID uuid.UUID) *syncv1.ResponseExampleData {
 			return syncv1.ResponseExampleData_builder{RequestId: requestID.String()}.Build()
 		},
@@ -716,8 +712,6 @@ func holdExample(t *testing.T, env *exampleSyncEnv, ex *entities.ResponseExample
 	require.NoError(t, env.engine.syncQueue.MarkParked(ctx, id))
 }
 
-// seedHeldExamples leaves three held examples: one under a live chain, one whose grandparent
-// collection is deleted, one whose workspace_id disagrees with its live chain.
 func seedHeldExamples(t *testing.T, env *exampleSyncEnv) (live, deadChain, foreign *entities.ResponseExample, grandparent *entities.Collection) {
 	t.Helper()
 	ctx := context.Background()

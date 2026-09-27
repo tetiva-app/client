@@ -2498,7 +2498,6 @@ var allEntityTypes = []syncv1.EntityType{
 
 type pullStep func(*syncv1.PullRequest) (*syncv1.PullResponse, error)
 
-// pullScript answers the n-th Pull with steps[n] and records every request; a Pull past the end fails the test.
 type pullScript struct {
 	t     *testing.T
 	mu    gosync.Mutex

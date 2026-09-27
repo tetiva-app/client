@@ -24,7 +24,6 @@ export interface AppSettings {
   availableUpdate: AvailableUpdate | null
   lastSeenWhatsNewVersion: string | null
   onboardingCompletedAt: string | null
-  // Snippet language per protocol family; GraphQL shares the HTTP choice.
   snippetTargets: SnippetTargets
   language: LanguagePreference
   publishingEnabled: boolean
@@ -85,7 +84,7 @@ function normalizeAvailableUpdate(value: unknown): AvailableUpdate | null {
   return null
 }
 
-// Keys are not checked against the registry: a snippet falls back to the first offered target.
+// No registry check: an unknown key falls back to the first offered target.
 export function normalizeSnippetTargets(value: unknown): SnippetTargets {
   const v = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const pick = (family: SnippetFamily) => {

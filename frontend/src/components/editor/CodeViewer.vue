@@ -98,7 +98,6 @@ function createEditor() {
   })
   if (support instanceof Promise) {
     const created = view
-    // A mode chunk that fails to load leaves the code unhighlighted.
     support.then((ext) => {
       if (view === created && props.language === lang) created.dispatch({ effects: languageCompartment.reconfigure(ext) })
     }, () => {})

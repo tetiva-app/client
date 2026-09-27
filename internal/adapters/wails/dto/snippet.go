@@ -32,7 +32,7 @@ type HARTetivaDTO struct {
 	AuthNote   string `json:"authNote,omitempty"`
 }
 
-// HARRequestDTO keeps the HAR 1.2 field names: the snippet bundle hands it to httpsnippet as is.
+// HARRequestDTO keeps HAR 1.2 field names: httpsnippet receives it as is.
 type HARRequestDTO struct {
 	Method      string            `json:"method"`
 	URL         string            `json:"url"`
@@ -75,7 +75,7 @@ type SnippetInputDTO struct {
 	Warnings []string        `json:"warnings"`
 }
 
-// SnippetRequestDTO is the unsaved editor state; field names match RequestResponse.
+// SnippetRequestDTO is the unsaved editor state; JSON names match RequestResponse.
 type SnippetRequestDTO struct {
 	ID               string              `json:"id"`
 	CollectionID     string              `json:"collectionId"`
@@ -138,7 +138,7 @@ func (d SnippetRequestDTO) ToEntity() (*entities.Request, error) {
 	}, nil
 }
 
-// SnippetInputToDTO never emits null for a slice or map: the generators iterate them unguarded.
+// SnippetInputToDTO emits no null slice or map: the generators iterate them unguarded.
 func SnippetInputToDTO(in request.SnippetInput) SnippetInputDTO {
 	out := SnippetInputDTO{
 		Protocol: string(in.Protocol),

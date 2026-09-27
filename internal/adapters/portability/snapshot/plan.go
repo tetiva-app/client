@@ -24,8 +24,6 @@ const (
 	untitled     = "Untitled"
 )
 
-// plan is the snapshot mapped onto usecase inputs, normalised to what the usecases accept. Preview and
-// Import both build it, so the counts and warnings a user confirms are the ones the import produces.
 type plan struct {
 	includeScripts bool
 
@@ -100,7 +98,6 @@ func itemLabel(kind, name string) string {
 	return fmt.Sprintf("%s %q", kind, name)
 }
 
-// name keeps a name the usecases accept: not blank, at most 200 characters (the example limit).
 func (p *plan) name(kind, parentPath, raw string) string {
 	switch {
 	case strings.TrimSpace(raw) == "":
@@ -129,7 +126,7 @@ func (p *plan) description(label, s string) string {
 	return s[:cut]
 }
 
-// folderAuth maps null, inherit and none alike to none: on a collection none already passes auth through.
+// On a collection none already passes auth through, so null and inherit map to none.
 func (p *plan) folderAuth(label string, a *publication.Auth) (entities.AuthType, string) {
 	if a == nil {
 		return entities.AuthTypeNone, "{}"
@@ -181,8 +178,6 @@ func authData(fields map[string]any) string {
 	return string(raw)
 }
 
-// scriptsOf lists every script for the preview but hands them to the import only when asked:
-// a script from someone else's collection runs on Send and can rewrite environment variables.
 func (p *plan) scriptsOf(path string, s *publication.Scripts) (string, string) {
 	if s == nil {
 		return "", ""
@@ -279,7 +274,6 @@ func (p *plan) request(parentPath string, r *publication.Request) *requestPlan {
 	return &requestPlan{in: in, label: label, examples: p.examplesOf(label, path, r.Protocol, r.Examples)}
 }
 
-// formField is the form body the request editor stores in Request.Body.
 type formField struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`
@@ -287,7 +281,7 @@ type formField struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// body never keeps a file path: a path from someone else's machine must not pick what we upload.
+// body never keeps a file path: a foreign path must not pick what we upload.
 func (p *plan) body(label string, b publication.Body) (entities.BodyType, string) {
 	switch t := entities.BodyType(b.Type); t {
 	case entities.BodyTypeNone, "":
@@ -336,7 +330,6 @@ type wsMessage struct {
 	Data   string `json:"data"`
 }
 
-// wsSettings writes the version 1 document request.Create validates; snapshot messages carry no id.
 func (p *plan) wsSettings(label string, ws *publication.WSPart) string {
 	doc := wsSettings{Version: 1, Subprotocols: append([]string{}, ws.Subprotocols...), Messages: []wsMessage{}}
 	for _, m := range ws.Messages {
@@ -391,8 +384,7 @@ func headerItems(headers []publication.Header) []entities.HeaderItem {
 	return out
 }
 
-// requestMetadata undoes the merge Build did: a key whose values are exactly the collection's is left
-// to the collection, so editing it there still reaches the request.
+// requestMetadata undoes Build's merge: keys equal to the collection's stay inherited.
 func requestMetadata(headers []publication.Header, root []entities.HeaderItem) map[string][]string {
 	rootValues := map[string][]string{}
 	for _, h := range root {

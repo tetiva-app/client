@@ -11,7 +11,6 @@ export function shellQuote(s: string): string {
   return `'${s.replaceAll("'", "'\\''")}'`
 }
 
-// Only RFC 3986 unreserved characters stay; a bare ' or ( would only add noise to quoted code.
 function strictEncode(s: string): string {
   return encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 }
@@ -38,7 +37,7 @@ export function harBody(har: HarRequest): HarBody {
   return { kind: 'none' }
 }
 
-// Every client builds its own multipart boundary, so a copied Content-Type would not match the body.
+// Every client sets its own multipart boundary; a copied Content-Type would not match it.
 export function sentHeaders(har: HarRequest): HarNameValue[] {
   if (!isMultipart(har)) return har.headers
   return har.headers.filter((h) => h.name.toLowerCase() !== 'content-type')

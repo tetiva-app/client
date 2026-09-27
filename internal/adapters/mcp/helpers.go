@@ -79,8 +79,7 @@ func maskResponseHeaders(headers map[string][]string) map[string][]string {
 	return out
 }
 
-// maskURLSecrets redacts credential query parameters. Only the query: restoreURLSecrets puts
-// the stored values back by parameter, and a mask elsewhere could not be restored.
+// maskURLSecrets redacts credential query parameters.
 func maskURLSecrets(raw string) string {
 	return secrets.MaskQuery(raw, redactedValue)
 }

@@ -3,7 +3,6 @@ export type Visibility = 'public' | 'unlisted' | 'password'
 
 export type UnavailableReason = '' | 'not_logged_in' | 'no_capability' | 'not_root' | 'offline'
 
-// The paid visibilities the plan behind the collection includes.
 export interface PublishPlan {
   unlisted: boolean
   password: boolean
@@ -41,7 +40,6 @@ export interface PublicationStatus {
   settings: PublishSettings | null
   counters: PublicationCounters
   pendingUnpublish: boolean
-  // Set once the server has refused a pending unpublish several times; the panel offers Unpublish again.
   unpublishError: string
 }
 
@@ -115,7 +113,6 @@ export interface PublishPreview {
   sizeLimitBytes: number
   gzipBytes: number
   gzipLimitBytes: number
-  // Filled only when the snapshot is over a limit: the response examples worth removing first.
   largestExamples: SizedExample[]
   previewHash: string
 }

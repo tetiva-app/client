@@ -19,7 +19,6 @@ func TestSuspectedSecrets(t *testing.T) {
 		{"plain", []entities.HeaderItem{{Key: "Content-Type", Value: "application/json"}}, `{"id":1}`, []string{}},
 		{"token in body", nil, `{"access_token":"` + jwt + `"}`, []string{"JWT", "OAuth token"}},
 		{"key in a readable header", []entities.HeaderItem{{Key: "X-Debug", Value: "AKIAIOSFODNN7EXAMPLE"}}, "", []string{"AWS access key"}},
-		// Masking clears these before anyone reads them, so they are not worth a warning.
 		{"masked headers", []entities.HeaderItem{
 			{Key: "Authorization", Value: "Bearer " + jwt},
 			{Key: "Location", Value: "https://h/cb#id_token=" + jwt},

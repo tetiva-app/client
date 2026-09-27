@@ -120,7 +120,6 @@ func TestOfferDeduplicatesWithinTwoSeconds(t *testing.T) {
 	}
 }
 
-// Cold start: the window has not taken the first link yet when the user clicks again 2.5 s later.
 func TestOfferDropsALinkStillPending(t *testing.T) {
 	s, clock := newTestStore()
 	raw := "tetiva://import?slug=" + slug
@@ -137,7 +136,6 @@ func TestOfferDropsALinkStillPending(t *testing.T) {
 	}
 }
 
-// Each click on the page mints a new import token; which one to open is the window's call.
 func TestOfferQueuesTheSameSlugWithAnotherToken(t *testing.T) {
 	s, _ := newTestStore()
 	s.Offer("tetiva://import?slug=" + slug + "&token=first")
@@ -220,7 +218,6 @@ func TestNoHooksDoesNotPanic(t *testing.T) {
 	s.Activate()
 }
 
-// Links queued before the window existed must not wait for the next one to be noticed.
 func TestSetHooksNotifiesAboutEarlierLinks(t *testing.T) {
 	s, _ := newTestStore()
 	s.Deliver([]string{"tetiva://import?slug=" + slug})

@@ -9,8 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-// Limits of the server's snapshot validator, of which the schema (proto/snapshot/collection-snapshot.v1.schema.json)
-// expresses only part. The 8 MiB / 3.5 MiB gzip size limits are checked by the caller on the encoded snapshot.
+// Limits of the server validator; the caller checks the 8 MiB and 3.5 MiB gzip sizes.
 const (
 	maxStringBytes = 1 << 20
 	maxURLBytes    = 8 << 10
@@ -151,7 +150,6 @@ func checkLimits(s *Snapshot, owners envOwners) []BlockingError {
 			fail(f.path, codeURLControlChar, nil)
 		}
 	})
-	// Publish sends the name as the page title, which the server refuses blank.
 	if strings.TrimSpace(s.Collection.Name) == "" {
 		fail("name", codeNameBlank, nil)
 	}
@@ -176,8 +174,7 @@ func countValues(s *Snapshot) int {
 	return c.values
 }
 
-// shape counts the JSON values snapshotjson.Marshal writes and checks the list lengths the server
-// caps; paths follow walkSnapshot.
+// shape counts the JSON values snapshotjson.Marshal writes; paths follow walkSnapshot.
 type shape struct {
 	values int
 	fail   func(path, code string, params map[string]string)
@@ -286,7 +283,6 @@ func (c *shape) auth(path string, a *Auth) {
 	}
 }
 
-// measure returns the JSON values in v, v included, and how many arrays and objects deep it nests.
 func measure(v any) (values, depth int) {
 	var children []any
 	switch t := v.(type) {

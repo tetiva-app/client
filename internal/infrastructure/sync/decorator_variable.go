@@ -98,8 +98,7 @@ func (r *SyncedVariableRepo) Update(ctx context.Context, v *entities.Variable) e
 	})
 }
 
-// Delete enqueues a sync "delete" entry within the same TX. A synced variable is soft-deleted:
-// an older server stores the tombstone as sent, and it must still name the environment.
+// Delete soft-deletes a synced variable, whose tombstone must still name the environment.
 func (r *SyncedVariableRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	wsID, err := r.getWorkspaceIDByVariable(ctx, id)
 	if err != nil || !r.isSyncEnabled(wsID) {

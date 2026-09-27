@@ -11,7 +11,6 @@ const tmp = mkdtempSync(join(tmpdir(), 'tetiva-snippets-dts-'))
 
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
 
-// The share page copies dist/ as is, so the declarations cannot point back into this repo.
 const FUNCTIONS = [
   'generate', 'targetsFor', 'SNIPPET_TARGETS', 'effectiveAuth', 'harFromSnapshotRequest', 'snippetInputFromSnapshot', 'snapshotToPostman',
 ]

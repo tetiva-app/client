@@ -16,7 +16,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 )
 
-// stubExampleUsecase is the example.Usecase double; methods without an injected Fn panic.
 type stubExampleUsecase struct {
 	createFn          func(context.Context, example.Create, example.CreateOpt) (*entities.ResponseExample, error)
 	editFn            func(context.Context, example.Edit, example.EditOpt) (*entities.ResponseExample, error)

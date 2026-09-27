@@ -123,7 +123,6 @@ func (s *ExampleService) Delete(req dto.DeleteExampleRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// ScanSecrets names the credentials an example would keep after masking, so the UI can ask first.
 func (s *ExampleService) ScanSecrets(req dto.ScanExampleRequest) Result[[]string] {
 	return OK(example.SuspectedSecrets(dto.HeaderItemsToEntity(req.Headers), req.Body))
 }

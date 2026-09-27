@@ -136,7 +136,7 @@ func validateFields(name string, statusCode int, body string) map[string]string 
 	return errs
 }
 
-// validatePayload runs on masked headers: the server's 512 KiB cap applies to what is synced.
+// validatePayload runs on masked headers: the server's cap applies to what is synced.
 func validatePayload(name, statusText string, headers []entities.HeaderItem, body, contentType string) error {
 	headersJSON, err := json.Marshal(headers)
 	if err != nil {

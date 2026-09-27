@@ -148,8 +148,7 @@ func VariableToProto(v *entities.Variable, operationID string) *syncv1.SyncEntit
 	}.Build()
 }
 
-// ResponseExampleToProto masks sensitive headers again: the usecase already does, but a
-// credential must not reach the server through a path that bypassed it.
+// ResponseExampleToProto masks headers again, for writes that bypassed the usecase.
 func ResponseExampleToProto(e *entities.ResponseExample, operationID string) *syncv1.SyncEntity {
 	masked := secrets.RedactHeaders(e.Headers)
 	headers := make([]*syncv1.HeaderItem, len(masked))

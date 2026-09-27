@@ -22,7 +22,6 @@ interface Bundle {
 function loadInBareContext(): { bundle: Bundle; context: vm.Context } {
   const source = readFileSync(new URL('../dist/snippets.mjs', import.meta.url), 'utf8')
   const { code } = transformSync(source, { format: 'iife', globalName: 'snippets' })
-  // Only what a browser page also has: no Buffer, process or require.
   const context = vm.createContext({ structuredClone })
   vm.runInContext(code, context)
   return { bundle: context.snippets as Bundle, context }

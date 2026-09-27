@@ -17,10 +17,8 @@ const MAX_BODY_BYTES = 256 * 1024
 const MAX_PAYLOAD_BYTES = 480 * 1024
 const PROTOCOLS = new Set(['http', 'graphql', 'grpc'])
 
-// Resolves the request an example belongs to; null when it does not exist.
 export type MockRequestLookup = (requestId: string) => Promise<{ isDraft?: boolean } | null>
 
-// Browser-mode copy of secrets.Scan; the rules and labels match the Go ones.
 const SECRET_RULES: [label: string, re: RegExp, group: number][] = [
   ['private key', /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, 0],
   ['JWT', /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, 0],
@@ -34,7 +32,6 @@ const SECRET_RULES: [label: string, re: RegExp, group: number][] = [
   ['OAuth token', /"(?:access|refresh|id)_?token"\s*:\s*"((?:[^"\\]|\\.)*)"/gi, 1],
 ]
 
-// Masking clears these before a scan in Go.
 const MASKED_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie', 'set-cookie'])
 
 function isPlaceholder(v: string): boolean {
@@ -52,7 +49,6 @@ function scanText(text: string): { label: string; start: number }[] {
   return found.sort((a, b) => a.start - b.start)
 }
 
-// Callers may pass reactive proxies, which structuredClone rejects.
 function copyHeaders(headers: HeaderItem[]): HeaderItem[] {
   return headers.map(h => ({ key: h.key, value: h.value, enabled: h.enabled }))
 }
@@ -85,7 +81,6 @@ function validateFields(f: Fields): Record<string, string> {
   return errs
 }
 
-// Runs on masked headers: the server's cap applies to what is synced.
 function payloadTooLarge(f: Fields): Record<string, string> | null {
   const size = byteLen(f.body) + byteLen(headersJSON(f.headers)) + byteLen(f.name.trim())
     + byteLen(f.statusText) + byteLen(f.contentType)
@@ -95,7 +90,6 @@ function payloadTooLarge(f: Fields): Record<string, string> | null {
 export class MockExampleService implements ExampleServiceAPI {
   private examples = new Map<string, Example>()
 
-  // Without a lookup every request counts as saved.
   constructor(private readonly findRequest?: MockRequestLookup) {}
 
   async list(requestId: string): Promise<Result<Example[]>> {

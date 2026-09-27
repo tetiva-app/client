@@ -15,9 +15,7 @@ export interface SnippetTarget {
   label: string
   language: SnippetLanguage
   protocols: SnippetProtocol[]
-  // Only curl and Python can reference a file on disk; other languages get a comment instead.
   fileBodies: boolean
-  // A client that cannot send a GET or HEAD body: fetch throws, so the body is left out; OkHttp silently drops it.
   getBody?: 'refused' | 'dropped'
   impl: SnippetImpl
 }
@@ -27,5 +25,4 @@ export interface SnippetResult {
   warnings: string[]
 }
 
-// Thrown by a target that cannot express the request; generate shows the message instead of code.
 export class Unsupported extends Error {}

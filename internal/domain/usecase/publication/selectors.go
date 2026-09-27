@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// Selector categories: <owner>/<category>/<key>. Only var and scan can be published as is, and both
-// keys hash the content.
 const (
 	CategoryVar      = "var"
 	CategoryScan     = "scan"
@@ -32,15 +30,13 @@ func indexKey(i int) string {
 	return strconv.Itoa(i)
 }
 
-// scanKey binds a scan override to the content, not to its position: the server keeps selectors
-// for later revisions, and an ordinal would point at a different hit after an edit.
+// scanKey hashes the content, not an ordinal: selectors outlive edits across revisions.
 func scanKey(pointer, match string) string {
 	sum := sha256.Sum256([]byte(pointer + "\x00" + match))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// valueKey binds a variable override to the value the author saw and to every row it reaches through
-// references, as publishing a template as is publishes those too: a change to any lapses the override.
+// valueKey covers every row reachable through references: any change lapses the override.
 func (vs *varState) valueKey(row int) string {
 	h := sha256.New()
 	h.Write([]byte(vs.rows[row].v.Value))
@@ -61,7 +57,6 @@ func (vs *varState) valueKey(row int) string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// pointerToken escapes one JSON Pointer reference token (RFC 6901).
 func pointerToken(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1")
 }

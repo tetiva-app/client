@@ -32,7 +32,7 @@ type instanceInfo struct {
 	Token string `json:"token"`
 }
 
-// A launch opens with helloMessage and sends ipcMessage only after the owner's proofMessage checks out.
+// The token goes out only after proofMessage checks: a dead owner's port may be reused.
 type helloMessage struct {
 	Nonce string `json:"nonce"`
 }
@@ -88,7 +88,6 @@ func (i *Instance) acceptLoop() {
 	}
 }
 
-// A wrong token or a malformed message gets the connection closed without a reply.
 func (i *Instance) handle(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(connDeadline))
@@ -152,7 +151,7 @@ func forward(infoPath string, args []string, dialTimeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-	// No trailing newline here or below: unread bytes would turn the owner's FIN into an RST and drop the reply.
+	// No trailing newline here or below: unread bytes turn the owner's FIN into an RST.
 	if _, err := conn.Write(hello); err != nil {
 		return err
 	}
@@ -221,7 +220,7 @@ func writeInfo(path string, port int, token string) error {
 		return fmt.Errorf("instance.json: %w", err)
 	}
 
-	// Windows refuses to replace a file another process has open, e.g. a second launch reading the stale one.
+	// Windows refuses to replace a file another process has open, e.g. a launch reading it.
 	for attempt := 0; ; attempt++ {
 		err = os.Rename(tmp.Name(), path)
 		if err == nil || attempt == 9 {

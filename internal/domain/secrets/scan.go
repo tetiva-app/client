@@ -5,7 +5,6 @@ import (
 	"sort"
 )
 
-// Finding is one likely credential in scanned text; text[Start:End] is the secret itself.
 type Finding struct {
 	Rule  string
 	Label string
@@ -16,8 +15,7 @@ type Finding struct {
 type scanRule struct {
 	rule, label string
 	re          *regexp.Regexp
-	// group is the submatch holding the secret, 0 for the whole match.
-	group int
+	group       int
 }
 
 var (
@@ -38,8 +36,6 @@ var scanRules = []scanRule{
 	{"oauth-token-field", "OAuth token", regexp.MustCompile(`(?i)"(?:access|refresh|id)_?token"\s*:\s*"((?:[^"\\]|\\.)*)"`), 1},
 }
 
-// Scan reports likely credentials in text, ordered by position. A value that is only {{…}}
-// references or an existing mask is not one.
 func Scan(text string) []Finding {
 	out := scanPrivateKeys(text)
 	for _, r := range scanRules {
@@ -55,8 +51,7 @@ func Scan(text string) []Finding {
 	return out
 }
 
-// scanPrivateKeys pairs each BEGIN with the next END in one pass; a single regex with an
-// optional END rescanned the rest of the text for every unclosed header.
+// One pass, not one regex: an optional END rescanned the text for every unclosed header.
 func scanPrivateKeys(text string) []Finding {
 	ends := pemEnd.FindAllStringIndex(text, -1)
 	var out []Finding
@@ -77,7 +72,6 @@ func scanPrivateKeys(text string) []Finding {
 	return out
 }
 
-// Labels names each kind of finding once, in the order they first appear.
 func Labels(findings []Finding) []string {
 	out := []string{}
 	seen := make(map[string]bool)

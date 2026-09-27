@@ -31,7 +31,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// Exit codes mirror main.go: 0 forwarded, 2 not responding.
 func runForwardHelper() int {
 	inst, err := acquire(os.Getenv(helperDirEnv), []string{os.Getenv(helperArgEnv)}, nil, defaultOptions)
 	switch {
@@ -48,7 +47,6 @@ func runForwardHelper() int {
 	}
 }
 
-// Holds the profile lock with no listener until stdin closes: a hung first instance.
 func runHoldHelper() int {
 	lock, err := lockFile(filepath.Join(os.Getenv(helperDirEnv), lockFileName))
 	if err != nil {
@@ -70,7 +68,6 @@ func helper(t *testing.T, mode, dir, arg string) *exec.Cmd {
 	return cmd
 }
 
-// startHolder returns once the helper owns the lock; closing the returned writer releases it.
 func startHolder(t *testing.T, dir string) (io.WriteCloser, *exec.Cmd) {
 	t.Helper()
 

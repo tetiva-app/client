@@ -100,7 +100,6 @@ export const usePublicationsStore = defineStore('publications', () => {
     return statuses.value.get(collectionId)?.published === true
   }
 
-  // Loading means nothing is known yet; a refresh of a known status keeps showing it.
   function isLoading(collectionId: string): boolean {
     return fetching.value.has(collectionId) && !statuses.value.has(collectionId)
   }
@@ -109,7 +108,6 @@ export const usePublicationsStore = defineStore('publications', () => {
     return plans.value.get(collectionId)
   }
 
-  // A plan that failed to load stays unknown, and nothing is offered on the strength of it.
   async function loadPlan(collectionId: string): Promise<void> {
     const gen = generation
     const res = await guarded((await getPublicationService()).plan(collectionId))
@@ -136,7 +134,7 @@ export const usePublicationsStore = defineStore('publications', () => {
       setStatus(collectionId, res.data)
       return res.data
     })().finally(() => {
-      // A call from before an account change must not clear the marks of the one that replaced it.
+      // A call from before an account change leaves the marks of its replacement alone.
       if (inFlight.get(collectionId) !== call) return
       inFlight.delete(collectionId)
       fetching.value.delete(collectionId)
@@ -146,7 +144,6 @@ export const usePublicationsStore = defineStore('publications', () => {
     return call
   }
 
-  // Statuses belong to the signed-in account; mounted panels and tab labels need them fetched again.
   function accountChanged() {
     const shown = new Set([...statuses.value.keys(), ...errors.value.keys()])
     generation++
@@ -271,7 +268,6 @@ export const usePublicationsStore = defineStore('publications', () => {
     resetList()
   })
 
-  // Decides only once the status is in; until then the menu shows the item as loading.
   async function openFromMenu(collection: { id: string; name: string }) {
     if (!settings.publishingEnabled) return
     await ensure(collection.id)

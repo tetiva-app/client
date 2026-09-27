@@ -31,7 +31,7 @@ const (
 
 var authScheme = regexp.MustCompile(`(?i)^(?:bearer|basic|token|digest|api-?key)[ \t]+`)
 
-// headers scrubs one header list; the redaction key is the row's index in the stored slice.
+// headers keys each redaction by the row's index in the stored slice.
 func (p *pass) headers(owner, path string, rows []entities.HeaderItem, category string) []Header {
 	section, reason := "headers", reasonHeader
 	if category == CategoryMetadata {
@@ -74,8 +74,6 @@ func (p *pass) headers(owner, path string, rows []entities.HeaderItem, category 
 	return out
 }
 
-// formLike is a=b&c=d text, as an urlencoded body is sent or typed with a pair per line: no name
-// has spaces in it, which keeps prose out.
 func formLike(s string) bool {
 	lit := strings.TrimSpace(varRef.ReplaceAllString(s, "x"))
 	if !strings.Contains(lit, "=") || strings.ContainsAny(lit[:1], `{["<`) {
@@ -90,7 +88,6 @@ func formLike(s string) bool {
 	return true
 }
 
-// graphQLSecret is bodySecret for GraphQL arguments and variable defaults.
 func (p *pass) graphQLSecret(query string) bool {
 	found := false
 	for _, a := range graphQLArgs(query) {
@@ -107,8 +104,6 @@ func (p *pass) graphQLSecret(query string) bool {
 	return found
 }
 
-// subprotocolRefs hides what fills a token's place in a subprotocol list: bearer.<token>, the entry
-// after access_token, or a whole entry whose value has that shape. A variable may hold several entries.
 func (p *pass) subprotocolRefs(entries []string) {
 	prev := ""
 	for _, e := range entries {
@@ -135,8 +130,6 @@ func isCookieHeader(name string) bool {
 	return name == "cookie" || name == "set-cookie"
 }
 
-// headerSensitive checks the name as written and as the page will resolve it; a name the public
-// variables leave unresolved could be anything, so it counts as sensitive and so do its references.
 func (p *pass) headerSensitive(key, value string) (sensitive, nameRefs bool) {
 	resolved := substitute(key, p.public)
 	if varRef.MatchString(resolved) {
@@ -145,7 +138,7 @@ func (p *pass) headerSensitive(key, value string) (sensitive, nameRefs bool) {
 	if sensitiveHeaderName(resolved) || anyLiteral(key, sensitiveHeaderName) {
 		return true, false
 	}
-	// Hidden values count too: hiding the variable that holds "Bearer" must not unmask the literal after it.
+	// Hidden values count: hiding the variable holding "Bearer" must not unmask what follows.
 	return authScheme.MatchString(strings.TrimSpace(value)) || authScheme.MatchString(strings.TrimSpace(substitute(value, p.vars.values))), false
 }
 
@@ -153,13 +146,10 @@ func (p *pass) paramSensitive(name string) (sensitive, nameRefs bool) {
 	return nameSensitive(name, p.public, sensitiveParamName)
 }
 
-// jsonKeySensitive is paramSensitive for a JSON key; the scan calls it too, with the same public values.
 func jsonKeySensitive(key string, public map[string]string) (sensitive, nameRefs bool) {
 	return nameSensitive(key, public, sensitiveJSONKey)
 }
 
-// secretContainer is a key whose whole object or list is secret, {"password": {"old": …, "new": …}}:
-// what sits inside is judged by it rather than by its own keys.
 func secretContainer(key string, public map[string]string) bool {
 	sensitive, _ := nameSensitive(key, public, func(k string) bool {
 		return sensitiveJSONKey(k) && secrets.NamesSecretContainer(k)
@@ -167,7 +157,6 @@ func secretContainer(key string, public map[string]string) bool {
 	return sensitive
 }
 
-// memberKey is the key the name rules judge member k of an object under key by.
 func memberKey(key, k string, keyed bool, public map[string]string) string {
 	if keyed && secretContainer(key, public) {
 		return key
@@ -175,8 +164,7 @@ func memberKey(key, k string, keyed bool, public map[string]string) string {
 	return k
 }
 
-// nameSensitive applies rule to a name as written and as the page will resolve it; a name the public
-// variables leave unresolved could be anything, so it counts as sensitive and so do its references.
+// An unresolved name could be anything: it counts as sensitive, and so do its references.
 func nameSensitive(name string, public map[string]string, rule func(string) bool) (sensitive, nameRefs bool) {
 	resolved := substitute(name, public)
 	if varRef.MatchString(resolved) {
@@ -185,8 +173,6 @@ func nameSensitive(name string, public map[string]string, rule func(string) bool
 	return rule(resolved) || anyLiteral(name, rule), false
 }
 
-// The name rules of a public page add the spec's words inside tokens to the shared ones, and let
-// through the few names that only look sensitive.
 func sensitiveHeaderName(name string) bool {
 	if secrets.IsOrdinaryName(name) {
 		return false
@@ -198,8 +184,7 @@ func sensitiveParamName(name string) bool {
 	return !secrets.IsOrdinaryName(name) && (secrets.IsSensitiveQueryParam(name) || secrets.ContainsSensitiveWord(name))
 }
 
-// A bare "code" in a body or an example is an error code far more often than an OAuth one, and a
-// bare "key" an issue key or the name half of a key/value entry, which lexedPairs reads as a pair.
+// A bare "code" is mostly an error code, a bare "key" the name half of a key/value entry.
 func sensitiveJSONKey(key string) bool {
 	k := strings.TrimSpace(key)
 	return !strings.EqualFold(k, "code") && !strings.EqualFold(k, "key") && sensitiveParamName(key)
@@ -217,8 +202,6 @@ func anyLiteral(name string, sensitive func(string) bool) bool {
 	return false
 }
 
-// url drops userinfo unless it is only references and keeps only the references of a sensitive
-// query or fragment parameter. urlKey and queryPrefix keep selectors apart when one owner has several URLs.
 func (p *pass) url(owner, path, raw, urlKey, queryPrefix string, hostFirst bool) string {
 	out := raw
 	if start, end, ok := hostSpan(raw, hostFirst); ok {
@@ -249,8 +232,6 @@ func (p *pass) url(owner, path, raw, urlKey, queryPrefix string, hostFirst bool)
 	return base
 }
 
-// hostSpan is the authority of raw: after "://", or from the start of a scheme-less raw when
-// hostFirst is set, as in a request URL without a scheme or a variable used as a host.
 func hostSpan(raw string, hostFirst bool) (start, end int, ok bool) {
 	if i := strings.Index(raw, "://"); i >= 0 {
 		start = i + 3
@@ -264,7 +245,6 @@ func hostSpan(raw string, hostFirst bool) (start, end int, ok bool) {
 	return start, end, true
 }
 
-// hostVars extends hostRefs through variable values: baseUrl = "https://{{host}}" adds host.
 func (p *pass) hostVars() {
 	for grew := true; grew; {
 		grew = false
@@ -282,8 +262,6 @@ func (p *pass) hostVars() {
 	}
 }
 
-// params masks the values of sensitive a=b parameters of a URL query or fragment, or of a
-// form-like raw body with CategoryForm.
 func (p *pass) params(owner, path, params, queryPrefix, category string, n *int) string {
 	if params == "" {
 		return params
@@ -292,7 +270,7 @@ func (p *pass) params(owner, path, params, queryPrefix, category string, n *int)
 	if category == CategoryForm {
 		reason = reasonForm
 	}
-	// A form-like raw body may put a pair on each line, and a redirect_uri may carry its own query.
+	// Pairs may sit one per line, and a redirect_uri may carry its own query.
 	var b strings.Builder
 	for rest := params; ; {
 		i := strings.IndexAny(rest, "&\n?")
@@ -315,7 +293,6 @@ func (p *pass) params(owner, path, params, queryPrefix, category string, n *int)
 }
 
 func (p *pass) param(owner, path, part, key, category, reason string) string {
-	// A variable here may insert whole parameters: "?{{params}}" with params = "password=…".
 	p.fragmentRefs(part)
 	name, value, ok := strings.Cut(part, "=")
 	if !ok || value == "" {
@@ -341,7 +318,6 @@ func (p *pass) form(owner, path, raw string) ([]FormField, error) {
 	if raw == "" || raw == "[]" {
 		return nil, nil
 	}
-	// The stored document is [{key, value, type, enabled}]; field names match case-insensitively.
 	var stored []struct {
 		Key, Value, Type string
 		Enabled          bool
@@ -372,7 +348,6 @@ func (p *pass) form(owner, path, raw string) ([]FormField, error) {
 	return out, nil
 }
 
-// fileName also hides the variables of the stored path: a published value would show the full path.
 func (p *pass) fileName(owner, path, stored, key string) string {
 	p.addRefs(stored)
 	name := baseName(stored)
@@ -382,8 +357,7 @@ func (p *pass) fileName(owner, path, stored, key string) string {
 	return name
 }
 
-// baseName splits on both separators outside {{…}}: a collection synced from Windows carries
-// backslash paths onto macOS and Linux. Same as har.baseName, which this package may not import.
+// Mirrors har.baseName, which this package may not import; Windows paths sync here too.
 func baseName(path string) string {
 	spans := varRef.FindAllStringIndex(path, -1)
 	path = strings.TrimRight(path, `/\`)
@@ -404,8 +378,6 @@ func outside(i int, spans [][]int) bool {
 	return true
 }
 
-// auth publishes allowlisted fields as stored; a secret field keeps a value made only of references
-// and is emptied otherwise, since a literal there belongs in a secret variable.
 func (p *pass) auth(owner, path string, t entities.AuthType, raw string, isRequest bool) (*Auth, error) {
 	switch t {
 	case entities.AuthTypeNone, entities.AuthTypeInherit, "":
@@ -456,8 +428,6 @@ func (p *pass) publicAuthValue(owner, path, key string, v any) any {
 	return v
 }
 
-// authObject applies the URL rule to URL-looking strings inside JWT claims and header, and marks the
-// references under a secret-looking key; the scan masks the literals there.
 func (p *pass) authObject(owner, path, selKey string, v any, jsonKey string, keyed bool) any {
 	switch t := v.(type) {
 	case string:
@@ -510,13 +480,12 @@ func stringLeaves(v any) []string {
 	return nil
 }
 
-// bodyRefs marks the references under sensitive names in body-like text; the scan masks the literals.
+// bodyRefs hides the references under sensitive names; the scan masks the literals.
 func (p *pass) bodyRefs(text string) {
 	p.bodySecret(text)
 	p.fragmentRefs(text)
 }
 
-// bodySecret marks the references in the values secretPairs finds and reports a literal there.
 func (p *pass) bodySecret(text string) bool {
 	found := false
 	for _, sp := range secretPairs(text, p.public) {
@@ -529,8 +498,6 @@ func (p *pass) bodySecret(text string) bool {
 	return found
 }
 
-// formSecret is bodySecret for any a=b&c=d text. Splitting at '?' too reads a query after a URL or a
-// path, and the pairs after a redirect_uri that carries its own query.
 func (p *pass) formSecret(text string) bool {
 	found := false
 	for _, kv := range formPairs(text, "&#\n?") {
@@ -547,8 +514,6 @@ func (p *pass) formSecret(text string) bool {
 	return found
 }
 
-// formPairs are the name=value parts of text split at any byte of seps; a name with spaces is prose
-// and is skipped. start:end is the value, less a trailing '\r'.
 func formPairs(text, seps string) []jsonPair {
 	var out []jsonPair
 	start := 0
@@ -569,9 +534,6 @@ func formPairs(text, seps string) []jsonPair {
 	return out
 }
 
-// fragmentRefs hides a variable whose value, put in place of its reference, carries a secret by the
-// JSON, form or GraphQL argument rule: a body of {{payload}}, an object value, a query tail, a whole
-// query. References inside such a value are followed, as the page substitutes them too.
 func (p *pass) fragmentRefs(text string) {
 	for _, name := range refNames(text) {
 		if p.fragments[name] {
@@ -594,8 +556,6 @@ func isLiteralSecret(v string) bool {
 	return v != "" && !onlyRefs(v) && v != redactedMark
 }
 
-// effectiveMetadata merges collection, folder and request metadata; the nearest level wins per
-// lowercased key and the result is sorted by key, so map order never shows.
 func effectiveMetadata(chain []*entities.Collection, request map[string][]string) []entities.HeaderItem {
 	merged := map[string][]entities.HeaderItem{}
 	apply := func(level map[string][]entities.HeaderItem) {

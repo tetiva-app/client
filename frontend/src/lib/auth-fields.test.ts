@@ -5,8 +5,6 @@ import { authFieldSpecs, authObjectFields } from './auth-data'
 
 const table = goFixture as { public: Record<string, string[]>; secret: Record<string, string[]> }
 
-// The publication builder publishes only the public list; a field missing from both is a
-// new field nobody decided about yet.
 describe('publication auth field table', () => {
   it('covers every auth type', () => {
     expect(Object.keys(table.public).sort()).toEqual([...AUTH_TYPES].sort())

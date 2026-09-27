@@ -1,5 +1,4 @@
-// Package portability holds what every collection importer shares: the Importer contract,
-// format detection and the preview shown before anything is written.
+// Package portability holds the Importer contract, format detection and the import preview.
 package portability
 
 import (
@@ -19,7 +18,6 @@ const (
 	FormatPostman = "postman"
 )
 
-// Reasons an import is refused; they reach the frontend as ResultError.reason.
 const (
 	ReasonLinkNotFound     = "LINK_NOT_FOUND"
 	ReasonPasswordRequired = "PASSWORD_REQUIRED"
@@ -33,16 +31,13 @@ type TxRunner interface {
 	Run(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// Importer turns one file format into collections. Import writes through usecases and expects the
-// caller to wrap it in TxRunner.Run, so a failure halfway leaves nothing behind.
+// Importer turns one file format into collections; callers wrap Import in TxRunner.Run.
 type Importer interface {
 	Detect(data []byte) bool
 	Preview(data []byte) (*ImportPreview, error)
 	Import(ctx context.Context, data []byte, opt ImportOpt) (*ImportResult, error)
 }
 
-// ImportOpt.ParentID is honoured by the Postman importer only: a Tetiva snapshot always lands at the
-// top level, where an imported inherit cannot pick up auth or scripts from the user's own folder.
 type ImportOpt struct {
 	WorkspaceID    uuid.UUID
 	ParentID       *uuid.UUID
@@ -65,7 +60,7 @@ type ImportPreview struct {
 
 type ScriptPreview struct {
 	Path  string
-	Phase string // pre | post
+	Phase string
 	Text  string
 }
 
@@ -90,8 +85,6 @@ func Select(data []byte, importers ...Importer) (Importer, error) {
 
 var varPattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
-// Hosts lists the distinct hosts of the given URLs, sorted, after substituting the given public
-// variables; a reference they do not resolve is shown as written.
 func Hosts(urls []string, vars map[string]string) []string {
 	var out []string
 	for _, raw := range urls {
@@ -109,8 +102,7 @@ func Hosts(urls []string, vars map[string]string) []string {
 	return out
 }
 
-// HostOf is hand-rolled rather than url.Parse, which rejects a {{variable}} in the host. A target it
-// cannot reduce to a host comes back whole, so the preview never hides where a request goes.
+// HostOf is hand-rolled: url.Parse rejects a {{variable}} in the host.
 func HostOf(raw string) string {
 	s := strings.TrimSpace(raw)
 	var host string
@@ -119,7 +111,7 @@ func HostOf(raw string) string {
 	case "dns", "passthrough", "xds":
 		// grpc-go dials the endpoint; the authority of a dns target only names the resolver.
 		host = grpcEndpoint(rest)
-	case "unix", "unix-abstract": // a local socket path, shown whole
+	case "unix", "unix-abstract":
 	default:
 		host = authority(s)
 	}
@@ -145,7 +137,7 @@ func authority(s string) string {
 	return s
 }
 
-// grpcEndpoint mirrors grpc-go's resolver.Target.Endpoint for a target without its scheme.
+// grpcEndpoint mirrors grpc-go's resolver.Target.Endpoint, minus the scheme.
 func grpcEndpoint(rest string) string {
 	if i := strings.IndexAny(rest, "?#"); i >= 0 {
 		rest = rest[:i]

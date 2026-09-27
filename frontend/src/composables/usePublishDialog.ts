@@ -52,7 +52,6 @@ function warningSignature(p: PublishPreview | null): string {
   return (p?.warnings ?? []).map(w => w.selector).sort().join('\n')
 }
 
-// The server brings a revoked page back under its old slug, and a password page keeps its password.
 function reopens(st: PublicationStatus | null): boolean {
   return !!st && !st.published && st.canManage && st.publicUrl !== ''
 }
@@ -123,7 +122,7 @@ export function usePublishDialog() {
   const passwordMissing = computed(() =>
     visibility.value === 'password' && password.value === '' && !keepsPassword.value)
 
-  // The server lets a page keep its visibility after a downgrade, but a new password needs the feature again.
+  // A downgraded page keeps its visibility, but a new password needs the feature again.
   function keepsVisibility(v: Visibility): boolean {
     const st = status.value
     return !!st && (st.published || reopens(st)) && st.visibility === v && !(v === 'password' && password.value !== '')
@@ -143,7 +142,7 @@ export function usePublishDialog() {
 
   const visibilityLocked = computed(() => lockedVisibilities.value.includes(visibility.value))
 
-  // Unlike the locks, an unknown plan offers nothing: Free must not be pointed at a locked option.
+  // Unlike the locks, an unknown plan offers nothing: Free is never pointed at a lock.
   const unlistedOffered = computed(() => plan.value !== null && !lockedVisibilities.value.includes('unlisted'))
 
   const hiddenRows = computed<HiddenRow[]>(() =>
@@ -223,7 +222,6 @@ export function usePublishDialog() {
     reset()
     target = t
     loading.value = true
-    // Not awaited: a slow plan lookup must not hold the dialog, and until it lands the server's refusal still works.
     void loadPlan(t.id).then(p => { if (target === t) plan.value = p })
     const [st, envs] = await Promise.all([publications.refresh(t.id), loadEnvironments(t.workspaceId)])
     if (target !== t) return
@@ -235,7 +233,6 @@ export function usePublishDialog() {
     if (publishable.value) await refreshPreview()
   }
 
-  // The preview and the publish read the database, so edits still open in the editor go first.
   function saveEdits(t: PublishTarget): Promise<boolean> {
     return useRequestStore().flushCollections(useCollectionStore().collectSubtreeIds(t.id))
   }

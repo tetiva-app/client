@@ -68,15 +68,13 @@ function generateHTTP(target: SnippetTarget, har: HarRequest): SnippetResult {
   return { code: prependComments(code, comments), warnings: [...warnings, ...sentinels.warnings] }
 }
 
-// A Wails binding class declares its optional fields, so a key Go left out arrives as an own undefined,
-// and httpsnippet spreads the request over its defaults: {postData: {…}, ...request}.
+// A key Go left out arrives as an own undefined and would override httpsnippet's defaults.
 function dropUnset(har: HarRequest) {
   for (const key of Object.keys(har) as (keyof HarRequest)[]) {
     if (har[key] === undefined || har[key] === null) delete har[key]
   }
 }
 
-// Checked after the sentinel swap, so a {{var}} inside a name counts as token characters.
 function keepTokenHeaders(encoded: HarRequest, original: HarRequest): string[] {
   const warnings: string[] = []
   encoded.headers = encoded.headers.filter((h, i) => {
@@ -97,8 +95,7 @@ function keepTokenKeys(headers: Record<string, string[]>): string[] {
   return warnings
 }
 
-// httpsnippet builds a form body only from params and only for the bare media type, so a raw
-// form body or one typed with a charset would come out empty.
+// httpsnippet builds a form body only from params and only for the bare media type.
 function libraryForm(har: HarRequest): string[] {
   const postData = har.postData
   if (!postData || postData.mimeType.split(';')[0].trim().toLowerCase() !== FORM) return []
@@ -118,14 +115,12 @@ function withWarnings(warnings: string[], result: SnippetResult): SnippetResult 
   return { ...result, warnings: [...warnings, ...result.warnings] }
 }
 
-// PHP prints anything before <?php as output, so the comments go right after the tag.
 function prependComments(code: string, comments: string[]): string {
   if (!comments.length) return code
   const head = code.startsWith('<?php\n') ? '<?php\n' : ''
   return head + [...comments, code.slice(head.length)].join('\n')
 }
 
-// Mutates har: a body the client refuses goes, and a note stands in for it.
 function checkBodilessMethod(target: SnippetTarget, har: HarRequest, notes: string[]): string[] {
   const method = har.method.toUpperCase()
   const hasBody = har._tetiva?.binaryFile || har.postData?.text || har.postData?.params?.length
@@ -140,7 +135,6 @@ function checkBodilessMethod(target: SnippetTarget, har: HarRequest, notes: stri
   return [text]
 }
 
-// Mutates har: file parts and a binary body go, and the returned notes stand in for them.
 function dropFileBodies(har: HarRequest): string[] {
   const notes: string[] = []
   const binaryFile = har._tetiva?.binaryFile

@@ -494,7 +494,6 @@ describe('usePublishDialog', () => {
     expect(d.lockedVisibilities.value).toEqual(['password'])
   })
 
-  // The server lets a page keep its visibility after a downgrade; a new password counts as a change.
   it('keeps the visibility a page already has on a plan without it', async () => {
     const svc = await service()
     svc.setStatus('c1', published({ visibility: 'password' }))

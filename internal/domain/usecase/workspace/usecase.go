@@ -33,12 +33,10 @@ type TxRunner interface {
 	Run(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// directTx stands in for test constructors built without a database: fn runs without atomicity.
 type directTx struct{}
 
 func (directTx) Run(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
 
-// PublicationMarker records, inside the delete transaction, that the workspace's public pages have to come down.
 type PublicationMarker interface {
 	MarkPendingUnpublishWorkspace(ctx context.Context, workspaceID uuid.UUID) error
 }

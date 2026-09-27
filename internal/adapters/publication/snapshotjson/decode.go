@@ -13,21 +13,19 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/publication"
 )
 
-// Reasons a snapshot is refused; they reach the frontend as ResultError.reason.
 const (
 	ReasonTooLarge       = "SNAPSHOT_TOO_LARGE"
 	ReasonInvalid        = "SNAPSHOT_INVALID"
 	ReasonUpdateRequired = "UPDATE_REQUIRED"
 )
 
-// Server limits (spec §4.4): a document the server would reject is not imported either.
+// Server limits: a document the server would reject is not imported either.
 const (
 	maxFolderDepth = 16
 	maxItems       = 5000
 )
 
-// Decode is the one bounded reader for a snapshot from a file or a link: plain or gzip JSON, at most
-// limit bytes once decompressed. Unknown fields are ignored; a newer version asks for an update.
+// Decode reads plain or gzip JSON, at most limit bytes once decompressed.
 func Decode(r io.Reader, limit int64) (*publication.Snapshot, error) {
 	br := bufio.NewReader(r)
 	var src io.Reader = br
@@ -76,8 +74,7 @@ func Decode(r io.Reader, limit int64) (*publication.Snapshot, error) {
 	return fromJSON(&doc)
 }
 
-// Sniff tells a snapshot from other JSON by its top-level format key; gzip counts as a snapshot,
-// the only gzip input an import expects. It stops at the key, which Marshal writes first.
+// Sniff treats any gzip as a snapshot: no other import format is gzipped.
 func Sniff(data []byte) bool {
 	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
 		return true
@@ -139,7 +136,7 @@ func fromJSON(doc *jsonSnapshot) (*publication.Snapshot, error) {
 	return s, nil
 }
 
-// itemsFromJSON counts folder depth from 1 at the top level, as the server validator does.
+// Folder depth counts from 1 at the top level, as the server validator does.
 func itemsFromJSON(items []jsonItem, depth int, count *int) ([]publication.Item, error) {
 	out := make([]publication.Item, 0, len(items))
 	for i := range items {

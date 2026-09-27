@@ -12,35 +12,31 @@ import (
 	"github.com/google/uuid"
 )
 
-// The server moves a local publication into a linked workspace on its next read, so a mapping, even
-// on a soft-deleted workspace, counts as cloud before a refresh sets the flag.
+// No is_delete filter: a mapped workspace counts as cloud before a refresh sets the flag.
 const linkedWorkspacesSQL = `SELECT id FROM workspaces WHERE remote_workspace_id <> ''`
 
 const publicationColumns = `collection_id, workspace_id, owner_key, publication_id, slug, public_url, visibility, status,
 	content_hash, revision, blocked, blocked_reason, badge, can_manage, settings, counters, pending_unpublish,
 	server_updated_at, refreshed_at, created_at, updated_at, cloud, unpublish_attempts, unpublish_error`
 
-// PublicationRow is what the client knows about the publication of one collection. WorkspaceID is
-// the local workspace (collection.WorkspaceID), never RemoteWorkspaceID: the markers match on it.
-// Cloud is the server's word, which outlives an unlink or an org switch clearing the mapping.
+// PublicationRow.WorkspaceID is local, never RemoteWorkspaceID: the markers match on it.
 type PublicationRow struct {
-	CollectionID     uuid.UUID
-	WorkspaceID      uuid.UUID
-	OwnerKey         string
-	PublicationID    string
-	Slug             string
-	PublicURL        string
-	Visibility       string
-	Status           string
-	ContentHash      string
-	BlockedReason    string
-	Revision         int
-	Blocked          bool
-	Badge            bool
-	CanManage        bool
-	PendingUnpublish bool
-	Cloud            bool
-	// UnpublishAttempts counts the server's refusals of the pending unpublish; UnpublishError is the last one.
+	CollectionID      uuid.UUID
+	WorkspaceID       uuid.UUID
+	OwnerKey          string
+	PublicationID     string
+	Slug              string
+	PublicURL         string
+	Visibility        string
+	Status            string
+	ContentHash       string
+	BlockedReason     string
+	Revision          int
+	Blocked           bool
+	Badge             bool
+	CanManage         bool
+	PendingUnpublish  bool
+	Cloud             bool
 	UnpublishAttempts int
 	UnpublishError    string
 	Settings          *PublicationSettings
@@ -77,8 +73,7 @@ type publicationCountersJSON struct {
 	Downloads int64 `json:"downloads"`
 }
 
-// PublicationRepo keeps the local publication cache. Like auth_tokens, the table never syncs and
-// its rows are deleted physically.
+// PublicationRepo is a local cache that never syncs; its rows are deleted physically.
 type PublicationRepo struct {
 	db     *sql.DB
 	marked chan struct{}
@@ -88,7 +83,7 @@ func NewPublicationRepo(db *sql.DB) *PublicationRepo {
 	return &PublicationRepo{db: db, marked: make(chan struct{}, 1)}
 }
 
-// Marked receives once a delete that marked a row has committed; marks in a row coalesce into one.
+// Marked fires once a marking delete commits; marks in a row coalesce into one.
 func (r *PublicationRepo) Marked() <-chan struct{} {
 	return r.marked
 }
@@ -206,8 +201,7 @@ func (r *PublicationRepo) Delete(ctx context.Context, ownerKey string, collectio
 	return nil
 }
 
-// MarkPendingUnpublish marks the rows of every account, but only local publications: the server
-// takes a deleted cloud collection down itself. A collection without a row is a no-op.
+// MarkPendingUnpublish skips cloud publications: the server takes those down itself.
 func (r *PublicationRepo) MarkPendingUnpublish(ctx context.Context, collectionIDs []uuid.UUID) error {
 	const funcName = "PublicationRepo.MarkPendingUnpublish"
 
@@ -231,8 +225,7 @@ func (r *PublicationRepo) MarkPendingUnpublish(ctx context.Context, collectionID
 	return nil
 }
 
-// MarkPendingUnpublishWorkspace leaves cloud publications up: deleting the local copy of a cloud
-// workspace keeps its data on the server.
+// MarkPendingUnpublishWorkspace skips cloud publications: the server keeps their data.
 func (r *PublicationRepo) MarkPendingUnpublishWorkspace(ctx context.Context, workspaceID uuid.UUID) error {
 	const funcName = "PublicationRepo.MarkPendingUnpublishWorkspace"
 

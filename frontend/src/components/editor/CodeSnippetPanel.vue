@@ -14,7 +14,7 @@ const {
   targets, selected, language, code, warnings, error, loading, stale, canCopy, resolveVariables, includeSecrets, copy,
 } = useCodeSnippetPanel(computed(() => props.request))
 
-// Spelled out: reka-ui learns the item labels only once mounted, so the first paint would show none.
+// reka-ui learns item labels only once mounted, so the first paint would show none.
 const selectedLabel = computed(() => targets.value.find((t) => t.key === selected.value)?.label ?? '')
 </script>
 

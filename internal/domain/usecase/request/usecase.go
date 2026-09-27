@@ -183,8 +183,7 @@ func (noopTokenCleaner) ClearOwnersUnlessHash(context.Context, string, []uuid.UU
 
 func (noopTokenCleaner) DeleteOrphans(context.Context) (int, error) { return 0, nil }
 
-// ExampleCleaner carries a request's examples along when it is deleted or moved between workspaces;
-// both calls run inside the request's transaction.
+// ExampleCleaner carries a request's examples along, inside the request's transaction.
 type ExampleCleaner interface {
 	DeleteByRequest(ctx context.Context, requestID uuid.UUID, userID string) error
 	MoveToWorkspace(ctx context.Context, requestID, newWorkspaceID uuid.UUID, userID string) error
@@ -194,7 +193,6 @@ type TxRunner interface {
 	Run(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// directTx stands in for test constructors built without a database: fn runs without atomicity.
 type directTx struct{}
 
 func (directTx) Run(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
@@ -247,8 +245,7 @@ type CurlResult struct {
 type BuildSnippetOpt struct {
 	WorkspaceID      uuid.UUID
 	ResolveVariables bool
-	// IncludeSecrets lets resolution print variables marked secret; otherwise they stay {{name}}.
-	IncludeSecrets bool
+	IncludeSecrets   bool
 }
 
 type GRPCSnippet struct {
@@ -265,8 +262,6 @@ type WSSnippet struct {
 	Messages     []WSSnippetMessage
 }
 
-// SnippetInput is what the snippet generators render; exactly one of HAR, GRPC and WS is set.
-// Unresolved {{name}} references appear in it verbatim.
 type SnippetInput struct {
 	Protocol entities.Protocol
 	HAR      *har.Request

@@ -42,7 +42,7 @@ export function buildHar(req: SnapshotRequest, env: SnapshotEnvironment | null, 
   return null
 }
 
-// A name marked secret on any row stays a reference (I-4); unknown secrecy counts as secret.
+// A name marked secret on any row stays a reference; unknown secrecy counts as secret.
 export function publicVars(env: SnapshotEnvironment | null): Vars {
   const vars: Vars = new Map()
   const all: unknown = env?.variables
@@ -73,8 +73,7 @@ export function headerMap(rows: SnapshotHeader[] | undefined, vars: Vars): Heade
   return out
 }
 
-// setQueryParam mirrors Go's url.Values Set + Encode: the query is decoded, grouped by key, sorted
-// and re-encoded, while {{…}} references stay verbatim.
+// setQueryParam mirrors Go's url.Values Set + Encode; {{…}} references stay verbatim.
 export function setQueryParam(rawURL: string, key: string, value: string): string {
   const spans = varSpans(rawURL)
   let base = rawURL
@@ -153,7 +152,6 @@ function buildGraphQL(p: SnapshotGraphQLPart, vars: Vars, auth: SnapshotAuth | n
   return build('POST', url, headers, { kind: 'text', mimeType, text }, '', [...applied.warnings, ...bodyWarnings])
 }
 
-// build is Go's har.Build: query only in queryString, folded headers, userinfo and fragment dropped.
 function build(method: string, rawURL: string, headers: HeaderMap, body: Body, authNote: string, warnings: string[]): BuiltHar {
   const [url, rawQuery] = splitURL(rawURL)
   const out = [...warnings]
@@ -214,7 +212,6 @@ function repeatedKeyWarnings(params: HarParam[]): string[] {
   return warnings
 }
 
-// splitURL separates the query and drops the fragment and userinfo without looking inside {{…}}.
 function splitURL(raw: string): [string, string] {
   const spans = varSpans(raw)
   let query = ''
@@ -246,7 +243,7 @@ function parseQuery(q: string): HarNameValue[] {
   return out
 }
 
-// parseValues is url.ParseQuery: a pair with ';' or a broken escape is dropped rather than kept raw.
+// parseValues is url.ParseQuery: a pair with ';' or a broken escape is dropped.
 function parseValues(q: string): Map<string, string[]> {
   const values = new Map<string, string[]>()
   for (const seg of splitOutside(q, '&')) {
@@ -281,7 +278,6 @@ function unescapeOutside(s: string, keepBroken: boolean): string | null {
   return out
 }
 
-// queryUnescape is Go's url.QueryUnescape: '+' is a space and a malformed escape is an error.
 function queryUnescape(s: string): string | null {
   if (!s.includes('%') && !s.includes('+')) return s
   const bytes: number[] = []
@@ -304,7 +300,6 @@ function queryUnescape(s: string): string | null {
   return new TextDecoder().decode(new Uint8Array(bytes))
 }
 
-// queryEscape is Go's url.QueryEscape outside {{…}}.
 function queryEscape(s: string): string {
   let out = ''
   let last = 0
@@ -321,7 +316,7 @@ function queryEscape(s: string): string {
   return out
 }
 
-// baseName splits on both separators: a collection synced from Windows may carry backslash paths.
+// Both separators: a collection synced from Windows may carry backslash paths.
 function baseName(path: string): string {
   const spans = varSpans(path)
   let end = path.length
@@ -354,7 +349,6 @@ function jsonString(s: string): string {
   return JSON.stringify(s).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 }
 
-// compactJSON is json.Compact: whitespace outside strings goes, every other byte stays as written.
 function compactJSON(s: string): string | null {
   try {
     JSON.parse(s)
@@ -379,7 +373,6 @@ function compactJSON(s: string): string | null {
   return out
 }
 
-// stripJSONC is the Go sender's: comments go, strings stay, newlines inside block comments stay.
 function stripJSONC(src: string): string {
   let out = ''
   const n = src.length
@@ -442,7 +435,6 @@ function varSpans(s: string): [number, number][] {
   return varRefs(s).map((r) => [r.start, r.end])
 }
 
-// Spans are sorted and disjoint, so only the first one ending after i can hold it.
 function outside(i: number, spans: [number, number][]): boolean {
   let lo = 0
   let hi = spans.length

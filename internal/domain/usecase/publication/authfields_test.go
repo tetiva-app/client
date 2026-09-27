@@ -11,8 +11,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// frontend/src/lib/auth-fields.test.ts checks every FIELD_SPECS key against this fixture,
-// so a new auth field fails there until it is classified here.
 func TestAuthFieldsFixtureIsCurrent(t *testing.T) {
 	public := map[entities.AuthType][]string{}
 	secret := map[entities.AuthType][]string{}

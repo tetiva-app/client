@@ -82,7 +82,7 @@ type PostmanItem struct {
 	Request     *PostmanRequest     `json:"request,omitempty"`
 	Auth        *PostmanAuth        `json:"auth,omitempty"`
 	Event       []PostmanEvent      `json:"event,omitempty"`
-	// Raw so one malformed example is skipped on its own instead of failing the whole file.
+	// Raw so a malformed example is skipped alone instead of failing the file.
 	Response []json.RawMessage `json:"response,omitempty"`
 }
 
@@ -212,7 +212,6 @@ type PostmanScript struct {
 	Exec PostmanExec `json:"exec"`
 }
 
-// PostmanExec holds script lines; v2.1 also allows the whole script as one string.
 type PostmanExec []string
 
 func (e *PostmanExec) UnmarshalJSON(b []byte) error {
@@ -231,20 +230,16 @@ func (e *PostmanExec) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// PostmanResponse is a saved example of a request.
 type PostmanResponse struct {
 	Name            string          `json:"name"`
 	OriginalRequest *PostmanRequest `json:"originalRequest,omitempty"`
 	Status          string          `json:"status"`
 	Code            int             `json:"code"`
-	// Postman picks the body viewer by it; the only type hint an example without headers has.
-	PreviewLanguage string         `json:"_postman_previewlanguage,omitempty"`
-	Header          PostmanHeaders `json:"header"`
-	Body            string         `json:"body"`
+	PreviewLanguage string          `json:"_postman_previewlanguage,omitempty"`
+	Header          PostmanHeaders  `json:"header"`
+	Body            string          `json:"body"`
 }
 
-// PostmanHeaders reads every v2.1 header shape: a list of objects, one string of
-// "Key: Value" lines, or a list mixing objects and such strings.
 type PostmanHeaders []PostmanKV
 
 func (h *PostmanHeaders) UnmarshalJSON(b []byte) error {
@@ -277,7 +272,7 @@ func (h *PostmanHeaders) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// A bare UnmarshalTypeError gets the field path from the decoder, which names it in the warning.
+// A bare UnmarshalTypeError: the decoder fills in the field path the warning names.
 func headersTypeError(raw []byte) error {
 	kind := "number"
 	if len(raw) > 0 {
@@ -295,7 +290,7 @@ func headersTypeError(raw []byte) error {
 	return &json.UnmarshalTypeError{Value: kind, Type: reflect.TypeFor[PostmanHeaders]()}
 }
 
-// parseHeaderLines reads Postman's bulk-edit form, where a "//" prefix disables the header.
+// parseHeaderLines reads Postman's bulk-edit form; a "//" prefix disables the header.
 func parseHeaderLines(text string) []PostmanKV {
 	var out []PostmanKV
 	for _, line := range strings.Split(text, "\n") {

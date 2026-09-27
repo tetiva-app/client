@@ -6,9 +6,6 @@ type PublicationStatusRequest struct {
 	CollectionID string `json:"collectionId"`
 }
 
-// PublicationStatus.ReasonUnavailable is "" | not_logged_in | no_capability | not_root | offline;
-// HasChanges is yes | no | unknown; Settings is nil unless the caller can manage the publication.
-// UnpublishError is set once the server has refused a pending unpublish several times.
 type PublicationStatus struct {
 	Available         bool                `json:"available"`
 	ReasonUnavailable string              `json:"reasonUnavailable"`
@@ -50,7 +47,6 @@ type PublishPlanRequest struct {
 	CollectionID string `json:"collectionId"`
 }
 
-// PublishPlan says which paid visibilities the plan behind the collection includes.
 type PublishPlan struct {
 	Unlisted bool `json:"unlisted"`
 	Password bool `json:"password"`
@@ -96,7 +92,6 @@ type PublishPreview struct {
 	PreviewHash      string          `json:"previewHash"`
 }
 
-// SizedExample is a response example by body size, listed when the snapshot is over its limit.
 type SizedExample struct {
 	Path  string `json:"path"`
 	Bytes int    `json:"bytes"`
@@ -135,7 +130,6 @@ type BlockingError struct {
 	Message string            `json:"message"`
 }
 
-// PublishRequest.Locale is ru | en; Password is sent only with the password visibility.
 type PublishRequest struct {
 	CollectionID         string   `json:"collectionId"`
 	WorkspaceID          string   `json:"workspaceId"`

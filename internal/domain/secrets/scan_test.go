@@ -110,7 +110,6 @@ func TestScan_UnclosedPrivateKeyHeadersStayLinear(t *testing.T) {
 	elapsed := time.Since(start)
 
 	assert.Len(t, findings, 256*1024/len(header))
-	// Relative to a same-size text, so the bound holds under -race and a busy machine; pairing
-	// BEGIN with END in one regex made this ~1000x slower.
+	// Relative to a same-size text, so the bound holds under -race and on a busy machine.
 	assert.Less(t, elapsed, 10*plain)
 }

@@ -10,8 +10,6 @@ import (
 
 const modulePath = "github.com/tetiva-app/client"
 
-// I-2: the builder sees only what the caller hands it — no request usecase, env resolver,
-// script engine, cookie jar, token store or file system.
 func TestImportsStayInsideTheAllowlist(t *testing.T) {
 	allowedInternal := map[string]bool{
 		modulePath + "/internal/domain":                   true,

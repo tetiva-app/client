@@ -36,9 +36,9 @@ type SyncQueueRepository interface {
 	// Increments retry_count and schedules the next retry.
 	MarkFailed(ctx context.Context, id int64, nextRetryAt time.Time) error
 	MarkParked(ctx context.Context, id int64) error
-	// Holds an entry whose parent the server has not seen yet; counted adds one to defer_count.
+	// Holds an entry whose parent the server has not seen; counted adds one to defer_count.
 	MarkDeferred(ctx context.Context, id int64, nextRetryAt time.Time, counted bool) error
-	// Reports whether the example's request has a row the push holds back: 'failed', 'parked' or 'deferred'.
+	// True when the example's request has a 'failed', 'parked' or 'deferred' row.
 	ExampleParentHeld(ctx context.Context, workspaceID, exampleID string) (bool, error)
 	// Moves 'failed' and 'deferred' entries whose retry window elapsed back to 'pending'.
 	RequeueDue(ctx context.Context, workspaceID string, now time.Time) (int64, error)
@@ -47,36 +47,28 @@ type SyncQueueRepository interface {
 	// Resets 'sending' back to 'pending'; called on startup.
 	ResetSending(ctx context.Context) error
 	DeleteByWorkspace(ctx context.Context, workspaceID string) (int, error)
-	// Only the latest entry per (entity_type, entity_id), parents' types first; excludeTypes are left out.
+	// Only the latest entry per (entity_type, entity_id), parent types first.
 	CoalescedPending(ctx context.Context, workspaceID string, limit int, excludeTypes []string) ([]*SyncEntry, error)
-	// Counts entries the server has not taken, parked retries included; excludeTypes are left out.
+	// Counts entries the server has not taken, parked retries included.
 	CountPendingOrFailed(ctx context.Context, workspaceID string, excludeTypes []string) (int, error)
 	CountParked(ctx context.Context, workspaceID string) (int, error)
 	CountTooLarge(ctx context.Context, workspaceID string) (int, error)
 	// ok is false when nothing is parked.
 	EarliestParkedRetryAt(ctx context.Context, workspaceID string) (t time.Time, ok bool, err error)
 	EnqueueDocumentedRequests(ctx context.Context, workspaceID string) (int, error)
-	// Queues every example of the workspace the server has not confirmed, deleted ones as deletes.
 	EnqueueUnsyncedExamples(ctx context.Context, workspaceID string) (int, error)
-	// Reports whether an 'update' row was added: the request and its collection must be live
-	// in workspaceID and the queue must hold no row of any status for it.
+	// Adds an 'update' only for a live request the queue holds no row of any status for.
 	EnqueueRequestIfAbsent(ctx context.Context, workspaceID, requestID string) (bool, error)
-	// Queues a 'create' for every live entity of the workspace without a pending row, parent folders first.
 	EnqueueWorkspace(ctx context.Context, workspaceID string) (int, error)
-	// Queues the live rows of a collection's tree the server never confirmed and the queue holds no row for.
 	EnqueueUnsyncedTree(ctx context.Context, workspaceID, collectionID string) (int, error)
-	// EnqueueUnsyncedTree for every root of the workspace, environments included.
 	EnqueueUnsyncedWorkspace(ctx context.Context, workspaceID string) (int, error)
 	// Entries held back from the push: 'parked' and 'deferred'.
 	ListHeld(ctx context.Context, workspaceID, entityType string) ([]*SyncEntry, error)
-	// Deletes the pending rows of each entry's entity older than the entry itself.
 	DropOlderPending(ctx context.Context, entries []*SyncEntry) error
-	// Moves the workspace's copy of the seeded Default environment, if the server has never had it, to a
-	// fresh id along with its variables and the publication settings naming it; "" when nothing moved.
+	// Moves the seeded Default environment the server never had to a new id; "" if none.
 	ReissueSeededEnvironment(ctx context.Context, workspaceID string) (string, error)
 }
 
-// sqlUUIDv4 generates a v4 UUID inside a statement, for rows inserted by INSERT … SELECT.
 const sqlUUIDv4 = `lower(
 		hex(randomblob(4)) || '-' ||
 		hex(randomblob(2)) || '-4' ||
@@ -85,8 +77,7 @@ const sqlUUIDv4 = `lower(
 		hex(randomblob(6))
 	)`
 
-// 001 seeds the Default environment under this id on every install, and server ids are global,
-// so the uploads a link queues leave it and its variables out; a first link reissues it first.
+// 001 seeds this id on every install and server ids are global: a first link reissues it.
 const seededEnvironmentID = "00000000-0000-4000-a000-000000000002"
 
 type SyncQueueRepo struct {
@@ -501,8 +492,6 @@ func (r *SyncQueueRepo) EnqueueUnsyncedWorkspace(ctx context.Context, workspaceI
 	return n, nil
 }
 
-// enqueueLive queues the live entities under the root collections picked by roots; ?1 is the workspace.
-// Folders go in depth order: a push batch that carried a child before its parent would lose the child.
 func (r *SyncQueueRepo) enqueueLive(ctx context.Context, roots string, args []any, withEnvironments, unsyncedOnly bool) (int, error) {
 	tree := `WITH RECURSIVE tree(id, depth) AS (
 			SELECT id, 0 FROM collections WHERE workspace_id = ?1 AND is_delete = 0 AND ` + roots + `
@@ -564,7 +553,6 @@ func (r *SyncQueueRepo) ReissueSeededEnvironment(ctx context.Context, workspaceI
 	moved := false
 	err := WithTx(ctx, r.db, func(txCtx context.Context) error {
 		db := DBTXFromContext(txCtx, r.db)
-		// The variables still name the old id until the statements below run; the check waits for the commit.
 		if _, err := db.ExecContext(txCtx, `PRAGMA defer_foreign_keys = ON`); err != nil {
 			return fmt.Errorf("defer foreign keys: %w", err)
 		}
@@ -622,7 +610,6 @@ func (r *SyncQueueRepo) ListHeld(ctx context.Context, workspaceID, entityType st
 	return scanSyncEntries(funcName, rows)
 }
 
-// The entry need not exist any more: its ID only bounds which rows count as older.
 func (r *SyncQueueRepo) DropOlderPending(ctx context.Context, entries []*SyncEntry) error {
 	const funcName = "SyncQueueRepo.DropOlderPending"
 
@@ -644,8 +631,7 @@ func (r *SyncQueueRepo) CoalescedPending(ctx context.Context, workspaceID string
 	const funcName = "SyncQueueRepo.CoalescedPending"
 
 	excluded, excludedArgs := notInTypes(excludeTypes)
-	// Folders go by their depth in the local tree, not by row id: an edit queued for a parent after
-	// its children would otherwise send the children first, and the server refuses them for good.
+	// Folders by tree depth, not row id: a child sent before its parent is refused for good.
 	query := `WITH RECURSIVE up(id, ancestor, depth) AS (
 			SELECT id, parent_id, 0 FROM collections WHERE id IN (
 				SELECT entity_id FROM sync_queue WHERE status = 'pending' AND workspace_id = ? AND entity_type = 'collection')

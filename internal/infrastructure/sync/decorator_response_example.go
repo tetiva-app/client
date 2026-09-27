@@ -12,8 +12,7 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// SyncedResponseExampleRepo queues under the example's own workspace, not its request's:
-// a move tombstones the originals after the request already left for another workspace.
+// SyncedResponseExampleRepo queues under the example's own workspace, not its request's.
 type SyncedResponseExampleRepo struct {
 	inner     example.Repository
 	syncQueue sqlite.SyncQueueRepository

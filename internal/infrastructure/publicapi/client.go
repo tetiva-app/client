@@ -1,4 +1,4 @@
-// Package publicapi reads published collections from the anonymous /pub endpoints of api.tetiva.app.
+// Package publicapi reads published collections from the anonymous /pub endpoints.
 package publicapi
 
 import (
@@ -34,7 +34,7 @@ var (
 	ErrPasswordRequired = errors.New("publicapi: the collection needs a password")
 	ErrRateLimited      = errors.New("publicapi: too many requests")
 	ErrTooLarge         = errors.New("publicapi: the snapshot is larger than 8 MiB")
-	// ErrUnreachable wraps a failed connection, a timeout and a gateway answering for a server that is down.
+	// ErrUnreachable also covers a timeout and a gateway answering for a server that is down.
 	ErrUnreachable = errors.New("publicapi: can't reach the server")
 
 	errOverLimit = errors.New("response body over its size limit")
@@ -61,8 +61,7 @@ type Client struct {
 	http    *http.Client
 }
 
-// New builds a client without a cookie jar that never follows redirects: a bearer token must not
-// travel to another host.
+// New never follows redirects: a bearer token must not travel to another host.
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -120,7 +119,7 @@ func (c *Client) Unlock(ctx context.Context, slug, password string) (string, err
 	req.Header.Set("Content-Type", "application/json")
 	body, err := c.do(req, maxMetaBytes)
 	if err != nil {
-		// The server answers 400 for a password no page can have and 413 for an oversized one.
+		// 400 is a password no page can have, 413 an oversized one.
 		if code, ok := statusOf(err); ok && (code == http.StatusUnauthorized || code == http.StatusBadRequest ||
 			code == http.StatusRequestEntityTooLarge) {
 			return "", fmt.Errorf("%s: %w", funcName, ErrWrongPassword)
@@ -136,8 +135,7 @@ func (c *Client) Unlock(ctx context.Context, slug, password string) (string, err
 	return out.Token, nil
 }
 
-// Snapshot downloads the current snapshot and counts it as an import (?src=app). The bearer is a
-// view token or a one-time import token; the result is decompressed JSON of at most 8 MiB.
+// Snapshot counts as an import (?src=app); bearer is a view or a one-time import token.
 func (c *Client) Snapshot(ctx context.Context, slug, bearer string) ([]byte, error) {
 	const funcName = "publicapi.Snapshot"
 
@@ -145,7 +143,7 @@ func (c *Client) Snapshot(ctx context.Context, slug, bearer string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	// Set by hand, so the transport leaves decompression to us and the limit applies to what gzip yields.
+	// Set by hand, so the transport leaves gzip to us and the limit applies to its output.
 	req.Header.Set("Accept-Encoding", "gzip")
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
@@ -227,7 +225,6 @@ func (c *Client) do(req *http.Request, limit int64) ([]byte, error) {
 	return body, nil
 }
 
-// readFailure counts a body cut short as a network problem; only a stream that decodes wrong is the server's.
 func readFailure(stage string, err error) error {
 	var corrupt flate.CorruptInputError
 	if errors.Is(err, gzip.ErrHeader) || errors.Is(err, gzip.ErrChecksum) || errors.As(err, &corrupt) {

@@ -23,16 +23,12 @@ const (
 
 const graphQLString = `"""[\s\S]*?"""|"(?:[^"\\]|\\.)*"|\{\{[^}]+\}\}`
 
-// A value is a string, a reference or a list of them: tokens: ["…", "…"].
 const graphQLValue = `(\[\s*(?:(?:` + graphQLString + `)\s*,?\s*)*\]|` + graphQLString + `)`
 
 var (
-	// A literal argument or input field, login(password: "…"), and a variable default, ($password: String = "…").
-	graphQLArg     = regexp.MustCompile(`([_A-Za-z][_0-9A-Za-z]*)\s*:\s*` + graphQLValue)
-	graphQLDefault = regexp.MustCompile(`\$([_A-Za-z][_0-9A-Za-z]*)\s*:[\s\[\]!_0-9A-Za-z]*=\s*` + graphQLValue)
-	graphQLItem    = regexp.MustCompile(graphQLString)
-	// Kubernetes and others carry the token in the subprotocol: base64url.bearer.authorization.k8s.io.<token>,
-	// access_token.<token>.
+	graphQLArg        = regexp.MustCompile(`([_A-Za-z][_0-9A-Za-z]*)\s*:\s*` + graphQLValue)
+	graphQLDefault    = regexp.MustCompile(`\$([_A-Za-z][_0-9A-Za-z]*)\s*:[\s\[\]!_0-9A-Za-z]*=\s*` + graphQLValue)
+	graphQLItem       = regexp.MustCompile(graphQLString)
 	bearerSubprotocol = regexp.MustCompile(`(?i)\b(?:bearer(?:\.authorization\.k8s\.io)?[.,_ \t-]+|access_token\.)(.+)$`)
 	quotedPair        = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 	xmlTag            = regexp.MustCompile(`<[^<>]*>`)
@@ -44,21 +40,14 @@ type fieldKind int
 
 const (
 	kindText fieldKind = iota
-	// kindBody is text that may carry JSON, XML, a form or a URL, alone or inside other text: bodies,
-	// examples, messages, variable values, header values, descriptions.
 	kindBody
 	kindURL
-	// kindName is a header or metadata name: never scanned, checked against the token grammar.
 	kindName
-	// kindKey is any other name (variable, form field, auth field): never scanned, length only.
 	kindKey
 	kindGraphQL
 	kindSubprotocol
 )
 
-// field is one string of the snapshot: owner and pointer build scan selectors, path is for display.
-// jsonKey is the key a value inside a JWT claims or header object sits under, when keyed; for a
-// subprotocol, it is the entry before it. maxBytes and maxRunes are the server's tighter caps, if any.
 type field struct {
 	owner    string
 	pointer  string
@@ -74,8 +63,6 @@ type field struct {
 
 type span struct{ start, end int }
 
-// scan masks every hit that the author has not chosen to publish as is and reports each once;
-// public resolves templated JSON keys as the page will.
 func scan(s *Snapshot, owners envOwners, overrides map[string]bool, public map[string]string) ([]Warning, []string) {
 	var (
 		warnings []Warning
@@ -161,7 +148,6 @@ func findSecrets(f field, public map[string]string) []hit {
 	return slices.CompactFunc(hits, func(a, b hit) bool { return a.span == b.span })
 }
 
-// carriesToken is a subprotocol that puts the token in the next entry: ["access_token", "<token>"].
 func carriesToken(entry string) bool {
 	entry = strings.TrimSpace(entry)
 	return strings.EqualFold(entry, "access_token") || strings.EqualFold(entry, "bearer")
@@ -171,7 +157,6 @@ func isSubprotocolHeader(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), "sec-websocket-protocol")
 }
 
-// subprotocolEntries are the trimmed entries of a comma-separated Sec-WebSocket-Protocol value.
 func subprotocolEntries(text string) []span {
 	var out []span
 	start := 0
@@ -194,8 +179,6 @@ func subprotocolEntries(text string) []span {
 	return out
 }
 
-// applyMask replaces the literal runs of each merged span with <redacted>; references inside a
-// span stay, so every {{name}} of a published field survives.
 func applyMask(text string, spans []span) string {
 	slices.SortFunc(spans, func(a, b span) int { return a.start - b.start })
 	var b strings.Builder
@@ -234,17 +217,12 @@ func excerpt(match string) string {
 	return string(r[:min(len(r), 4)]) + "…"
 }
 
-// jsonPair is a string or {{reference}} value with the key it sits under: an object member, or an
-// element of an array under that key. start:end is between the quotes, or the whole reference; for
-// JSON stored in a string, it is that whole string, while value is the decoded inner value.
+// For JSON stored in a string, start:end spans that whole string and value is decoded.
 type jsonPair struct {
 	key, value string
 	start, end int
 }
 
-// jsonPairs reads JSON as loosely as the sender does: comments, trailing commas and references in
-// place of keys or values are fine, and broken input still yields every "key": "value" it can see.
-// public resolves the keys that make a whole object or list secret.
 func jsonPairs(text string, public map[string]string) []jsonPair {
 	if !strings.Contains(text, ":") {
 		return nil
@@ -260,7 +238,7 @@ func jsonPairs(text string, public map[string]string) []jsonPair {
 			out = append(out, p)
 		}
 	}
-	// JSON inside HTML or an HTTP dump can throw the lexer off; the plain pattern still sees its pairs.
+	// JSON inside HTML or an HTTP dump can throw the lexer off; the regex still sees its pairs.
 	for _, m := range quotedPair.FindAllStringSubmatchIndex(text, -1) {
 		add(jsonPair{key: jsonKeyText(text, jsonToken{'"', m[2] - 1, m[3] + 1}), value: text[m[4]:m[5]], start: m[4], end: m[5]})
 	}
@@ -272,17 +250,12 @@ func jsonPairs(text string, public map[string]string) []jsonPair {
 	return out
 }
 
-// secretPair is a value under a sensitive name; nameRefs is set when the name counts as sensitive
-// only because a reference in it stays unresolved.
 type secretPair struct {
 	jsonPair
 	rule     string
 	nameRefs bool
 }
 
-// secretPairs are the values body-like text holds under sensitive names, as the page resolves them
-// with public: JSON and XML fields, parameters of a URL in their values or in the whole text, and
-// the pairs of form-like text.
 func secretPairs(text string, public map[string]string) []secretPair {
 	var out []secretPair
 	add := func(kv jsonPair, rule string, names func(string) bool) {
@@ -311,11 +284,9 @@ func secretPairs(text string, public map[string]string) []secretPair {
 	return out
 }
 
-// embeddedURLs are URLs in the middle of text (prose, a curl command, a Link header) that urlQuery reads only at the start.
 func embeddedURLs(text string) []jsonPair {
 	const stops = " \t\r\n\"'<>`"
 	var out []jsonPair
-	// -1 is no further mark; anything else behind from is searched again.
 	scheme, templated := -2, -2
 	for from := 0; from < len(text); {
 		if scheme != -1 && scheme < from {
@@ -353,8 +324,6 @@ func nextIndex(text, sub string, from int) int {
 	return -1
 }
 
-// urlQuery is where the parameters of a URL or a path held in v start, after its first '?' or '#',
-// or -1 when v is not one. A leading reference is taken for a base URL.
 func urlQuery(v string) int {
 	i := strings.IndexAny(v, "?#")
 	if i < 0 {
@@ -370,8 +339,6 @@ func urlQuery(v string) int {
 	return i + 1
 }
 
-// urlParams are the query and fragment parameters of a URL in kv.value. A value decoded from a JSON
-// string has no offsets of its own, so its parameters span the whole string, as its pairs do.
 func urlParams(text string, kv jsonPair) []jsonPair {
 	q := urlQuery(kv.value)
 	if q < 0 {
@@ -393,7 +360,6 @@ func urlParams(text string, kv jsonPair) []jsonPair {
 	return out
 }
 
-// storedPairs reads a string value that holds JSON, as a Lambda response or a webhook payload does.
 func storedPairs(text string, p jsonPair, public map[string]string) []jsonPair {
 	if p.start == 0 || p.end >= len(text) || text[p.start-1] != '"' || text[p.end] != '"' || !strings.Contains(p.value, `\"`) {
 		return nil
@@ -414,14 +380,10 @@ func storedPairs(text string, p jsonPair, public map[string]string) []jsonPair {
 
 func lexedPairs(text string, public map[string]string) []jsonPair {
 	type frame struct {
-		array bool
-		key   string
-		keyed bool
-		// secret is the key of an enclosing object or list that is secret throughout; values inside
-		// sit under it rather than under their own keys.
-		secret string
-		// label and val are the "key" or "name" and the "value" of an entry in a Postman, HAR,
-		// Kubernetes or AWS list; the entry reads as a pair of its own.
+		array      bool
+		key        string
+		keyed      bool
+		secret     string
 		label, val *jsonPair
 	}
 	var (
@@ -479,8 +441,7 @@ func lexedPairs(text string, public map[string]string) []jsonPair {
 	return out
 }
 
-// xmlPairs are element texts and attribute values with their names: <wsse:Password>…</wsse:Password>,
-// <login password="…"/>. A bare <Key> is an S3 object key or a plist key far more often than a secret.
+// xmlPairs skips a bare <Key>: far more often an S3 or plist key than a secret.
 func xmlPairs(text string) []jsonPair {
 	if !strings.Contains(text, "<") {
 		return nil
@@ -499,11 +460,10 @@ func xmlPairs(text string) []jsonPair {
 	return out
 }
 
-// xmlTexts are element texts, plain or CDATA up to the first "]]></", with the closing tag right after:
-// the closing tag keeps "<api_key>" placeholders in JSON strings from swallowing what follows.
+// xmlTexts needs the closing tag right after, or an "<api_key>" placeholder eats text.
 func xmlTexts(text string) []jsonPair {
 	var out []jsonPair
-	// cdataEnd caches the first "]]></" at or after the last lookup, keeping unclosed sections linear.
+	// cdataEnd caches the first "]]></" past the last lookup: unclosed sections stay linear.
 	cdataEnd, pos := -1, 0
 	for _, m := range xmlOpen.FindAllStringSubmatchIndex(text, -1) {
 		if m[0] < pos {
@@ -531,8 +491,6 @@ func xmlTexts(text string) []jsonPair {
 	return out
 }
 
-// graphQLArgs are the string or {{reference}} values of named arguments, input fields and variable
-// defaults, each item of a list on its own.
 func graphQLArgs(text string) []jsonPair {
 	if !strings.Contains(text, ":") {
 		return nil
@@ -563,8 +521,7 @@ func graphQLArgs(text string) []jsonPair {
 	return out
 }
 
-// jsonToken.kind is '"' for a string, 'r' for a {{reference}}, 'x' for any other run, or the
-// punctuation byte itself.
+// jsonToken.kind: '"' string, 'r' {{reference}}, 'x' other run, else the punctuation.
 type jsonToken struct {
 	kind       byte
 	start, end int
@@ -595,7 +552,7 @@ func jsonKeyText(text string, t jsonToken) string {
 
 func lexJSON(text string) []jsonToken {
 	var toks []jsonToken
-	// nextClose caches the first '}' at or after the scan position, keeping runs of "{{" linear.
+	// nextClose caches the first '}' at or after the scan position: runs of "{{" stay linear.
 	nextClose := -1
 	lastBlockEnd := strings.LastIndex(text, "*/")
 	for i := 0; i < len(text); {
@@ -650,8 +607,7 @@ func lexJSON(text string) []jsonToken {
 	return toks
 }
 
-// commentEnd is where a comment opening at i ends, or i if none does. Comments open only where a
-// token could, so "https://", "href=//" and "*/*" are text, and so is a "/*" that is never closed.
+// Comments open only where a token could: "https://", "*/*" and unclosed "/*" are text.
 func commentEnd(text string, i, lastBlockEnd int) int {
 	prev := byte(' ')
 	if i > 0 {
@@ -672,8 +628,6 @@ func commentEnd(text string, i, lastBlockEnd int) int {
 	return i
 }
 
-// walkSnapshot visits every string of the snapshot in document order; public resolves the keys that
-// make a whole JWT claims object or list secret.
 func walkSnapshot(s *Snapshot, owners envOwners, public map[string]string, visit func(field)) {
 	w := walker{visit: visit, public: public}
 	root := &s.Collection
@@ -681,7 +635,6 @@ func walkSnapshot(s *Snapshot, owners envOwners, public map[string]string, visit
 	w.headers(root.ID, "/grpcMetadata", joinPath(root.Name, "metadata"), root.GRPCMetadata)
 	if env := s.Environment; env != nil {
 		envPath := "Environment " + env.Name
-		// Publish sends this name in its settings too, where the server caps it like the other names.
 		w.sized(owners.env, "/name", envPath, kindText, &env.Name, 0, maxNameRunes)
 		for i := range env.Variables {
 			v := &env.Variables[i]
@@ -712,7 +665,6 @@ func (w walker) key(owner, pointer, path, value string) {
 	w.visit(field{owner: owner, pointer: pointer, path: path, kind: kindKey, value: value, maxRunes: maxNameRunes})
 }
 
-// folder visits f; the root's own fields are labelled with its name, a folder's with its path.
 func (w walker) folder(f *Folder, path string, isRoot bool) {
 	w.sized(f.ID, "/name", joinPath(path, "name"), kindText, &f.Name, 0, maxNameRunes)
 	w.text(f.ID, "/description", joinPath(path, "description"), kindBody, &f.Description)
@@ -838,8 +790,6 @@ func (w walker) auth(owner, path string, a *Auth) {
 	}
 }
 
-// value walks a JSON value from auth fields; set writes a changed string back into its parent. Inside
-// an object field (keyed) a string carries the key it sits under and is read like a header value.
 func (w walker) value(owner, pointer, path string, v any, set func(any), key string, keyed bool) {
 	switch t := v.(type) {
 	case string:

@@ -93,7 +93,7 @@ func (r *SyncedRequestRepo) Update(ctx context.Context, req *entities.Request) e
 		}); err != nil {
 			return err
 		}
-		// The syncer reads sync_queue on another connection and cannot see this row until the outermost commit.
+		// The syncer reads the queue on another connection: it sees this row only after commit.
 		sqlite.AfterCommit(txCtx, func() { r.engine.NotifyWrite(wsID) })
 		return nil
 	})

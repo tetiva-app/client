@@ -349,7 +349,7 @@ func (s *RequestService) GenerateCurl(req dto.GenerateCurlRequest) Result[dto.Ge
 	})
 }
 
-// BuildSnippetInput takes the open editor's state, so unsaved edits show up in generated snippets.
+// BuildSnippetInput takes the editor state, so unsaved edits reach the snippet.
 func (s *RequestService) BuildSnippetInput(req dto.BuildSnippetRequest) Result[dto.SnippetInputDTO] {
 	ctx := context.Background()
 

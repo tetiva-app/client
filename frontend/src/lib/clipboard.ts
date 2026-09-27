@@ -1,4 +1,4 @@
-// Wails first: navigator.clipboard fails in the WebView once an awaited backend call has consumed the user gesture.
+// Wails first: navigator.clipboard fails in WebView once an await spends the user gesture.
 export async function copyText(text: string): Promise<void> {
   try {
     const { Clipboard } = await import('@wailsio/runtime')

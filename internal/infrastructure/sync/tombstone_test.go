@@ -16,7 +16,6 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// everyType is one entity of each synced type, the same ids for every database it is seeded into.
 type everyType struct {
 	coll     entities.Collection
 	req      entities.Request
@@ -60,7 +59,6 @@ func (e everyType) seed(t *testing.T, db *sql.DB) {
 	require.NoError(t, sqlite.NewResponseExampleRepo(db).Create(ctx, &ex))
 }
 
-// softDelete deletes every entity locally the way the usecases do: is_delete and a new version.
 func (e everyType) softDelete(t *testing.T, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()

@@ -11,7 +11,6 @@ function headerPairs(headers: Record<string, string[]>): [string, string][] {
   return Object.keys(headers).sort().flatMap((k) => headers[k].map((v): [string, string] => [k, v]))
 }
 
-// Both renderers print only the first saved message: a snippet shows one exchange.
 export function renderWebsocat(w: WsSnippet): SnippetResult {
   const names = snippetNames()
   const quote = (...parts: string[]): string => shellQuote(names.safe(...parts))

@@ -26,21 +26,20 @@ import (
 
 // PortabilityService exposes import/export operations to the Wails frontend.
 type PortabilityService struct {
-	app           *application.App
-	collectionUC  collection.Usecase
-	requestUC     request.Usecase
-	environmentUC environment.Usecase
-	exampleUC     example.Usecase
-	links         *publicapi.Client
-	tx            portability.TxRunner
-	previews      *previewCache
-	snapshots     *snapshot.Importer
-	postman       *postman.Importer
-	// chooseSavePath replaces the native Save dialog in tests, which cannot run one.
+	app            *application.App
+	collectionUC   collection.Usecase
+	requestUC      request.Usecase
+	environmentUC  environment.Usecase
+	exampleUC      example.Usecase
+	links          *publicapi.Client
+	tx             portability.TxRunner
+	previews       *previewCache
+	snapshots      *snapshot.Importer
+	postman        *postman.Importer
 	chooseSavePath func(suggestedName string) (string, error)
 }
 
-// A nil tx runs imports without a transaction, for tests built without a database.
+// A nil tx runs imports without a transaction.
 func NewPortabilityService(
 	collectionUC collection.Usecase,
 	requestUC request.Usecase,
@@ -74,8 +73,7 @@ func (s *PortabilityService) SetApp(app *application.App) {
 	s.app = app
 }
 
-// ImportCollection imports a Postman Collection v2.1 or a Tetiva snapshot file through ImportConfirm's path.
-// It never imports scripts: only ImportConfirm follows a dialog that lets the user review them.
+// ImportCollection never imports scripts: only ImportConfirm shows them for review first.
 func (s *PortabilityService) ImportCollection(req dto.ImportCollectionRequest) Result[dto.ImportCollectionResponse] {
 	opt, err := importOpt(req.WorkspaceID, req.ParentID, false)
 	if err != nil {
@@ -94,7 +92,6 @@ func (s *PortabilityService) ImportCollection(req dto.ImportCollectionRequest) R
 	})
 }
 
-// LinkMeta reads what the share page shows about a published collection, before anything is downloaded.
 func (s *PortabilityService) LinkMeta(req dto.LinkMetaRequest) Result[dto.LinkMeta] {
 	m, err := s.links.Meta(context.Background(), req.Slug)
 	if err != nil {
@@ -120,7 +117,6 @@ func (s *PortabilityService) LinkUnlock(req dto.LinkUnlockRequest) Result[dto.Li
 	return OK(dto.LinkUnlockResult{Token: token})
 }
 
-// LinkFetch downloads the snapshot once and keeps its bytes for ImportConfirm under the returned previewId.
 func (s *PortabilityService) LinkFetch(req dto.LinkFetchRequest) Result[dto.ImportPreviewResult] {
 	const funcName = "PortabilityService.LinkFetch"
 
@@ -139,7 +135,6 @@ func (s *PortabilityService) LinkFetch(req dto.LinkFetchRequest) Result[dto.Impo
 	return OK(dto.ImportPreviewResult{PreviewID: id, Preview: dto.ImportPreviewFrom(preview)})
 }
 
-// ImportPreview describes a file before it is imported; nothing is kept.
 func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[dto.ImportPreview] {
 	const funcName = "PortabilityService.ImportPreview"
 
@@ -155,7 +150,7 @@ func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[
 	return OK(dto.ImportPreviewFrom(preview))
 }
 
-// ImportConfirm imports a previewed link (previewId) or a file (content) in one transaction.
+// ImportConfirm imports a previewed link or a file in one transaction.
 func (s *PortabilityService) ImportConfirm(req dto.ImportConfirmRequest) Result[dto.ImportConfirmResult] {
 	const funcName = "PortabilityService.ImportConfirm"
 
@@ -206,7 +201,6 @@ func importOpt(workspaceID string, parentID *string, includeScripts bool) (porta
 	return opt, nil
 }
 
-// importData is the one import path for links and files: a failure halfway rolls every write back.
 func (s *PortabilityService) importData(ctx context.Context, data []byte, opt portability.ImportOpt) (*portability.ImportResult, error) {
 	imp, err := portability.Select(data, s.snapshots, s.postman)
 	if err != nil {
@@ -224,7 +218,6 @@ func (s *PortabilityService) importData(ctx context.Context, data []byte, opt po
 	return result, nil
 }
 
-// linkError gives public API failures the reasons the import dialog branches on.
 func linkError(slug string, err error) error {
 	reason := func(r string, inner error) error { return &domain.ReasonError{Reason: r, Err: inner} }
 	switch {
@@ -328,7 +321,6 @@ func (s *PortabilityService) buildCollectionExport(req dto.ExportCollectionReque
 
 	examples := make(map[uuid.UUID][]*entities.ResponseExample)
 	for _, r := range allRequests {
-		// The exporter drops gRPC requests and WebSocket ones have no examples.
 		if r.Protocol == entities.ProtocolGRPC || r.Protocol == entities.ProtocolWebSocket {
 			continue
 		}

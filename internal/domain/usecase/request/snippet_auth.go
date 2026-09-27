@@ -18,11 +18,9 @@ const (
 	jwtPlaceholderWarning   = "JWT is not signed because these variables are not substituted: "
 )
 
-// oauth2PlacementFields are the only OAuth 2.0 fields a snippet prints; the rest key the token cache.
 var oauth2PlacementFields = []string{"addTo", "queryParam", "headerPrefix"}
 
-// prepareSnippetAuth protects the auth fields a snippet prints, which may only use the shown variables.
-// Basic and JWT fields that still hold a reference become a placeholder: encoding or signing would bake {{name}} in.
+// A reference left in Basic or JWT fields makes a placeholder: encoding would bake it in.
 func prepareSnippetAuth(ra ResolvedAuth, shown, all map[string]string, ph *har.Placeholders, keep func(string) bool) (ResolvedAuth, []string, error) {
 	var placeholder func(auth.Fields) (entities.AuthType, auth.Fields, string)
 	switch ra.Type {
@@ -32,7 +30,6 @@ func prepareSnippetAuth(ra ResolvedAuth, shown, all map[string]string, ph *har.P
 	case entities.AuthTypeJWT:
 		placeholder = jwtPlaceholder
 	default:
-		// Digest and SigV4 are left out of snippets.
 		return ra, nil, nil
 	}
 	f, err := auth.ParseFields(ra.Data)
@@ -61,7 +58,7 @@ func prepareSnippetAuth(ra ResolvedAuth, shown, all map[string]string, ph *har.P
 		}
 	}
 	if ra.Type == entities.AuthTypeOAuth2 {
-		// The cached token was acquired with the config resolved from every variable, secrets included.
+		// The cached token was acquired with every variable resolved, secrets included.
 		f = auth.Substitute(f, all)
 	}
 
@@ -73,7 +70,6 @@ func prepareSnippetAuth(ra ResolvedAuth, shown, all map[string]string, ph *har.P
 	return ra, warnings, nil
 }
 
-// basicPlaceholder stands a readable Bearer-shaped header in for credentials that hold a reference.
 func basicPlaceholder(f auth.Fields) (entities.AuthType, auth.Fields, string) {
 	user, pass := f.Str("username"), f.Str("password")
 	refs := references(user, pass)
@@ -84,8 +80,6 @@ func basicPlaceholder(f auth.Fields) (entities.AuthType, auth.Fields, string) {
 	return entities.AuthTypeBearer, placeholder, basicPlaceholderWarning + strings.Join(refs, ", ")
 }
 
-// jwtPlaceholder puts a stand-in where applyJWT would put the signed token; it names only
-// the references of the key, never the key itself.
 func jwtPlaceholder(f auth.Fields) (entities.AuthType, auth.Fields, string) {
 	keyFields, otherFields := jwtTokenFields(f)
 	values := []any{f["alg"]}
@@ -121,8 +115,6 @@ func jwtPlaceholder(f auth.Fields) (entities.AuthType, auth.Fields, string) {
 	return entities.AuthTypeBearer, placeholder, warning
 }
 
-// jwtTokenFields splits the fields signJWT reads, besides alg, into the key and the rest;
-// an algorithm that is still a reference could need either key.
 func jwtTokenFields(f auth.Fields) (key, other []string) {
 	alg := f.Str("alg")
 	if alg == "" {
@@ -139,7 +131,6 @@ func jwtTokenFields(f auth.Fields) (key, other []string) {
 	}
 }
 
-// references lists the distinct {{name}} references in string leaves, in order; object keys are walked sorted.
 func references(values ...any) []string {
 	var refs []string
 	var walk func(v any)

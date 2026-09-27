@@ -215,7 +215,6 @@ export const useRequestStore = defineStore('requests', () => {
     ])
   }
 
-  // Saves what a publish of these collections would read; false when any save failed.
   async function flushCollections(collectionIds: Iterable<string>): Promise<boolean> {
     const ids = new Set(collectionIds)
     const requestIds = Array.from(requestsMap.value.values())
@@ -233,7 +232,6 @@ export const useRequestStore = defineStore('requests', () => {
     return results.every(Boolean)
   }
 
-  // A detached window saves this way when it closes or its workspace switches.
   async function saveRequestAndExamples(requestId: string): Promise<void> {
     await Promise.all([
       isRequestDirty(requestId) ? saveToBackend(requestId) : null,
@@ -508,7 +506,6 @@ export const useRequestStore = defineStore('requests', () => {
     if (!windows) return
 
     if (!(await flushForHandoff(tab.requestId))) return
-    // The new window reads examples from the backend; a draft left here would come back later.
     const examples = useExamplesStore()
     await examples.flushDrafts(tab.requestId)
     if (examples.hasUnsaved(tab.requestId)) {

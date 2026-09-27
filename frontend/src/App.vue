@@ -204,7 +204,6 @@ const TEXT_ASSIST_OFF: Record<string, string> = {
   writingsuggestions: 'false',
 }
 
-// macOS autocorrect rewrites keys and names (address → Address); CodeMirror opts out itself.
 function disableTextAssist(e: FocusEvent) {
   const el = e.target
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return
@@ -215,7 +214,6 @@ function disableTextAssist(e: FocusEvent) {
 
 const syncUnsubscribers: (() => void)[] = []
 
-// A child window subscribes its own examples store in DetachedRequestWindow.
 if (!windowMode) {
   useWindowEvents({
     mode: 'main',
@@ -344,7 +342,6 @@ function flushOnUnload() {
 let stopDeepLinks: (() => void) | null = null
 let unmounted = false
 
-// Only the main window takes deep links; a detached window would steal them from it.
 async function listenDeepLinks() {
   if (windowMode) return
   const stop = await importFlow.listenDeepLinks()
@@ -352,7 +349,6 @@ async function listenDeepLinks() {
   else stopDeepLinks = stop
 }
 
-// A fresh install opened from a share page shows that import first and the welcome after it.
 async function listenDeepLinksThenWelcome() {
   try {
     await listenDeepLinks()

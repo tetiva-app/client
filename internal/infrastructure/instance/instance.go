@@ -1,5 +1,4 @@
-// Package instance keeps one running app per profile directory: a file lock decides
-// the owner, and a loopback listener lets later launches hand their arguments over.
+// Package instance keeps one running app per profile directory.
 package instance
 
 import (
@@ -49,8 +48,7 @@ type options struct {
 
 var defaultOptions = options{wait: 5 * time.Second, retry: 100 * time.Millisecond, dial: time.Second, listen: net.Listen}
 
-// Acquire makes this process the owner of dataDir, or forwards args to the owner and returns
-// ErrForwarded. onArgs runs on a connection goroutine and must not block.
+// Acquire owns dataDir or hands args to its owner (ErrForwarded); onArgs must not block.
 func Acquire(dataDir string, args []string, onArgs func(args []string)) (*Instance, error) {
 	return acquire(dataDir, args, onArgs, defaultOptions)
 }
@@ -64,7 +62,6 @@ func acquire(dataDir string, args []string, onArgs func(args []string), opt opti
 	for {
 		lock, err := lockFile(lockPath)
 		if err == nil {
-			// A crashed owner leaves its port behind, and another process may hold that port by now.
 			if err := os.Remove(infoPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				slog.Warn("instance: stale instance.json left in place", "err", err)
 			}
@@ -81,7 +78,6 @@ func acquire(dataDir string, args []string, onArgs func(args []string), opt opti
 		if !errors.Is(err, errLocked) {
 			return nil, fmt.Errorf("%s: %w", funcName, err)
 		}
-		// The owner may still be starting (no instance.json yet) or just quit (lock free next round).
 		if forward(infoPath, args, opt.dial) == nil {
 			return nil, ErrForwarded
 		}
@@ -92,8 +88,7 @@ func acquire(dataDir string, args []string, onArgs func(args []string), opt opti
 	}
 }
 
-// StopServing removes instance.json before closing the listener, so no launch dials a port someone else
-// may take; the lock stays until Close, so a launch during shutdown waits instead of becoming a second owner.
+// StopServing removes instance.json first, so no launch dials a freed port.
 func (i *Instance) StopServing() error {
 	i.stopOnce.Do(func() {
 		err := os.Remove(i.infoPath)
@@ -107,7 +102,7 @@ func (i *Instance) StopServing() error {
 	return i.stopErr
 }
 
-// Close stops serving and only then releases the lock, so a successor's instance.json is never deleted.
+// Close unlocks only after StopServing, so a successor's instance.json is never deleted.
 func (i *Instance) Close() error {
 	i.closeOnce.Do(func() {
 		i.closeErr = errors.Join(i.StopServing(), unlockFile(i.lock))

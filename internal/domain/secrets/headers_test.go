@@ -30,7 +30,6 @@ func TestIsSensitiveHeader(t *testing.T) {
 	for _, name := range sensitive {
 		assert.True(t, IsSensitiveHeader(name), "header %q", name)
 	}
-	// Response headers arrive canonicalised by net/http, so camelCase boundaries are gone.
 	for _, name := range []string{"X-ApiToken", "X-AccessKey", "X-AuthKey", "X-SessionToken", "X-IdToken", "X-UserPassword", "X-BearerToken"} {
 		assert.True(t, IsSensitiveHeader(http.CanonicalHeaderKey(name)), "header %q", http.CanonicalHeaderKey(name))
 	}

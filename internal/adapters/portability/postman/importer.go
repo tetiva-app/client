@@ -28,10 +28,9 @@ const scriptsWarning = "scripts were imported: only part of the pm.* API is avai
 	"(pm.environment, pm.request, pm.response, pm.test), so some may need changes"
 
 type ImportOpts struct {
-	WorkspaceID uuid.UUID
-	UserID      string
-	ParentID    *uuid.UUID
-	// Off by default: a script from someone else's file runs on Send and can rewrite environment variables.
+	WorkspaceID    uuid.UUID
+	UserID         string
+	ParentID       *uuid.UUID
 	IncludeScripts bool
 }
 
@@ -43,11 +42,9 @@ type ImportResult struct {
 	ExamplesCreated int
 	Warnings        []string
 	scriptsImported bool
-	// suspectExamples name imported examples whose body or readable headers look like credentials.
 	suspectExamples []string
 }
 
-// The import writes through Create alone, so a preview can dry-run it with recorders.
 type (
 	CollectionCreator interface {
 		Create(ctx context.Context, input collection.Create, opt collection.CreateOpt) (*entities.Collection, error)
@@ -332,7 +329,7 @@ func mapHeaders(headers []PostmanKV) []entities.HeaderItem {
 	return result
 }
 
-// File paths are never imported: a path from someone else's machine must not pick what we upload.
+// File paths are never imported: a foreign path must not pick what we upload.
 func mapBody(body *PostmanBody, label string) (entities.BodyType, string, []string) {
 	if body == nil || body.Mode == "" {
 		return entities.BodyTypeNone, "", nil
@@ -410,8 +407,6 @@ func formFieldsJSON(fields []map[string]any) string {
 
 type itemScripts struct{ pre, post string }
 
-// collectScripts joins every enabled prerequest/test event; blank scripts, which Postman
-// writes for untouched tabs, count as none.
 func collectScripts(events []PostmanEvent, label string, include bool, result *ImportResult) itemScripts {
 	if !include {
 		return itemScripts{}
@@ -447,7 +442,7 @@ func itemLabel(kind, name string) string {
 	return fmt.Sprintf("%s %q", kind, name)
 }
 
-// A request without an auth block inherits, as in Postman; noauth is an explicit none.
+// In Postman a missing auth block inherits; noauth is an explicit none.
 func mapRequestAuth(a *PostmanAuth, label string) (entities.AuthType, string, []string) {
 	if a == nil {
 		return entities.AuthTypeInherit, "{}", nil
@@ -643,7 +638,6 @@ func findAuthKV(kvs []PostmanAuthKV, key string) string {
 	return ""
 }
 
-// importExamples never fails the import: every example it cannot keep becomes a warning.
 func importExamples(
 	ctx context.Context,
 	responses []json.RawMessage,
@@ -684,8 +678,7 @@ func importExamples(
 	}
 }
 
-// decodeResponse ignores originalRequest: the import has no use for it, and a shape we
-// cannot read there must not cost the example.
+// decodeResponse shadows originalRequest: an unreadable one must not cost the example.
 func decodeResponse(raw json.RawMessage) (PostmanResponse, error) {
 	var in struct {
 		PostmanResponse
@@ -697,7 +690,6 @@ func decodeResponse(raw json.RawMessage) (PostmanResponse, error) {
 	return in.PostmanResponse, nil
 }
 
-// describeDecodeError words a decode failure without the Go type names json puts in it.
 func describeDecodeError(err error) string {
 	var te *json.UnmarshalTypeError
 	if !errors.As(err, &te) {
@@ -760,7 +752,6 @@ func mapPostmanResponse(resp PostmanResponse, requestID uuid.UUID, protocol enti
 	}, notes
 }
 
-// previewLanguageTypes reads Postman's _postman_previewlanguage back as a content type.
 var previewLanguageTypes = map[string]string{
 	"json":       "application/json",
 	"xml":        "application/xml",
@@ -792,7 +783,7 @@ func defaultExampleName(code int, status string) string {
 	return strings.Join(parts, " ")
 }
 
-// describeError spells out a validation error, whose Error() is only "validation failed".
+// describeError lists the fields: ValidationError.Error() is only "validation failed".
 func describeError(err error) string {
 	var ve *domain.ValidationError
 	if !errors.As(err, &ve) || len(ve.Fields) == 0 {

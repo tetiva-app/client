@@ -7,7 +7,7 @@ const ASYMMETRIC_ALGS = new Set(['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'P
 
 interface Located {
   request: SnapshotRequest
-  ancestors: { auth: SnapshotAuth | null }[] // collection first, nearest folder last
+  ancestors: { auth: SnapshotAuth | null }[]
 }
 
 export function locate(s: Snapshot, requestId: string): Located | null {
@@ -26,7 +26,7 @@ export function locate(s: Snapshot, requestId: string): Located | null {
   return collection ? walk(collection.items, [collection]) : null
 }
 
-// A folder or collection with auth none is pass-through, as in the client's own resolver.
+// A folder or collection with auth none is pass-through.
 export function authOf(found: Located): SnapshotAuth | null {
   const own = found.request.auth
   if (own && own.type !== 'inherit') return own
@@ -43,13 +43,11 @@ export function effectiveAuth(s: Snapshot, requestId: string): SnapshotAuth | nu
 }
 
 export interface AppliedAuth {
-  // Set on the URL the way Go re-encodes a query (url.Values.Encode) before the HAR is split.
   query: { key: string; value: string } | null
   authNote: string
   warnings: string[]
 }
 
-// The snapshot holds references or emptied secrets, so credentials become placeholders; sub knows only public variables.
 export function applyAuth(
   auth: SnapshotAuth | null,
   sub: (s: string) => string,
@@ -138,7 +136,6 @@ export function applyAuth(
   }
 }
 
-// Mirrors the Go split: an algorithm the signer does not know could need either key.
 function jwtTokenFields(alg: string): [string[], string[]] {
   const other = ['expiresIn', 'claims', 'header']
   if (HMAC_ALGS.has(alg)) return [['secret'], [...other, 'secretBase64']]
@@ -146,7 +143,6 @@ function jwtTokenFields(alg: string): [string[], string[]] {
   return [['secret', 'privateKey'], [...other, 'secretBase64']]
 }
 
-// Object keys are walked sorted, as on the Go side, so the warnings name references in the same order.
 function references(values: unknown[]): string[] {
   const refs = new Set<string>()
   const walk = (v: unknown) => {

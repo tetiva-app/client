@@ -73,12 +73,12 @@ func NewGRPCClientWithStubs(auth authv1.AuthServiceClient, ws workspacev1.Worksp
 	return &GRPCClient{auth: auth, workspace: ws}
 }
 
-// NewGRPCClientWithSyncStub also takes a sync stub, for tests that drive a syncer without a live server.
+// NewGRPCClientWithSyncStub adds a sync stub, for tests that drive a syncer.
 func NewGRPCClientWithSyncStub(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient, sync syncv1.SyncServiceClient) *GRPCClient {
 	return &GRPCClient{auth: auth, workspace: ws, sync: sync}
 }
 
-// NewGRPCClientWithPublication adds a publication stub, for tests of the publication calls.
+// NewGRPCClientWithPublication adds a publication stub, for tests of publication calls.
 func NewGRPCClientWithPublication(auth authv1.AuthServiceClient, ws workspacev1.WorkspaceServiceClient, pub publicationv1.PublicationServiceClient) *GRPCClient {
 	return &GRPCClient{auth: auth, workspace: ws, publication: pub}
 }

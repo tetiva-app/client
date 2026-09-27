@@ -1505,7 +1505,7 @@ func queueRows(t *testing.T, db *sql.DB, workspaceID string) []string {
 	return out
 }
 
-// deepTree leaves the deepest folder first in rowid order, so only a depth-first sort puts parents first.
+// The deepest folder gets the first rowid: only a depth sort puts parents first.
 func seedDeepTree(t *testing.T, db *sql.DB) {
 	t.Helper()
 	seedSQL(t, db,

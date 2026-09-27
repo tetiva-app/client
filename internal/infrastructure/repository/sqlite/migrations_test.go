@@ -309,7 +309,6 @@ func TestMigration021(t *testing.T) {
 		t.Error("CHECK accepted headers that are not JSON")
 	}
 
-	// No FK on request_id: sync may deliver an example before its request.
 	if _, err := db.Exec(`INSERT INTO response_examples (id, request_id, workspace_id, name, created_at, updated_at)
 		VALUES ('ok', 'no-such-request', 'linked', 'OK', '2026-09-25T00:00:00Z', '2026-09-25T00:00:00Z')`); err != nil {
 		t.Fatalf("insert with defaults: %v", err)

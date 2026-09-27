@@ -73,8 +73,7 @@ type snapshotHARPair struct {
 	HAR         *dto.HARRequestDTO `json:"har"`
 }
 
-// buildPair publishes the request as a one-request collection and pairs its snapshot form with the
-// snippet HAR built from the saved row; frontend snapshot-har-parity.test.ts replays each pair.
+// buildPair makes one fixture for frontend snapshot-har-parity.test.ts to replay.
 func buildPair(t *testing.T, i int, c parityCase) []byte {
 	t.Helper()
 	req := snippetRequest(entities.ProtocolHTTP, entities.MethodGET, "https://api.example.com/")

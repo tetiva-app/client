@@ -46,7 +46,7 @@ var ErrNotConnected = errors.New("not connected to sync server")
 // ErrServerUnreachable is discovery that never reached a usable server.
 var ErrServerUnreachable = errors.New("cannot reach the sync server")
 
-// ReasonServerUnreachable labels a publication or public link failure the user can only retry.
+// ReasonServerUnreachable labels a publication or link failure the user can only retry.
 const ReasonServerUnreachable = "SERVER_UNREACHABLE"
 
 func OK[T any](data T) Result[T] {
@@ -108,8 +108,6 @@ func resultError(err error) *ResultError {
 	}
 }
 
-// unreachable gives a failed connection, a timeout or a missing session transport ReasonServerUnreachable,
-// unless the server already named a reason.
 func unreachable(err error) error {
 	if err == nil || errorReason(err) != "" {
 		return err
@@ -122,8 +120,7 @@ func unreachable(err error) error {
 	return err
 }
 
-// errorReason prefers a client-side reason over the server's, so a wrapped RPC
-// failure can be re-labelled by the caller.
+// A client-side ReasonError wins over the server's, so callers can re-label an RPC failure.
 func errorReason(err error) string {
 	var reasonErr *domain.ReasonError
 	if errors.As(err, &reasonErr) {

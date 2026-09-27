@@ -74,8 +74,7 @@ fileAssociations:
 #    role: Editor
 #    mimeType: image/jpeg  # (optional)
 
-# Custom URL schemes. Info.plist, the NSIS macros and the .desktop file are edited by hand
-# to match; update:build-assets would overwrite them.
+# Info.plist, NSIS and .desktop mirror this by hand; update:build-assets overwrites them.
 protocols:
   - scheme: tetiva
     description: Tetiva collection link

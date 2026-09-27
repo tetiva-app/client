@@ -89,7 +89,6 @@ const examplesMounted = ref(false)
 watch(activeTab, (tab) => { if (tab === 'examples') examplesMounted.value = true }, { immediate: true })
 const examplesPanel = ref<{ save: () => boolean } | null>(null)
 
-// gRPC and GraphQL editors fetch their own examples.
 watch(() => request.value?.protocol, (protocol) => {
   if (protocol === 'http') void examplesStore.fetch(props.requestId)
 }, { immediate: true })

@@ -39,8 +39,7 @@ func DSN(path string) string {
 // DataDir is the resolved profile directory; the instance lock and the database share it.
 type DataDir string
 
-// ResolveDataDir runs once, in main.go, so the instance lock and the database cannot end up
-// in different directories.
+// ResolveDataDir runs once, in main.go.
 func ResolveDataDir() (string, error) {
 	const funcName = "sqlite.ResolveDataDir"
 
@@ -87,7 +86,7 @@ func NewDB(dir DataDir) (*sql.DB, error) {
 		return nil, fmt.Errorf("%s: open: %w", funcName, err)
 	}
 
-	// Reaches one pooled connection only; inbound sync turns it off on its own (WithInboundTx).
+	// Reaches one pooled connection only; WithInboundTx turns it off for inbound sync.
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		_ = db.Close()
 

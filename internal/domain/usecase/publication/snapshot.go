@@ -1,11 +1,9 @@
-// Package publication builds the collection snapshot a published page is rendered from: the live
-// tree of one root collection, scrubbed of secrets, scanned for leaked credentials, with opaque ids.
+// Package publication builds the scrubbed, scanned snapshot a public page renders from.
 package publication
 
 import "github.com/tetiva-app/client/internal/domain/entities"
 
-// Snapshot mirrors CollectionSnapshot v1 (proto/snapshot/collection-snapshot.v1.schema.json);
-// the JSON form lives in adapters/publication/snapshotjson.
+// Snapshot mirrors CollectionSnapshot v1; see adapters/publication/snapshotjson for JSON.
 type Snapshot struct {
 	Generator   string
 	Locale      string
@@ -13,13 +11,11 @@ type Snapshot struct {
 	Environment *Environment
 }
 
-// Root is the only level that carries grpcMetadata; requests get the merged set in GRPCPart.
 type Root struct {
 	Folder
 	GRPCMetadata []Header
 }
 
-// Folder.Auth nil is AuthTypeNone at that level: requests below inherit from further up.
 type Folder struct {
 	ID          string
 	Name        string
@@ -29,13 +25,11 @@ type Folder struct {
 	Items       []Item
 }
 
-// Item holds exactly one of Folder and Request.
 type Item struct {
 	Folder  *Folder
 	Request *Request
 }
 
-// Request carries only the part its Protocol names; its Auth keeps none and inherit as they are.
 type Request struct {
 	ID          string
 	Name        string
@@ -65,8 +59,6 @@ type GraphQLPart struct {
 	OperationName string
 }
 
-// GRPCPart.Metadata is the effective set: collection, then folders, then the request, the nearest
-// level winning per lowercased key, sorted by key.
 type GRPCPart struct {
 	Target   string
 	Service  string
@@ -82,14 +74,12 @@ type WSPart struct {
 	Messages     []WSMessage
 }
 
-// WSMessage.Data is base64 for the binary format.
 type WSMessage struct {
 	Name   string
 	Format string
 	Data   string
 }
 
-// Header.Redacted marks a value whose literal parts were replaced with <redacted>.
 type Header struct {
 	Key      string
 	Value    string
@@ -97,7 +87,6 @@ type Header struct {
 	Redacted bool
 }
 
-// Body.FileName is the base name of a binary body; a file form field keeps its base name in Value.
 type Body struct {
 	Type     string
 	Raw      string
@@ -112,7 +101,6 @@ type FormField struct {
 	Enabled bool
 }
 
-// Auth.Redacted names the secret fields whose literal value was emptied.
 type Auth struct {
 	Type     string
 	Fields   map[string]any
@@ -134,7 +122,6 @@ type Example struct {
 	ContentType string
 }
 
-// Environment lists enabled variables only; a hidden one has Secret set and an empty Value.
 type Environment struct {
 	Name      string
 	Variables []Variable

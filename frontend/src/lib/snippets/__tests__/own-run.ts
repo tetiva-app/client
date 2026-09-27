@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarRequest } from '@/types/snippet'
 
-// Runs the curl, Python and fetch snippets against stubs that print what would be sent.
-
 export const OWN = ['curl', 'python-requests', 'js-fetch'] as const
 export type Own = typeof OWN[number]
 
@@ -28,7 +26,6 @@ export interface OwnRunner {
   dispose(): void
 }
 
-// INJECTED prints into the argument list the curl stub reports, so a breakout that runs it fails the comparison.
 const SHELL_STUB = `curl() { printf '%s\\0' "$@"; }
 INJECTED() { printf 'INJECTED-RAN\\0'; }
 `
@@ -77,8 +74,6 @@ function splitField(field: string): [string, string] {
   return [field.slice(0, at), field.slice(at + 1)]
 }
 
-// Reads a -F file part the way curl's formparse does: a quoted word takes only \\ and \" as escapes,
-// and without ;filename= curl sends the last path segment.
 function curlFilePart(arg: string): [string, string] {
   const [name, value] = splitField(arg)
   if (!value.startsWith('@')) throw new Error(`-F without a file: ${arg}`)
@@ -111,7 +106,6 @@ function curlFilePart(arg: string): [string, string] {
   return [name, fileName === path ? file(path) : `<file ${path} sent as ${fileName}>`]
 }
 
-// Placeholders are left for the reader to fill in, so only literal brackets and braces would glob.
 const GLOBBED = /[[\]{}]/
 const PLACEHOLDER = /\{\{[A-Za-z0-9_.-]+\}\}/g
 
@@ -167,7 +161,6 @@ function fromPython(r: PythonCall): Sent {
   return { method: r.method, url, query: [...query, ...r.params ?? []], headers: Object.entries(r.headers ?? {}), body }
 }
 
-// generate drops non-token header names, and every client sets its own multipart boundary.
 export function expectedSent(har: HarRequest, fileBodies: boolean): Sent {
   const params = har.postData?.params ?? []
   const multipart = har.postData?.mimeType.startsWith('multipart/form-data') ?? false

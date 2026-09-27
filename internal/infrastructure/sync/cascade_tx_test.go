@@ -19,7 +19,6 @@ import (
 
 var errSecondUpdate = errors.New("disk full on the second example")
 
-// failingExampleRepo lets the first Update through so the rollback has a written row to undo.
 type failingExampleRepo struct {
 	*sqlite.ResponseExampleRepo
 	updates int

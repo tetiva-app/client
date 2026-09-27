@@ -12,7 +12,7 @@ import (
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
-// A walk is a paged snapshot read page by page under one token; the backfill is a walk of its own.
+// A walk reads a paged snapshot under one token; the backfill is a walk of its own.
 const (
 	walkSnapshot = "snapshot"
 	walkBackfill = "backfill"
@@ -39,7 +39,6 @@ func entityTypeName(t syncv1.EntityType) string {
 	return ""
 }
 
-// recordSeen notes a page's entities of the given types as seen by the walk in progress.
 func (ws *workspaceSyncer) recordSeen(ctx context.Context, walk string, changes []*syncv1.SyncChange, types []string) error {
 	db := sqlite.DBTXFromContext(ctx, ws.engine.db)
 	for _, change := range changes {
@@ -61,7 +60,6 @@ func (ws *workspaceSyncer) recordSeen(ctx context.Context, walk string, changes 
 	return nil
 }
 
-// ageWalk moves everything the walk has seen into an earlier generation: the walk starts over.
 func (ws *workspaceSyncer) ageWalk(ctx context.Context, walk string) error {
 	if _, err := sqlite.DBTXFromContext(ctx, ws.engine.db).ExecContext(ctx,
 		`UPDATE sync_snapshot_seen SET generation = generation + 1 WHERE workspace_id = ? AND walk = ?`,
@@ -79,8 +77,7 @@ func (ws *workspaceSyncer) forgetWalk(ctx context.Context, walk string) error {
 	return nil
 }
 
-// finishWalk deletes, as inbound tombstones, what only an earlier generation of a restarted walk saw: the
-// server dropped it while the walk was down and the pull resumes past that delete. Queued changes win.
+// finishWalk deletes what only an earlier generation saw: the server dropped it since.
 func (ws *workspaceSyncer) finishWalk(ctx context.Context, walk string, last []*syncv1.SyncChange, types []string) (int, error) {
 	var restarted bool
 	if err := sqlite.DBTXFromContext(ctx, ws.engine.db).QueryRowContext(ctx,

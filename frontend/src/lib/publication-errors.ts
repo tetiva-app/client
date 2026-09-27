@@ -84,7 +84,7 @@ function isReason(reason: string | undefined): reason is Reason {
   return !!reason && Object.prototype.hasOwnProperty.call(PUBLICATION_ERROR_COPY.en.reasons, reason)
 }
 
-// The Go side wraps the gRPC status ("…: rpc error: code = X desc = [REASON] text"); only "text" is for people.
+// Go wraps the gRPC status as "…: rpc error: code = X desc = [REASON] text".
 function serverDetail(message: string): string {
   const desc = message.lastIndexOf('desc = ')
   const tail = desc >= 0 ? message.slice(desc + 'desc = '.length) : message

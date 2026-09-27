@@ -1,4 +1,4 @@
--- Local-only cache of server state plus the unpublish intent; rows are deleted physically, like 017_auth_tokens.sql.
+-- Local-only cache of server state; rows are deleted physically, like 017_auth_tokens.
 CREATE TABLE IF NOT EXISTS publications (
   collection_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, owner_key TEXT NOT NULL, publication_id TEXT NOT NULL,
   slug TEXT NOT NULL DEFAULT '', public_url TEXT NOT NULL DEFAULT '', visibility TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '',

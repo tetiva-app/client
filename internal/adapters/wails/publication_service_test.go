@@ -34,8 +34,6 @@ import (
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
-// fakePublicationServer keeps publications the way the server does: one record per collection,
-// settings echoed back only to a caller that can manage it.
 type fakePublicationServer struct {
 	mu           sync.Mutex
 	supports     bool
@@ -185,7 +183,6 @@ func newPubHarness(t *testing.T) *pubHarness {
 	return h
 }
 
-// wire builds the usecases and the service on db, as a restarted app would.
 func (h *pubHarness) wire(db *sql.DB) {
 	h.repo = sqlite.NewPublicationRepo(db)
 	tx := sqlite.NewTxRunner(db)
@@ -205,7 +202,6 @@ func (h *pubHarness) wire(db *sql.DB) {
 	h.svc.after = h.timers.after
 }
 
-// fakeTimers records the retries a pass schedules; fire runs the latest one as its timer would.
 type fakeTimers struct {
 	mu      sync.Mutex
 	delays  []time.Duration
@@ -341,7 +337,6 @@ func (h *pubHarness) preview(t *testing.T, req dto.PublishPreviewRequest) dto.Pu
 	return res.Data
 }
 
-// publishRequest previews first, as the dialog does, and carries that preview's hash.
 func (h *pubHarness) publishRequest(t *testing.T, preview dto.PublishPreviewRequest) dto.PublishRequest {
 	t.Helper()
 	p := h.preview(t, preview)
@@ -1101,7 +1096,6 @@ func TestPublicationDelete_CloudWorkspaceIsLeftToTheServer(t *testing.T) {
 	assert.Empty(t, h.remote.unpublished())
 }
 
-// Probe from the P4 branch review: dropForeignWorkspaceMappings and unlink clear the mapping, not the team page.
 func TestPublicationDelete_UnlinkedCloudWorkspaceLeavesTheTeamPage(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")
@@ -1136,7 +1130,6 @@ func TestPublicationDelete_CloudFlagFollowsTheServer(t *testing.T) {
 	assert.Nil(t, h.row(t, root.ID))
 }
 
-// linkAndMove links ws and lets the server move root's publication into it, as a visitor's read does.
 func (h *pubHarness) linkAndMove(t *testing.T, ws uuid.UUID, root *entities.Collection) {
 	t.Helper()
 	_, err := h.db.Exec(`UPDATE workspaces SET remote_workspace_id = 'remote-ws-1' WHERE id = ?`, ws.String())
@@ -1144,7 +1137,6 @@ func (h *pubHarness) linkAndMove(t *testing.T, ws uuid.UUID, root *entities.Coll
 	h.remote.set(func(f *fakePublicationServer) { f.pubs[root.ID.String()].SetWorkspaceId("remote-ws-1") })
 }
 
-// Probe from the C2 review: the server moved the page before any refresh told the client.
 func TestPublicationDelete_LinkedWorkspaceCopyLeavesTheMovedPage(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")
@@ -1214,7 +1206,6 @@ func TestPublicationReconcile_LocalWorkspaceDeletedDuringPublish(t *testing.T) {
 	}
 }
 
-// racingRemote runs during once, while the service waits on the server.
 type racingRemote struct {
 	*fakePublicationServer
 	once   sync.Once
@@ -1490,7 +1481,6 @@ func TestPublicationOwner_OtherAccountCacheIsHidden(t *testing.T) {
 	assert.True(t, st.Stale)
 }
 
-// Probe from the C2 review: b's session had purged a's row, so the delete had nothing to mark.
 func TestPublicationPending_DeleteUnderAnotherAccount(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")
@@ -1549,7 +1539,6 @@ func TestPublicationOwner_SignOutHidesTheCacheUntilTheAccountReturns(t *testing.
 	assert.True(t, st.Stale)
 }
 
-// Probe from the P4 branch review: an offline delete, a sign-out, a sign-in, and the page stayed up.
 func TestPublicationPending_SurvivesSignOut(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")
@@ -1683,8 +1672,6 @@ func pendingKeys(t *testing.T, db *sql.DB, workspaceID uuid.UUID) []string {
 	return out
 }
 
-// Stand repro: the root of a workspace auto-linked before the upload fix never reached the server, the
-// request added later was refused for its missing parent, and every update got NOT_SYNCED.
 func TestPublish_NotSyncedQueuesTheTreeTheServerNeverGot(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")
@@ -1773,8 +1760,6 @@ func TestPublicationPlan_UnknownPlanIsAnError(t *testing.T) {
 	require.NotNil(t, res.Error, "the dialog locks nothing it could not read")
 }
 
-// The server refused what the last round queued (an id another remote holds): each row comes back
-// unsynced with no queue row, and saying SYNCING again would promise a moment that never comes.
 func TestPublish_NotSyncedAgainAfterARoundThatMadeNoProgressKeepsTheServerReason(t *testing.T) {
 	h := newPubHarness(t)
 	h.signIn(t, testServerURL, "a@b.c")

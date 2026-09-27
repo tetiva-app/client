@@ -756,7 +756,7 @@ func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 
 // linkLocalWorkspace maps a local workspace to a remote one and starts its syncer.
 func (s *SyncService) linkLocalWorkspace(ctx context.Context, localID, remoteID string) error {
-	// A pull the previous syncer still has in flight would write its position over the reset below.
+	// A pull still in flight from the previous syncer would overwrite the reset below.
 	if !s.engine.StopWorkspaceAndWait(localID) {
 		s.restartLinkedSyncer(ctx, localID)
 		return errSyncStillStopping
@@ -772,8 +772,7 @@ func (s *SyncService) linkLocalWorkspace(ctx context.Context, localID, remoteID 
 			`SELECT remote_workspace_id IS NOT ?, was_linked FROM workspaces WHERE id = ?`, remoteID, localID).Scan(&newRemote, &wasLinked); err != nil {
 			return fmt.Errorf("read the mapping: %w", err)
 		}
-		// Writes made while the workspace was local never reached the outbox. A workspace linked before
-		// holds an earlier remote's rows, maybe another account's, and those must not reach this one.
+		// Only a first link uploads local rows: a re-linked one may hold another account's.
 		firstLink = newRemote && !wasLinked
 		if firstLink {
 			var err error
@@ -836,10 +835,8 @@ func (s *SyncService) linkLocalWorkspace(ctx context.Context, localID, remoteID 
 	return nil
 }
 
-// errSyncStillStopping means a syncer outlived the wait for its goroutine; retrying later is safe.
 var errSyncStillStopping = errors.New("sync is still stopping, try again in a moment")
 
-// unlinkWorkspace clears the mapping with every pull position that belonged to it.
 func unlinkWorkspace(ctx context.Context, db *sql.DB, localID string) error {
 	return sqlite.WithTx(ctx, db, func(txCtx context.Context) error {
 		tx := sqlite.DBTXFromContext(txCtx, db)

@@ -7,8 +7,7 @@ import (
 	"strconv"
 )
 
-// ReportDigest changes whenever what the author reviewed changes: a new warning or redaction, or a
-// different override. Lines are length-prefixed because auth field names in selectors may hold anything.
+// ReportDigest length-prefixes lines: auth field names in selectors may hold anything.
 func ReportDigest(r Report) string {
 	lines := make([]string, 0, len(r.Warnings)+len(r.Redactions)+len(r.AcceptedOverrides))
 	for _, w := range r.Warnings {

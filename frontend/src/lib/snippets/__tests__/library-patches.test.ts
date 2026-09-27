@@ -1,7 +1,7 @@
 import { HTTPSnippet } from '@readme/httpsnippet'
 import { describe, expect, it } from 'vitest'
 
-// patches/@readme+httpsnippet+11.4.0.patch: each case pins one change against the patched package itself.
+// Each case pins one change of patches/@readme+httpsnippet+11.4.0.patch.
 
 interface Req {
   method?: string
@@ -59,7 +59,6 @@ describe('methods are string literals', () => {
 })
 
 describe('URLs are string literals', () => {
-  // url.parse leaves a javascript: URL unescaped.
   const url = 'javascript:alert("x")//\'#"\\'
   it.each([
     ['go', 'native', String.raw`url := "javascript:alert(\"x\")//'#\"\\"`],

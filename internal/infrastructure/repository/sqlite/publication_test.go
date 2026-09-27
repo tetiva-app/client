@@ -207,7 +207,6 @@ func TestPublicationRepo_MarkPendingUnpublish(t *testing.T) {
 	ctx := context.Background()
 	linkedID := seedCloudWorkspace(t, db)
 
-	// Either word makes it cloud: the flag outlives an unlink, the mapping runs ahead of a refresh.
 	local := newTestPublicationRow(testWorkspaceID)
 	cloud := newTestPublicationRow(testWorkspaceID)
 	cloud.Cloud = true

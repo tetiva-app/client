@@ -21,8 +21,7 @@ const (
 	hiddenSecretsSnippetWarning = "Secret values are hidden; turn on Include secret values to insert them"
 )
 
-// BuildSnippetInput renders the editor state, not the saved row: nothing is sent, no script runs,
-// no file is opened and no token is acquired. Unresolved {{name}} references come out verbatim.
+// BuildSnippetInput renders the editor state: nothing is sent, run, opened or acquired.
 func (u *usecase) BuildSnippetInput(ctx context.Context, req *entities.Request, opt BuildSnippetOpt) (SnippetInput, error) {
 	const funcName = "request.BuildSnippetInput"
 
@@ -136,7 +135,6 @@ func (u *usecase) BuildSnippetInput(ctx context.Context, req *entities.Request, 
 	return out, nil
 }
 
-// leavesSecret reports whether the input still holds a {{name}} that only a withheld secret would resolve.
 func leavesSecret(in SnippetInput, shown, all map[string]string) bool {
 	for _, text := range snippetStrings(in) {
 		for _, m := range varPattern.FindAllStringSubmatch(text, -1) {
@@ -183,8 +181,6 @@ func appendHeaderTexts(texts []string, h map[string][]string) []string {
 	return texts
 }
 
-// snippetVariables returns the variables a snippet may print and all of them; a name marked
-// secret on any row stays a reference unless the caller includes secrets.
 func (u *usecase) snippetVariables(ctx context.Context, opt BuildSnippetOpt) (map[string]string, map[string]string, error) {
 	active, err := u.envResolver.ActiveVariables(ctx, opt.WorkspaceID)
 	if err != nil {
@@ -227,7 +223,6 @@ func (u *usecase) snippetHTTP(ctx context.Context, req *entities.Request, s snip
 		Headers: prep.Headers,
 		Body:    snippetBody(prep),
 	}
-	// The generator prints the note as a comment, so no warning repeats it.
 	if prep.Auth != nil {
 		in.AuthNote = string(prep.Auth.Type)
 	}
@@ -295,7 +290,6 @@ func (u *usecase) snippetWebSocket(ctx context.Context, req *entities.Request, s
 	}, warnings, nil
 }
 
-// snippetAuth applies auth off HTTP; digest and SigV4 sign the final HTTP request, so there they are left out.
 func (u *usecase) snippetAuth(ctx context.Context, s snippetCtx, headers map[string][]string, rawURL string) (map[string][]string, string, []string, error) {
 	if isRequesterAuth(s.ra.Type) {
 		return headers, rawURL, []string{requesterAuthLabel(s.ra.Type) + " auth works over HTTP only and is left out of the snippet"}, nil
@@ -311,7 +305,6 @@ func (u *usecase) snippetAuth(ctx context.Context, s snippetCtx, headers map[str
 	return headers, rawURL, warnings, nil
 }
 
-// addJarCookies joins the jar's cookies onto any Cookie header the way net/http's client does.
 func (u *usecase) addJarCookies(ctx context.Context, workspaceID uuid.UUID, rawURL string, headers map[string][]string) {
 	if u.cookieReader == nil {
 		return
@@ -328,7 +321,6 @@ func (u *usecase) addJarCookies(ctx context.Context, workspaceID uuid.UUID, rawU
 	headers[key] = append(headers[key], strings.Join(pairs, "; "))
 }
 
-// snippetBody mirrors what Execute would put on the wire; an empty body is no body, as in Copy as cURL.
 func snippetBody(prep preparedHTTP) har.Body {
 	mimeType := firstHeader(prep.Headers, "Content-Type")
 
@@ -372,7 +364,6 @@ func snippetBody(prep preparedHTTP) har.Body {
 	}
 }
 
-// protectRequest returns a copy of req whose unresolved references are placeholder tokens.
 func protectRequest(req *entities.Request, ph *har.Placeholders, keep func(string) bool) *entities.Request {
 	cp := *req
 	cp.URL = ph.Protect(req.URL, keep)
@@ -398,7 +389,7 @@ func protectRequest(req *entities.Request, ph *har.Placeholders, keep func(strin
 	return &cp
 }
 
-// snippetTexts includes variable values because they land next to the tokens and must not look like one.
+// Variable values land next to the tokens, so they must not look like one either.
 func snippetTexts(req *entities.Request, ra ResolvedAuth, vars map[string]string) []string {
 	texts := []string{
 		req.URL, req.Body, req.AuthData, ra.Data,
@@ -433,7 +424,6 @@ func restoreHeaderMap(ph *har.Placeholders, h map[string][]string) map[string][]
 	return out
 }
 
-// headerKey returns the spelling h already uses for name, or name itself.
 func headerKey(h map[string][]string, name string) string {
 	for k := range h {
 		if strings.EqualFold(k, name) {

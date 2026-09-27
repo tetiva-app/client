@@ -8,7 +8,7 @@ export interface Snippets {
   SNIPPET_TARGETS: SnippetTarget[]
 }
 
-// The committed bundle, not ./index, so the app runs the same bytes the share page and the golden tests do.
+// The committed bundle, not ./index: the share page and golden tests run the same bytes.
 export async function loadSnippets(): Promise<Snippets> {
   return import('./dist/snippets.mjs')
 }

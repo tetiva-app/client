@@ -109,7 +109,6 @@ func singleRequestCollection(t *testing.T, responses ...any) []byte {
 }
 
 func TestImportCollection_ExampleBodyLimitCountsBytes(t *testing.T) {
-	// "€" is three bytes and 256 KiB is not a multiple of three, hence the ASCII tail.
 	atLimit := strings.Repeat("€", domain.MaxExampleBodyLen/3) + strings.Repeat("a", domain.MaxExampleBodyLen%3)
 	require.Equal(t, domain.MaxExampleBodyLen, len(atLimit))
 	overLimit := strings.Repeat("€", domain.MaxExampleBodyLen/3+1)

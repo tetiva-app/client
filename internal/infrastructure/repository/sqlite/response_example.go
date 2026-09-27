@@ -68,7 +68,7 @@ func (r *ResponseExampleRepo) GetByID(ctx context.Context, id uuid.UUID) (*entit
 	return r.get(ctx, id, true)
 }
 
-// GetByIDIncludingDeleted returns soft-deleted rows too: a tombstone for an older server carries the last state.
+// GetByIDIncludingDeleted feeds the tombstones sent to older servers.
 func (r *ResponseExampleRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*entities.ResponseExample, error) {
 	return r.get(ctx, id, false)
 }
@@ -121,8 +121,7 @@ func (r *ResponseExampleRepo) ListByRequest(ctx context.Context, requestID uuid.
 	return result, nil
 }
 
-// Update matches soft-deleted rows too and checks no version: the sync engine writes the server's copy
-// through it, and the cascade runs inside the request's own write transaction.
+// Update checks neither version nor is_delete: sync writes the server's copy through it.
 func (r *ResponseExampleRepo) Update(ctx context.Context, e *entities.ResponseExample) error {
 	const funcName = "ResponseExampleRepo.Update"
 

@@ -18,8 +18,6 @@ type DeleteOpt struct {
 	Version   int
 }
 
-// ChainWorkspace reports ok=false when the request or an ancestor collection is gone or the chain
-// spans workspaces; the sync engine uses it too, so examples live and die by one rule.
 func ChainWorkspace(ctx context.Context, requests RequestReader, collections CollectionReader, requestID uuid.UUID) (uuid.UUID, bool, error) {
 	const funcName = "example.ChainWorkspace"
 
@@ -63,7 +61,6 @@ func chainWorkspaceFrom(ctx context.Context, collections CollectionReader, req *
 	}
 }
 
-// An example whose workspace_id disagrees with its chain belongs to no tree the user can see.
 func (u *usecase) isLive(ctx context.Context, e *entities.ResponseExample) (bool, error) {
 	if e.IsDelete {
 		return false, nil
@@ -75,7 +72,6 @@ func (u *usecase) isLive(ctx context.Context, e *entities.ResponseExample) (bool
 	return ok && workspaceID == e.WorkspaceID, nil
 }
 
-// getLive treats an example behind a dead chain as missing.
 func (u *usecase) getLive(ctx context.Context, id uuid.UUID) (*entities.ResponseExample, error) {
 	e, err := u.repo.GetByID(ctx, id)
 	if err != nil {
@@ -153,8 +149,7 @@ func (u *usecase) DeleteByRequest(ctx context.Context, requestID uuid.UUID, user
 	return nil
 }
 
-// MoveToWorkspace copies instead of re-homing: the sync decorator routes by e.WorkspaceID, so the
-// originals' tombstones must reach the old workspace and the copies the new one.
+// MoveToWorkspace copies: sync routes by WorkspaceID, and the old one needs tombstones.
 func (u *usecase) MoveToWorkspace(ctx context.Context, requestID, newWorkspaceID uuid.UUID, userID string) error {
 	const funcName = "example.MoveToWorkspace"
 

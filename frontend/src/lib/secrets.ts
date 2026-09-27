@@ -1,6 +1,6 @@
 import type { HeaderItem } from '@/types/request'
 
-// Browser-mode port of internal/domain/secrets (headers.go, url.go); the Go package is the source of truth.
+// Browser-mode port of internal/domain/secrets (headers.go, url.go).
 
 const REDACTED = '<redacted>'
 

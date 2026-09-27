@@ -344,7 +344,6 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     await expect(code).toHaveText(/[A-Z0-9]{4}-[A-Z0-9]{4}/, { timeout: 20_000 });
     const userCode = (await code.textContent())!.trim();
 
-    // The reload saves the device grant; the second window saves the code grant back over it.
     await page.reload();
     const other = await page.context().newPage();
     await openApp(other);

@@ -71,7 +71,6 @@ func ExamplesToResponse(examples []*entities.ResponseExample) []ExampleResponse 
 	return result
 }
 
-// ScanExampleRequest carries what Save as example is about to store.
 type ScanExampleRequest struct {
 	Headers []HeaderItemDTO `json:"headers"`
 	Body    string          `json:"body"`

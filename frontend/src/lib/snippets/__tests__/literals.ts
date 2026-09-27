@@ -1,5 +1,4 @@
-// A lexer just deep enough for the code httpsnippet prints: // comments and quoted strings.
-// Everything outside strings and comments is the skeleton; a breakout shows up there.
+// A lexer just deep enough for httpsnippet output: // comments and quoted strings.
 
 export type LiteralLanguage = 'go' | 'java' | 'csharp' | 'php'
 
@@ -45,7 +44,6 @@ export function scanLiterals(code: string, lang: LiteralLanguage): Scan {
   return { literals, skeleton, errors }
 }
 
-// PHP ends a // comment at ?> as well as at the line end.
 function commentEnd(src: string, from: number, lang: LiteralLanguage, errors: string[]): number {
   const nl = src.indexOf('\n', from)
   const end = nl < 0 ? src.length : nl
@@ -53,7 +51,6 @@ function commentEnd(src: string, from: number, lang: LiteralLanguage, errors: st
   return end
 }
 
-// javac turns an eligible \uXXXX into its character before it looks for strings or comments.
 function javaUnicodeEscapes(src: string): string {
   let out = ''
   for (let i = 0; i < src.length; i++) {

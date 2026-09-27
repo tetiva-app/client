@@ -15,7 +15,7 @@ const (
 	version = 1
 )
 
-// Struct field order is the canonical key order (spec §4.1); encoding/json sorts map keys.
+// Struct field order is the canonical key order; encoding/json sorts map keys.
 type jsonSnapshot struct {
 	Format      string           `json:"format"`
 	Version     int              `json:"version"`
@@ -35,7 +35,6 @@ type jsonCollection struct {
 	Items        []jsonItem   `json:"items"`
 }
 
-// jsonItem serves folders and requests: each leaves the other's keys out and gets its own key order.
 type jsonItem struct {
 	Kind        string         `json:"kind"`
 	ID          string         `json:"id"`
@@ -141,8 +140,7 @@ type jsonVariable struct {
 	Secret bool   `json:"secret"`
 }
 
-// Marshal writes the canonical form: fixed key order, sorted map keys, every array present ([]
-// rather than null), no HTML escaping and no trailing newline.
+// Marshal writes the canonical form: [] never null, no HTML escaping, no trailing newline.
 func Marshal(s *publication.Snapshot) ([]byte, error) {
 	const funcName = "snapshotjson.Marshal"
 

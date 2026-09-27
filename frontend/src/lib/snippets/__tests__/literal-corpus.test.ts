@@ -61,7 +61,6 @@ const JAVA_IMPORTS: Record<string, string> = {
 
 const javaClass = (fixture: string, key: string): string => `Snippet_${fixture}_${key.replace(/-/g, '_')}`
 
-// One javac run for every Java snippet in the corpus; errors are keyed by class name.
 function compileJava(): Map<string, string> {
   const dir = join(workDir, 'java')
   mkdirSync(join(dir, 'okhttp3'), { recursive: true })
@@ -103,11 +102,9 @@ async function multipartEntries(text: string): Promise<string[][]> {
   return entries
 }
 
-// The values the code must hold as whole string literals, as each target prints them.
 async function expectLibraryData(har: HarRequest, key: string, literals: string[]): Promise<void> {
   const has = (value: string, what: string) => expect(literals, `${key}: ${what} ${JSON.stringify(value)}`).toContain(value)
   const csharp = key === 'csharp-httpclient'
-  // C# carries the content type on the body, not in the header list.
   for (const h of har.headers.filter((h) => HEADER_TOKEN.test(h.name) && !(csharp && h.name.toLowerCase() === 'content-type'))) {
     has(h.name, 'header name')
     has(h.value, 'header value')
@@ -133,7 +130,6 @@ async function expectLibraryData(har: HarRequest, key: string, literals: string[
   if (postData.mimeType.startsWith('multipart/')) {
     const body = literals.find((l) => l.startsWith(`--${BOUNDARY}`))
     expect(body, `${key}: multipart body`).toBeDefined()
-    // Like a browser, httpsnippet sends line breaks in multipart names and values as CRLF.
     expect(await multipartEntries(body!), key).toEqual(pairs.map((pair) => pair.map(normalizeLinefeeds)))
   } else {
     expect(literals.some((l) => JSON.stringify([...new URLSearchParams(l)]) === JSON.stringify(pairs)), `${key}: form body`).toBe(true)

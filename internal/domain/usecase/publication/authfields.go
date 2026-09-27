@@ -11,8 +11,7 @@ type authFields struct {
 	secret []string
 }
 
-// authFieldTable is an allowlist: only public fields are published as stored. The secret lists
-// exist so the frontend test fails when FIELD_SPECS gains a field nobody classified.
+// Only public fields are published as stored; secret lists feed the frontend fixture.
 var authFieldTable = map[entities.AuthType]authFields{
 	entities.AuthTypeNone:    {},
 	entities.AuthTypeInherit: {},
@@ -33,7 +32,6 @@ var authFieldTable = map[entities.AuthType]authFields{
 
 var authURLFields = map[string]bool{"tokenUrl": true, "authUrl": true, "deviceAuthUrl": true}
 
-// authObjectFields hold JSON objects (JWT claims and header), not string leaves.
 var authObjectFields = map[string]bool{"claims": true, "header": true}
 
 func isPublicAuthField(t entities.AuthType, key string) bool {

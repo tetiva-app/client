@@ -91,7 +91,7 @@ func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.Requ
 	return r.get(ctx, id, true)
 }
 
-// GetByIDIncludingDeleted returns soft-deleted rows too: a tombstone for an older server carries the last state.
+// GetByIDIncludingDeleted feeds the tombstones sent to older servers.
 func (r *RequestRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*entities.Request, error) {
 	return r.get(ctx, id, false)
 }

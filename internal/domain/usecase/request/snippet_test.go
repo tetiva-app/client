@@ -48,7 +48,6 @@ func (c *countingCookieReader) CookiesFor(context.Context, uuid.UUID, string) []
 	return c.cookies
 }
 
-// uncachedProvider has no cached token; any acquisition is recorded.
 type uncachedProvider struct {
 	peeks, acquisitions int
 }
@@ -679,7 +678,6 @@ var snippetAuthProtocols = []struct {
 	}},
 }
 
-// snippetAuthOf reads the Authorization header and the query from whichever shape the protocol renders.
 func snippetAuthOf(t *testing.T, in request.SnippetInput) (string, map[string]string) {
 	t.Helper()
 	query := map[string]string{}

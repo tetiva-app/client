@@ -126,7 +126,7 @@ function handleRename(collection: Collection) {
   renameDialogOpen.value = true
 }
 
-// The dialog doesn't wait for the fetch, which can hang until the network timeout; the note appears later.
+// A getter, so the dialog need not wait on a fetch that can hang until the network timeout.
 function publishedCount(ids: string[]): () => number {
   for (const id of ids) {
     const collection = store.collectionsMap.get(id)

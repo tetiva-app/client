@@ -12,7 +12,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/publication"
 )
 
-// secretAuthFields names one secret field per type that a {{reference}} can sit in.
 var secretAuthFields = map[entities.AuthType]string{
 	entities.AuthTypeBasic:    "password",
 	entities.AuthTypeBearer:   "token",
@@ -223,7 +222,6 @@ func TestBuild_HeaderNameFromPublicVariable(t *testing.T) {
 func TestBuild_ReferencedFromHiddenNameBecomesSensitive(t *testing.T) {
 	f := newFixture()
 	r := f.request(f.in.Root, "r")
-	// secretHeader looks like a secret by name, so X-{{secretHeader}} no longer resolves and its value is sensitive.
 	r.Headers = []entities.HeaderItem{{Key: "X-{{secretHeader}}", Value: "{{plain}}", Enabled: true}}
 	f.variable("secretHeader", "Tenant", false)
 	f.variable("plain", "value", false)
@@ -374,7 +372,6 @@ func jwtAuth(f *fixture, data string) *entities.Request {
 	return r
 }
 
-// assertNoCanary builds each case alone: none may publish a canary, and each must show in the preview.
 func assertNoCanary(t *testing.T, cases map[string]func(f *fixture)) {
 	t.Helper()
 	for name, setup := range cases {

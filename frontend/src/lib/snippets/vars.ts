@@ -4,8 +4,7 @@ export interface VarRef {
   name: string
 }
 
-// The matches of /\{\{([^}]+)\}\}/g (open replaces the {{) in one pass: the regex rescans to the
-// next } from every { of a run, which is quadratic on a hostile snapshot.
+// Matches of /\{\{([^}]+)\}\}/g without the regex, which is quadratic on a long run of {.
 export function varRefs(s: string, from = 0, open = '{{'): VarRef[] {
   const refs: VarRef[] = []
   let close = -1

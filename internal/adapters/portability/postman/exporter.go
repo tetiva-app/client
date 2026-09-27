@@ -21,8 +21,7 @@ func stringVal(v any) string {
 	return ""
 }
 
-// collections and requests must include the whole subtree under rootID; examples are keyed
-// by request ID. The warnings name what Postman cannot hold and was left out.
+// collections and requests must include the whole subtree under rootID.
 func ExportCollection(
 	rootID uuid.UUID,
 	collections []*entities.Collection,
@@ -223,8 +222,6 @@ func buildResponses(pmReq PostmanRequest, examples []*entities.ResponseExample) 
 	return out, nil
 }
 
-// exampleContentType carries the example's content type in the preview language, plus a
-// Content-Type header when the example has none and the language would read back as another type.
 func exampleContentType(e *entities.ResponseExample, headers []PostmanKV) ([]PostmanKV, string) {
 	fromHeader := contentTypeHeader(e.Headers)
 	contentType := e.ContentType

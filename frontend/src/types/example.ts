@@ -18,7 +18,6 @@ export interface Example {
   updatedAt: string
 }
 
-// The editable part of an example; protocol and request are fixed at creation.
 export interface ExampleInput {
   name: string
   statusCode: number

@@ -34,7 +34,6 @@ function published(over: Partial<PublicationStatus>): PublicationStatus {
 }
 
 async function render(st: PublicationStatus, plan?: PublishPlan): Promise<string> {
-  // The settings store applies its own language when created; keep the one the test chose.
   const locale = currentLocale.value
   const pinia = createPinia()
   setActivePinia(pinia)

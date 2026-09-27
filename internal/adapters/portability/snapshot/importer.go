@@ -1,4 +1,4 @@
-// Package snapshot imports a published Tetiva collection (CollectionSnapshot v1) from a link or a file.
+// Package snapshot imports a published Tetiva collection from a link or a file.
 package snapshot
 
 import (
@@ -21,7 +21,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-// maxBytes is the decompressed size limit of a snapshot, the same the server accepts.
+// maxBytes matches the server's decompressed snapshot limit.
 const maxBytes = 8 << 20
 
 type Collections interface {
@@ -80,7 +80,7 @@ func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 	return preview, nil
 }
 
-// Import always creates a top-level collection and ignores opt.ParentID (see portability.ImportOpt).
+// Import ignores opt.ParentID: an imported inherit must not reach a user folder's auth.
 func (i *Importer) Import(ctx context.Context, data []byte, opt portability.ImportOpt) (*portability.ImportResult, error) {
 	const funcName = "snapshot.Importer.Import"
 
@@ -167,7 +167,6 @@ func (w *writer) items(ctx context.Context, parentID uuid.UUID, items []itemPlan
 	return nil
 }
 
-// request skips an example the usecase rejects (a payload over the sync limit) instead of failing the import.
 func (w *writer) request(ctx context.Context, collectionID uuid.UUID, rp *requestPlan) error {
 	in := rp.in
 	in.CollectionID = collectionID

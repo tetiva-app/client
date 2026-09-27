@@ -1,13 +1,11 @@
 import { expect } from 'vitest'
 
-// The opening tag of the element carrying the marker, e.g. a data-testid.
 export function tagWith(html: string, marker: string): string {
   const at = html.indexOf(marker)
   expect(at, marker).toBeGreaterThanOrEqual(0)
   return html.slice(html.lastIndexOf('<', at), html.indexOf('>', at) + 1)
 }
 
-// The markup inside the element carrying the marker, up to its matching closing tag.
 export function inside(html: string, marker: string): string {
   const at = html.indexOf(marker)
   expect(at, marker).toBeGreaterThanOrEqual(0)

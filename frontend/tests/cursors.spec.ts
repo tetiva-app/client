@@ -1,7 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
-// What the pointer shows over each control: the element under its centre decides, so a disabled
-// button that lets the pointer through to a wrapper is judged by that wrapper.
 async function expectCursors(scope: Locator, label: string) {
   await expect(scope.first()).toBeVisible();
   const wrong = await scope.first().evaluate((root) => {
@@ -47,7 +45,6 @@ async function addRequest(page: Page, collection: string, name: string) {
 const requestTab = (page: Page, label: string) =>
   page.getByRole('button', { name: /^Docs\b/ }).locator('..').getByRole('button', { name: new RegExp(`^${label}\\b`) });
 
-// Mock services are module singletons, so the page can hand the "backend" a status to report.
 async function reportPublication(page: Page, collection: string, status: Record<string, unknown>) {
   await page.evaluate(async ([name, over]) => {
     const { useCollectionStore } = await import('/src/stores/collections.ts');

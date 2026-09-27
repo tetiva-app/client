@@ -26,7 +26,6 @@ func TestAfterCommit_NestedTxRunsOnceAfterOuterCommit(t *testing.T) {
 	var order []string
 	seen := func(name string) func() {
 		return func() {
-			// The pool has one connection, so this read only gets through once the tx has released it.
 			got, err := repo.GetByID(ctx, ex.ID)
 			if err != nil || got == nil {
 				t.Errorf("hook %s: committed row not visible: %v, %v", name, got, err)

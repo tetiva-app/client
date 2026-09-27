@@ -9,7 +9,6 @@ import type {
   PublishRequest,
 } from '@/types/publication'
 
-// Errors come back untouched: ResultError.reason carries the server's stable reason.
 export interface PublicationServiceAPI {
   status(collectionId: string): Promise<Result<PublicationStatus>>
   list(req: PublicationListRequest): Promise<Result<PublicationList>>

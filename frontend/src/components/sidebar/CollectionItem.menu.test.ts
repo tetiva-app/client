@@ -11,7 +11,6 @@ vi.mock('@/services', () => ({
   getPublicationService: async () => ({ status: mocks.status }),
 }))
 
-// Renders menu content inline so SSR can see the items without opening a real menu.
 vi.mock('@/components/ui/context-menu', () => {
   const inline = (tag: string) => defineComponent({
     inheritAttrs: false,

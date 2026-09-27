@@ -6,15 +6,13 @@ export interface ImportEnvironmentResult {
 }
 
 // path is the saved file (desktop) or '' for a browser blob download;
-// canceled is set when the user dismisses the save dialog; warnings name what
-// the export left out (gRPC requests, for one).
+// canceled is set when the user dismisses the save dialog.
 export interface ExportResult {
   path: string
   canceled: boolean
   warnings: string[]
 }
 
-// updatedAt is RFC 3339, or '' when the server sent none.
 export interface LinkMeta {
   slug: string
   title: string
@@ -29,7 +27,6 @@ export interface ImportScript {
   text: string
 }
 
-// folders counts folders below the imported collection, not the collection itself.
 export interface ImportPreview {
   format: 'tetiva' | 'postman'
   title: string
@@ -42,13 +39,12 @@ export interface ImportPreview {
   warnings: string[]
 }
 
-// previewId names the downloaded snapshot the backend keeps until importConfirm.
 export interface ImportPreviewResult {
   previewId: string
   preview: ImportPreview
 }
 
-// Exactly one of previewId (a link) and content (a file); parentId applies to Postman files only.
+// Exactly one of previewId (link) and content (file); parentId applies to Postman files only.
 export interface ImportConfirmRequest {
   previewId?: string
   content?: string
@@ -71,7 +67,6 @@ export interface PortabilityServiceAPI {
   exportEnvironment(id: string): Promise<Result<ExportResult>>
   linkMeta(slug: string): Promise<Result<LinkMeta>>
   linkUnlock(slug: string, password: string): Promise<Result<{ token: string }>>
-  // token is a view token from linkUnlock or a one-time import token from a deep link.
   linkFetch(slug: string, token: string): Promise<Result<ImportPreviewResult>>
   importPreview(content: string): Promise<Result<ImportPreview>>
   importConfirm(req: ImportConfirmRequest): Promise<Result<ImportConfirmResult>>

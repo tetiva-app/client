@@ -135,7 +135,6 @@ export interface MockLink {
   preview: ImportPreview
 }
 
-// Browser-mode stand-ins for share.tetiva.app, so the link flow can be clicked through without a server.
 const DEMO_LINKS: Record<string, MockLink> = {
   'petstore-api-k3f9x2qa': {
     title: 'Petstore API',

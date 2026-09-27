@@ -46,7 +46,6 @@ func TestDeepLinkTakePendingDrainsStore(t *testing.T) {
 	}
 }
 
-// Without a window the raise hook is a no-op; the event still reaches the frontend.
 func TestDeepLinkAttachEmitsOnDelivery(t *testing.T) {
 	store := deeplink.NewStore()
 	svc := NewDeepLinkService(store)

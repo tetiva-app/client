@@ -8,7 +8,6 @@ const props = defineProps<{
   title: string
 }>()
 
-// The page speaks its reader's language, and the author is its first reader.
 const all = useCopy(PUBLICATION_COPY)
 const labels = computed(() => all.value.thumbnail)
 const locale = useLocale()

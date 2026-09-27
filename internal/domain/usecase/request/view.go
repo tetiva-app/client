@@ -71,7 +71,6 @@ func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, err
 	return existing, nil
 }
 
-// moveExamples follows the request into its new collection's workspace; an unknown target moves nothing.
 func (u *usecase) moveExamples(ctx context.Context, requestID, collectionID uuid.UUID, userID string) error {
 	if u.exampleCleaner == nil || u.collectionReader == nil {
 		return nil

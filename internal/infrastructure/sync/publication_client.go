@@ -22,8 +22,7 @@ const (
 	maxPublicationIDs = 100
 )
 
-// ClientProvider hands out the live connection. wails.SyncService owns it and
-// swaps it on reconnect, so callers ask again on every call instead of keeping one.
+// ClientProvider's connection is swapped on reconnect: ask on every call, never keep one.
 type ClientProvider interface {
 	EnsureClient(ctx context.Context) (*GRPCClient, error)
 }
@@ -34,7 +33,7 @@ type PublicationRemote interface {
 	Publish(ctx context.Context, req *publicationv1.PublishRequest) (*publicationv1.Publication, error)
 	Unpublish(ctx context.Context, publicationID string) (wasAlreadyRevoked bool, err error)
 	GetPublications(ctx context.Context, collectionIDs []string) ([]*publicationv1.Publication, error)
-	// PlanFeatures lists the plan features of the org a publication counts against; personal is for a local collection.
+	// personal asks the author's personal org, for a local collection; else the active org.
 	PlanFeatures(ctx context.Context, personal bool) ([]string, error)
 }
 
@@ -50,8 +49,7 @@ func NewPublicationRemote(clients ClientProvider, auth *SyncAuthManager) Publica
 	return &publicationRemote{clients: clients, auth: auth}
 }
 
-// ServerSupportsPublish remembers only a yes, and only for the connection that
-// gave it: an operator can turn publishing on while the app is running.
+// Only a yes is cached, per connection: an operator may turn publishing on at runtime.
 func (r *publicationRemote) ServerSupportsPublish(ctx context.Context) (bool, error) {
 	const funcName = "publicationRemote.ServerSupportsPublish"
 
@@ -151,8 +149,6 @@ func (r *publicationRemote) getPublications(ctx context.Context, ids []string) (
 	return resp.GetPublications(), nil
 }
 
-// The server counts a local collection against the author's personal org and a cloud one against its
-// workspace's org, which is the active one: only its workspaces are linked.
 func (r *publicationRemote) PlanFeatures(ctx context.Context, personal bool) ([]string, error) {
 	const funcName = "publicationRemote.PlanFeatures"
 
@@ -193,7 +189,6 @@ func (r *publicationRemote) PlanFeatures(ctx context.Context, personal bool) ([]
 	return resp.GetPlan().GetFeatures(), nil
 }
 
-// connect returns the publication stub of the current connection and ctx carrying its access token.
 func (r *publicationRemote) connect(ctx context.Context) (publicationv1.PublicationServiceClient, context.Context, error) {
 	client, err := r.clients.EnsureClient(ctx)
 	if err != nil {

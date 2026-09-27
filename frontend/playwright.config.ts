@@ -1,7 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import pkg from './package.json' with { type: 'json' };
 
-// E2E_PORT lets parallel worktrees run their own dev servers; a set port is never reused.
 const MOCK_PORT = process.env.E2E_PORT ?? '5173';
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const REAL_URL = 'http://127.0.0.1:8080';

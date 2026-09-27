@@ -69,7 +69,6 @@ import { useSettingsStore } from '@/stores/settings'
 const STAGING: Environment = { id: 'e1', name: 'Staging', isActive: true, version: 1, createdAt: '', updatedAt: '' }
 
 async function draw(): Promise<string> {
-  // The settings store applies its own language when created; keep the one the test chose.
   const locale = currentLocale.value
   const pinia = createPinia()
   setActivePinia(pinia)

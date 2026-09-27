@@ -13,7 +13,6 @@ import (
 
 type txMarker struct{}
 
-// snapshotTx restores the request map on error, standing in for a rolled-back SQLite transaction.
 type snapshotTx struct {
 	repo *mockRepo
 	runs int

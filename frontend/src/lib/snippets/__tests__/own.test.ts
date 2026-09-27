@@ -175,7 +175,6 @@ describe('fetch', () => {
     expect(snippet).toContain('body.append("поле", "x");')
   })
 
-  // Unlike the stub runner, a real Request rejects what a browser would.
   const REQUEST_STUB = `globalThis.fetch = async (url, options) => {
   const request = new Request(url, options)
   console.log(JSON.stringify({ method: request.method, body: await request.text() }))

@@ -105,7 +105,6 @@ func (e *env) tree(t *testing.T) tree {
 	return tr
 }
 
-// doc wraps items into a minimal snapshot; collectionExtra overrides keys of the collection object.
 func doc(t *testing.T, items []any, collectionExtra map[string]any) []byte {
 	t.Helper()
 	col := map[string]any{

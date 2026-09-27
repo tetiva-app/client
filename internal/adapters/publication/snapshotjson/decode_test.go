@@ -45,7 +45,6 @@ func requireReason(t *testing.T, err error, reason string) {
 	assert.ErrorAs(t, err, &ve)
 }
 
-// snapshotJSON builds a minimal valid document around the given collection items.
 func snapshotJSON(t *testing.T, items any, extra map[string]any) []byte {
 	t.Helper()
 	doc := map[string]any{

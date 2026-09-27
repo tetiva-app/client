@@ -25,7 +25,6 @@ func (r *recordingTx) Run(ctx context.Context, fn func(ctx context.Context) erro
 	return fn(ctx)
 }
 
-// txRepo logs which writes happened inside the transaction.
 type txRepo struct {
 	*mockRepo
 	tx     *recordingTx

@@ -16,23 +16,20 @@ const (
 var (
 	encodedVarPattern = regexp.MustCompile(`(?i)%7B%7B(.+?)%7D%7D`)
 	portPattern       = regexp.MustCompile(`:(\d+)`)
-	// urlUpToPort matches text that is exactly scheme://authority:port, the port digits or a kept reference.
-	urlUpToPort = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://[^/?#\s]+:(\d+|\{\{[^}]+\}\})$`)
+	urlUpToPort       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://[^/?#\s]+:(\d+|\{\{[^}]+\}\})$`)
 )
 
-// Placeholders swaps unresolved {{name}} references for URL-safe tokens before
-// url.Parse-based code sees them, and swaps them back afterwards.
+// Placeholders swaps {{name}} for URL-safe tokens around url.Parse-based code.
 type Placeholders struct {
 	prefix    string
 	tokenRe   *regexp.Regexp
 	names     []string
 	index     map[string]int
 	freePorts []string
-	ports     map[string]string // name → port token
-	portNames map[string]string // port token → name
+	ports     map[string]string
+	portNames map[string]string
 }
 
-// NewPlaceholders picks a token prefix and port tokens absent from all texts.
 func NewPlaceholders(texts ...string) *Placeholders {
 	lower := make([]string, len(texts))
 	for i, t := range texts {
@@ -55,8 +52,6 @@ func NewPlaceholders(texts ...string) *Placeholders {
 	}
 }
 
-// Protect replaces every {{name}} in s with a token unless keep(name) is true;
-// a nil keep protects every reference.
 func (p *Placeholders) Protect(s string, keep func(name string) bool) string {
 	matches := varPattern.FindAllStringSubmatchIndex(s, -1)
 	if matches == nil {
@@ -90,8 +85,6 @@ func (p *Placeholders) Protect(s string, keep func(name string) bool) string {
 	return b.String()
 }
 
-// Restore turns tokens, port tokens and percent-encoded references to known
-// names back into {{name}}.
 func (p *Placeholders) Restore(s string) string {
 	if len(p.names) == 0 && len(p.ports) == 0 {
 		return s
@@ -120,7 +113,6 @@ func (p *Placeholders) Restore(s string) string {
 	})
 }
 
-// RestoreRequest restores every string field of r in place.
 func (p *Placeholders) RestoreRequest(r *Request) {
 	r.Method = p.Restore(r.Method)
 	r.URL = p.Restore(r.URL)
@@ -208,8 +200,6 @@ func (p *Placeholders) known(name string) bool {
 	return regular || port
 }
 
-// inPortPosition reports whether the text between before and after is the port of a URL authority:
-// right after "host:" and followed by the end of the authority or by another reference.
 func inPortPosition(before, after string) bool {
 	if !strings.HasSuffix(before, ":") ||
 		(after != "" && !strings.ContainsRune("/?#", rune(after[0])) && !strings.HasPrefix(after, "{{")) {
@@ -223,7 +213,6 @@ func inPortPosition(before, after string) bool {
 	return host != "" && !strings.ContainsAny(host, "/?# \t\r\n")
 }
 
-// longestZRun is the longest z run right after defaultTokenPrefix in texts, or -1 if it never occurs.
 func longestZRun(texts []string) int {
 	run := -1
 	for _, t := range texts {

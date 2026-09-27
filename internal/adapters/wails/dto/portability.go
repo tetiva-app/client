@@ -34,7 +34,7 @@ type ExportEnvironmentRequest struct {
 	ID string `json:"id"`
 }
 
-// Either the saved path or a canceled flag. Warnings name what the export left out.
+// Either the saved path or a canceled flag.
 type ExportResponse struct {
 	Path     string   `json:"path"`
 	Canceled bool     `json:"canceled"`
@@ -45,7 +45,6 @@ type LinkMetaRequest struct {
 	Slug string `json:"slug"`
 }
 
-// UpdatedAt is RFC 3339, or "" when the server sent none.
 type LinkMeta struct {
 	Slug             string `json:"slug"`
 	Title            string `json:"title"`
@@ -63,7 +62,6 @@ type LinkUnlockResult struct {
 	Token string `json:"token"`
 }
 
-// Token is a view token from LinkUnlock or a one-time import token from a deep link.
 type LinkFetchRequest struct {
 	Slug  string `json:"slug"`
 	Token string `json:"token"`
@@ -79,7 +77,6 @@ type ScriptPreview struct {
 	Text  string `json:"text"`
 }
 
-// Folders counts folders below the imported collection.
 type ImportPreview struct {
 	Format          string          `json:"format"`
 	Title           string          `json:"title"`
@@ -92,13 +89,11 @@ type ImportPreview struct {
 	Warnings        []string        `json:"warnings"`
 }
 
-// PreviewID names the downloaded snapshot kept in memory until ImportConfirm.
 type ImportPreviewResult struct {
 	PreviewID string        `json:"previewId"`
 	Preview   ImportPreview `json:"preview"`
 }
 
-// Exactly one of PreviewID (a link) and Content (a file) is set; ParentID applies to Postman files only.
 type ImportConfirmRequest struct {
 	PreviewID      string  `json:"previewId,omitempty"`
 	Content        string  `json:"content,omitempty"`

@@ -20,10 +20,8 @@ var _ auth.SignInClient = (*GRPCClient)(nil)
 // cabinet can complete a sign-in for this app.
 const desktopSignInCapability = "desktop_signin"
 
-// responseExamplesCapability marks a server that stores and syncs response examples.
 const responseExamplesCapability = "response_examples"
 
-// publishCapability marks a server with public collection pages turned on.
 const publishCapability = "publish"
 
 // GetServerInfo asks what this server offers before anyone signs in. A server

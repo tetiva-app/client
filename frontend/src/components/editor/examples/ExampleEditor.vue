@@ -22,7 +22,6 @@ const store = useExamplesStore()
 
 const draft = computed(() => store.drafts[props.exampleId])
 
-// The list can arrive after mount, so the draft opens once the example is listed.
 watchEffect(() => {
   if (!store.drafts[props.exampleId]) store.openDraft(props.exampleId)
 })
@@ -43,7 +42,6 @@ const headerRows = computed(() =>
   (draft.value?.value.headers ?? []).map((h, i) => ({ ...h, id: `header-${i}` })),
 )
 
-// A new example saves even untouched: that first save is what creates it.
 const canSave = computed(() =>
   !!draft.value && (draft.value.dirty || draft.value.isNew) && !saving.value,
 )
@@ -56,7 +54,6 @@ function update(patch: Partial<ExampleInput>) {
 
 function onStatusCode(event: Event) {
   const raw = (event.target as HTMLInputElement).value
-  // An empty field mid-edit must not turn into a 0 the user never typed.
   if (raw.trim() === '') return
   const code = Number.parseInt(raw, 10)
   if (Number.isNaN(code)) return
@@ -84,7 +81,6 @@ function updateHeaders(action: 'add' | 'remove' | 'update' | 'toggle', payload: 
   update(contentType ? { headers: rows, contentType } : { headers: rows })
 }
 
-// Returns false when there is nothing to save; a draft deleted elsewhere is saved as a new example.
 function save(): boolean {
   if (!canSave.value) return false
   saving.value = true

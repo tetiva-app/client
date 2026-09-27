@@ -7,11 +7,9 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// Same pattern as request substitution: the name is everything between the braces, untrimmed.
+// As in request substitution: the name is everything between the braces, untrimmed.
 var varRef = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
-// suspiciousVars hides a variable by name until the author publishes it as is; "key" and "pass"
-// also catch "monkey" and "compass", which the override is there for.
 var suspiciousVars = []string{
 	"auth", "session", "cookie", "key", "signature", "token", "secret", "password", "pass", "pwd", "credential", "private",
 }
@@ -57,19 +55,16 @@ type varRow struct {
 	v        *entities.Variable
 	owner    string
 	selector string
-	// force: the author chose "Publish as is" for this row.
-	force bool
-	refs  []string
+	force    bool
+	refs     []string
 }
 
-// varState decides which variables are published. A name marked secret on any row hides every row
-// of that name, as the page substitutes by name.
+// Secrecy is per name, not per row: the page substitutes by name.
 type varState struct {
 	rows       []varRow
 	secretKeys map[string]bool
 	byKey      map[string][]int
-	// values are every row's value, hidden ones included, as the author's own requests resolve them.
-	values map[string]string
+	values     map[string]string
 }
 
 func newVarState(rows []*entities.Variable, id func(*entities.Variable) string, overrides map[string]bool) *varState {
@@ -90,7 +85,6 @@ func newVarState(rows []*entities.Variable, id func(*entities.Variable) string, 
 	return vs
 }
 
-// hiddenReason ignores the override: a forced row is still reported, just as overridden.
 func (vs *varState) hiddenReason(i int, referenced map[string]bool) string {
 	key := vs.rows[i].v.Key
 	switch {
@@ -109,7 +103,6 @@ func (vs *varState) published(i int, referenced map[string]bool) bool {
 	return reason == "" || (reason != HiddenSecret && vs.rows[i].force)
 }
 
-// publicValues are what the page will substitute; the last row of a name wins, as in the page.
 func (vs *varState) publicValues(referenced map[string]bool) map[string]string {
 	out := map[string]string{}
 	for i, row := range vs.rows {
@@ -120,8 +113,6 @@ func (vs *varState) publicValues(referenced map[string]bool) map[string]string {
 	return out
 }
 
-// expand adds every name reachable from seeds through variable values. Hidden rows seed it too: a
-// secret, or a suspicious row not published as is, that is "{{raw}}" hides raw. Reports whether the set grew.
 func (vs *varState) expand(referenced map[string]bool, seeds map[string]bool) bool {
 	before := len(referenced)
 	var queue []string

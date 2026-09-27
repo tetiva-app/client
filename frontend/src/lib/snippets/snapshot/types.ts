@@ -1,5 +1,4 @@
-// TS mirror of the collection snapshot v1 (spec §4.1). Readers tolerate unknown fields,
-// so nothing here is validated; code reading it must cope with missing parts.
+// TS mirror of collection snapshot v1. Nothing is validated: expect missing parts.
 
 export interface Snapshot {
   format: 'tetiva.collection-snapshot'
@@ -75,7 +74,7 @@ export interface SnapshotWebSocketPart {
 
 export interface SnapshotWSMessage {
   name: string
-  format: 'json' | 'text' | 'binary' // binary data is base64
+  format: 'json' | 'text' | 'binary'
   data: string
 }
 
@@ -86,7 +85,6 @@ export interface SnapshotHeader {
   redacted: boolean
 }
 
-// form is multipart when an enabled field has type file, urlencoded otherwise.
 export interface SnapshotBody {
   type: 'none' | 'json' | 'xml' | 'raw' | 'form' | 'binary'
   raw: string
@@ -94,7 +92,6 @@ export interface SnapshotBody {
   fileName: string
 }
 
-// A file field's value is the base file name, never a path.
 export interface SnapshotFormField {
   key: string
   value: string
@@ -105,7 +102,6 @@ export interface SnapshotFormField {
 export interface SnapshotAuth {
   type: 'inherit' | 'none' | 'basic' | 'bearer' | 'api_key' | 'oauth2' | 'jwt' | 'digest' | 'aws_sigv4'
   fields: Record<string, unknown>
-  // Secret fields whose literal value was emptied.
   redacted: string[]
 }
 

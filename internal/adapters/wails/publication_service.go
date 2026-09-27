@@ -34,7 +34,7 @@ import (
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 )
 
-// Limits the server enforces on PublishRequest; checked here so the preview can say so first.
+// Server limits on PublishRequest, mirrored so the preview can report them first.
 const (
 	snapshotSizeLimit   = 8 << 20
 	snapshotGzipLimit   = 7 << 19 // 3.5 MiB
@@ -46,8 +46,7 @@ const (
 )
 
 const (
-	largestExamplesListed = 5
-	// unpublishRefusalsShown is how many refusals of a pending unpublish the panel waits out before it shows one.
+	largestExamplesListed  = 5
 	unpublishRefusalsShown = 3
 	// previewLocale stands in for the author's locale, which the content hash leaves out.
 	previewLocale = "en"
@@ -67,10 +66,8 @@ const (
 	publicationRevoked = "revoked"
 )
 
-// pendingRetryDelays space out the passes that retry an unpublish the network held back; the last repeats.
 var pendingRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
 
-// Plan features the server checks before an unlisted or password publication (server plan catalog).
 const (
 	featurePublishUnlisted = "publish.unlisted"
 	featurePublishPassword = "publish.password"
@@ -78,11 +75,9 @@ const (
 
 const (
 	reasonCollectionNotSynced = "PUBLISH_COLLECTION_NOT_SYNCED"
-	// ReasonCollectionSyncing replaces NOT_SYNCED once Publish has queued the tree the server was missing.
-	ReasonCollectionSyncing = "PUBLISH_COLLECTION_SYNCING"
+	ReasonCollectionSyncing   = "PUBLISH_COLLECTION_SYNCING"
 )
 
-// CollectionUploader queues the parts of a collection tree the sync server never received.
 type CollectionUploader interface {
 	QueueUnsyncedTree(ctx context.Context, workspaceID, collectionID string) (int, error)
 }
@@ -93,8 +88,7 @@ var visibilities = map[string]publicationv1.Visibility{
 	"password": publicationv1.Visibility_VISIBILITY_PASSWORD,
 }
 
-// PublicationService publishes a root collection to the user's sync server. The local table is a
-// cache of what the server said plus the unpublish intent a delete leaves behind.
+// PublicationService publishes a root collection to the user's sync server.
 type PublicationService struct {
 	collections collection.Usecase
 	requests    request.Usecase
@@ -106,7 +100,6 @@ type PublicationService struct {
 	repo        *sqlite.PublicationRepo
 	uploader    CollectionUploader
 
-	// spawn starts the pending pass Status ends with; after schedules a retry pass. Tests swap both.
 	spawn func(func())
 	after func(time.Duration, func()) (stop func() bool)
 
@@ -119,7 +112,6 @@ type PublicationService struct {
 	stopRetry  func() bool
 	retriesOff bool
 
-	// queuedLast is what queueNotSynced queued last per collection.
 	queuedMu   sync.Mutex
 	queuedLast map[uuid.UUID]int
 }
@@ -170,7 +162,6 @@ func (s *PublicationService) Status(req dto.PublicationStatusRequest) Result[dto
 	return OK(st)
 }
 
-// Plan lets the dialog lock what the plan lacks before the server refuses it; the server still decides.
 func (s *PublicationService) Plan(req dto.PublishPlanRequest) Result[dto.PublishPlan] {
 	const funcName = "PublicationService.Plan"
 	ctx := context.Background()
@@ -197,7 +188,7 @@ func (s *PublicationService) Plan(req dto.PublishPlanRequest) Result[dto.Publish
 	})
 }
 
-// Preview builds the snapshot without the network; PreviewHash ties a later Publish to what was reviewed.
+// Preview works offline; PreviewHash ties a later Publish to what was reviewed.
 func (s *PublicationService) Preview(req dto.PublishPreviewRequest) Result[dto.PublishPreview] {
 	p, err := s.prepare(context.Background(), req, previewLocale)
 	if err != nil {
@@ -221,7 +212,7 @@ func (s *PublicationService) Publish(req dto.PublishRequest) Result[dto.Publicat
 	return OK(st)
 }
 
-// Unpublish is a user action: a failure goes back to the user and leaves no deferred intent.
+// Unpublish returns a failure to the user; unlike a delete, it leaves no deferred intent.
 func (s *PublicationService) Unpublish(req dto.UnpublishRequest) Result[dto.PublicationStatus] {
 	const funcName = "PublicationService.Unpublish"
 	ctx := context.Background()
@@ -264,7 +255,6 @@ func (s *PublicationService) Unpublish(req dto.UnpublishRequest) Result[dto.Publ
 	return OK(st)
 }
 
-// MarkVariableSecret finds the variable through ListVariables: the usecase has no GetVariable.
 func (s *PublicationService) MarkVariableSecret(req dto.MarkSecretRequest) Result[Empty] {
 	ctx := context.Background()
 
@@ -294,8 +284,7 @@ func (s *PublicationService) MarkVariableSecret(req dto.MarkSecretRequest) Resul
 	return OK(Empty{})
 }
 
-// ProcessPending takes down the pages of deleted and nested collections. A call that arrives
-// while a pass runs makes that pass go round once more instead of waiting for it.
+// ProcessPending takes down the pages of deleted and nested collections.
 //
 //wails:ignore
 func (s *PublicationService) ProcessPending(ctx context.Context) {
@@ -325,9 +314,6 @@ func (s *PublicationService) ProcessPending(ctx context.Context) {
 	}
 }
 
-// WatchDeletes starts a pending pass whenever a delete commits a mark, until ctx ends; a retry
-// still waiting then is dropped.
-//
 //wails:ignore
 func (s *PublicationService) WatchDeletes(ctx context.Context) {
 	defer s.stopRetries()
@@ -341,8 +327,6 @@ func (s *PublicationService) WatchDeletes(ctx context.Context) {
 	}
 }
 
-// scheduleRetry backs off while the network holds a pending unpublish back and starts over once a
-// pass gets through.
 func (s *PublicationService) scheduleRetry(deferred bool) {
 	s.retryMu.Lock()
 	defer s.retryMu.Unlock()
@@ -422,7 +406,6 @@ func (s *PublicationService) withChanges(ctx context.Context, col *entities.Coll
 	return nil
 }
 
-// List works HasChanges out even offline, unlike Status: the panel counts outdated pages.
 func (s *PublicationService) List(req dto.PublicationListRequest) Result[dto.PublicationList] {
 	out, err := s.list(context.Background(), req)
 	if err != nil {
@@ -526,8 +509,6 @@ func (s *PublicationService) roots(ctx context.Context, workspaceID uuid.UUID) (
 	return slices.DeleteFunc(all, func(c *entities.Collection) bool { return c.ParentID != nil }), nil
 }
 
-// refresh replaces the cached row with the server's record; a collection the server has no record
-// of loses its row.
 func (s *PublicationService) refresh(ctx context.Context, col *entities.Collection, owner string,
 	row *sqlite.PublicationRow, pubs []*publicationv1.Publication) (*sqlite.PublicationRow, error) {
 	i := slices.IndexFunc(pubs, func(p *publicationv1.Publication) bool { return p.GetCollectionId() == col.ID.String() })
@@ -544,8 +525,7 @@ func (s *PublicationService) refresh(ctx context.Context, col *entities.Collecti
 	return next, nil
 }
 
-// hasChanges rebuilds the snapshot with the server's settings: those are what the page was built
-// from, whoever published it and on whatever device.
+// hasChanges uses the server's settings: the page was built from them, on whatever device.
 func (s *PublicationService) hasChanges(ctx context.Context, col *entities.Collection, row *sqlite.PublicationRow) (string, bool, error) {
 	if row == nil || row.Status != publicationActive || !row.CanManage || row.Settings == nil {
 		return changesUnknown, false, nil
@@ -626,7 +606,7 @@ func (s *PublicationService) publish(ctx context.Context, req dto.PublishRequest
 	settings := &sqlite.PublicationSettings{IncludeScripts: req.IncludeScripts, PublishAsIs: p.report.AcceptedOverrides}
 	if p.environment != nil {
 		settings.EnvironmentID, settings.EnvironmentName = p.environment.ID.String(), p.environment.Name
-		// The scrubbed name is what the preview checked and the page shows; settings must not carry more.
+		// Settings carry the scrubbed name the preview checked, never the raw one.
 		if p.snapshot.Environment != nil {
 			settings.EnvironmentName = p.snapshot.Environment.Name
 		}
@@ -675,8 +655,6 @@ func (s *PublicationService) publish(ctx context.Context, req dto.PublishRequest
 	return st, nil
 }
 
-// queueNotSynced answers NOT_SYNCED for a linked workspace by queueing what the server lacks: a tree
-// written before the workspace was linked would otherwise never go out, and waiting would not help.
 func (s *PublicationService) queueNotSynced(ctx context.Context, ws *entities.Workspace, col *entities.Collection, err error) error {
 	if errorReason(err) != reasonCollectionNotSynced || remoteWorkspaceID(ws) == "" {
 		return err
@@ -691,7 +669,7 @@ func (s *PublicationService) queueNotSynced(ctx context.Context, ws *entities.Wo
 	return err
 }
 
-// progressed records n; as many rows missing as last time means the server refused what went up.
+// No fewer rows missing than last time means the server refused what went up.
 func (s *PublicationService) progressed(collectionID uuid.UUID, n int) bool {
 	s.queuedMu.Lock()
 	defer s.queuedMu.Unlock()
@@ -793,8 +771,7 @@ func (s *PublicationService) snapshot(ctx context.Context, col *entities.Collect
 	})
 }
 
-// environment returns nil for "" (publishing without one); anything outside the collection's
-// workspace is a ValidationError, which the caller may read as a deleted environment.
+// A missing or foreign environment is a ValidationError; hasChanges reads it as deleted.
 func (s *PublicationService) environment(ctx context.Context, workspaceID uuid.UUID, raw string) (*entities.Environment, []*entities.Variable, error) {
 	if raw == "" {
 		return nil, nil, nil
@@ -821,8 +798,6 @@ func (s *PublicationService) environment(ctx context.Context, workspaceID uuid.U
 	return env, vars, nil
 }
 
-// currentOwner is "" when signed out. Every read goes by the owner, so the rows of another account or
-// server stay out of sight but stay put: a delete under this account still marks them.
 func (s *PublicationService) currentOwner(ctx context.Context) (string, error) {
 	cfg, err := s.config.Get(ctx)
 	if err != nil {
@@ -834,8 +809,6 @@ func (s *PublicationService) currentOwner(ctx context.Context) (string, error) {
 	return cfg.ServerURL + "\n" + cfg.UserEmail, nil
 }
 
-// availability returns "" when publishing can go ahead; the error is set for a missing session or
-// an unreachable server.
 func (s *PublicationService) availability(ctx context.Context, owner string) (string, error) {
 	if owner == "" {
 		return unavailableNotLoggedIn, ErrNotConnected
@@ -857,7 +830,6 @@ func unavailableReason(err error) string {
 	return unavailableOffline
 }
 
-// processPending reports deferred when the network held an unpublish back.
 func (s *PublicationService) processPending(ctx context.Context) (bool, error) {
 	owner, err := s.currentOwner(ctx)
 	if err != nil {
@@ -894,9 +866,7 @@ func (s *PublicationService) processPending(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// reconcile catches what no delete transaction marked: a root moved into a folder, a collection
-// that died with its parent, a cloud publication, which the server takes down itself. A dead local
-// collection is marked again: a refresh or publish racing its delete overwrites the mark.
+// reconcile re-marks dead collections too: a refresh racing a delete overwrites the mark.
 func (s *PublicationService) reconcile(ctx context.Context, row *sqlite.PublicationRow) (bool, error) {
 	ws, err := s.liveWorkspace(ctx, row.WorkspaceID)
 	if err != nil {
@@ -924,8 +894,6 @@ func (s *PublicationService) reconcile(ctx context.Context, row *sqlite.Publicat
 	return true, nil
 }
 
-// unpublishPending reports stop when the server is out of reach, so the rest wait for the next pass.
-// Any other refusal is kept on the row and counted; the intent stays.
 func (s *PublicationService) unpublishPending(ctx context.Context, row *sqlite.PublicationRow) (bool, error) {
 	_, err := s.remote.Unpublish(ctx, row.PublicationID)
 	if err != nil {
@@ -960,8 +928,7 @@ func (s *PublicationService) unpublishPending(ctx context.Context, row *sqlite.P
 	return false, s.repo.Upsert(ctx, row)
 }
 
-// serverMessage drops the wrapping status.FromError keeps in Message; the code stands in for an
-// empty message, which the panel would read as no refusal at all.
+// Not status.FromError, which keeps the wrapping; an empty message reads as no refusal.
 func serverMessage(err error) string {
 	var se interface{ GRPCStatus() *status.Status }
 	if !errors.As(err, &se) {

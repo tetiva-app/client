@@ -312,7 +312,6 @@ export class MockRequestService implements RequestServiceAPI {
     }
   }
 
-  // No Go in browser mode: variables, auth and cookies are not applied, only the editor fields are reshaped.
   async buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>> {
     const r = req.request
     const headers = r.headers.filter(h => h.enabled && h.key).map(h => ({ name: h.key, value: h.value }))

@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	// Non-greedy up to the '>' that ends a link-value, so a "<redacted>" inside the URL survives a second pass.
+	// Non-greedy, so a "<redacted>" inside the URL survives a second pass.
 	linkValue  = regexp.MustCompile(`<(.*?)>(\s*(?:[;,]|$))`)
 	refreshURL = regexp.MustCompile(`(?i)(url\s*=\s*)(.*)$`)
 	urlHeaders = map[string]func(string) string{
@@ -18,7 +18,6 @@ var (
 	}
 )
 
-// ParamKey normalizes a query parameter name the way the receiver reads it: decoded and lowercased.
 func ParamKey(name string) string {
 	if decoded, err := url.QueryUnescape(name); err == nil {
 		name = decoded
@@ -26,8 +25,7 @@ func ParamKey(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
-// SplitQuery cuts raw into prefix (through '?'), query and fragment. Written by hand rather
-// than via net/url so that "{{var}}" placeholders survive untouched.
+// SplitQuery is hand-written, not net/url, so {{var}} placeholders survive untouched.
 func SplitQuery(raw string) (prefix, query, suffix string, ok bool) {
 	q := strings.IndexByte(raw, '?')
 	if q < 0 {
@@ -43,8 +41,7 @@ func SplitQuery(raw string) (prefix, query, suffix string, ok bool) {
 	return prefix, query, suffix, true
 }
 
-// MaskQuery replaces the whole value of every sensitive query parameter with mask. MCP passes
-// its own marker and restores echoed masks by position, so it must not touch anything else.
+// MaskQuery touches only sensitive values: MCP restores echoed masks by position.
 func MaskQuery(raw, mask string) string {
 	prefix, query, suffix, ok := SplitQuery(raw)
 	if !ok {
@@ -57,8 +54,6 @@ func MaskQuery(raw, mask string) string {
 	return prefix + masked + suffix
 }
 
-// RedactURL also clears userinfo and the fragment's parameters (#access_token=…), which
-// redirect targets carry.
 func RedactURL(raw string) string {
 	base, frag, hasFrag := strings.Cut(raw, "#")
 	base = MaskQuery(redactUserinfo(base), redactedValue)

@@ -1,5 +1,4 @@
-// Package har turns a prepared request into the normalised HAR 1.2 request the
-// code-snippet generators consume.
+// Package har builds the HAR 1.2 request the code-snippet generators consume.
 package har
 
 import (
@@ -11,14 +10,12 @@ import (
 	"unicode/utf8"
 )
 
-// varPattern mirrors the client's variable syntax: the name is taken verbatim, without trimming.
 var varPattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
 const httpVersion = "HTTP/1.1"
 
 type NameValue struct{ Name, Value string }
 
-// Param is a form field; FileName != "" marks a file part, whose Value is empty.
 type Param struct{ Name, Value, FileName, ContentType string }
 
 type PostData struct {
@@ -29,13 +26,13 @@ type PostData struct {
 
 type Request struct {
 	Method      string
-	URL         string // without query, userinfo and fragment
-	HTTPVersion string // always "HTTP/1.1"
+	URL         string
+	HTTPVersion string
 	Headers     []NameValue
 	QueryString []NameValue
 	PostData    *PostData
-	BinaryFile  string // base name; rendered by the snippet wrapper
-	AuthNote    string // "digest" | "aws_sigv4" | ""; the wrapper prints a comment
+	BinaryFile  string
+	AuthNote    string
 }
 
 type BodyKind int
@@ -53,7 +50,7 @@ type Body struct {
 	MimeType   string
 	Text       string
 	Params     []Param
-	BinaryFile string // may be a full path or contain placeholders; Build keeps the base name
+	BinaryFile string
 }
 
 type Input struct {
@@ -64,8 +61,6 @@ type Input struct {
 	AuthNote string
 }
 
-// Build normalises in into a HAR request and returns warnings about what some
-// target languages cannot reproduce faithfully.
 func Build(in Input) (Request, []string) {
 	base, rawQuery := splitURL(in.URL)
 	req := Request{
@@ -112,8 +107,7 @@ func Build(in Input) (Request, []string) {
 	return req, warnings
 }
 
-// splitURL separates the query and drops the fragment and userinfo without
-// looking inside {{…}}, so a '#' or '?' in a variable name is not a delimiter.
+// splitURL skips {{…}} spans: a '#' or '?' inside a variable name is not a delimiter.
 func splitURL(raw string) (base, query string) {
 	spans := varPattern.FindAllStringIndex(raw, -1)
 	if i := indexOutside(raw, "#", 0, spans); i >= 0 {
@@ -155,7 +149,6 @@ func parseQuery(q string) []NameValue {
 	return out
 }
 
-// unescape decodes query escapes outside {{…}}; a piece that fails to decode stays raw.
 func unescape(s string) string {
 	var b strings.Builder
 	last := 0
@@ -213,8 +206,7 @@ func repeatedKeyWarnings(params []Param) []string {
 	return warnings
 }
 
-// baseName splits on both separators because a collection synced from Windows
-// may carry backslash paths onto macOS or Linux.
+// Both separators: a collection synced from Windows carries backslash paths elsewhere.
 func baseName(path string) string {
 	spans := varPattern.FindAllStringIndex(path, -1)
 	path = strings.TrimRight(path, `/\`)

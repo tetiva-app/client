@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { snapshotToPostman, type Snapshot } from '../dist/snippets.mjs'
 
 const SNAPSHOT = new URL('../../../../../testdata/snapshot/all-protocols.json', import.meta.url)
-// The Go importer test reads this file, so the converter and the importer meet on the same bytes.
 const GO_FIXTURE = new URL('../../../../../internal/adapters/portability/postman/testdata/from-snapshot.postman_collection.json', import.meta.url)
 const UPDATE = process.env.UPDATE_FIXTURES === '1'
 

@@ -11,8 +11,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
-// tree is the live part of the input in publication order. Repositories order by sort_order and
-// created_at only, so the id breaks ties here: the same data must give the same bytes.
+// Repositories sort by sort_order and created_at only; ids break ties for stable bytes.
 type tree struct {
 	children  map[uuid.UUID][]*entities.Collection
 	requests  map[uuid.UUID][]*entities.Request

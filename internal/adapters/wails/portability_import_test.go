@@ -49,7 +49,6 @@ const threeRequestPostman = `{"info":{"name":"P","schema":"https://schema.getpos
 	`{"name":"B","request":{"method":"GET","url":{"raw":"https://b.example.com"}}},` +
 	`{"name":"C","request":{"method":"GET","url":{"raw":"https://c.example.com"}}}]}`
 
-// failAfterRequests lets the first n request creates through and fails the rest, halfway through an import.
 type failAfterRequests struct {
 	request.Usecase
 	n int
@@ -223,7 +222,6 @@ func TestImportConfirm_RollsBackBothFormats(t *testing.T) {
 	}
 }
 
-// recordingTx stands in for SQLite: it proves the import runs inside Run and sees the error that rolls it back.
 type recordingTx struct {
 	calls int
 	err   error

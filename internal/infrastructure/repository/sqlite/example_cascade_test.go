@@ -25,7 +25,6 @@ func (r cascadeCollectionReader) ListByWorkspace(ctx context.Context, workspaceI
 	return r.repo.List(ctx, collection.Filter{WorkspaceID: workspaceID})
 }
 
-// failingCleaner lets the real cascade write, then fails, so the rollback has something to undo.
 type failingCleaner struct{ example.Usecase }
 
 var errCascade = errors.New("cascade failed")

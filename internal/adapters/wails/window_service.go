@@ -48,7 +48,6 @@ type windowPrefsFile struct {
 // Wails v3 beta changed the macOS coordinate space; positions saved by older builds are garbage there.
 var legacyPositionsStale = runtime.GOOS == "darwin"
 
-// A frontend that never answers the save request must not keep its window open for good.
 const defaultCloseGrace = 3 * time.Second
 
 // WindowService manages detachable child windows.
@@ -294,8 +293,7 @@ func (ws *WindowService) DetachRequest(requestID, protocol, title string) Result
 	return OK(Empty{})
 }
 
-// Wails closes a window without a beforeunload, so the first close waits for the
-// frontend to save and come back through CloseDetached.
+// Wails fires no beforeunload, so the first close waits for the frontend to save.
 func (ws *WindowService) detachedClosingHook(window *application.WebviewWindow, windowName, requestID string) func(*application.WindowEvent) {
 	return func(e *application.WindowEvent) {
 		if ws.holdClose(windowName, requestID) {
@@ -316,10 +314,9 @@ func (ws *WindowService) detachedClosingHook(window *application.WebviewWindow, 
 	}
 }
 
-// holdClose reports whether to cancel this closing event.
 func (ws *WindowService) holdClose(windowName, requestID string) bool {
 	ws.mu.Lock()
-	// A second Close() can land after the first one let this window go; cancelling spares a second native close.
+	// A second Close() can land after this window was let go; cancel the second native close.
 	if ws.detachedRequests[requestID] != windowName {
 		ws.mu.Unlock()
 		return true

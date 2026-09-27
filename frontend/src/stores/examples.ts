@@ -15,7 +15,6 @@ export interface ExampleDraft {
   value: ExampleInput
   dirty: boolean
   remote: 'updated' | 'deleted' | null
-  // Created by "New example" and never saved: it exists only in this window.
   isNew: boolean
 }
 
@@ -51,7 +50,6 @@ function sameInput(a: ExampleInput, b: ExampleInput): boolean {
     && JSON.stringify(copyHeaders(a.headers)) === JSON.stringify(copyHeaders(b.headers))
 }
 
-// The backend would refuse these, so a save on leave would only repeat its error toast.
 function refusedOnLeave(v: ExampleInput): boolean {
   return v.name.trim() === '' || exampleBodyTooLarge(v.body)
 }
@@ -71,11 +69,8 @@ function cleanDraft(e: Example): ExampleDraft {
 export const useExamplesStore = defineStore('examples', () => {
   const byRequest = ref<Record<string, Example[]>>({})
   const drafts = ref<Record<string, ExampleDraft>>({})
-  // A new or orphaned draft is saved under a fresh id; the editor follows it here.
   const savedAs = ref<Record<string, string>>({})
-  // A list that answers after a newer one was applied must not win.
   const listSeq: Record<string, number> = {}
-  // A second save of the same draft would create it twice or lose the version race.
   const savesInFlight = new Map<string, Promise<string | null>>()
 
   function nextSeq(requestId: string): number {
@@ -184,7 +179,6 @@ export const useExamplesStore = defineStore('examples', () => {
     delete drafts.value[id]
   }
 
-  // The request is gone, so a save on leave could only fail.
   function dropDrafts(requestId: string) {
     for (const [id, d] of Object.entries(drafts.value)) {
       if (d.requestId === requestId) delete drafts.value[id]
@@ -205,7 +199,6 @@ export const useExamplesStore = defineStore('examples', () => {
     applyServerList(requestId, [...loaded.filter(e => e.id !== example.id), example])
   }
 
-  // Resolves to the id the draft is now saved under, or null when nothing was saved.
   function saveDraft(id: string): Promise<string | null> {
     const inFlight = savesInFlight.get(id)
     if (inFlight) return inFlight
@@ -224,7 +217,7 @@ export const useExamplesStore = defineStore('examples', () => {
     )
     if (!created) return null
 
-    // No await until the example is listed: a watcher running in between would see the draft gone.
+    // No await until the example is listed: a watcher in between would see the draft gone.
     const current = drafts.value[id]
     delete drafts.value[id]
     if (current && current.value !== sent) {
@@ -272,8 +265,6 @@ export const useExamplesStore = defineStore('examples', () => {
     return id
   }
 
-  // Leaving a request saves its edited drafts the way it saves the request; a draft that
-  // conflicts, lost its example or would be refused waits for the user. False when a save failed.
   async function flushDrafts(requestId?: string): Promise<boolean> {
     const ids = Object.entries(drafts.value)
       .filter(([, d]) => (requestId === undefined || d.requestId === requestId)
@@ -344,7 +335,6 @@ export const useExamplesStore = defineStore('examples', () => {
   }
 })
 
-// Both windows subscribe with these, so an edit or a sync in one reaches the other.
 export function exampleWindowEvents(store: ReturnType<typeof useExamplesStore>) {
   return {
     onExamplesChanged: (requestId: string) => { void store.refreshIfLoaded(requestId) },

@@ -9,7 +9,6 @@ import (
 
 const graphQLVariablesWarning = "GraphQL variables are not valid JSON; shown as written"
 
-// GraphQLBody builds the POST body {query, variables, operationName}; variables must be valid JSON.
 func GraphQLBody(query, variables, operationName string) (string, error) {
 	const funcName = "request.GraphQLBody"
 
@@ -24,7 +23,6 @@ func GraphQLBody(query, variables, operationName string) (string, error) {
 	return graphQLBody(query, vars, operationName), nil
 }
 
-// GraphQLBodyLenient is for display: invalid variables (an unresolved {{n}}, say) are kept as written.
 func GraphQLBodyLenient(query, variables, operationName string) (string, []string) {
 	if body, err := GraphQLBody(query, variables, operationName); err == nil {
 		return body, nil
@@ -37,7 +35,7 @@ func blankVariables(v string) bool {
 	return v == "" || v == "{}"
 }
 
-// Written by hand to keep the query, variables, operationName order that a map would sort away.
+// Written by hand: a map would sort away the query, variables, operationName order.
 func graphQLBody(query string, variables []byte, operationName string) string {
 	var b strings.Builder
 	b.WriteString(`{"query":`)

@@ -189,7 +189,6 @@ func (m *mockRequester) Execute(_ context.Context, req request.HTTPExecuteReques
 type mockEnvResolver struct {
 	vars   map[string]string
 	secret map[string]bool
-	// active, when set, is what ActiveVariables returns instead of vars.
 	active []*entities.Variable
 	calls  int
 }

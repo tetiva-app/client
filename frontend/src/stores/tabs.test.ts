@@ -51,7 +51,6 @@ function makeExample(over: Partial<Example> = {}): Example {
   }
 }
 
-// Stands in for the backend: an edit comes back at the next version.
 function editExamplesOk(calls: string[] = []) {
   exampleEditMock.mockImplementation(async (req: Example) => {
     calls.push(`example ${req.id}`)

@@ -3,8 +3,6 @@ import { applyAuth, authOf, locate } from './auth'
 import { buildHar, headerMap, publicVars, setQueryParam, substitute } from './har'
 import type { Snapshot, SnapshotEnvironment } from './types'
 
-// snippetInputFromSnapshot is the share page's counterpart of the client's BuildSnippetInput:
-// only public variables are substituted and auth becomes placeholders.
 export function snippetInputFromSnapshot(s: Snapshot, requestId: string, env: SnapshotEnvironment | null): SnippetInput | null {
   const found = locate(s, requestId)
   if (!found) return null

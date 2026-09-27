@@ -389,14 +389,11 @@ func TestSyncer_StartAsksAgainDespiteAConfirmedAnswer(t *testing.T) {
 	assert.Equal(t, int32(2), info.calls.Load())
 }
 
-// cycleClient serves whole sync cycles: pushes are recorded and accepted, pulls are empty,
-// and each stream stays open until the client closes it or the test drops it.
 type cycleClient struct {
 	recordingPushClient
 	subscribes atomic.Int32
 	drop       chan struct{}
-	// failPulls is how many pulls fail before they start to succeed.
-	failPulls atomic.Int32
+	failPulls  atomic.Int32
 }
 
 func newCycleClient() *cycleClient {
@@ -441,7 +438,6 @@ func (l *stateLog) all() []string {
 	return slices.Clone(l.states)
 }
 
-// startCycling replaces the env's idle syncer with a running one over a cycle-serving client.
 func (env *exampleSyncEnv) startCycling(t *testing.T, info *capabilityAuthClient) (*cycleClient, *stateLog) {
 	t.Helper()
 	client := newCycleClient()
@@ -449,7 +445,6 @@ func (env *exampleSyncEnv) startCycling(t *testing.T, info *capabilityAuthClient
 	return client, env.startSyncer(t)
 }
 
-// startSyncer replaces the env's idle syncer with a running one over the engine's current client.
 func (env *exampleSyncEnv) startSyncer(t *testing.T) *stateLog {
 	t.Helper()
 	return env.startSyncerAt(t, 0)
@@ -473,8 +468,6 @@ func (env *exampleSyncEnv) startSyncerAt(t *testing.T, lastSyncSeq int64) *state
 	return states
 }
 
-// rollbackServer answers as a server with examples until rolledBack, then as one without:
-// no capability, and a push carrying an example fails whole.
 type rollbackServer struct {
 	rolledBack atomic.Bool
 }
@@ -499,7 +492,6 @@ func (s *rollbackServer) push(_ int, req *syncv1.PushRequest) (*syncv1.PushRespo
 	return acceptAll(req), nil
 }
 
-// queueAfterRollback queues an example, a request edit and a collection tombstone.
 func (env *exampleSyncEnv) queueAfterRollback(t *testing.T) (held *entities.ResponseExample, tombstoneID string) {
 	t.Helper()
 	held = env.createExample(t, "Held back")
@@ -509,8 +501,6 @@ func (env *exampleSyncEnv) queueAfterRollback(t *testing.T) (held *entities.Resp
 	return held, tombstoneID
 }
 
-// requireServedAsOlder waits until the request is acknowledged, then checks the cycle met the
-// older server on its terms: the example stays queued and the tombstone carries its push time.
 func (env *exampleSyncEnv) requireServedAsOlder(t *testing.T, client *cycleClient, held *entities.ResponseExample, tombstoneID string) {
 	t.Helper()
 	require.Eventually(t, func() bool { return queuedRows(env.db, env.req.ID.String()) == 0 },

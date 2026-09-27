@@ -12,7 +12,7 @@ require (
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/stretchr/testify v1.11.1
-	github.com/tetiva-app/proto v0.1.4
+	github.com/tetiva-app/proto v0.1.5
 	github.com/vektah/gqlparser/v2 v2.5.32
 	github.com/wailsapp/wails/v3 v3.0.0-beta.16
 	github.com/zalando/go-keyring v0.2.7
@@ -64,6 +64,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-// Drop before release and require v0.1.5 instead.
-replace github.com/tetiva-app/proto => ../proto-tetiva

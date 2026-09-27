@@ -11,6 +11,46 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.2.0',
+    date: '2026-09-27',
+    en: {
+      added: [
+        'Publish a collection as a page on share.tetiva.app: descriptions, code samples, response examples, an "Open in Tetiva" button and downloads for Tetiva and Postman. A preview shows what goes out, and secrets are replaced before anything leaves your computer. Free publishes one page with a "Made with Tetiva" badge; Pro adds unlimited pages, passwords and unlisted links.',
+        'The Publications panel on the left lists your published pages; a badge on its icon shows how many are out of date.',
+        'Open a published collection from its page in one click, or paste its link into "Import from Link…". Before anything is saved you see the requests, the hosts they call and their scripts; scripts stay out unless you tick the box.',
+        'The arrow next to Send, Query, Invoke and Connect copies the request as code in one click: cURL, Python, JavaScript, Go, Java, C# and PHP, plus gRPCurl and websocat for gRPC and WebSocket. "Generate code…" in the same menu shows the code first.',
+        'Save a response as a named example and edit it on the Examples tab. Examples sync across your devices and your team (needs server 0.19) and travel through Postman import and export.',
+        "Settings are split into sections and have a search and a language choice. Russian (beta) covers the settings themselves, publishing, the collection tree and its menus, the Sync dialog, the welcome screen and What's New for now.",
+        'Linux: a .deb package for ARM64.',
+      ],
+      fixed: [
+        'Copy as cURL takes your unsaved edits and no longer lets curl read a local file when a body or form field starts with @ or <.',
+        'On first sign-in the active local workspace is uploaded to the cloud with what it already holds. Free takes up to 20 top-level collections; the rest wait, with a notice.',
+        'Closing a detached request window saves its edits first.',
+        'macOS: text fields no longer autocorrect or capitalize what you type.',
+        'Cancel now works in GraphQL and gRPC requests, and an answer that arrives after it no longer replaces the result.',
+      ],
+    },
+    ru: {
+      added: [
+        'Коллекцию можно опубликовать страницей на share.tetiva.app: описания, примеры кода и ответов, кнопка «Открыть в Tetiva» и скачивание для Tetiva и Postman. Перед публикацией видно, что уйдёт наружу, а секреты заменяются ещё на вашем компьютере. На Free\u00a0— одна страница с плашкой «Сделано в Tetiva», на Pro\u00a0— без лимита, с паролем и скрытыми ссылками.',
+        'Панель «Публикации» в левой колонке собирает опубликованные страницы, а число на её иконке показывает, сколько из них устарели.',
+        'Опубликованную коллекцию можно открыть со страницы одним кликом или вставить её ссылку в «Import from Link…». До сохранения видно запросы, хосты, куда они ходят, и скрипты; скрипты не импортируются, пока вы не отметите галочку.',
+        'Стрелка у Send, Query, Invoke и Connect копирует запрос в виде кода одним кликом: cURL, Python, JavaScript, Go, Java, C# и PHP, а для gRPC и WebSocket\u00a0— gRPCurl и websocat. «Generate code…» в том же меню сначала покажет код.',
+        'Ответ можно сохранить как именованный пример и поправить во вкладке Examples. Примеры синхронизируются между устройствами и командой (нужен сервер 0.19) и переносятся при импорте и экспорте Postman.',
+        'Настройки разбиты на разделы, в них появились поиск и выбор языка. На русский (бета) пока переведены сами настройки, публикация, дерево коллекций с его меню, окно синхронизации, приветствие и «Что нового».',
+        'Linux: пакет .deb для ARM64.',
+      ],
+      fixed: [
+        'Copy as cURL учитывает несохранённые правки и больше не даёт curl прочитать локальный файл, если тело или поле формы начинается с @ или <.',
+        'При первом входе активный локальный воркспейс выгружается в облако с тем, что в нём уже есть. На Free\u00a0— до 20 коллекций верхнего уровня, остальные ждут, о чём приложение сообщит.',
+        'Закрытие отдельного окна запроса сначала сохраняет правки.',
+        'macOS: поля ввода больше не исправляют набранное и не делают первую букву заглавной.',
+        'Кнопка Cancel теперь работает и в GraphQL, и в gRPC, а ответ, пришедший после отмены, не затирает результат.',
+      ],
+    },
+  },
+  {
     version: '1.1.1',
     date: '2026-09-14',
     en: {

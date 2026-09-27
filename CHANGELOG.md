@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.2.0] — 2026-09-27 — Public collections
 
 ### Added
 

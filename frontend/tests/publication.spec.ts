@@ -124,3 +124,46 @@ test.describe('Publication', () => {
     await expect(page.getByRole('menu').getByText(/Publish/)).toHaveCount(0);
   });
 });
+
+test.describe('Publish dialog size', () => {
+  for (const [width, height] of [[1280, 800], [960, 640]] as const) {
+    test(`stays put while the preview loads and Password is picked, ${width}×${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.addInitScript(() => {
+        localStorage.setItem('tetiva.mockPreviewMs', '1000');
+        const key = 'gophercourier.settings';
+        const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+        localStorage.setItem(key, JSON.stringify({ ...saved, language: 'ru' }));
+      });
+      await page.goto('/');
+      await page.getByTitle('Новая коллекция').click();
+      const name = page.getByRole('dialog').getByPlaceholder('Название коллекции');
+      await name.fill('Petstore API');
+      await name.press('Enter');
+      await page.locator('aside').getByText('Petstore API').click({ button: 'right' });
+      await page.getByRole('menu').getByText('Опубликовать…').click();
+
+      const dialog = page.getByRole('dialog');
+      const body = dialog.getByTestId('publish-body');
+      await expect(dialog.getByText('Собираем предпросмотр…')).toBeVisible();
+      await dialog.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      const opened = (await dialog.boundingBox())!;
+
+      await dialog.getByRole('radio', { name: 'С паролем' }).click();
+      await expect(dialog.getByPlaceholder('Пароль')).toBeVisible();
+      const withPassword = (await dialog.boundingBox())!;
+      if (width === 1280) {
+        const [scroll, client] = await body.evaluate((el) => [el.scrollHeight, el.clientHeight]);
+        expect(scroll).toBeLessThanOrEqual(client);
+      }
+
+      await expect(dialog.getByTestId('scan-warning')).toBeVisible();
+      const previewed = (await dialog.boundingBox())!;
+
+      for (const box of [withPassword, previewed]) {
+        expect(Math.abs(box.y - opened.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(box.height - opened.height)).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+});

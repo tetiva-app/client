@@ -39,6 +39,17 @@ function slugFor(collectionId: string): string {
   return `mock-collection-${tail}`
 }
 
+// Browser mode only: the e2e suite holds the preview back to see the dialog before it lands.
+function previewDelayMs(): number {
+  try {
+    const raw = Number(globalThis.localStorage?.getItem('tetiva.mockPreviewMs'))
+    if (Number.isFinite(raw) && raw > 0) return raw
+  } catch {
+    // Storage disabled; no delay.
+  }
+  return 0
+}
+
 export class MockPublicationService implements PublicationServiceAPI {
   readonly calls: string[] = []
   readonly previews: PublishPreviewRequest[] = []
@@ -114,6 +125,8 @@ export class MockPublicationService implements PublicationServiceAPI {
   async preview(req: PublishPreviewRequest): Promise<Result<PublishPreview>> {
     this.calls.push(`preview ${req.collectionId}`)
     this.previews.push(structuredClone(req))
+    const delay = previewDelayMs()
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
     const failed = this.fail<PublishPreview>('preview')
     if (failed) return failed
     return { data: this.fixedPreview ? structuredClone(this.fixedPreview) : this.samplePreview(req) }

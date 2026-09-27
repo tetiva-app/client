@@ -247,6 +247,25 @@ describe('publish dialog', () => {
     expect(tagWith(html, 'data-testid="publish-title-name"')).toContain('truncate')
   })
 
+  it('keeps one frame size and scrolls the body, whatever the content', async () => {
+    const html = await render(emptyPublicationStatus(), { plan: { unlisted: true, password: true } })
+
+    expect(html).toContain('h-[min(760px,calc(100vh-2rem))]')
+    expect(tagWith(html, 'data-testid="publish-header"')).toContain('shrink-0')
+    expect(tagWith(html, 'data-testid="publish-footer"')).toContain('shrink-0')
+    const body = tagWith(html, 'data-testid="publish-body"')
+    for (const cls of ['min-h-0', 'flex-1', 'overflow-y-auto']) expect(body).toContain(cls)
+  })
+
+  it('holds the password row in place while another visibility is chosen', async () => {
+    const pub = await render(emptyPublicationStatus(), { plan: { unlisted: true, password: true } })
+    expect(tagWith(pub, 'data-testid="publish-password"')).toContain('invisible')
+    expect(pub).toContain('data-testid="publish-unlisted-hint"')
+
+    const pw = await render(emptyPublicationStatus(), { plan: { unlisted: true, password: true }, visibility: 'password' })
+    expect(tagWith(pw, 'data-testid="publish-password"')).not.toContain('invisible')
+  })
+
   it('says the environment used last time is not on this device rather than deleted', async () => {
     await render(emptyPublicationStatus(), { keep: true })
     shown.last!.environmentMissing.value = true

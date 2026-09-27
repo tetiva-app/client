@@ -35,9 +35,12 @@ const colorByKind = {
           class="pointer-events-auto flex items-start gap-2 rounded-md border px-3 py-2 shadow-md backdrop-blur"
           :class="colorByKind[t.kind]"
         >
-          <component :is="iconByKind[t.kind]" class="size-4 shrink-0 mt-0.5" />
-          <div class="flex-1 space-y-1">
-            <span class="text-xs break-words">{{ t.message }}</span>
+          <!-- Boxes as tall as one line of the message keep the icon and the X centred on it. -->
+          <span class="flex h-4 shrink-0 items-center" data-testid="toast-icon">
+            <component :is="iconByKind[t.kind]" class="size-4" />
+          </span>
+          <div class="min-w-0 flex-1 space-y-1">
+            <p class="text-xs leading-4 break-words" data-testid="toast-message">{{ t.message }}</p>
             <button
               v-if="t.action"
               class="block text-xs font-medium underline underline-offset-2 cursor-pointer"
@@ -47,7 +50,7 @@ const colorByKind = {
             </button>
           </div>
           <button
-            class="shrink-0 opacity-60 hover:opacity-100 cursor-pointer"
+            class="flex h-4 shrink-0 items-center opacity-60 hover:opacity-100 cursor-pointer"
             :aria-label="copy.dismiss"
             @click="dismiss(t.id)"
           >

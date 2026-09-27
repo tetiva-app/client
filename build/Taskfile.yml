@@ -89,17 +89,9 @@ tasks:
     label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
     summary: Generates bindings for the frontend
     run: when_changed
+    # No sources/generates: the checksum once reported stale bindings as up to date and a release shipped them.
     deps:
       - task: go:mod:tidy
-    sources:
-      - "**/*.[jt]s"
-      - exclude: frontend/**/*
-      - frontend/bindings/**/*  # Rerun when switching between dev/production mode causes changes in output
-      - "**/*.go"
-      - go.mod
-      - go.sum
-    generates:
-      - frontend/bindings/**/*
     cmds:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true -ts
 

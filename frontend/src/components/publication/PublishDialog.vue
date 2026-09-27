@@ -60,7 +60,7 @@ const d = usePublishDialog()
 
 const {
   status, loading, loadError, environments, visibility, password, environmentId, environmentMissing,
-  includeScripts, preview, previewing, previewError, acknowledged, lockedVisibilities, visibilityLocked, unlistedOffered,
+  includeScripts, preview, previewing, previewError, acknowledged, lockedVisibilities, unlistedOffered,
   confirmPublicOpen, publishing, errorText, isUpdate, unavailableText, manageText, reopenUrl, keepsPassword, passwordError,
   hiddenRows, removedRows, warningRows, canPublish,
 } = d
@@ -73,8 +73,6 @@ const VISIBILITY_ICONS: Record<Visibility, Component> = { public: Globe, unliste
 const visibilities = computed(() => (Object.keys(VISIBILITY_ICONS) as Visibility[]).map(value => ({
   value, icon: VISIBILITY_ICONS[value], ...copy.value.visibilities[value],
 })))
-
-const visibilityHint = computed(() => copy.value.visibilities[visibility.value].hint)
 
 const unlistedHint = computed(() => !isUpdate.value && unlistedOffered.value && visibility.value === 'public')
 
@@ -167,8 +165,9 @@ function seePlans() {
 
 <template>
   <Dialog :open="true" @update:open="onOpenChange">
-    <DialogContent class="flex max-h-[calc(100vh-2rem)] w-[92vw] flex-col gap-0 border-border/50 bg-background p-0 sm:max-w-[720px]">
-      <DialogHeader class="border-b border-border py-3 pl-4 pr-10" data-testid="publish-header">
+    <!-- A fixed height: the frame is centred, so any growth would move it on screen. -->
+    <DialogContent class="flex h-[min(760px,calc(100vh-2rem))] w-[92vw] flex-col gap-0 border-border/50 bg-background p-0 sm:max-w-[720px]">
+      <DialogHeader class="shrink-0 border-b border-border py-3 pl-4 pr-10" data-testid="publish-header">
         <DialogTitle class="flex min-w-0 items-center gap-2 text-sm font-medium">
           <Radio class="size-4 shrink-0 text-primary" />
           <span class="min-w-0 truncate" :title="title" data-testid="publish-title-name">{{ title }}</span>
@@ -186,16 +185,16 @@ function seePlans() {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
+      <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3" data-testid="publish-body">
         <div
           v-if="loading"
-          class="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"
+          class="flex min-h-full items-center justify-center gap-2 py-10 text-sm text-muted-foreground"
           data-testid="publish-loading"
         >
           <Loader2 class="size-4 animate-spin" />{{ copy.checking }}
         </div>
 
-        <div v-else-if="blocked" class="flex flex-col items-center py-8 text-center" data-testid="publish-blocked">
+        <div v-else-if="blocked" class="flex min-h-full flex-col items-center justify-center py-8 text-center" data-testid="publish-blocked">
           <div class="mb-4 rounded-lg border border-border/50 bg-muted/20 p-4">
             <component
               :is="blocked.icon"
@@ -243,35 +242,56 @@ function seePlans() {
                   </span>
                 </button>
               </div>
-              <p class="text-xs text-muted-foreground">{{ visibilityHint }}</p>
-              <p v-if="visibilityLocked" class="text-xs text-primary">
-                {{ copy.proOnly }}
-                <button type="button" class="underline cursor-pointer" @click="seePlans">{{ copy.seePlans }}</button>
-              </p>
-              <p v-if="unlistedHint" class="text-xs text-muted-foreground" data-testid="publish-unlisted-hint">{{ all.unlistedHint }}</p>
-
-              <div v-if="visibility === 'password'" class="space-y-1 pt-1">
-                <div class="relative">
-                  <input
-                    v-model="password"
-                    :type="showPassword ? 'text' : 'password'"
-                    autocomplete="new-password"
-                    :aria-label="copy.password"
-                    :placeholder="keepsPassword ? copy.passwordKeep : copy.password"
-                    class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 pr-9 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  />
-                  <button
-                    type="button"
-                    class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                    :title="showPassword ? copy.passwordHide : copy.passwordShow"
-                    @click="showPassword = !showPassword"
-                  >
-                    <component :is="showPassword ? EyeOff : Eye" class="size-3.5" />
-                  </button>
+              <!-- Each stack keeps every variant in one cell, so a switch never moves what is below. -->
+              <div class="grid">
+                <div
+                  v-for="v in visibilities"
+                  :key="v.value"
+                  class="col-start-1 row-start-1 space-y-1.5 text-xs"
+                  :class="{ invisible: v.value !== visibility }"
+                >
+                  <p class="text-muted-foreground">{{ v.hint }}</p>
+                  <p v-if="lockedVisibilities.includes(v.value)" class="text-primary">
+                    {{ copy.proOnly }}
+                    <button type="button" class="underline cursor-pointer" @click="seePlans">{{ copy.seePlans }}</button>
+                  </p>
                 </div>
-                <p class="text-xs" :class="passwordError ? 'text-destructive' : 'text-muted-foreground'">
-                  {{ passwordError || copy.passwordHelp }}
+              </div>
+              <div class="grid">
+                <p
+                  v-if="unlistedHint"
+                  class="col-start-1 row-start-1 text-xs text-muted-foreground"
+                  data-testid="publish-unlisted-hint"
+                >
+                  {{ all.unlistedHint }}
                 </p>
+                <div
+                  class="col-start-1 row-start-1 space-y-1 pt-1"
+                  :class="{ invisible: visibility !== 'password' }"
+                  data-testid="publish-password"
+                >
+                  <div class="relative">
+                    <input
+                      v-model="password"
+                      :type="showPassword ? 'text' : 'password'"
+                      autocomplete="new-password"
+                      :aria-label="copy.password"
+                      :placeholder="keepsPassword ? copy.passwordKeep : copy.password"
+                      class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 pr-9 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    />
+                    <button
+                      type="button"
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                      :title="showPassword ? copy.passwordHide : copy.passwordShow"
+                      @click="showPassword = !showPassword"
+                    >
+                      <component :is="showPassword ? EyeOff : Eye" class="size-3.5" />
+                    </button>
+                  </div>
+                  <p class="text-xs" :class="passwordError ? 'text-destructive' : 'text-muted-foreground'">
+                    {{ passwordError || copy.passwordHelp }}
+                  </p>
+                </div>
               </div>
             </div>
             <SharePageThumbnail v-if="!isUpdate" :title="collection?.name ?? ''" class="hidden md:block" />
@@ -324,7 +344,7 @@ function seePlans() {
 
       <DialogFooter
         v-if="!blocked"
-        class="flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center"
+        class="shrink-0 flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center"
         data-testid="publish-footer"
       >
         <div class="flex min-w-0 flex-1 flex-col gap-1">

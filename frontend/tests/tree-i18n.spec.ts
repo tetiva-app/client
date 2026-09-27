@@ -11,7 +11,7 @@ async function openInRussian(page: Page) {
 }
 
 async function createCollection(page: Page, name: string) {
-  await page.getByTitle('New Collection').click();
+  await page.getByTitle('Новая коллекция').click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Новая коллекция');
   await dialog.getByPlaceholder('Название коллекции').fill(name);
@@ -22,6 +22,23 @@ async function createCollection(page: Page, name: string) {
 }
 
 test.describe('Collection tree in Russian', () => {
+  test('words the header and the empty tree', async ({ page }) => {
+    await openInRussian(page);
+    const sidebar = page.locator('aside');
+
+    await expect(sidebar).toContainText('Коллекций пока нет. Нажмите +, чтобы создать.');
+    await expect(sidebar.getByPlaceholder('Поиск')).toBeVisible();
+    await expect(sidebar.getByTitle('Новая коллекция')).toBeVisible();
+
+    await sidebar.getByTitle('Импорт').click();
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem')).toHaveText(['Импорт из файла…', 'Импорт по ссылке…']);
+    await page.keyboard.press('Escape');
+
+    await sidebar.getByPlaceholder('Поиск').fill('nothing');
+    await expect(sidebar.getByTitle('Очистить поиск')).toBeVisible();
+  });
+
   test('keeps every menu item on one line', async ({ page }) => {
     await openInRussian(page);
     const root = await createCollection(page, 'Petstore API');

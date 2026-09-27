@@ -35,5 +35,6 @@ describe('deviceLabel', () => {
   it('falls back for an empty user-agent', () => {
     expect(deviceLabel('')).toBe('Unknown device')
     expect(deviceLabel('   ')).toBe('Unknown device')
+    expect(deviceLabel('', 'Неизвестное устройство')).toBe('Неизвестное устройство')
   })
 })

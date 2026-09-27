@@ -67,6 +67,12 @@ describe('TREE_COPY', () => {
     expect(plural('ru', 21, forms)).toBe('Удалить 21 элемент')
   })
 
+  it('keeps the English tree header wording', () => {
+    expect(TREE_COPY.en.header.empty).toBe('No collections yet. Click + to create one.')
+    expect(TREE_COPY.en.header.newCollection).toBe('New Collection')
+    expect(TREE_COPY.en.header.search).toBe('Search')
+  })
+
   it('keeps the English menu wording', () => {
     expect(plural('en', 2, TREE_COPY.en.menu.deleteItems)).toBe('Delete 2 items')
     expect(plural('en', 2, TREE_COPY.en.move.title)).toBe('Move 2 items to…')

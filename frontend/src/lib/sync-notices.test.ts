@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { quotaNotice, rejectNotice, parkedQuotaNotice, parkedTooLargeNotice, parkedSummary } from './sync-notices'
+import { quotaNotice, rejectNotice, parkedSummary } from './sync-notices'
 
 describe('quotaNotice', () => {
   it('explains a cloud collection cap and offers the plans link', () => {
@@ -37,39 +37,6 @@ describe('rejectNotice', () => {
   it('ignores an unknown reason', () => {
     expect(rejectNotice('parent_not_found')).toBeNull()
     expect(rejectNotice('')).toBeNull()
-  })
-})
-
-describe('parkedQuotaNotice', () => {
-  it('blames the plan and offers the link', () => {
-    const notice = parkedQuotaNotice(4)
-    expect(notice?.message).toContain('4 changes not synced — cloud collection limit reached on your plan.')
-    expect(notice?.message).toContain('They will sync automatically after an upgrade.')
-    expect(notice?.showPlans).toBe(true)
-  })
-
-  it('speaks of one change in the singular', () => {
-    expect(parkedQuotaNotice(1)?.message).toContain('1 change not synced')
-  })
-
-  it('says nothing without parked changes', () => {
-    expect(parkedQuotaNotice(0)).toBeNull()
-  })
-})
-
-describe('parkedTooLargeNotice', () => {
-  it('asks for an edit instead of an upgrade', () => {
-    const notice = parkedTooLargeNotice(2)
-    expect(notice?.message).toBe('2 items too large for the server — edit them to retry.')
-    expect(notice?.showPlans).toBe(false)
-  })
-
-  it('speaks of one item in the singular', () => {
-    expect(parkedTooLargeNotice(1)?.message).toBe('1 item too large for the server — edit it to retry.')
-  })
-
-  it('says nothing without oversized items', () => {
-    expect(parkedTooLargeNotice(0)).toBeNull()
   })
 })
 

@@ -41,24 +41,6 @@ export function rejectNotice(reason: string): SyncNotice | null {
   }
 }
 
-export function parkedQuotaNotice(count: number): SyncNotice | null {
-  if (count <= 0) return null
-  return {
-    message: `${count} change${count === 1 ? '' : 's'} not synced — cloud collection limit reached on your plan.`
-      + ' They will sync automatically after an upgrade.',
-    showPlans: true,
-  }
-}
-
-export function parkedTooLargeNotice(count: number): SyncNotice | null {
-  if (count <= 0) return null
-  return {
-    message: `${count} item${count === 1 ? '' : 's'} too large for the server`
-      + ` — edit ${count === 1 ? 'it' : 'them'} to retry.`,
-    showPlans: false,
-  }
-}
-
 export const PARKED_COPY: Record<Locale, { quota: PluralForms; tooLarge: PluralForms }> = {
   en: {
     quota: { one: '{n} change not synced — plan limit', other: '{n} changes not synced — plan limit' },

@@ -9,9 +9,9 @@ const MAX_FALLBACK = 60
 
 // Wire user-agent is `Tetiva/0.17.0 (darwin; mbp.local) grpc-go/1.79.3` — grpc-go appends its own
 // token after ours, so the pattern cannot anchor at the end. Host leads: it names the machine.
-export function deviceLabel(userAgent: string): string {
+export function deviceLabel(userAgent: string, unknown = 'Unknown device'): string {
   const ua = userAgent.trim()
-  if (ua === '') return 'Unknown device'
+  if (ua === '') return unknown
 
   const match = TETIVA_UA.exec(ua)
   if (!match) {

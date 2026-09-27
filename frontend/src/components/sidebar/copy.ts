@@ -1,6 +1,17 @@
 import type { Locale, PluralForms } from '@/lib/locale'
 
 export interface TreeCopy {
+  header: {
+    import: string
+    importFile: string
+    importLink: string
+    newCollection: string
+    search: string
+    clearSearch: string
+    empty: string
+    noMatches: string
+    limitReached: string
+  }
   menu: {
     newRequest: string
     newSubCollection: string
@@ -137,6 +148,17 @@ export interface PublicationsPanelCopy {
 
 export const TREE_COPY: Record<Locale, TreeCopy> = {
   en: {
+    header: {
+      import: 'Import',
+      importFile: 'Import File…',
+      importLink: 'Import from Link…',
+      newCollection: 'New Collection',
+      search: 'Search',
+      clearSearch: 'Clear search',
+      empty: 'No collections yet. Click + to create one.',
+      noMatches: 'No matches',
+      limitReached: 'Showing top 200 results. Refine query to narrow down.',
+    },
     menu: {
       newRequest: 'New Request',
       newSubCollection: 'New Sub-Collection',
@@ -281,6 +303,17 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
     },
   },
   ru: {
+    header: {
+      import: 'Импорт',
+      importFile: 'Импорт из файла…',
+      importLink: 'Импорт по ссылке…',
+      newCollection: 'Новая коллекция',
+      search: 'Поиск',
+      clearSearch: 'Очистить поиск',
+      empty: 'Коллекций пока нет. Нажмите +, чтобы создать.',
+      noMatches: 'Ничего не найдено',
+      limitReached: 'Показаны первые 200 результатов. Уточните запрос.',
+    },
     menu: {
       newRequest: 'Новый запрос',
       newSubCollection: 'Новая подколлекция',

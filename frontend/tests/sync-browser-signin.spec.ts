@@ -407,11 +407,10 @@ test.describe('Register intent from the welcome screen', () => {
   });
 });
 
-test.describe('Sync modal on a localized machine', () => {
-  test.use({ locale: 'ru-RU' });
-
-  test('the verification view keeps the modal\'s English', async ({ page }) => {
+test.describe('Sync modal and the app language', () => {
+  test('speaks English by default, the verification view included', async ({ page }) => {
     const dialog = await openScenario(page, 'signin-verify', 200);
+    await expect(dialog.getByRole('heading', { name: 'Sync' })).toBeVisible();
     await dialog.getByTestId('signin-browser-register').click();
 
     const waiting = dialog.getByTestId('sync-verify-waiting');
@@ -422,5 +421,30 @@ test.describe('Sync modal on a localized machine', () => {
     await expect(waiting.getByTestId('sync-verify-resend')).toHaveText('Send again');
     await expect(waiting.getByTestId('sync-verify-logout')).toHaveText('Sign out');
     await expect(waiting.getByRole('button', { name: 'Close' })).toBeVisible();
+  });
+
+  test('follows the Russian language setting', async ({ page }) => {
+    await page.addInitScript(() => {
+      const key = 'gophercourier.settings';
+      const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+      localStorage.setItem(key, JSON.stringify({ ...saved, language: 'ru' }));
+    });
+    const dialog = await openScenario(page, 'signin-verify', 200);
+
+    await expect(dialog.getByRole('heading', { name: 'Синхронизация' })).toBeVisible();
+    await expect(dialog).toContainText('Подключитесь, чтобы пространства синхронизировались между устройствами.');
+    await expect(dialog.getByTestId('signin-browser')).toHaveText('Войти через браузер');
+    await expect(dialog.getByTestId('signin-browser-register')).toHaveText('Создать аккаунт');
+    await expect(dialog.getByTestId('signin-browser-host')).toHaveText(`Откроется ${CLOUD_HOST} в браузере`);
+    await expect(dialog.getByRole('button', { name: 'Свой сервер' })).toBeVisible();
+
+    await dialog.getByTestId('signin-browser-register').click();
+    const waiting = dialog.getByTestId('sync-verify-waiting');
+    await expect(waiting).toBeVisible();
+    await expect(waiting).toContainText('Проверьте почту');
+    await expect(waiting).toContainText('Мы отправили письмо на browser@example.com');
+    await expect(waiting.getByTestId('sync-verify-confirmed')).toHaveText('Я подтвердил');
+    await expect(waiting.getByTestId('sync-verify-resend')).toHaveText('Отправить ещё раз');
+    await expect(waiting.getByTestId('sync-verify-logout')).toHaveText('Выйти');
   });
 });

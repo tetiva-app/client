@@ -351,17 +351,17 @@ async function handleExportPostman(collectionId: string) {
             variant="ghost"
             size="icon-sm"
             class="size-6 cursor-pointer"
-            title="Import"
+            :title="copy.header.import"
           >
             <Download class="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" class="min-w-44">
           <DropdownMenuItem class="text-xs" @select="handleImportFile(null)">
-            <FileJson class="size-3.5" />Import File…
+            <FileJson class="size-3.5" />{{ copy.header.importFile }}
           </DropdownMenuItem>
           <DropdownMenuItem class="text-xs" @select="importFlow.openLinkDialog()">
-            <Link class="size-3.5" />Import from Link…
+            <Link class="size-3.5" />{{ copy.header.importLink }}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -369,7 +369,7 @@ async function handleExportPostman(collectionId: string) {
         variant="ghost"
         size="icon-sm"
         class="size-6 cursor-pointer"
-        title="New Collection"
+        :title="copy.header.newCollection"
         @click="handleCreateRoot"
       >
         <Plus class="size-4" />
@@ -380,7 +380,7 @@ async function handleExportPostman(collectionId: string) {
       <Input
         ref="searchInputRef"
         :model-value="search.query"
-        placeholder="Search"
+        :placeholder="copy.header.search"
         class="h-7 pl-7 pr-7 text-xs"
         @update:model-value="search.setQuery($event as string)"
         @keydown.esc="handleSearchEsc"
@@ -388,7 +388,7 @@ async function handleExportPostman(collectionId: string) {
       <button
         v-if="search.query.length > 0"
         class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground cursor-pointer"
-        title="Clear search"
+        :title="copy.header.clearSearch"
         @click="clearSearch"
       >
         <X class="size-3" />
@@ -401,12 +401,12 @@ async function handleExportPostman(collectionId: string) {
   <ScrollArea class="flex-1 min-h-0">
     <div v-if="store.tree.length === 0 && !store.loading" class="px-3 py-8 text-center">
       <p class="text-xs text-muted-foreground">
-        No collections yet. Click + to create one.
+        {{ copy.header.empty }}
       </p>
     </div>
 
     <div v-else-if="noMatches" class="px-3 py-8 text-center">
-      <p class="text-xs text-muted-foreground">No matches</p>
+      <p class="text-xs text-muted-foreground">{{ copy.header.noMatches }}</p>
     </div>
 
     <div v-else class="py-1">
@@ -436,7 +436,7 @@ async function handleExportPostman(collectionId: string) {
       v-if="search.limitReached"
       class="px-3 py-1.5 text-[11px] text-muted-foreground border-t mt-1"
     >
-      Showing top 200 results. Refine query to narrow down.
+      {{ copy.header.limitReached }}
     </div>
   </ScrollArea>
 

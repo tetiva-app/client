@@ -21,11 +21,10 @@ import {
 import { PRICING_URL } from '@/constants/pricing'
 import { deviceLabel } from '@/lib/device-label'
 import { openExternal } from '@/lib/open-external'
-import { guarded, TRANSPORT_ERROR_CODE, TRANSPORT_ERROR_MESSAGE } from '@/lib/service-call'
-import { formatRelativeTime } from '@/lib/time'
-import { parkedQuotaNotice, parkedTooLargeNotice } from '@/lib/sync-notices'
-import { currentLocale, fill } from '@/lib/locale'
+import { guarded, TRANSPORT_ERROR_CODE } from '@/lib/service-call'
+import { currentLocale, fill, formatRelative, plural } from '@/lib/locale'
 import { ONBOARDING_COPY } from '@/onboarding/copy'
+import { useCopy } from '@/composables/useLocale'
 import { useToast } from '@/composables/useToast'
 import { useResendCooldown, useVerificationPolling } from '@/composables/useVerificationPolling'
 import { useSyncStatus } from '@/composables/useSyncStatus'
@@ -45,6 +44,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs'
+import { SYNC_COPY, type SyncCopy } from './copy'
 
 const props = defineProps<{
   open: boolean
@@ -59,9 +59,9 @@ const workspaceStore = useWorkspaceStore()
 const publications = usePublicationsStore()
 const toast = useToast()
 const signIn = useBrowserSignInStore()
-// The sync modal is English throughout; only the onboarding wizard is localized,
-// and a translated block beside the modal's own English buttons reads as a bug.
-const verify = ONBOARDING_COPY.en.verify
+const copy = useCopy(SYNC_COPY)
+const onboarding = useCopy(ONBOARDING_COPY)
+const verify = computed(() => onboarding.value.verify)
 
 const CAPS_DEBOUNCE_MS = 400
 const COPIED_MS = 1500
@@ -79,7 +79,9 @@ const email = ref('')
 const password = ref('')
 const name = ref('')
 const loading = ref(false)
-const error = ref('')
+// A getter re-reads the dictionary, so a message shown before a language switch follows it.
+type Message = string | ((c: SyncCopy) => string)
+const error = ref<Message>('')
 const activeTab = ref('login')
 
 const connected = ref(false)
@@ -91,7 +93,7 @@ const rateLimited = ref(false)
 const sessions = ref<SessionInfo[]>([])
 const devicesLoading = ref(false)
 const devicesRefreshing = ref(false)
-const devicesError = ref('')
+const devicesError = ref<Message>('')
 const revokingId = ref('')
 const loggingOutAll = ref(false)
 const confirmingLogoutAll = ref(false)
@@ -109,17 +111,17 @@ const otherDevices = computed(() => sessions.value.filter(s => !s.isCurrent))
 // A member-limit stop holds the whole workspace, so it outranks the parked count.
 // An update-required park also parks outbox entries, but no upgrade clears it.
 const planNotice = computed(() => {
-  if (syncStatus.state.value === 'plan_limit') {
-    return "Sync paused — the team exceeds its plan's member limit."
-      + ' Ask the owner to update the plan or remove members.'
-  }
-  if (syncStatus.state.value === 'update_required') {
-    return 'Sync stopped — update the app to read the newest changes from your team.'
-  }
-  return parkedQuotaNotice(syncStatus.parked.value)?.message ?? ''
+  const notices = copy.value.notices
+  if (syncStatus.state.value === 'plan_limit') return notices.planLimit
+  if (syncStatus.state.value === 'update_required') return notices.updateRequired
+  const parked = syncStatus.parked.value
+  return parked > 0 ? plural(currentLocale.value, parked, notices.parkedQuota) : ''
 })
 
-const tooLargeNotice = computed(() => parkedTooLargeNotice(syncStatus.tooLarge.value)?.message ?? '')
+const tooLargeNotice = computed(() => {
+  const count = syncStatus.tooLarge.value
+  return count > 0 ? plural(currentLocale.value, count, copy.value.notices.parkedTooLarge) : ''
+})
 
 const showPlansLink = computed(() => syncStatus.state.value !== 'update_required')
 
@@ -127,12 +129,19 @@ const devicesBusy = computed(
   () => revokingId.value !== '' || loggingOutAll.value || devicesRefreshing.value
 )
 
-const sentToText = computed(() => fill(verify.sentTo, { email: email.value }))
+const errorText = computed(() => textOf(error.value))
+const devicesErrorText = computed(() => textOf(devicesError.value))
+
+function textOf(message: Message): string {
+  return typeof message === 'function' ? message(copy.value) : message
+}
+
+const sentToText = computed(() => fill(verify.value.sentTo, { email: email.value }))
 
 const resendLabel = computed(() =>
   cooldown.secondsLeft.value > 0
-    ? fill(verify.resendIn, { seconds: cooldown.secondsLeft.value })
-    : verify.resend
+    ? fill(verify.value.resendIn, { seconds: cooldown.secondsLeft.value })
+    : verify.value.resend
 )
 
 const resendDisabled = computed(() =>
@@ -389,7 +398,7 @@ async function handleConnect() {
 
   loading.value = false
   if (result.error) {
-    error.value = result.error.message
+    error.value = failure(result.error)
     return
   }
 
@@ -417,7 +426,7 @@ async function handleRegister() {
 
   loading.value = false
   if (result.error) {
-    error.value = result.error.message
+    error.value = failure(result.error)
     return
   }
 
@@ -445,7 +454,7 @@ function onEmailVerified() {
   error.value = ''
   cooldown.stop()
   publications.accountChanged()
-  toast.success(verify.verifiedToast)
+  toast.success(verify.value.verifiedToast)
   // Remote workspaces appear only now — the engine was dark until confirmation.
   void workspaceStore.fetchAll()
 }
@@ -468,15 +477,15 @@ async function handleResend() {
   if (result.error) {
     if (result.error.code === 'rate_limited') {
       rateLimited.value = true
-      error.value = verify.rateLimited
+      error.value = () => verify.value.rateLimited
     } else {
-      error.value = result.error.message
+      error.value = failure(result.error)
     }
     return
   }
 
   cooldown.start()
-  toast.success(verify.resentToast)
+  toast.success(verify.value.resentToast)
 }
 
 // Without a way out a typo in the address is a dead end: closing the modal only
@@ -493,15 +502,21 @@ async function handleLogout() {
   activeTab.value = 'login'
 }
 
+// The server's own texts stay as sent; only the dead-binding answer is ours to word.
+function failure(e: { code: string; message: string }): Message {
+  return e.code === TRANSPORT_ERROR_CODE ? c => c.errors.transport : e.message
+}
+
 // Backend messages carry Go call chains, so only the code is consulted.
-function devicesFailure(code: string, fallback: string): string {
-  if (code === 'not_connected') return 'Not connected to the sync server'
-  if (code === TRANSPORT_ERROR_CODE) return TRANSPORT_ERROR_MESSAGE
-  return fallback
+function devicesFailure(code: string, fallback: keyof SyncCopy['devices']['errors']): Message {
+  if (code === 'not_connected') return c => c.errors.notConnected
+  if (code === TRANSPORT_ERROR_CODE) return c => c.errors.transport
+  return c => c.devices.errors[fallback]
 }
 
 function lastActive(session: SessionInfo): string {
-  return formatRelativeTime(session.lastUsedAt)
+  const when = formatRelative(currentLocale.value, session.lastUsedAt)
+  return when ? fill(copy.value.devices.lastActive, { when }) : ''
 }
 
 // refresh keeps the rows on screen: only the first load may blank the section out.
@@ -516,7 +531,7 @@ async function loadSessions(refresh = false) {
   devicesRefreshing.value = false
 
   if (result.error) {
-    devicesError.value = devicesFailure(result.error.code, "Couldn't load devices")
+    devicesError.value = devicesFailure(result.error.code, 'load')
     if (!refresh) sessions.value = []
     return
   }
@@ -531,7 +546,7 @@ async function handleRevokeSession(sessionId: string) {
   const result = await guarded(syncService.revokeSession({ sessionId }))
   if (result.error) {
     revokingId.value = ''
-    devicesError.value = devicesFailure(result.error.code, "Couldn't sign that device out")
+    devicesError.value = devicesFailure(result.error.code, 'revoke')
     return
   }
 
@@ -548,7 +563,7 @@ async function handleLogoutAll() {
   const result = await guarded(syncService.logoutAll())
   if (result.error) {
     loggingOutAll.value = false
-    devicesError.value = devicesFailure(result.error.code, "Couldn't sign the other devices out")
+    devicesError.value = devicesFailure(result.error.code, 'signOutOthers')
     return
   }
 
@@ -574,20 +589,20 @@ async function handleDisconnect() {
     <DialogContent class="sm:max-w-md top-[10vh] translate-y-0 max-h-[80vh] overflow-y-auto">
       <DialogHeader>
         <div class="flex items-center gap-1">
-          <DialogTitle>Sync</DialogTitle>
+          <DialogTitle>{{ copy.title }}</DialogTitle>
           <HelpLink slug="sync" />
         </div>
         <DialogDescription>
-          Connect to sync your workspaces across devices.
+          {{ copy.description }}
         </DialogDescription>
       </DialogHeader>
 
       <div v-if="connected" class="min-w-0 space-y-4">
         <div class="text-sm text-muted-foreground">
-          Connected to
+          {{ copy.connected.to }}
           <Cloud v-if="serverUrl === DEFAULT_SYNC_SERVER" class="inline-block w-3.5 h-3.5 align-[-2px]" />
           <span class="font-medium text-foreground">{{ displayServerName }}</span>
-          as <span class="font-medium text-foreground">{{ email }}</span>
+          {{ copy.connected.as }} <span class="font-medium text-foreground">{{ email }}</span>
         </div>
 
         <div
@@ -602,7 +617,7 @@ async function handleDisconnect() {
             class="cursor-pointer font-medium underline underline-offset-2"
             @click="openPlans"
           >
-            See plans
+            {{ copy.notices.plans }}
           </button>
         </div>
 
@@ -615,7 +630,7 @@ async function handleDisconnect() {
         </div>
 
         <div v-if="syncedWorkspaces.length > 0" class="space-y-2">
-          <label class="block text-xs text-muted-foreground mb-1">Synced workspaces</label>
+          <label class="block text-xs text-muted-foreground mb-1">{{ copy.connected.workspaces }}</label>
           <div
             v-for="ws in syncedWorkspaces"
             :key="ws.id"
@@ -626,14 +641,14 @@ async function handleDisconnect() {
           </div>
         </div>
         <div v-else class="text-sm text-muted-foreground italic">
-          No synced workspaces. Remote workspaces will appear automatically.
+          {{ copy.connected.noWorkspaces }}
         </div>
 
         <div class="space-y-2">
-          <label class="block text-xs text-muted-foreground mb-1">Devices</label>
+          <label class="block text-xs text-muted-foreground mb-1">{{ copy.devices.title }}</label>
 
           <p v-if="devicesLoading" class="text-sm text-muted-foreground italic">
-            Loading devices...
+            {{ copy.devices.loading }}
           </p>
 
           <template v-else>
@@ -645,18 +660,18 @@ async function handleDisconnect() {
             >
               <Laptop class="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <div class="min-w-0 flex-1">
-                <div class="truncate" :title="deviceLabel(s.userAgent)" data-testid="sync-device-label">
-                  {{ deviceLabel(s.userAgent) }}
+                <div class="truncate" :title="deviceLabel(s.userAgent, copy.devices.unknown)" data-testid="sync-device-label">
+                  {{ deviceLabel(s.userAgent, copy.devices.unknown) }}
                 </div>
                 <div v-if="lastActive(s)" class="truncate text-xs text-muted-foreground">
-                  last active {{ lastActive(s) }}
+                  {{ lastActive(s) }}
                 </div>
               </div>
               <span
                 v-if="s.isCurrent"
                 class="shrink-0 rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground"
               >
-                This device
+                {{ copy.devices.current }}
               </span>
               <button
                 v-else
@@ -665,26 +680,26 @@ async function handleDisconnect() {
                 class="shrink-0 cursor-pointer text-xs text-muted-foreground transition-colors hover:text-destructive disabled:cursor-default disabled:opacity-50 disabled:hover:text-muted-foreground"
                 @click="handleRevokeSession(s.id)"
               >
-                {{ revokingId === s.id ? 'Signing out...' : 'Sign out' }}
+                {{ revokingId === s.id ? copy.devices.signingOut : copy.devices.signOut }}
               </button>
             </div>
 
-            <div v-if="devicesError" class="flex items-center gap-2">
-              <span class="text-sm text-destructive">{{ devicesError }}</span>
+            <div v-if="devicesErrorText" class="flex items-center gap-2">
+              <span class="text-sm text-destructive">{{ devicesErrorText }}</span>
               <button
                 type="button"
                 class="cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
                 @click="loadSessions()"
               >
-                Retry
+                {{ copy.retry }}
               </button>
             </div>
 
             <p
-              v-if="!devicesError && otherDevices.length === 0"
+              v-if="!devicesErrorText && otherDevices.length === 0"
               class="text-sm text-muted-foreground italic"
             >
-              No other devices.
+              {{ copy.devices.none }}
             </p>
             <template v-else-if="otherDevices.length > 0">
               <button
@@ -694,17 +709,17 @@ async function handleDisconnect() {
                 class="cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-50"
                 @click="confirmingLogoutAll = true"
               >
-                Sign out everywhere
+                {{ copy.devices.signOutOthers }}
               </button>
               <div v-else class="flex items-center gap-2 text-xs">
-                <span class="text-muted-foreground">Sign out all other devices?</span>
+                <span class="text-muted-foreground">{{ copy.devices.confirmSignOutOthers }}</span>
                 <button
                   type="button"
                   :disabled="devicesBusy"
                   class="cursor-pointer font-medium text-destructive disabled:cursor-default disabled:opacity-50"
                   @click="handleLogoutAll"
                 >
-                  {{ loggingOutAll ? 'Signing out...' : 'Confirm' }}
+                  {{ loggingOutAll ? copy.devices.signingOut : copy.devices.confirm }}
                 </button>
                 <button
                   type="button"
@@ -712,17 +727,17 @@ async function handleDisconnect() {
                   class="cursor-pointer text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-50"
                   @click="confirmingLogoutAll = false"
                 >
-                  Cancel
+                  {{ copy.cancel }}
                 </button>
               </div>
             </template>
           </template>
         </div>
 
-        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+        <p v-if="errorText" class="text-sm text-destructive">{{ errorText }}</p>
 
         <Button variant="destructive" size="sm" class="w-full" @click="handleDisconnect">
-          Disconnect
+          {{ copy.connected.disconnect }}
         </Button>
       </div>
 
@@ -740,7 +755,7 @@ async function handleDisconnect() {
         <p v-if="pollingStopped" class="text-center text-xs text-muted-foreground">
           {{ verify.pollingStopped }}
         </p>
-        <p v-if="error" class="text-center text-sm text-destructive">{{ error }}</p>
+        <p v-if="errorText" class="text-center text-sm text-destructive">{{ errorText }}</p>
 
         <div class="space-y-2">
           <Button class="w-full h-8" :disabled="checking" data-testid="sync-verify-confirmed" @click="handleConfirmed">
@@ -784,23 +799,23 @@ async function handleDisconnect() {
           data-testid="signin-browser-pending"
         >
           <p v-if="signIn.state === 'starting'" class="text-[11px] text-muted-foreground">
-            Contacting {{ panelHost }}…
+            {{ fill(copy.browser.contacting, { host: panelHost }) }}
           </p>
           <template v-else>
             <p class="text-[11px] text-muted-foreground">
-              Waiting for you to finish in the browser — approve the request there, then come back.
+              {{ copy.browser.waiting }}
             </p>
             <p
               v-if="signIn.emailVerificationPending"
               class="text-[11px] text-amber-700 dark:text-amber-300"
               data-testid="signin-browser-verify-hint"
             >
-              Confirm your email in the browser to finish signing in.
+              {{ copy.browser.verifyEmail }}
             </p>
             <!-- Outside the panel's live region: a screen reader would read the
                  whole panel out again on every tick. -->
             <p v-if="signInExpiresIn" aria-live="off" class="text-[11px] text-muted-foreground">
-              Expires in {{ signInExpiresIn }}
+              {{ fill(copy.browser.expiresIn, { time: signInExpiresIn }) }}
             </p>
           </template>
 
@@ -812,7 +827,7 @@ async function handleDisconnect() {
                 data-testid="signin-browser-open-again"
                 @click="signIn.openAgain()"
               >
-                Open again
+                {{ copy.browser.openAgain }}
               </button>
               <button
                 type="button"
@@ -820,7 +835,7 @@ async function handleDisconnect() {
                 data-testid="signin-browser-copy"
                 @click="handleCopyLink"
               >
-                {{ copiedLink ? 'Copied' : 'Copy link' }}
+                {{ copiedLink ? copy.browser.copied : copy.browser.copyLink }}
               </button>
             </template>
             <button
@@ -829,12 +844,12 @@ async function handleDisconnect() {
               data-testid="signin-browser-cancel"
               @click="signIn.cancel()"
             >
-              Cancel
+              {{ copy.cancel }}
             </button>
           </div>
 
           <p v-if="signIn.state === 'pending'" class="text-[11px] text-muted-foreground">
-            Anyone with this link can approve the sign-in.
+            {{ copy.browser.anyone }}
           </p>
         </div>
 
@@ -850,14 +865,14 @@ async function handleDisconnect() {
           >
             {{ signIn.error }}
           </p>
-          <p v-else class="text-sm text-muted-foreground">Sign-in cancelled.</p>
+          <p v-else class="text-sm text-muted-foreground">{{ copy.browser.cancelled }}</p>
           <button
             type="button"
             class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer"
             data-testid="signin-browser-retry"
             @click="retrySignIn"
           >
-            Try again
+            {{ copy.browser.tryAgain }}
           </button>
         </div>
 
@@ -868,7 +883,7 @@ async function handleDisconnect() {
             data-testid="signin-caps-unreachable"
           >
             <p class="text-sm text-destructive">
-              {{ showCloudUnreachable ? 'Cannot reach Tetiva Cloud.' : 'Cannot reach this server.' }}
+              {{ showCloudUnreachable ? copy.server.cloudUnreachable : copy.server.unreachable }}
             </p>
             <button
               type="button"
@@ -876,7 +891,7 @@ async function handleDisconnect() {
               data-testid="signin-caps-retry"
               @click="loadCapabilities"
             >
-              Retry
+              {{ copy.retry }}
             </button>
           </div>
 
@@ -885,7 +900,7 @@ async function handleDisconnect() {
             class="text-sm text-muted-foreground"
             data-testid="signin-caps-checking"
           >
-            Checking the server…
+            {{ copy.server.checking }}
           </p>
 
           <div v-else-if="showBrowserSignIn" class="space-y-2">
@@ -895,7 +910,7 @@ async function handleDisconnect() {
               data-testid="signin-browser"
               @click="startSignIn('signin')"
             >
-              Sign in with browser
+              {{ copy.browser.signIn }}
             </Button>
             <Button
               v-if="caps?.registrationOpen"
@@ -904,16 +919,16 @@ async function handleDisconnect() {
               data-testid="signin-browser-register"
               @click="startSignIn('register')"
             >
-              Create account
+              {{ copy.browser.createAccount }}
             </Button>
             <p class="text-center text-[11px] text-muted-foreground" data-testid="signin-browser-host">
-              Opens {{ signInHostLabel }} in your browser
+              {{ fill(copy.browser.opensHost, { host: signInHostLabel }) }}
             </p>
           </div>
 
           <div v-else-if="showCloudOutdated" class="space-y-2" data-testid="signin-caps-outdated">
             <p class="text-sm text-destructive">
-              This app needs a newer Tetiva Cloud to sign in.
+              {{ copy.server.cloudOutdated }}
             </p>
             <button
               type="button"
@@ -921,51 +936,51 @@ async function handleDisconnect() {
               data-testid="signin-caps-retry"
               @click="loadCapabilities"
             >
-              Retry
+              {{ copy.retry }}
             </button>
           </div>
         </template>
 
         <Tabs v-if="showTabs && !signInPanel" v-model="activeTab">
           <TabsList class="w-full">
-            <TabsTrigger value="login" class="flex-1">Login</TabsTrigger>
-            <TabsTrigger value="register" class="flex-1">Register</TabsTrigger>
+            <TabsTrigger value="login" class="flex-1">{{ copy.form.loginTab }}</TabsTrigger>
+            <TabsTrigger value="register" class="flex-1">{{ copy.form.registerTab }}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="login" class="space-y-3 mt-3">
             <div class="space-y-2">
-              <label for="login-email" class="block text-xs text-muted-foreground">Email</label>
+              <label for="login-email" class="block text-xs text-muted-foreground">{{ copy.form.email }}</label>
               <Input id="login-email" v-model="email" type="email" class="h-8" />
             </div>
             <div class="space-y-2">
-              <label for="login-password" class="block text-xs text-muted-foreground">Password</label>
+              <label for="login-password" class="block text-xs text-muted-foreground">{{ copy.form.password }}</label>
               <Input id="login-password" v-model="password" type="password" class="h-8" />
             </div>
             <Button class="w-full h-8" :disabled="loading" @click="handleConnect">
-              {{ loading ? 'Connecting...' : 'Connect' }}
+              {{ loading ? copy.form.connecting : copy.form.connect }}
             </Button>
           </TabsContent>
 
           <TabsContent value="register" class="space-y-3 mt-3">
             <div class="space-y-2">
-              <label for="reg-name" class="block text-xs text-muted-foreground">Name</label>
+              <label for="reg-name" class="block text-xs text-muted-foreground">{{ copy.form.name }}</label>
               <Input id="reg-name" v-model="name" class="h-8" />
             </div>
             <div class="space-y-2">
-              <label for="reg-email" class="block text-xs text-muted-foreground">Email</label>
+              <label for="reg-email" class="block text-xs text-muted-foreground">{{ copy.form.email }}</label>
               <Input id="reg-email" v-model="email" type="email" class="h-8" />
             </div>
             <div class="space-y-2">
-              <label for="reg-password" class="block text-xs text-muted-foreground">Password</label>
+              <label for="reg-password" class="block text-xs text-muted-foreground">{{ copy.form.password }}</label>
               <Input id="reg-password" v-model="password" type="password" class="h-8" />
             </div>
             <Button class="w-full h-8" :disabled="loading" @click="handleRegister">
-              {{ loading ? 'Registering...' : 'Register' }}
+              {{ loading ? copy.form.registering : copy.form.register }}
             </Button>
           </TabsContent>
         </Tabs>
 
-        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+        <p v-if="errorText" class="text-sm text-destructive">{{ errorText }}</p>
 
         <div>
           <button
@@ -978,15 +993,15 @@ async function handleDisconnect() {
               class="w-3.5 h-3.5 transition-transform"
               :class="{ 'rotate-90': customOpen }"
             />
-            Use custom server
+            {{ copy.server.custom }}
           </button>
 
           <div v-if="customOpen" class="mt-3 pt-3 border-t space-y-2">
-            <label for="server-url" class="block text-xs text-muted-foreground">Server URL</label>
+            <label for="server-url" class="block text-xs text-muted-foreground">{{ copy.server.url }}</label>
             <Input
               id="server-url"
               v-model="customUrl"
-              placeholder="host:port — e.g. localhost:50051"
+              :placeholder="copy.server.urlPlaceholder"
               class="h-8"
             />
             <p
@@ -994,10 +1009,10 @@ async function handleDisconnect() {
               class="text-[11px] text-muted-foreground"
               data-testid="signin-caps-incomplete"
             >
-              Enter host:port to check this server.
+              {{ copy.server.incomplete }}
             </p>
             <p v-else class="text-[11px] text-muted-foreground">
-              Leave empty to use {{ DEFAULT_SYNC_SERVER_LABEL }}.
+              {{ fill(copy.server.leaveEmpty, { server: DEFAULT_SYNC_SERVER_LABEL }) }}
             </p>
           </div>
         </div>

@@ -1,10 +1,10 @@
 package publication
 
 import (
-	"fmt"
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -33,40 +33,132 @@ const (
 
 var headerName = regexp.MustCompile("^([!#$%&'*+.^_`|~0-9A-Za-z-]|\\{\\{[^}\\x00-\\x1f\\x7f]+\\}\\})+$")
 
+// BlockingError codes and params are a frontend contract: the UI words them itself.
+const (
+	codeTextTooLong         = "text_too_long"
+	codeValueTooLong        = "value_too_long"
+	codeNameTooLong         = "name_too_long"
+	codeHeaderNameInvalid   = "header_name_invalid"
+	codeURLTooLong          = "url_too_long"
+	codeURLControlChar      = "url_control_char"
+	codeNameBlank           = "name_blank"
+	codeTooManyValues       = "too_many_values"
+	codeTooMany             = "too_many"
+	codeAuthTooDeep         = "auth_too_deep"
+	codeAuthTooManyValues   = "auth_too_many_values"
+	codeTooManyItems        = "too_many_items"
+	codeFoldersTooDeep      = "folders_too_deep"
+	codeMethodUnsupported   = "method_unsupported"
+	codeProtocolUnsupported = "protocol_unsupported"
+	codeBodyTypeUnsupported = "body_type_unsupported"
+	codeStatusOutOfRange    = "status_out_of_range"
+	codeAuthTypeUnsupported = "auth_type_unsupported"
+)
+
+var blockingText = map[string]string{
+	codeTextTooLong:         "text longer than 1 MiB",
+	codeValueTooLong:        "value longer than {limit} KiB",
+	codeNameTooLong:         "name longer than {limit} characters",
+	codeHeaderNameInvalid:   `header name "{name}" may contain only token characters and {{variable}} references`,
+	codeURLTooLong:          "URL longer than 8 KiB",
+	codeURLControlChar:      "URL contains a control character",
+	codeNameBlank:           "collection name is blank",
+	codeTooManyValues:       "{count} JSON values; at most {limit} can be published",
+	codeTooMany:             "{count} {list}; at most {limit} can be published",
+	codeAuthTooDeep:         "nested deeper than {limit} levels",
+	codeAuthTooManyValues:   "{count} values inside; at most {limit} can be published",
+	codeTooManyItems:        "{count} folders and requests; at most {limit} can be published",
+	codeFoldersTooDeep:      "folders are nested deeper than {limit} levels",
+	codeMethodUnsupported:   `HTTP method "{value}" cannot be published`,
+	codeProtocolUnsupported: `protocol "{value}" cannot be published`,
+	codeBodyTypeUnsupported: `body type "{value}" cannot be published`,
+	codeStatusOutOfRange:    "status {value} is outside 0–999",
+	codeAuthTypeUnsupported: `auth type "{value}" cannot be published`,
+}
+
+const (
+	listHeaders      = "headers"
+	listMetadata     = "metadata"
+	listFormFields   = "form_fields"
+	listSubprotocols = "subprotocols"
+	listMessages     = "messages"
+	listExamples     = "examples"
+	listVariables    = "variables"
+	listAuthFields   = "auth_fields"
+)
+
+var listNouns = map[string]string{
+	listHeaders:      "headers",
+	listMetadata:     "metadata entries",
+	listFormFields:   "form fields",
+	listSubprotocols: "subprotocols",
+	listMessages:     "messages",
+	listExamples:     "examples",
+	listVariables:    "variables",
+	listAuthFields:   "auth fields",
+}
+
+func newBlockingError(path, code string, params map[string]string) BlockingError {
+	if params == nil {
+		params = map[string]string{}
+	}
+	msg := blockingText[code]
+	for k, v := range params {
+		if k == "list" {
+			v = listNouns[v]
+		}
+		msg = strings.ReplaceAll(msg, "{"+k+"}", v)
+	}
+	return BlockingError{Path: path, Code: code, Params: params, Message: msg}
+}
+
+func limitParams(limit int) map[string]string {
+	return map[string]string{"limit": strconv.Itoa(limit)}
+}
+
+func countParams(n, limit int) map[string]string {
+	return map[string]string{"count": strconv.Itoa(n), "limit": strconv.Itoa(limit)}
+}
+
+func valueParams(v string) map[string]string {
+	return map[string]string{"value": v}
+}
+
 func checkLimits(s *Snapshot, owners envOwners) []BlockingError {
 	var errs []BlockingError
-	seen := map[BlockingError]bool{}
-	fail := func(path, format string, args ...any) {
-		e := BlockingError{Path: path, Message: fmt.Sprintf(format, args...)}
-		if !seen[e] {
-			seen[e] = true
+	type key struct{ path, message string }
+	seen := map[key]bool{}
+	fail := func(path, code string, params map[string]string) {
+		e := newBlockingError(path, code, params)
+		if k := (key{e.Path, e.Message}); !seen[k] {
+			seen[k] = true
 			errs = append(errs, e)
 		}
 	}
 	walkSnapshot(s, owners, nil, func(f field) {
 		switch {
 		case len(f.value) > maxStringBytes:
-			fail(f.path, "text longer than 1 MiB")
+			fail(f.path, codeTextTooLong, nil)
 		case f.maxBytes > 0 && len(f.value) > f.maxBytes:
-			fail(f.path, "value longer than %d KiB", f.maxBytes>>10)
+			fail(f.path, codeValueTooLong, limitParams(f.maxBytes>>10))
 		case f.maxRunes > 0 && len(f.value) > f.maxRunes && utf8.RuneCountInString(f.value) > f.maxRunes:
-			fail(f.path, "name longer than %d characters", f.maxRunes)
+			fail(f.path, codeNameTooLong, limitParams(f.maxRunes))
 		case f.kind == kindName && !headerName.MatchString(f.value):
-			fail(f.path, "header name %q may contain only token characters and {{variable}} references", shorten(f.value))
+			fail(f.path, codeHeaderNameInvalid, map[string]string{"name": shorten(f.value)})
 		case f.kind == kindURL && len(f.value) > maxURLBytes:
-			fail(f.path, "URL longer than 8 KiB")
+			fail(f.path, codeURLTooLong, nil)
 		case f.kind == kindURL && strings.ContainsFunc(f.value, func(r rune) bool { return r < 0x20 || r == 0x7f }):
-			fail(f.path, "URL contains a control character")
+			fail(f.path, codeURLControlChar, nil)
 		}
 	})
 	// Publish sends the name as the page title, which the server refuses blank.
 	if strings.TrimSpace(s.Collection.Name) == "" {
-		fail("name", "collection name is blank")
+		fail("name", codeNameBlank, nil)
 	}
 	c := shape{fail: fail}
 	c.snapshot(s)
 	if c.values > maxValues {
-		fail(s.Collection.Name, "%d JSON values; at most %d can be published", c.values, maxValues)
+		fail(s.Collection.Name, codeTooManyValues, countParams(c.values, maxValues))
 	}
 	return errs
 }
@@ -79,7 +171,7 @@ func shorten(s string) string {
 }
 
 func countValues(s *Snapshot) int {
-	c := shape{fail: func(string, string, ...any) {}}
+	c := shape{fail: func(string, string, map[string]string) {}}
 	c.snapshot(s)
 	return c.values
 }
@@ -88,12 +180,14 @@ func countValues(s *Snapshot) int {
 // caps; paths follow walkSnapshot.
 type shape struct {
 	values int
-	fail   func(path, format string, args ...any)
+	fail   func(path, code string, params map[string]string)
 }
 
-func (c *shape) list(path, what string, n, limit int) {
+func (c *shape) list(path, list string, n, limit int) {
 	if n > limit {
-		c.fail(path, "%d %s; at most %d can be published", n, what, limit)
+		params := countParams(n, limit)
+		params["list"] = list
+		c.fail(path, codeTooMany, params)
 	}
 }
 
@@ -101,9 +195,9 @@ func (c *shape) snapshot(s *Snapshot) {
 	root := &s.Collection
 	c.values += 6 // document, format, version, generator, locale, environment
 	c.folder(&root.Folder, root.Name, true)
-	c.headers(joinPath(root.Name, "metadata"), "metadata entries", root.GRPCMetadata)
+	c.headers(joinPath(root.Name, "metadata"), listMetadata, root.GRPCMetadata)
 	if env := s.Environment; env != nil {
-		c.list("Environment "+env.Name, "variables", len(env.Variables), maxVariables)
+		c.list("Environment "+env.Name, listVariables, len(env.Variables), maxVariables)
 		c.values += 2 + 4*len(env.Variables)
 	}
 }
@@ -133,35 +227,35 @@ func (c *shape) request(r *Request, path string) {
 		c.values++
 	}
 	if h := r.HTTP; h != nil {
-		c.list(joinPath(path, "body"), "form fields", len(h.Body.Fields), maxPairs)
+		c.list(joinPath(path, "body"), listFormFields, len(h.Body.Fields), maxPairs)
 		c.values += 8 + 5*len(h.Body.Fields) // http, method, url, body, type, raw, fields, fileName
-		c.headers(joinPath(path, "headers"), "headers", h.Headers)
+		c.headers(joinPath(path, "headers"), listHeaders, h.Headers)
 	}
 	if g := r.GraphQL; g != nil {
 		c.values += 5 // graphql, url, query, variables, operationName
-		c.headers(joinPath(path, "headers"), "headers", g.Headers)
+		c.headers(joinPath(path, "headers"), listHeaders, g.Headers)
 	}
 	if g := r.GRPC; g != nil {
 		c.values += 5 // grpc, target, service, method, message
-		c.headers(joinPath(path, "metadata"), "metadata entries", g.Metadata)
+		c.headers(joinPath(path, "metadata"), listMetadata, g.Metadata)
 	}
 	if ws := r.WebSocket; ws != nil {
-		c.list(joinPath(path, "subprotocols"), "subprotocols", len(ws.Subprotocols), maxSubprotocols)
-		c.list(joinPath(path, "messages"), "messages", len(ws.Messages), maxMessages)
+		c.list(joinPath(path, "subprotocols"), listSubprotocols, len(ws.Subprotocols), maxSubprotocols)
+		c.list(joinPath(path, "messages"), listMessages, len(ws.Messages), maxMessages)
 		c.values += 4 + len(ws.Subprotocols) + 4*len(ws.Messages) // websocket, url, subprotocols, messages
-		c.headers(joinPath(path, "headers"), "headers", ws.Headers)
+		c.headers(joinPath(path, "headers"), listHeaders, ws.Headers)
 	}
 	c.auth(joinPath(path, "auth"), r.Auth)
 	c.scripts(r.Scripts)
-	c.list(joinPath(path, "examples"), "examples", len(r.Examples), maxExamples)
+	c.list(joinPath(path, "examples"), listExamples, len(r.Examples), maxExamples)
 	for _, e := range r.Examples {
 		c.values += 7 // object, id, name, status, statusText, body, contentType
-		c.headers(joinPath(path, "examples", e.Name, "headers"), "headers", e.Headers)
+		c.headers(joinPath(path, "examples", e.Name, "headers"), listHeaders, e.Headers)
 	}
 }
 
-func (c *shape) headers(path, what string, hs []Header) {
-	c.list(path, what, len(hs), maxPairs)
+func (c *shape) headers(path, list string, hs []Header) {
+	c.list(path, list, len(hs), maxPairs)
 	c.values += 1 + 5*len(hs)
 }
 
@@ -178,16 +272,16 @@ func (c *shape) auth(path string, a *Auth) {
 	if a == nil {
 		return
 	}
-	c.list(path, "auth fields", len(a.Fields), maxAuthFields)
+	c.list(path, listAuthFields, len(a.Fields), maxAuthFields)
 	c.values += 3 + len(a.Redacted) // type, fields, redacted
 	for _, k := range slices.Sorted(maps.Keys(a.Fields)) {
 		n, depth := measure(a.Fields[k])
 		c.values += n
 		switch {
 		case depth > maxAuthDepth:
-			c.fail(joinPath(path, k), "nested deeper than %d levels", maxAuthDepth)
+			c.fail(joinPath(path, k), codeAuthTooDeep, limitParams(maxAuthDepth))
 		case n-1 > maxAuthValues:
-			c.fail(joinPath(path, k), "%d values inside; at most %d can be published", n-1, maxAuthValues)
+			c.fail(joinPath(path, k), codeAuthTooManyValues, countParams(n-1, maxAuthValues))
 		}
 	}
 }

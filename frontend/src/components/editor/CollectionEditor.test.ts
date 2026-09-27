@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createSSRApp, defineComponent, h, type App } from 'vue'
+import { createSSRApp, defineComponent, h, nextTick, type App } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import type { Collection } from '@/types/collection'
@@ -19,12 +19,21 @@ vi.mock('@/services', async () => {
 
 vi.mock('@/composables/useWindowEvents', () => ({ emitWailsEvent: async () => {} }))
 
+const shown = vi.hoisted(() => ({ section: '' }))
+
 vi.mock('@/components/ui/tabs', () => {
   const inline = defineComponent({
     inheritAttrs: false,
     setup: (_, { slots, attrs }) => () => h('div', attrs, slots.default?.()),
   })
-  return { Tabs: inline, TabsList: inline, TabsTrigger: inline, TabsContent: inline }
+  const tabs = defineComponent({
+    inheritAttrs: false,
+    setup: (_, { slots, attrs }) => () => {
+      shown.section = attrs.modelValue as string
+      return h('div', attrs, slots.default?.())
+    },
+  })
+  return { Tabs: tabs, TabsList: inline, TabsTrigger: inline, TabsContent: inline }
 })
 
 vi.mock('./CollectionOverview.vue', () => ({ default: { render: () => null } }))
@@ -34,6 +43,8 @@ vi.mock('@/components/publication/PublicationPanel.vue', () => ({ default: { ren
 
 import CollectionEditor from './CollectionEditor.vue'
 import { useCollectionStore } from '@/stores/collections'
+import { useRequestStore } from '@/stores/tabs'
+import { useSettingsStore } from '@/stores/settings'
 
 // No parentId key: Go omits it for a top-level collection.
 const WAILS_ROOT = {
@@ -90,5 +101,50 @@ describe('collection editor', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect((await service()).calls).toEqual([])
+  })
+
+  it('hides the Publish tab while publishing is off', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useCollectionStore().collectionsMap.set('c1', WAILS_ROOT)
+    useSettingsStore().setPublishingEnabled(false)
+    const ssr = createSSRApp(CollectionEditor, { collectionId: 'c1' })
+    ssr.use(pinia)
+
+    const html = await renderToString(ssr)
+
+    expect(html).not.toContain('data-testid="collection-publish-tab"')
+  })
+
+  it('does not ask for the publication status while publishing is off, and asks once it is back on', async () => {
+    app = mountWindow(CollectionEditor, { collectionId: 'c1' }, a => {
+      a.runWithContext(() => {
+        useCollectionStore().collectionsMap.set('c1', WAILS_ROOT)
+        useSettingsStore().setPublishingEnabled(false)
+      })
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect((await service()).calls).toEqual([])
+
+    app.runWithContext(() => useSettingsStore().setPublishingEnabled(true))
+
+    await vi.waitFor(async () => {
+      expect((await service()).calls).toContain('status c1')
+    })
+  })
+
+  it('moves to Overview when publishing is turned off on the Publish tab', async () => {
+    app = mountWindow(CollectionEditor, { collectionId: 'c1' }, a => {
+      a.runWithContext(() => {
+        useCollectionStore().collectionsMap.set('c1', WAILS_ROOT)
+        useRequestStore().openCollectionTab('c1', 'Petstore API', { initialSection: 'publish' })
+      })
+    })
+    expect(shown.section).toBe('publish')
+
+    app.runWithContext(() => useSettingsStore().setPublishingEnabled(false))
+    await nextTick()
+
+    expect(shown.section).toBe('overview')
   })
 })

@@ -26,6 +26,7 @@ vi.mock('@/services', () => {
 vi.mock('@/lib/open-external', () => ({ openExternal: vi.fn(async () => {}) }))
 
 import { openExternal } from '@/lib/open-external'
+import { setCurrentLocale } from '@/lib/locale'
 import { emptyTokenEntry, tokenStatusLabel, useAuthTokenStore } from './auth-tokens'
 
 // The store keeps the running flow id in sessionStorage; the node environment
@@ -276,6 +277,18 @@ describe('browser flows', () => {
     })
     expect(openExternal).toHaveBeenCalledWith(flowInfo.authorizeUrl)
     expect(sessionStorage.getItem('tetiva.authFlows')).toContain('request:req-1')
+  })
+
+  it('starts the flow in the language the app has at that moment', async () => {
+    const store = useAuthTokenStore()
+    setCurrentLocale('ru')
+    try {
+      await store.startFlow(cfg, 'authorization_code')
+    } finally {
+      setCurrentLocale('en')
+    }
+
+    expect(service.startAuthCodeFlow).toHaveBeenCalledWith(expect.objectContaining({ locale: 'ru' }))
   })
 
   it('carries the device codes and never opens a browser', async () => {

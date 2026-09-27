@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import type { ResultError } from '@/types/common'
-import { publicationErrorText } from './publication-errors'
+import { PUBLICATION_ERROR_COPY, isQuotaRefusal, publicationErrorText } from './publication-errors'
+import { setCurrentLocale } from './locale'
+
+afterEach(() => { setCurrentLocale('en') })
 
 function serverError(reason: string, desc = 'details'): ResultError {
   return {
@@ -67,5 +70,48 @@ describe('publicationErrorText', () => {
     expect(publicationErrorText({ code: 'validation', message: 'validation failed', fields: { password: 'must be 8-72 bytes' } }))
       .toEqual({ text: 'password: must be 8-72 bytes' })
     expect(publicationErrorText({ code: 'internal', message: 'boom', reason: 'SOMETHING_NEW' })).toEqual({ text: 'boom' })
+  })
+})
+
+describe('publicationErrorText in Russian', () => {
+  it('words every reason in both languages', () => {
+    expect(Object.keys(PUBLICATION_ERROR_COPY.ru.reasons).sort()).toEqual(Object.keys(PUBLICATION_ERROR_COPY.en.reasons).sort())
+    for (const locale of ['en', 'ru'] as const) {
+      for (const [reason, text] of Object.entries(PUBLICATION_ERROR_COPY[locale].reasons)) {
+        expect(text.trim().length, `${locale}.${reason}`).toBeGreaterThan(0)
+      }
+    }
+    for (const key of ['tooLarge', 'rejected'] as const) {
+      expect(PUBLICATION_ERROR_COPY.ru[key]).toContain('{detail}')
+      expect(PUBLICATION_ERROR_COPY.en[key]).toContain('{detail}')
+    }
+  })
+
+  it('keeps the action whatever the language', () => {
+    expect(publicationErrorText(serverError('PUBLISH_QUOTA_EXCEEDED'), 'ru')).toEqual({
+      text: 'В бесплатном тарифе\u00a0— одна публичная коллекция', action: 'plans',
+    })
+    expect(publicationErrorText({ code: 'conflict', message: 'publication preview conflict' }, 'ru')).toEqual({
+      text: 'Коллекция изменилась\u00a0— проверьте ещё раз', action: 'review-again',
+    })
+  })
+
+  it('wraps the server detail and says the server is unreachable in Russian', () => {
+    expect(publicationErrorText(serverError('SNAPSHOT_TOO_LARGE', 'snapshot is 9.1 MiB'), 'ru').text)
+      .toBe('Коллекция слишком большая для публикации: snapshot is 9.1 MiB')
+    expect(publicationErrorText({ code: 'not_connected', message: 'x' }, 'ru').text).toBe('Сервер недоступен\u00a0— попробуйте снова')
+  })
+
+  it('takes the app language when none is given', () => {
+    setCurrentLocale('ru')
+    expect(publicationErrorText(serverError('RATE_LIMITED')).text).toBe('Слишком много попыток\u00a0— попробуйте через минуту')
+  })
+})
+
+describe('isQuotaRefusal', () => {
+  it('tells the plan quota apart from every other refusal', () => {
+    expect(isQuotaRefusal({ code: 'internal', message: 'x', reason: 'PUBLISH_QUOTA_EXCEEDED' })).toBe(true)
+    expect(isQuotaRefusal({ code: 'internal', message: 'x', reason: 'PUBLISH_FEATURE_REQUIRED' })).toBe(false)
+    expect(isQuotaRefusal({ code: 'internal', message: 'PUBLISH_QUOTA_EXCEEDED' })).toBe(false)
   })
 })

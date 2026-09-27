@@ -2,6 +2,7 @@
 import type { Request } from '@/types/request'
 import CollectionTree from './CollectionTree.vue'
 import HistorySidebar from './history/HistorySidebar.vue'
+import PublicationsSidebar from './PublicationsSidebar.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { useRequestStore } from '@/stores/tabs'
 import { useHistoryStore } from '@/stores/history'
@@ -45,5 +46,6 @@ async function onReplay(historyId: string) {
       v-else-if="activeSection === 'history'"
       @replay="onReplay"
     />
+    <PublicationsSidebar v-else-if="activeSection === 'publications'" />
   </aside>
 </template>

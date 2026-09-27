@@ -6,6 +6,7 @@ import { getExampleService } from '@/services'
 import { emitWailsEvent } from '@/composables/useWindowEvents'
 import { runMutation } from '@/stores/runMutation'
 import { exampleBodyTooLarge } from '@/lib/example-limits'
+import { contentSaved } from '@/lib/content-saved'
 
 export interface ExampleDraft {
   requestId: string
@@ -232,6 +233,7 @@ export const useExamplesStore = defineStore('examples', () => {
     savedAs.value[id] = created.id
     const listing = addToList(draft.requestId, created)
     void emitWailsEvent('examples:changed', { requestId: draft.requestId })
+    contentSaved()
     if (listing) await listing
     return created.id
   }
@@ -266,6 +268,7 @@ export const useExamplesStore = defineStore('examples', () => {
     }
     applyServerList(requestId, (byRequest.value[requestId] ?? []).map(e => (e.id === id ? saved : e)))
     void emitWailsEvent('examples:changed', { requestId })
+    contentSaved()
     return id
   }
 
@@ -293,6 +296,7 @@ export const useExamplesStore = defineStore('examples', () => {
 
     await addToList(input.requestId, created)
     void emitWailsEvent('examples:changed', { requestId: input.requestId })
+    contentSaved()
     return created
   }
 
@@ -314,6 +318,7 @@ export const useExamplesStore = defineStore('examples', () => {
     discardDraft(id)
     applyServerList(requestId, (byRequest.value[requestId] ?? []).filter(e => e.id !== id))
     void emitWailsEvent('examples:changed', { requestId })
+    contentSaved()
   }
 
   return {

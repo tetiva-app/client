@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useCopy } from '@/composables/useLocale'
+import { TREE_COPY } from '@/components/sidebar/copy'
 
 const props = defineProps<{
   title: string
@@ -23,6 +25,7 @@ const emit = defineEmits<{
   save: [name: string]
 }>()
 
+const copy = useCopy(TREE_COPY)
 const name = ref(props.initialName)
 const submitted = ref(false)
 
@@ -56,16 +59,16 @@ function handleKeydown(event: KeyboardEvent) {
 
       <Input
         v-model="name"
-        :placeholder="placeholder ?? 'Name'"
+        :placeholder="placeholder ?? copy.names.generic"
         class="h-8"
         autofocus
         @keydown="handleKeydown"
       />
 
       <DialogFooter>
-        <Button variant="outline" size="sm" @click="open = false">Cancel</Button>
+        <Button variant="outline" size="sm" @click="open = false">{{ copy.actions.cancel }}</Button>
         <Button size="sm" :disabled="!name.trim() || name.trim() === initialName" @click="handleSave">
-          Save
+          {{ copy.actions.save }}
         </Button>
       </DialogFooter>
     </DialogContent>

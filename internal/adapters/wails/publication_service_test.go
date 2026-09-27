@@ -51,6 +51,8 @@ type fakePublicationServer struct {
 	features     map[bool][]string
 	featuresErr  error
 	planAsks     []bool
+	supportAsks  int
+	gets         [][]string
 }
 
 func newFakePublicationServer() *fakePublicationServer {
@@ -60,6 +62,7 @@ func newFakePublicationServer() *fakePublicationServer {
 func (f *fakePublicationServer) ServerSupportsPublish(context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.supportAsks++
 	return f.supports, f.supportsErr
 }
 
@@ -112,6 +115,7 @@ func (f *fakePublicationServer) Unpublish(_ context.Context, publicationID strin
 func (f *fakePublicationServer) GetPublications(_ context.Context, ids []string) ([]*publicationv1.Publication, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gets = append(f.gets, append([]string(nil), ids...))
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -693,7 +697,10 @@ func TestPublicationPublish_Refusals(t *testing.T) {
 			c.Headers = []entities.HeaderItem{{Key: "X Api", Value: "1", Enabled: true}}
 		})
 		pr := h.publishRequest(t, previewRequestFor(root))
-		require.NotEmpty(t, h.preview(t, previewRequestFor(root)).Errors)
+		errs := h.preview(t, previewRequestFor(root)).Errors
+		require.NotEmpty(t, errs)
+		assert.Equal(t, "header_name_invalid", errs[0].Code)
+		assert.Equal(t, map[string]string{"name": "X Api"}, errs[0].Params)
 
 		res := h.svc.Publish(pr)
 		require.NotNil(t, res.Error)
@@ -1810,4 +1817,204 @@ func TestPublish_NotSyncedAgainAfterARoundThatMadeProgressSaysSyncing(t *testing
 
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ReasonCollectionSyncing, res.Error.Reason)
+}
+
+func (h *pubHarness) list(t *testing.T, workspaceID uuid.UUID, remote bool) dto.PublicationList {
+	t.Helper()
+	res := h.svc.List(dto.PublicationListRequest{WorkspaceID: workspaceID.String(), Remote: remote})
+	require.Nil(t, res.Error, "List: %+v", res.Error)
+	return res.Data
+}
+
+func (f *fakePublicationServer) resetCalls() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gets, f.supportAsks = nil, 0
+}
+
+func (f *fakePublicationServer) getCalls() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]string(nil), f.gets...)
+}
+
+func listNames(l dto.PublicationList) []string {
+	names := make([]string, 0, len(l.Items))
+	for _, it := range l.Items {
+		names = append(names, it.Name)
+	}
+	return names
+}
+
+func TestPublicationList_PublishedRootsByNameInOneCall(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	beta := h.collection(t, h.localWS, "beta API", nil)
+	alpha := h.collection(t, h.localWS, "Alpha", nil)
+	draft := h.collection(t, h.localWS, "Draft", nil)
+	h.collection(t, h.localWS, "Folder", &beta.ID)
+	h.collection(t, h.workspace(t, "Side project", nil), "Elsewhere", nil)
+	h.publish(t, beta)
+	h.publish(t, alpha)
+	h.remote.resetCalls()
+
+	list := h.list(t, h.localWS, true)
+
+	assert.Empty(t, list.Reason)
+	assert.Equal(t, []string{"Alpha", "beta API"}, listNames(list))
+	assert.Equal(t, alpha.ID.String(), list.Items[0].CollectionID)
+	assert.True(t, list.Items[0].Status.Published)
+	assert.True(t, list.Items[0].Status.Available)
+	assert.False(t, list.Items[0].Status.Stale)
+	assert.Equal(t, "no", list.Items[0].Status.HasChanges)
+	gets := h.remote.getCalls()
+	require.Len(t, gets, 1)
+	assert.ElementsMatch(t, []string{beta.ID.String(), alpha.ID.String(), draft.ID.String()}, gets[0])
+}
+
+func TestPublicationList_LocalRecountStaysOffTheNetwork(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	root := h.collection(t, h.localWS, "API", nil)
+	r := h.request(t, root.ID, "List users", nil)
+	h.publish(t, root)
+	h.editURL(t, r, "https://api.example.com/v2/users")
+	h.remote.resetCalls()
+
+	list := h.list(t, h.localWS, false)
+
+	assert.Empty(t, h.remote.getCalls())
+	assert.Zero(t, h.remote.supportAsks)
+	assert.Empty(t, list.Reason)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "yes", list.Items[0].Status.HasChanges)
+	assert.False(t, list.Items[0].Status.Stale)
+}
+
+func TestPublicationList_OfflineKeepsTheCacheAndWorksOutChanges(t *testing.T) {
+	for name, fail := range map[string]func(f *fakePublicationServer){
+		"server unreachable": func(f *fakePublicationServer) { f.supportsErr = status.Error(codes.Unavailable, "no route to host") },
+		"refresh failed":     func(f *fakePublicationServer) { f.getErr = status.Error(codes.DeadlineExceeded, "slow") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newPubHarness(t)
+			h.signIn(t, testServerURL, "a@b.c")
+			root := h.collection(t, h.localWS, "API", nil)
+			r := h.request(t, root.ID, "List users", nil)
+			h.publish(t, root)
+			h.editURL(t, r, "https://api.example.com/v2/users")
+			h.remote.set(fail)
+
+			list := h.list(t, h.localWS, true)
+
+			assert.Equal(t, "offline", list.Reason)
+			require.Len(t, list.Items, 1)
+			st := list.Items[0].Status
+			assert.True(t, st.Published)
+			assert.True(t, st.Stale)
+			assert.False(t, st.Available)
+			assert.Equal(t, "yes", st.HasChanges)
+			assert.Equal(t, "unknown", h.status(t, root).HasChanges, "Status still says unknown offline")
+		})
+	}
+}
+
+func TestPublicationList_OnlyTheSignedInAccount(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	root := h.collection(t, h.localWS, "API", nil)
+	h.publish(t, root)
+
+	h.signOut(t)
+	h.remote.resetCalls()
+	list := h.list(t, h.localWS, true)
+	assert.Equal(t, "not_logged_in", list.Reason)
+	assert.Equal(t, []dto.PublicationListItem{}, list.Items)
+	assert.Empty(t, h.remote.getCalls())
+	assert.Zero(t, h.remote.supportAsks)
+
+	h.signIn(t, testServerURL, "b@b.c")
+	h.remote.set(func(f *fakePublicationServer) { f.getErr = status.Error(codes.Unavailable, "offline") })
+	assert.Empty(t, h.list(t, h.localWS, true).Items, "a's cached row is not b's")
+	assert.Empty(t, h.list(t, h.localWS, false).Items)
+}
+
+func TestPublicationList_PageFromAnotherDeviceHasUnknownChanges(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	root := h.collection(t, h.localWS, "API", nil)
+	h.publish(t, root)
+	require.NoError(t, h.repo.Delete(context.Background(), testOwner, root.ID), "the other device's cache is not here")
+	h.remote.set(func(f *fakePublicationServer) {
+		f.pubs[root.ID.String()].GetSettings().SetEnvironmentId(uuid.NewString())
+	})
+
+	list := h.list(t, h.localWS, true)
+
+	require.Len(t, list.Items, 1)
+	st := list.Items[0].Status
+	assert.Equal(t, "unknown", st.HasChanges)
+	require.NotNil(t, st.Settings)
+	assert.True(t, st.Settings.EnvironmentMissing)
+	assert.NotNil(t, h.row(t, root.ID), "the refresh cached the page")
+}
+
+func TestPublicationList_CollectionDeletedDuringTheRefreshIsSkipped(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	gone := h.collection(t, h.localWS, "Gone", nil)
+	kept := h.collection(t, h.localWS, "Kept", nil)
+	h.publish(t, gone)
+	h.publish(t, kept)
+	h.svc.remote = &racingRemote{fakePublicationServer: h.remote, during: func() { h.deleteCollection(t, gone) }}
+
+	list := h.list(t, h.localWS, true)
+
+	assert.Equal(t, []string{"Kept"}, listNames(list))
+	assert.True(t, h.row(t, gone.ID).PendingUnpublish, "the refresh left the delete's mark alone")
+}
+
+func TestPublicationList_ARootThatCannotBeComparedStaysListed(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	broken := h.collection(t, h.localWS, "Broken", nil)
+	r := h.request(t, broken.ID, "List users", nil)
+	fine := h.collection(t, h.localWS, "Fine", nil)
+	h.publish(t, broken)
+	h.publish(t, fine)
+	_, err := h.db.Exec(`UPDATE requests SET headers = '{}' WHERE id = ?`, r.ID.String())
+	require.NoError(t, err)
+
+	for _, remote := range []bool{true, false} {
+		list := h.list(t, h.localWS, remote)
+
+		assert.Equal(t, []string{"Broken", "Fine"}, listNames(list))
+		assert.Equal(t, "unknown", list.Items[0].Status.HasChanges)
+		assert.Equal(t, "no", list.Items[1].Status.HasChanges)
+	}
+}
+
+func TestPublicationList_KeepsAPendingUnpublishAndDropsARevokedPage(t *testing.T) {
+	h := newPubHarness(t)
+	h.signIn(t, testServerURL, "a@b.c")
+	pending := h.collection(t, h.localWS, "Pending", nil)
+	revoked := h.collection(t, h.localWS, "Revoked", nil)
+	h.publish(t, pending)
+	h.publish(t, revoked)
+	require.Nil(t, h.svc.Unpublish(dto.UnpublishRequest{CollectionID: revoked.ID.String()}).Error)
+	row := h.row(t, pending.ID)
+	row.PendingUnpublish = true
+	require.NoError(t, h.repo.Upsert(context.Background(), row))
+
+	list := h.list(t, h.localWS, false)
+
+	assert.Equal(t, []string{"Pending"}, listNames(list))
+	assert.True(t, list.Items[0].Status.PendingUnpublish)
+}
+
+func TestPublicationList_RejectsABadWorkspaceID(t *testing.T) {
+	h := newPubHarness(t)
+	res := h.svc.List(dto.PublicationListRequest{WorkspaceID: "nope"})
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "validation", res.Error.Code)
 }

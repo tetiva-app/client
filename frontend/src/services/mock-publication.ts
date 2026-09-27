@@ -1,5 +1,11 @@
 import type { Result, ResultError } from '@/types/common'
+import type { Collection } from '@/types/collection'
+import type { Request } from '@/types/request'
 import type {
+  PublicationList,
+  PublicationListItem,
+  PublicationListReason,
+  PublicationListRequest,
   PublicationStatus,
   PublishPlan,
   PublishPreview,
@@ -8,7 +14,12 @@ import type {
 } from '@/types/publication'
 import type { PublicationServiceAPI } from './publication-api'
 
-type Method = 'status' | 'plan' | 'preview' | 'publish' | 'unpublish' | 'markVariableSecret'
+type Method = 'status' | 'list' | 'plan' | 'preview' | 'publish' | 'unpublish' | 'markVariableSecret'
+
+export interface MockPublicationSource {
+  collections(): Promise<Collection[]>
+  requests(collectionId: string): Promise<Request[]>
+}
 
 const MOCK_VAR_ID = 'mock-variable-api-key'
 const MOCK_VAR_SELECTOR = '0a1b2c3d4e5f/var/0'
@@ -39,6 +50,9 @@ export class MockPublicationService implements PublicationServiceAPI {
   private secretVars = new Set<string>()
   private fixedPreview: PublishPreview | null = null
   private currentPlan: PublishPlan = { unlisted: true, password: true }
+  private listReason: PublicationListReason = ''
+
+  constructor(private readonly source?: MockPublicationSource) {}
 
   setStatus(collectionId: string, status: PublicationStatus) {
     this.statuses.set(collectionId, structuredClone(status))
@@ -50,6 +64,10 @@ export class MockPublicationService implements PublicationServiceAPI {
 
   setPreview(preview: PublishPreview) {
     this.fixedPreview = structuredClone(preview)
+  }
+
+  setListReason(reason: PublicationListReason) {
+    this.listReason = reason
   }
 
   failNext(method: Method, error: ResultError) {
@@ -67,7 +85,25 @@ export class MockPublicationService implements PublicationServiceAPI {
     this.calls.push(`status ${collectionId}`)
     const failed = this.fail<PublicationStatus>('status')
     if (failed) return failed
-    return { data: structuredClone(this.statuses.get(collectionId) ?? emptyPublicationStatus()) }
+    const st = this.statuses.get(collectionId)
+    return { data: structuredClone(st ? await this.withEdits(collectionId, st) : emptyPublicationStatus()) }
+  }
+
+  async list(req: PublicationListRequest): Promise<Result<PublicationList>> {
+    this.calls.push(`list ${req.workspaceId} ${req.remote ? 'remote' : 'local'}`)
+    const failed = this.fail<PublicationList>('list')
+    if (failed) return failed
+    const reason = this.listReason
+    if (reason === 'not_logged_in' || reason === 'no_capability') return { data: { reason, items: [] } }
+    const items: PublicationListItem[] = []
+    for (const c of await this.source?.collections() ?? []) {
+      const st = this.statuses.get(c.id)
+      if (c.parentId || c.workspaceId !== req.workspaceId || !st || (!st.published && !st.pendingUnpublish)) continue
+      const status = { ...await this.withEdits(c.id, st), stale: reason !== '' }
+      items.push({ collectionId: c.id, name: c.name, status: structuredClone(status) })
+    }
+    items.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.collectionId.localeCompare(b.collectionId))
+    return { data: { reason, items } }
   }
 
   async plan(_collectionId: string): Promise<Result<PublishPlan>> {
@@ -132,6 +168,24 @@ export class MockPublicationService implements PublicationServiceAPI {
     if (failed) return failed
     this.secretVars.add(variableId)
     return { data: {} }
+  }
+
+  private async withEdits(collectionId: string, st: PublicationStatus): Promise<PublicationStatus> {
+    if (!this.source || !st.published || st.hasChanges !== 'no' || !st.updatedAt) return st
+    const published = Date.parse(st.updatedAt)
+    const all = await this.source.collections()
+    const subtree = [collectionId]
+    for (let i = 0; i < subtree.length; i++) {
+      for (const c of all) if (c.parentId === subtree[i]) subtree.push(c.id)
+    }
+    for (const id of subtree) {
+      const requests = await this.source.requests(id)
+      if (!requests.some(r => Date.parse(r.updatedAt) > published)) continue
+      const next: PublicationStatus = { ...st, hasChanges: 'yes' }
+      this.statuses.set(collectionId, next)
+      return next
+    }
+    return st
   }
 
   private samplePreview(req: PublishPreviewRequest): PublishPreview {

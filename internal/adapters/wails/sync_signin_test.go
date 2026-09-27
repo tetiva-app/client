@@ -121,8 +121,20 @@ func TestGetServerCapabilities_Advertised(t *testing.T) {
 	require.Nil(t, res.Error)
 	assert.True(t, res.Data.DesktopSignIn)
 	assert.Equal(t, "app.tetiva.app", res.Data.SignInHost)
+	assert.Equal(t, "https://app.tetiva.app", res.Data.SignInOrigin)
 	assert.Equal(t, "0.17.0", res.Data.ServerVersion)
 	assert.True(t, res.Data.RegistrationOpen)
+}
+
+func TestGetServerCapabilities_OriginKeepsSchemeAndPort(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.authStub.setServerInfo(serverInfoResponse(true, "http://localhost:5173/desktop-signin?x=1"), nil)
+
+	res := f.svc.GetServerCapabilities(dto.ServerCapabilitiesRequest{ServerURL: testServerURL})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, "localhost", res.Data.SignInHost)
+	assert.Equal(t, "http://localhost:5173", res.Data.SignInOrigin)
 }
 
 func TestGetServerCapabilities_OldServerFallsBackToTheForm(t *testing.T) {
@@ -144,6 +156,7 @@ func TestGetServerCapabilities_UnusableSignInURLIsNotAdvertised(t *testing.T) {
 	require.Nil(t, res.Error)
 	assert.False(t, res.Data.DesktopSignIn)
 	assert.Empty(t, res.Data.SignInHost)
+	assert.Empty(t, res.Data.SignInOrigin)
 }
 
 func TestGetServerCapabilities_DialFailureIsUnreachable(t *testing.T) {

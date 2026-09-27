@@ -32,6 +32,7 @@ import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useRequestStore } from '@/stores/tabs'
 import { useToast } from '@/composables/useToast'
+import { onContentSaved } from '@/lib/content-saved'
 
 const PUBLIC = 'petstore-api-k3f9x2qa'
 const LOCKED = 'internal-api-pa55word'
@@ -361,6 +362,20 @@ describe('importing a file', () => {
     expect(flow.ui.preview).toBeNull()
     expect(flow.ui.active).toBe(false)
     expect(useToast().toasts.value.some(t => t.message.includes('Postman or Tetiva'))).toBe(true)
+  })
+
+  it('announces the import once the tree has reloaded, so a published folder gets recounted', async () => {
+    const collections = useCollectionStore()
+    const order: string[] = []
+    collections.fetchAll = vi.fn(async () => { order.push('tree') })
+    const off = onContentSaved(() => order.push('saved'))
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), 'folder-1')
+
+    await flow.confirm()
+    off()
+
+    expect(order).toEqual(['tree', 'saved'])
   })
 })
 

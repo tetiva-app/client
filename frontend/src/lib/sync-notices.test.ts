@@ -89,4 +89,11 @@ describe('parkedSummary', () => {
   it('is empty when nothing is parked', () => {
     expect(parkedSummary(0, 0)).toBe('')
   })
+
+  it('counts both in Russian', () => {
+    expect(parkedSummary(1, 0, 'ru')).toBe('1 изменение не синхронизировано — лимит тарифа')
+    expect(parkedSummary(0, 2, 'ru')).toBe('2 элемента слишком велики для сервера')
+    expect(parkedSummary(21, 1, 'ru'))
+      .toBe('21 изменение не синхронизировано — лимит тарифа · 1 элемент слишком велик для сервера')
+  })
 })

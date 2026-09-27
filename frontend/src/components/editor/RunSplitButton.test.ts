@@ -7,7 +7,6 @@ import { mountWindow } from '@/test-utils/windows'
 
 const menu = vi.hoisted(() => ({ open: false, request: (_open: boolean) => {} }))
 
-// reka portals the menu only after mount, so SSR would show no items; render the menu inline.
 vi.mock('@/components/ui/dropdown-menu', () => {
   const inline = (tag: string, slot: string) => defineComponent({
     inheritAttrs: false,

@@ -22,8 +22,6 @@ export interface CodeSnippet {
   resolveVariables: Ref<boolean>
   includeSecrets: Ref<boolean>
   select(key: string): void
-  pause(): void
-  resume(): void
   dispose(): void
 }
 
@@ -56,7 +54,6 @@ export function useCodeSnippet(opts: {
   let generation = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
-  let active = true
 
   async function refresh() {
     clearTimeout(timer)
@@ -105,12 +102,12 @@ export function useCodeSnippet(opts: {
 
   function rebuild(clear = false) {
     invalidate(clear)
-    if (active) void refresh()
+    void refresh()
   }
 
   function schedule() {
     invalidate(false)
-    if (active) timer = setTimeout(() => void refresh(), DEBOUNCE_MS)
+    timer = setTimeout(() => void refresh(), DEBOUNCE_MS)
   }
 
   const family = computed(() => familyOf(opts.request.value?.protocol ?? 'http'))
@@ -173,16 +170,6 @@ export function useCodeSnippet(opts: {
     includeSecrets,
     select(key: string) {
       settings.setSnippetTarget(family.value, key)
-    },
-    pause() {
-      active = false
-      clearTimeout(timer)
-      timer = undefined
-    },
-    resume() {
-      if (active) return
-      active = true
-      void refresh()
     },
     dispose() {
       scope.stop()

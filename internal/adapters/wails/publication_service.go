@@ -404,15 +404,126 @@ func (s *PublicationService) status(ctx context.Context, col *entities.Collectio
 	}
 
 	st.Available = true
+	if err := s.withChanges(ctx, col, row, &st); err != nil {
+		return dto.PublicationStatus{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return st, nil
+}
+
+func (s *PublicationService) withChanges(ctx context.Context, col *entities.Collection, row *sqlite.PublicationRow, st *dto.PublicationStatus) error {
 	changes, envMissing, err := s.hasChanges(ctx, col, row)
 	if err != nil {
-		return dto.PublicationStatus{}, fmt.Errorf("%s: %w", funcName, err)
+		return err
 	}
 	st.HasChanges = changes
 	if st.Settings != nil {
 		st.Settings.EnvironmentMissing = envMissing
 	}
-	return st, nil
+	return nil
+}
+
+// List works HasChanges out even offline, unlike Status: the panel counts outdated pages.
+func (s *PublicationService) List(req dto.PublicationListRequest) Result[dto.PublicationList] {
+	out, err := s.list(context.Background(), req)
+	if err != nil {
+		return Err[dto.PublicationList](err)
+	}
+	return OK(out)
+}
+
+func (s *PublicationService) list(ctx context.Context, req dto.PublicationListRequest) (dto.PublicationList, error) {
+	const funcName = "PublicationService.list"
+
+	out := dto.PublicationList{Items: []dto.PublicationListItem{}}
+	wsID, err := parseUUIDField("workspaceId", req.WorkspaceID)
+	if err != nil {
+		return out, err
+	}
+	owner, err := s.currentOwner(ctx)
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", funcName, err)
+	}
+	if owner == "" {
+		out.Reason = unavailableNotLoggedIn
+		return out, nil
+	}
+	roots, err := s.roots(ctx, wsID)
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", funcName, err)
+	}
+	if req.Remote {
+		if out.Reason, roots, err = s.refreshRoots(ctx, owner, wsID, roots); err != nil {
+			return out, fmt.Errorf("%s: %w", funcName, err)
+		}
+	}
+
+	for _, col := range roots {
+		row, err := s.repo.Get(ctx, owner, col.ID)
+		if err != nil {
+			return out, fmt.Errorf("%s: %w", funcName, err)
+		}
+		st := statusFromRow(row)
+		if !st.Published && !st.PendingUnpublish {
+			continue
+		}
+		st.Available, st.ReasonUnavailable, st.Stale = out.Reason == "", out.Reason, out.Reason != ""
+		// An unreadable collection stays listed as unknown instead of failing the list.
+		if err := s.withChanges(ctx, col, row, &st); err != nil {
+			slog.Warn("publication: list could not compare a page", "collection", col.ID, "err", err)
+		}
+		out.Items = append(out.Items, dto.PublicationListItem{CollectionID: col.ID.String(), Name: col.Name, Status: st})
+	}
+	slices.SortFunc(out.Items, func(a, b dto.PublicationListItem) int {
+		return cmp.Or(cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), cmp.Compare(a.CollectionID, b.CollectionID))
+	})
+	return out, nil
+}
+
+// refreshRoots re-reads the roots after the call: one deleted meanwhile keeps its mark.
+func (s *PublicationService) refreshRoots(ctx context.Context, owner string, wsID uuid.UUID,
+	roots []*entities.Collection) (string, []*entities.Collection, error) {
+	if reason, _ := s.availability(ctx, owner); reason != "" {
+		return reason, roots, nil
+	}
+	if len(roots) == 0 {
+		return "", roots, nil
+	}
+	ids := make([]string, 0, len(roots))
+	asked := make(map[uuid.UUID]bool, len(roots))
+	for _, c := range roots {
+		ids = append(ids, c.ID.String())
+		asked[c.ID] = true
+	}
+	pubs, err := s.remote.GetPublications(ctx, ids)
+	if err != nil {
+		return unavailableReason(err), roots, nil
+	}
+
+	live, err := s.roots(ctx, wsID)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, col := range live {
+		if !asked[col.ID] {
+			continue
+		}
+		row, err := s.repo.Get(ctx, owner, col.ID)
+		if err != nil {
+			return "", nil, err
+		}
+		if _, err := s.refresh(ctx, col, owner, row, pubs); err != nil {
+			return "", nil, err
+		}
+	}
+	return "", live, nil
+}
+
+func (s *PublicationService) roots(ctx context.Context, workspaceID uuid.UUID) ([]*entities.Collection, error) {
+	all, err := s.collections.List(ctx, collection.ListOpt{WorkspaceID: workspaceID})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(c *entities.Collection) bool { return c.ParentID != nil }), nil
 }
 
 // refresh replaces the cached row with the server's record; a collection the server has no record

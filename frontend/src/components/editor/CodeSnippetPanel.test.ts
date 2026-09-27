@@ -39,7 +39,7 @@ function openingTag(html: string, marker: string): string {
   return html.slice(html.lastIndexOf('<', at), html.indexOf('>', at) + 1)
 }
 
-describe('Code tab toolbar', () => {
+describe('Generate code dialog toolbar', () => {
   it('picks the language with the app select, not the system one', async () => {
     const html = await render()
 

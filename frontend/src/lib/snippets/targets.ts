@@ -1,6 +1,6 @@
 import type { SnippetProtocol, SnippetTarget } from './types'
 
-// No renderers here: menus import this list without pulling the snippet bundle into the main chunk.
+// No renderers here, so menus don't pull the snippet bundle into the main chunk.
 export type SnippetTargetMeta = Omit<SnippetTarget, 'impl'>
 
 export const SNIPPET_TARGET_META: SnippetTargetMeta[] = [

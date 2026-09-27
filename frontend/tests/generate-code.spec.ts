@@ -182,7 +182,7 @@ for (const [protocol, spec] of Object.entries(OTHER_PROTOCOLS) as [Protocol, (ty
   });
 }
 
-// The mock answers a URL containing "slow" after 3 s, so a dropped late answer is observable.
+// The mock answers a URL containing "slow" after 3 s.
 test.describe('Cancel next to the menu', () => {
   test('stops a slow GraphQL query and drops its late answer', async ({ page }) => {
     await createRequest(page, 'https://slow.example.com/graphql', 'GraphQL');

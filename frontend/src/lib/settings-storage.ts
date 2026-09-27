@@ -1,3 +1,5 @@
+import type { LanguagePreference } from '@/lib/locale'
+
 export type ThemePreference = 'light' | 'dark' | 'system'
 
 export interface AvailableUpdate {
@@ -22,8 +24,10 @@ export interface AppSettings {
   availableUpdate: AvailableUpdate | null
   lastSeenWhatsNewVersion: string | null
   onboardingCompletedAt: string | null
-  // Code tab language per protocol family; GraphQL shares the HTTP choice.
+  // Snippet language per protocol family; GraphQL shares the HTTP choice.
   snippetTargets: SnippetTargets
+  language: LanguagePreference
+  publishingEnabled: boolean
 }
 
 // Legacy pre-rebrand key — existing installs already store settings under it.
@@ -41,12 +45,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastSeenWhatsNewVersion: null,
   onboardingCompletedAt: null,
   snippetTargets: { http: 'curl', grpc: 'grpcurl', websocket: 'websocat' },
+  language: 'system',
+  publishingEnabled: true,
 }
 
 function normalizeTheme(value: unknown): ThemePreference {
   return value === 'light' || value === 'dark' || value === 'system'
     ? value
     : DEFAULT_SETTINGS.theme
+}
+
+function normalizeLanguage(value: unknown): LanguagePreference {
+  return value === 'system' || value === 'en' || value === 'ru'
+    ? value
+    : DEFAULT_SETTINGS.language
 }
 
 function normalizeFontSize(value: unknown): number {
@@ -73,7 +85,7 @@ function normalizeAvailableUpdate(value: unknown): AvailableUpdate | null {
   return null
 }
 
-// Keys are not checked against the registry: the Code tab falls back to the first offered target.
+// Keys are not checked against the registry: a snippet falls back to the first offered target.
 export function normalizeSnippetTargets(value: unknown): SnippetTargets {
   const v = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const pick = (family: SnippetFamily) => {
@@ -108,6 +120,10 @@ export function loadSettings(): AppSettings {
       lastSeenWhatsNewVersion: normalizeNullableString(parsed.lastSeenWhatsNewVersion),
       onboardingCompletedAt: normalizeNullableString(parsed.onboardingCompletedAt),
       snippetTargets: normalizeSnippetTargets(parsed.snippetTargets),
+      language: normalizeLanguage(parsed.language),
+      publishingEnabled: typeof parsed.publishingEnabled === 'boolean'
+        ? parsed.publishingEnabled
+        : DEFAULT_SETTINGS.publishingEnabled,
     }
   } catch {
     return defaultSettings()

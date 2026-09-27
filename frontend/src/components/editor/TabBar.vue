@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { X, Folder } from 'lucide-vue-next'
 import { useRequestStore, type Tab } from '@/stores/tabs'
 import { useExamplesStore } from '@/stores/examples'
@@ -15,6 +16,17 @@ import {
 const store = useRequestStore()
 const examples = useExamplesStore()
 const isWails = isWailsEnvironment()
+const strip = ref<HTMLElement | null>(null)
+
+watch(() => store.activeTabId, id => {
+  const bar = strip.value
+  const tab = id ? bar?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(id)}"]`) : null
+  if (!bar || !tab) return
+  const b = bar.getBoundingClientRect()
+  const t = tab.getBoundingClientRect()
+  if (t.left < b.left) bar.scrollLeft -= b.left - t.left
+  else if (t.right > b.right) bar.scrollLeft += t.right - b.right
+}, { flush: 'post' })
 
 function hasUnsaved(tab: Tab): boolean {
   return store.isDirty(tab.id) || (tab.type === 'request' && examples.hasUnsaved(tab.requestId))
@@ -39,11 +51,13 @@ function handleMousedown(e: MouseEvent, tabId: string) {
 <template>
   <div
     v-if="store.openTabs.length > 0"
+    ref="strip"
     class="flex items-center h-9 border-b border-border bg-[var(--gc-surface)] overflow-x-auto scrollbar-none"
   >
     <ContextMenu v-for="tab in store.openTabs" :key="tab.id">
       <ContextMenuTrigger as-child>
         <div
+          :data-tab-id="tab.id"
           class="group flex items-center gap-1.5 h-full px-3 text-xs border-r border-border shrink-0 transition-colors select-none cursor-pointer"
           :class="store.activeTabId === tab.id
             ? 'bg-background text-foreground border-b-2 border-b-primary'
@@ -61,11 +75,11 @@ function handleMousedown(e: MouseEvent, tabId: string) {
               class="text-[10px] leading-none px-1 py-0.5 rounded bg-primary/20 text-primary shrink-0"
               title="Unsaved draft — closing this tab will discard it"
             >Draft</span>
-            <span class="max-w-[120px] truncate">{{ tab.name }}</span>
+            <span class="max-w-[120px] truncate" :title="tab.name">{{ tab.name }}</span>
           </template>
           <template v-else>
             <Folder class="size-3.5 text-muted-foreground shrink-0" />
-            <span class="max-w-[120px] truncate">{{ tab.name }}</span>
+            <span class="max-w-[120px] truncate" :title="tab.name">{{ tab.name }}</span>
             <span class="text-[10px] text-muted-foreground/60 shrink-0">Collection</span>
           </template>
 

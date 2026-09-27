@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { methodColors } from '@/lib/http-methods'
-import { pickLocale } from '@/whats-new/notes'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { PUBLICATION_COPY } from './copy'
 
 const props = defineProps<{
   title: string
 }>()
 
 // The page speaks its reader's language, and the author is its first reader.
-const LABELS = {
-  en: { open: 'Open in Tetiva', download: 'Download', downloadWidth: 44 },
-  ru: { open: 'Открыть в Tetiva', download: 'Скачать', downloadWidth: 40 },
-}
-
-const labels = LABELS[pickLocale(typeof navigator === 'undefined' ? '' : navigator.language ?? '')]
+const all = useCopy(PUBLICATION_COPY)
+const labels = computed(() => all.value.thumbnail)
+const locale = useLocale()
+const DOWNLOAD_WIDTH = { en: 44, ru: 40 }
+const downloadWidth = computed(() => DOWNLOAD_WIDTH[locale.value])
 
 const MAX_TITLE = 34
 
@@ -79,8 +79,8 @@ const CODE: [number, number, Tone][][] = [
         </svg>
         <rect x="10" y="33" width="58" height="2.6" rx="1.3" class="fill-muted-foreground/35" />
 
-        <g :transform="`translate(${235 - labels.downloadWidth} 24)`">
-          <rect :width="labels.downloadWidth" height="12" rx="2.5" class="fill-background stroke-border" stroke-width="0.8" />
+        <g :transform="`translate(${235 - downloadWidth} 24)`">
+          <rect :width="downloadWidth" height="12" rx="2.5" class="fill-background stroke-border" stroke-width="0.8" />
           <path d="M7.5 3.4v4.2M5.8 6l1.7 1.7 1.7-1.7M5.6 9.4h3.8" fill="none" stroke-width="0.7" stroke-linecap="round" class="stroke-foreground" />
           <text x="12.5" y="7.8" font-size="5.2" class="fill-foreground">{{ labels.download }}</text>
         </g>
@@ -172,6 +172,6 @@ const CODE: [number, number, Tone][][] = [
         <rect x="230" y="166" width="3" height="2.2" rx="1.1" class="fill-foreground/50" />
       </svg>
     </div>
-    <figcaption class="mt-1.5 text-center text-[11px] text-muted-foreground">How the page looks</figcaption>
+    <figcaption class="mt-1.5 text-center text-[11px] text-muted-foreground">{{ labels.caption }}</figcaption>
   </figure>
 </template>

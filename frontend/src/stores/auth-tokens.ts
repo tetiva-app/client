@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getAuthService } from '@/services'
 import { openExternal } from '@/lib/open-external'
+import { currentLocale } from '@/lib/locale'
 import type { Result } from '@/types/common'
 import type {
   AuthConfigReq,
@@ -371,7 +372,7 @@ export const useAuthTokenStore = defineStore('authTokens', () => {
     const service = await attachFlow(req, key, flowId, op)
     if (!service) return
 
-    const startReq: StartFlowReq = { ...req, flowId }
+    const startReq: StartFlowReq = { ...req, flowId, locale: currentLocale.value }
     let result: Result<FlowInfo>
     try {
       result = grant === 'authorization_code'

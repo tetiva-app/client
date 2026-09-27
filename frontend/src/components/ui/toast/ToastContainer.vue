@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { CheckCircle2, XCircle, Info, X } from 'lucide-vue-next'
 import { useToast, type ToastItem } from '@/composables/useToast'
+import { useCopy } from '@/composables/useLocale'
+import { UI_COPY } from '../copy'
 
 const { toasts, dismiss } = useToast()
+const copy = useCopy(UI_COPY)
 
 function runAction(t: ToastItem) {
   t.action?.onClick()
@@ -45,7 +48,7 @@ const colorByKind = {
           </div>
           <button
             class="shrink-0 opacity-60 hover:opacity-100 cursor-pointer"
-            aria-label="Dismiss"
+            :aria-label="copy.dismiss"
             @click="dismiss(t.id)"
           >
             <X class="size-3.5" />

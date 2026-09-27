@@ -232,7 +232,7 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
 
     const authorizeUrl = await startFlow(page);
     expect(await lastExternalUrl(page)).toBe(authorizeUrl);
-    await visitInBrowser(page, authorizeUrl, /You can close this tab/);
+    await visitInBrowser(page, authorizeUrl, /Authorization received/);
 
     await expect(page.getByTestId('oauth2-token-status')).toContainText('Valid until', { timeout: 20_000 });
     await expect(page.getByTestId('oauth2-flow-pending')).toHaveCount(0);
@@ -254,7 +254,7 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     // appended.
     const denied = new URL(authorizeUrl);
     denied.searchParams.set('deny', '1');
-    await visitInBrowser(page, denied.toString(), /You can close this tab/);
+    await visitInBrowser(page, denied.toString(), /Access denied/);
 
     await expect(page.getByTestId('oauth2-token-error')).toContainText('access_denied', { timeout: 20_000 });
     await expect(page.getByTestId('oauth2-flow-pending')).toHaveCount(0);
@@ -326,7 +326,7 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     await expect(panel).toBeVisible({ timeout: 20_000 });
     expect(await panel.getAttribute('data-authorize-url')).toBe(authorizeUrl);
 
-    await visitInBrowser(page, authorizeUrl, /You can close this tab/);
+    await visitInBrowser(page, authorizeUrl, /Authorization received/);
     await expect(page.getByTestId('oauth2-token-status')).toContainText('Valid until', { timeout: 20_000 });
   });
 
@@ -337,8 +337,6 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     await createRequest(page, collection, 'GrantSwitch');
     await fillCodeGrant(page);
 
-    // The device grant stays in the buffer, so the reload below restores the
-    // saved authorization_code while the flow that is running is a device one.
     await selectGrant(page, 'Device Code');
     await page.locator('[aria-placeholder="https://idp.example.com/oauth2/device"]').fill(DEVICE_URL);
     await page.getByTestId('oauth2-get-token').click();
@@ -346,7 +344,17 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     await expect(code).toHaveText(/[A-Z0-9]{4}-[A-Z0-9]{4}/, { timeout: 20_000 });
     const userCode = (await code.textContent())!.trim();
 
+    // The reload saves the device grant; the second window saves the code grant back over it.
     await page.reload();
+    const other = await page.context().newPage();
+    await openApp(other);
+    await reopenOnAuthTab(other, 'Flow Grant', 'GrantSwitch');
+    await expect(other.getByRole('combobox', { name: 'Grant Type' })).toContainText('Device Code');
+    await selectGrant(other, 'Authorization Code');
+    await save(other);
+    await expect(other.locator('span[title="Unsaved changes"]')).toHaveCount(0);
+    await other.close();
+
     await reopenOnAuthTab(page, 'Flow Grant', 'GrantSwitch');
 
     await expect(page.getByRole('combobox', { name: 'Grant Type' })).toContainText('Authorization Code');
@@ -373,7 +381,7 @@ test.describe('OAuth 2.0 browser flows against the real backend', () => {
     const restarted = await startFlow(page);
     await expect(page.getByTestId('oauth2-token-error')).toHaveCount(0);
 
-    await visitInBrowser(page, restarted, /You can close this tab/);
+    await visitInBrowser(page, restarted, /Authorization received/);
     await expect(page.getByTestId('oauth2-token-status')).toContainText('Valid until', { timeout: 20_000 });
   });
 });

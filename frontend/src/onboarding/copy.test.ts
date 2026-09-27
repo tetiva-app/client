@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ONBOARDING_COPY, onboardingCopy } from './copy'
+import { ONBOARDING_COPY } from './copy'
 
 function entries(value: unknown, prefix = ''): [string, string][] {
   if (Array.isArray(value)) {
@@ -39,12 +39,5 @@ describe('ONBOARDING_COPY', () => {
         expect(text.trim().length).toBeGreaterThan(0)
       }
     }
-  })
-})
-
-describe('onboardingCopy', () => {
-  it('picks Russian for any ru* tag and English otherwise', () => {
-    expect(onboardingCopy('ru-RU')).toBe(ONBOARDING_COPY.ru)
-    expect(onboardingCopy('de-DE')).toBe(ONBOARDING_COPY.en)
   })
 })

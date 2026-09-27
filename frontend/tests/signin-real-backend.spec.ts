@@ -146,7 +146,7 @@ test.describe('Browser sign-in against the real backend', () => {
 
     const tab = await openCabinet(browser, url);
     await consent(tab, 'approve');
-    await expect(tab.locator('body')).toContainText('You can close this tab', { timeout: 15_000 });
+    await expect(tab.locator('body')).toContainText('signed in to Tetiva', { timeout: 15_000 });
     await tab.context().close();
 
     await expectConnected(dialog);
@@ -207,7 +207,7 @@ test.describe('Browser sign-in against the real backend', () => {
 
     const tab = await openCabinet(browser, url);
     await consent(tab, 'approve');
-    await expect(tab.locator('body')).toContainText('You can close this tab', { timeout: 15_000 });
+    await expect(tab.locator('body')).toContainText('signed in to Tetiva', { timeout: 15_000 });
     await tab.context().close();
 
     // The gate lasts two polls, so the hint and the extended deadline are read

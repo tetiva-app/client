@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, onMounted, onUnmounted, defineAsyncComponent, watch } from 'vue'
 import type { Request } from '@/types/request'
 import { useRequestStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -95,6 +95,11 @@ const importFlow = useImportFlow()
 const historyStore = useHistoryStore()
 const toast = useToast()
 const linux = isLinux()
+const stopPublicationList = windowMode ? null : publications.trackList()
+
+watch(() => settingsStore.publishingEnabled, enabled => {
+  if (!enabled && activeSection.value === 'publications') activeSection.value = 'collections'
+})
 
 async function onHistoryReplay() {
   const id = historyStore.selectedId
@@ -140,6 +145,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   // Cmd/Ctrl+, opens Settings — handle before the no-tabs guard so it works
   // with zero open tabs.
   if (isModShortcut(event, 'Comma', ',')) {
+    if (isInsideOverlay(event)) return
     event.preventDefault()
     settingsModalUi.show()
     return
@@ -155,7 +161,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   const tabs = store.openTabs
   if (tabs.length === 0) return
-  // A portaled menu or dialog would stay on screen over the next tab.
   if (isInsideOverlay(event)) return
 
   const bracket = isModShortcut(event, 'BracketLeft', '[') ? -1 : (isModShortcut(event, 'BracketRight', ']') ? 1 : 0)
@@ -211,7 +216,13 @@ function disableTextAssist(e: FocusEvent) {
 const syncUnsubscribers: (() => void)[] = []
 
 // A child window subscribes its own examples store in DetachedRequestWindow.
-if (!windowMode) useWindowEvents({ mode: 'main', ...exampleWindowEvents(examplesStore) })
+if (!windowMode) {
+  useWindowEvents({
+    mode: 'main',
+    ...exampleWindowEvents(examplesStore),
+    onSavedInOtherWindow: () => publications.scheduleRecount(),
+  })
+}
 
 function showSyncNotice(notice: SyncNotice | null) {
   if (!notice) return
@@ -234,6 +245,7 @@ async function setupSyncEvents() {
       collectionStore.fetchAll(wsId)
       environmentStore.fetchAll(wsId)
     }
+    publications.scheduleRecount()
   }
 
   // Remote sync-server events.
@@ -368,6 +380,7 @@ onUnmounted(() => {
   for (const unsub of syncUnsubscribers) unsub()
   unmounted = true
   stopDeepLinks?.()
+  stopPublicationList?.()
 })
 </script>
 

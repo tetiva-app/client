@@ -1,9 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import type { PublicationStatus, PublishPlan, Visibility } from '@/types/publication'
 import type { Environment } from '@/types/environment'
+import type { usePublishDialog as UsePublishDialog } from '@/composables/usePublishDialog'
+
+type Dialog = ReturnType<typeof UsePublishDialog>
 
 interface Shown {
   status: PublicationStatus | null
@@ -12,10 +15,12 @@ interface Shown {
   environmentId: string
   plan: PublishPlan | null
   visibility: Visibility
+  keep: boolean
+  last: Dialog | null
 }
 
 const shown = vi.hoisted((): Shown => ({
-  status: null, loading: false, environments: [], environmentId: '', plan: null, visibility: 'public',
+  status: null, loading: false, environments: [], environmentId: '', plan: null, visibility: 'public', keep: false, last: null,
 }))
 
 vi.mock('@/services', () => ({ isWailsEnvironment: () => false }))
@@ -25,6 +30,7 @@ vi.mock('@/composables/usePublishDialog', async (importOriginal) => {
   return {
     ...actual,
     usePublishDialog: () => {
+      if (shown.keep && shown.last) return shown.last
       const d = actual.usePublishDialog()
       d.status.value = shown.status
       d.loading.value = shown.loading
@@ -32,6 +38,7 @@ vi.mock('@/composables/usePublishDialog', async (importOriginal) => {
       d.environmentId.value = shown.environmentId
       d.plan.value = shown.plan
       d.visibility.value = shown.visibility
+      shown.last = d
       return d
     },
   }
@@ -56,20 +63,32 @@ import PublishDialog from './PublishDialog.vue'
 import { useCollectionStore } from '@/stores/collections'
 import { emptyPublicationStatus } from '@/services/mock-publication'
 import { inside, tagWith } from '@/test-utils/markup'
+import { currentLocale, setCurrentLocale } from '@/lib/locale'
+import { useSettingsStore } from '@/stores/settings'
 
 const STAGING: Environment = { id: 'e1', name: 'Staging', isActive: true, version: 1, createdAt: '', updatedAt: '' }
 
-async function render(st: PublicationStatus | null, over: Partial<Shown> = {}): Promise<string> {
+async function draw(): Promise<string> {
+  // The settings store applies its own language when created; keep the one the test chose.
+  const locale = currentLocale.value
   const pinia = createPinia()
   setActivePinia(pinia)
+  useSettingsStore().setLanguage(locale)
   useCollectionStore().collectionsMap.set('c1', { id: 'c1', name: 'Petstore', parentId: null, workspaceId: 'w1' } as never)
-  Object.assign(shown, {
-    status: st, loading: st === null, environments: [], environmentId: '', plan: null, visibility: 'public',
-  }, over)
   const app = createSSRApp(PublishDialog, { collectionId: 'c1' })
   app.use(pinia)
   return renderToString(app)
 }
+
+async function render(st: PublicationStatus | null, over: Partial<Shown> = {}): Promise<string> {
+  Object.assign(shown, {
+    status: st, loading: st === null, environments: [], environmentId: '', plan: null, visibility: 'public',
+    keep: false, last: null,
+  }, over)
+  return draw()
+}
+
+afterEach(() => { setCurrentLocale('en') })
 
 describe('publish dialog', () => {
   it('names the page versions an update moves between', async () => {
@@ -143,6 +162,18 @@ describe('publish dialog', () => {
     expect(html).not.toContain('data-testid="publish-unlisted-hint"')
   })
 
+  it('suggests the unlisted link only while Public is chosen', async () => {
+    const html = await render(emptyPublicationStatus(), { plan: { unlisted: true, password: true }, visibility: 'password' })
+
+    expect(html).not.toContain('data-testid="publish-unlisted-hint"')
+  })
+
+  it('keeps a long title clear of the close button', async () => {
+    const html = await render(emptyPublicationStatus())
+
+    expect(tagWith(html, 'data-testid="publish-header"')).toContain('pr-10')
+  })
+
   it('shows neither the thumbnail nor the suggestion when updating a page that is already out', async () => {
     const html = await render(
       { ...emptyPublicationStatus(), published: true, canManage: true, publicUrl: 'https://share.tetiva.app/petstore', visibility: 'public', revision: 2 },
@@ -177,5 +208,52 @@ describe('publish dialog', () => {
     const html = await render(null)
 
     expect(tagWith(html, 'data-testid="publish-loading"')).toContain('justify-center')
+  })
+
+  it('rewords the labels and the error already shown after a language switch, keeping the typed password', async () => {
+    await render(emptyPublicationStatus(), { visibility: 'password', keep: true })
+    const d = shown.last!
+    d.password.value = 'correct horse'
+    d.error.value = { kind: 'publication', error: { code: 'internal', message: 'x', reason: 'PUBLISH_QUOTA_EXCEEDED' } }
+
+    const en = await draw()
+    expect(inside(en, 'data-testid="publish-error"')).toContain('Free plan includes 1 public collection')
+    expect(inside(en, 'data-testid="publish-visibility"')).toContain('Visibility')
+    expect(en).toContain('value="correct horse"')
+
+    setCurrentLocale('ru')
+    const ru = await draw()
+    expect(inside(ru, 'data-testid="publish-error"')).toContain('В бесплатном тарифе\u00a0— одна публичная коллекция')
+    expect(ru).not.toContain('Free plan includes')
+    expect(inside(ru, 'data-testid="publish-visibility"')).toContain('Доступ')
+    expect(inside(ru, 'data-testid="publish-visibility"')).toContain('С паролем')
+    expect(inside(ru, 'data-testid="publish-submit"')).toContain('Опубликовать')
+    expect(ru).toContain('value="correct horse"')
+    expect(d.password.value).toBe('correct horse')
+  })
+
+  it('keeps Russian visibility labels on one line with the full label in a title', async () => {
+    setCurrentLocale('ru')
+    const html = await render(emptyPublicationStatus(), { plan: { unlisted: false, password: false } })
+
+    const group = inside(html, 'role="radiogroup"')
+    for (const label of ['Публичная', 'По ссылке', 'С паролем']) {
+      const span = tagWith(group, `title="${label}"`)
+      expect(span).toContain('truncate')
+      expect(span).toContain('min-w-0')
+    }
+    expect(tagWith(group, 'data-testid="publish-pro"')).toContain('shrink-0')
+    expect(tagWith(html, 'data-testid="publish-visibility"')).toContain('md:grid-cols-[minmax(0,1fr)_176px]')
+    expect(tagWith(html, 'data-testid="publish-footer"')).toContain('sm:flex-wrap')
+    expect(tagWith(html, 'data-testid="publish-title-name"')).toContain('truncate')
+  })
+
+  it('says the environment used last time is not on this device rather than deleted', async () => {
+    await render(emptyPublicationStatus(), { keep: true })
+    shown.last!.environmentMissing.value = true
+
+    expect(await draw()).toContain('isn&#39;t on this device')
+    setCurrentLocale('ru')
+    expect(await draw()).toContain('нет на этом устройстве')
   })
 })

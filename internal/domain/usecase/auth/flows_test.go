@@ -448,7 +448,7 @@ func (f *flowFixture) startCode(owner entities.AuthOwner, port string) (string, 
 	f.t.Helper()
 
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), port)
+	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), port, "en")
 	if err != nil {
 		var invalid *domain.ValidationError
 		if errors.As(err, &invalid) {
@@ -464,7 +464,7 @@ func (f *flowFixture) startCodeWith(t *testing.T, cfg OAuth2Config) (string, Flo
 	t.Helper()
 
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), cfg, "0")
+	info, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), cfg, "0", "en")
 	if err != nil {
 		t.Fatalf("StartAuthCode: %v", err)
 	}
@@ -549,7 +549,7 @@ func deliverCallback(t *testing.T, info FlowInfo, extra url.Values) *http.Respon
 	if err != nil {
 		t.Fatalf("reading the callback page: %v", err)
 	}
-	if resp.StatusCode == http.StatusOK && !strings.Contains(string(body), "You can close this tab") {
+	if resp.StatusCode == http.StatusOK && !strings.Contains(string(body), "</html>") {
 		t.Errorf("callback page = %q", body)
 	}
 
@@ -649,7 +649,7 @@ func TestStartAuthCodeRejectsBadPreconditions(t *testing.T) {
 				port = freePort(t)
 			}
 
-			_, err := f.mgr.StartAuthCode(context.Background(), tt.id, testOwner(), tt.cfg(f), port)
+			_, err := f.mgr.StartAuthCode(context.Background(), tt.id, testOwner(), tt.cfg(f), port, "en")
 			if err == nil {
 				t.Fatal("StartAuthCode accepted an invalid start")
 			}
@@ -671,7 +671,7 @@ func TestStartRefusesAFlowIDThatIsAlreadyUsed(t *testing.T) {
 
 	id, _ := f.startCode(owner, "0")
 
-	_, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0")
+	_, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0", "en")
 	if got := fieldError(t, err, "flowId"); got != "already used" {
 		t.Errorf("active id: %q", got)
 	}
@@ -679,7 +679,7 @@ func TestStartRefusesAFlowIDThatIsAlreadyUsed(t *testing.T) {
 	if err = f.mgr.Cancel(id); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	_, err = f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0")
+	_, err = f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0", "en")
 	if got := fieldError(t, err, "flowId"); got != "already used" {
 		t.Errorf("retained id: %q", got)
 	}
@@ -693,7 +693,7 @@ func TestAuthCodeFlowStoresTheToken(t *testing.T) {
 	cfg.Audience = "api://x"
 
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0")
+	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0", "en")
 	if err != nil {
 		t.Fatalf("StartAuthCode: %v", err)
 	}
@@ -842,7 +842,7 @@ func TestBindConflictWithAForeignProcess(t *testing.T) {
 	}
 	defer func() { _ = ln.Close() }()
 
-	_, err = f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), port)
+	_, err = f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), port, "en")
 	message := fieldError(t, err, "redirectPort")
 	if !strings.Contains(message, "another application is using it") {
 		t.Errorf("message = %q", message)
@@ -854,7 +854,7 @@ func TestBindConflictWithAnotherOwnersLiveFlow(t *testing.T) {
 	port := freePort(t)
 	first, _ := f.startCode(testOwner(), port)
 
-	_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), port)
+	_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), port, "en")
 	message := fieldError(t, err, "redirectPort")
 	if !strings.Contains(message, "another request is waiting for its browser callback") {
 		t.Errorf("message = %q", message)
@@ -896,7 +896,7 @@ func TestSameOwnerRebindsItsOwnPortWhileThePreviousFlowDrains(t *testing.T) {
 
 	started := make(chan error, 1)
 	go func() {
-		_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), owner, f.codeConfig(), port)
+		_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), owner, f.codeConfig(), port, "en")
 		started <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -922,7 +922,7 @@ func TestCancelBeforeInstallLeavesNoListenerBehind(t *testing.T) {
 	id := uuid.NewString()
 	started := make(chan error, 1)
 	go func() {
-		_, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), f.codeConfig(), port)
+		_, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), f.codeConfig(), port, "en")
 		started <- err
 	}()
 
@@ -956,7 +956,7 @@ func TestStatusReportsStartingUntilTheFlowIsInstalled(t *testing.T) {
 	id := uuid.NewString()
 	started := make(chan error, 1)
 	go func() {
-		_, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), f.codeConfig(), "0")
+		_, err := f.mgr.StartAuthCode(context.Background(), id, testOwner(), f.codeConfig(), "0", "en")
 		started <- err
 	}()
 
@@ -1062,7 +1062,7 @@ func TestCancelDuringCommitJoinsWithoutFreezingTheManager(t *testing.T) {
 		t.Error("Status lost the flow")
 	}
 	other := testOwner()
-	if _, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), other, f.codeConfig(), "0"); err != nil {
+	if _, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), other, f.codeConfig(), "0", "en"); err != nil {
 		t.Errorf("a start for another owner was blocked: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > f.opts.JoinCap/2 {
@@ -1128,7 +1128,7 @@ func TestReplacementIsRefusedWhileThePreviousFlowCommits(t *testing.T) {
 	<-f.repo.entered
 
 	newID := uuid.NewString()
-	_, err := f.mgr.StartAuthCode(context.Background(), newID, owner, f.codeConfig(), "0")
+	_, err := f.mgr.StartAuthCode(context.Background(), newID, owner, f.codeConfig(), "0", "en")
 	message := fieldError(t, err, "auth")
 	if !strings.Contains(message, "still finishing") {
 		t.Errorf("message = %q", message)
@@ -1166,7 +1166,7 @@ func TestCancelledMidExchangeIsJoinedWithoutWriting(t *testing.T) {
 	cfg.TokenURL = slow.URL + "/token"
 	owner := testOwner()
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0")
+	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0", "en")
 	if err != nil {
 		t.Fatalf("StartAuthCode: %v", err)
 	}
@@ -1201,7 +1201,7 @@ func TestCancelDoesNotDeleteAReplacementFlow(t *testing.T) {
 	newID := uuid.NewString()
 	started := make(chan error, 1)
 	go func() {
-		_, startErr := f.mgr.StartAuthCode(context.Background(), newID, owner, f.codeConfig(), "0")
+		_, startErr := f.mgr.StartAuthCode(context.Background(), newID, owner, f.codeConfig(), "0", "en")
 		started <- startErr
 	}()
 	time.Sleep(20 * time.Millisecond)
@@ -1249,7 +1249,7 @@ func TestTwoReplacementsInstallExactlyOne(t *testing.T) {
 	for range 2 {
 		go func() {
 			id := uuid.NewString()
-			_, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0")
+			_, err := f.mgr.StartAuthCode(context.Background(), id, owner, f.codeConfig(), "0", "en")
 			results <- outcome{id: id, err: err}
 		}()
 	}
@@ -1324,7 +1324,7 @@ func TestFlowAdoptsAConcurrentWinnersToken(t *testing.T) {
 	})
 
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0")
+	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0", "en")
 	if err != nil {
 		t.Fatalf("StartAuthCode: %v", err)
 	}
@@ -1412,7 +1412,7 @@ func TestShutdownJoinsCooperativeFlows(t *testing.T) {
 		}
 	}
 
-	_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), "0")
+	_, err := f.mgr.StartAuthCode(context.Background(), uuid.NewString(), testOwner(), f.codeConfig(), "0", "en")
 	if !errors.Is(err, ErrManagerClosed) {
 		t.Errorf("start after shutdown: %v", err)
 	}
@@ -1479,7 +1479,7 @@ func TestFlowLosesTheRaceToAProviderRefresh(t *testing.T) {
 	})
 
 	id := uuid.NewString()
-	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0")
+	info, err := f.mgr.StartAuthCode(context.Background(), id, owner, cfg, "0", "en")
 	if err != nil {
 		t.Fatalf("StartAuthCode: %v", err)
 	}

@@ -26,8 +26,12 @@ vi.mock('@/composables/useWindowEvents', () => ({ emitWailsEvent: async () => {}
 vi.mock('@/lib/open-external', () => ({ openExternal: vi.fn(async () => {}) }))
 
 import { usePublishDialog } from './usePublishDialog'
+import { setCurrentLocale } from '@/lib/locale'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
+import { useSettingsStore } from '@/stores/settings'
+import { usePublicationsStore } from '@/stores/publications'
+import { useWorkspaceStore } from '@/stores/workspace'
 import type { Collection } from '@/types/collection'
 
 async function service(): Promise<MockPublicationService> {
@@ -75,6 +79,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  setCurrentLocale('en')
 })
 
 function collection(id: string, parentId: string | null): Collection {
@@ -127,6 +132,9 @@ describe('usePublishDialog saves pending edits first', () => {
     expect(d.preview.value).toBeNull()
     expect(d.previewError.value).toBe(SAVE_TEXT)
     expect(d.canPublish.value).toBe(false)
+
+    setCurrentLocale('ru')
+    expect(d.previewError.value).toBe('Не удалось сохранить последние изменения. Исправьте их и попробуйте снова')
   })
 
   it('saves again right before publishing and does not publish when that fails', async () => {
@@ -139,7 +147,7 @@ describe('usePublishDialog saves pending edits first', () => {
 
     await expect(d.publish()).resolves.toBeNull()
     expect(svc.published).toHaveLength(0)
-    expect(d.error.value?.text).toBe(SAVE_TEXT)
+    expect(d.errorText.value?.text).toBe(SAVE_TEXT)
 
     await d.publish()
     expect(svc.calls.slice(-2)).toEqual(['flush c1,f1,f2', 'publish c1'])
@@ -287,7 +295,7 @@ describe('usePublishDialog', () => {
   it('blocks Publish while the preview has blocking errors', async () => {
     const svc = await service()
     svc.setStatus('c1', status())
-    svc.setPreview(preview({ errors: [{ path: 'Get / headers / X Api', message: 'header name is not a token' }] }))
+    svc.setPreview(preview({ errors: [{ path: 'Get / headers / X Api', code: 'header_name_invalid', params: { name: 'X Api' }, message: 'header name is not a token' }] }))
     const d = usePublishDialog()
     await d.start(COLLECTION)
 
@@ -356,8 +364,8 @@ describe('usePublishDialog', () => {
     expect(d.acknowledged.value).toBe(false)
   })
 
-  it('sends the hash of the reviewed preview and the reader locale', async () => {
-    vi.stubGlobal('navigator', { language: 'ru-RU' })
+  it('sends the hash of the reviewed preview and the app language', async () => {
+    useSettingsStore().setLanguage('ru')
     const svc = await service()
     svc.setStatus('c1', status())
     svc.setPreview(preview({ previewHash: 'reviewed-hash' }))
@@ -382,7 +390,7 @@ describe('usePublishDialog', () => {
     svc.failNext('publish', { code: 'conflict', message: 'publication preview conflict' })
     expect(await d.publish()).toBeNull()
 
-    expect(d.error.value?.text).toBe('The collection changed — review again')
+    expect(d.errorText.value?.text).toBe('The collection changed — review again')
     expect(svc.previews.length).toBe(before + 1)
   })
 
@@ -401,6 +409,24 @@ describe('usePublishDialog', () => {
     expect(d.error.value).toBeNull()
   })
 
+  it('tells the Publications panel about a quota refusal and forgets it once a publish goes through', async () => {
+    const svc = await service()
+    svc.setStatus('c1', status())
+    useWorkspaceStore().workspaces = [{ id: 'w1', name: 'w1', isActive: true }] as never
+    const publications = usePublicationsStore()
+    const d = usePublishDialog()
+    await d.start(COLLECTION)
+
+    svc.failNext('publish', { code: 'internal', message: 'x', reason: 'PUBLISH_QUOTA_EXCEEDED' })
+    await d.publish()
+    expect(publications.lastQuotaRefusal).toBe(true)
+    expect(svc.calls).not.toContain('list w1 remote')
+
+    await d.publish()
+    expect(publications.lastQuotaRefusal).toBe(false)
+    await vi.waitFor(() => expect(svc.calls).toContain('list w1 remote'))
+  })
+
   it('locks unlisted and password after the server asks for Pro', async () => {
     const svc = await service()
     svc.setStatus('c1', status())
@@ -413,7 +439,7 @@ describe('usePublishDialog', () => {
     await d.publish()
 
     expect(d.featureLocked.value).toBe(true)
-    expect(d.error.value).toEqual({ text: 'Unlisted links and passwords are available on Pro', action: 'plans' })
+    expect(d.errorText.value).toEqual({ text: 'Unlisted links and passwords are available on Pro', action: 'plans' })
   })
 
   it('locks what the plan lacks before the server is asked', async () => {
@@ -604,6 +630,45 @@ describe('usePublishDialog', () => {
 
     expect(d.loadError.value).not.toBe('')
     expect(svc.previews).toHaveLength(0)
+  })
+
+  it('rewords an error already shown when the language changes, keeping what was typed', async () => {
+    const svc = await service()
+    svc.setStatus('c1', status())
+    const d = usePublishDialog()
+    await d.start(COLLECTION)
+    await d.setVisibility('password')
+    d.password.value = 'correct horse'
+    svc.failNext('publish', { code: 'internal', message: 'x', reason: 'PUBLISH_QUOTA_EXCEEDED' })
+    await d.publish()
+    expect(d.errorText.value).toEqual({ text: 'Free plan includes 1 public collection', action: 'plans' })
+
+    setCurrentLocale('ru')
+
+    expect(d.errorText.value).toEqual({ text: 'В бесплатном тарифе\u00a0— одна публичная коллекция', action: 'plans' })
+    expect(d.password.value).toBe('correct horse')
+    expect(d.manageText.value).toBe('')
+  })
+
+  it('rewords the unavailable reason, the load error and the password rule', async () => {
+    const svc = await service()
+    svc.failNext('status', { code: 'not_connected', message: 'publish: not connected to sync server' })
+    const d = usePublishDialog()
+    await d.start(COLLECTION)
+    expect(d.loadError.value).toBe("Can't reach the server — try again")
+
+    setCurrentLocale('ru')
+    expect(d.loadError.value).toBe('Сервер недоступен\u00a0— попробуйте снова')
+
+    svc.setStatus('c1', status({ available: false, reasonUnavailable: 'not_logged_in' }))
+    await d.start(COLLECTION)
+    expect(d.unavailableText.value).toBe('Войдите, чтобы публиковать')
+
+    svc.setStatus('c1', status())
+    await d.start(COLLECTION)
+    await d.setVisibility('password')
+    d.password.value = 'short'
+    expect(d.passwordError.value).toBe('Пароль должен быть от 8 до 72 байт')
   })
 })
 

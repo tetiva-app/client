@@ -48,7 +48,6 @@ export async function buildSnippet(
   return { code: out.code, warnings, error: null }
 }
 
-// The one-click path: variables and secret values substituted, as Copy as cURL has always done.
 export async function copySnippetAs(req: Request, workspaceId: string, targetKey: string): Promise<SnippetCopyOutcome> {
   const label = targetLabel(targetKey)
   const built = await buildSnippet(req, workspaceId, targetKey, { resolveVariables: true, includeSecrets: true })

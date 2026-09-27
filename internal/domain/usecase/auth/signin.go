@@ -287,7 +287,7 @@ func (m *signInManager) Start(ctx context.Context, flowID string, client SignInC
 	// A flow without a listener still works: the poll alone finishes it, only a
 	// little later than the redirect would have.
 	redirectURI := ""
-	if lb, lbErr := startSignalLoopback("0", m.opts); lbErr != nil {
+	if lb, lbErr := startSignalLoopback("0", p.Locale, m.opts); lbErr != nil {
 		slog.Warn("auth: browser sign-in runs without a loopback callback", "error", lbErr)
 	} else {
 		m.setLoopback(f, lb)

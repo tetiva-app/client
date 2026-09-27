@@ -4,7 +4,7 @@ import { familyOf } from '@/lib/snippets/snippet-request'
 import { useSettingsStore } from '@/stores/settings'
 import { useRequestStore } from '@/stores/tabs'
 
-// Mounted at window level: a teleported dialog inside a KeepAlive'd editor stays on screen after a tab switch.
+// Window-level: a teleported dialog in a KeepAlive'd editor stays up after a tab switch.
 export const useCodeDialogUi = defineStore('codeDialogUi', () => {
   const requestId = ref<string | null>(null)
 

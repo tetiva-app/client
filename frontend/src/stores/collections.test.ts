@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import type { Collection } from '@/types/collection'
 
+const createMock = vi.fn()
 const editMock = vi.fn()
 const deleteMock = vi.fn()
 const moveMock = vi.fn()
 
 vi.mock('@/services', () => ({
   getCollectionService: () => Promise.resolve({
-    list: vi.fn(), edit: editMock, delete: deleteMock, move: moveMock,
+    list: vi.fn(), create: createMock, edit: editMock, delete: deleteMock, move: moveMock,
   }),
   getRequestService: () => Promise.resolve({}),
   getWebSocketService: () => Promise.resolve({}),
@@ -17,6 +18,8 @@ vi.mock('@/services', () => ({
 }))
 
 import { useCollectionStore, type CollectionLocals, type StashedLocals } from './collections'
+import { useWorkspaceStore } from './workspace'
+import { onContentSaved } from '@/lib/content-saved'
 
 function locals(over: Partial<CollectionLocals> = {}): CollectionLocals {
   return { preScript: '', postScript: '', description: 'docs', authType: 'none', authData: '{}', ...over }
@@ -147,5 +150,26 @@ describe('edit', () => {
 
     await expect(store.remove('c1', 1)).resolves.toBe(false)
     expect(store.collectionsMap.has('c1')).toBe(true)
+  })
+})
+
+describe('create', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    createMock.mockReset()
+    useWorkspaceStore().workspaces = [{
+      id: 'w1', name: 'Local', isActive: true, version: 1, remoteWorkspaceId: null, createdAt: '', updatedAt: '',
+    }]
+  })
+
+  it('announces a new sub-collection so the publications list recounts', async () => {
+    const saved = vi.fn()
+    const off = onContentSaved(saved)
+    createMock.mockResolvedValue({ data: coll({ id: 'c2', parentId: 'c1', name: 'Sub' }) })
+
+    await useCollectionStore().create('Sub', 'c1')
+    off()
+
+    expect(saved).toHaveBeenCalledTimes(1)
   })
 })

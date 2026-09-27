@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Cloud, CloudOff, CloudAlert, Loader2 } from 'lucide-vue-next'
-import { onboardingCopy } from '@/onboarding/copy'
+import { ONBOARDING_COPY } from '@/onboarding/copy'
+import { TREE_COPY, type SyncStateKey } from '@/components/sidebar/copy'
+import { useLocale } from '@/composables/useLocale'
 import { useSyncStatus } from '@/composables/useSyncStatus'
 import { parkedSummary } from '@/lib/sync-notices'
 import {
@@ -14,7 +16,9 @@ const emit = defineEmits<{
   (e: 'click'): void
 }>()
 
-const verify = onboardingCopy(navigator.language).verify
+const locale = useLocale()
+const verify = computed(() => ONBOARDING_COPY[locale.value].verify)
+const rail = computed(() => TREE_COPY[locale.value].rail)
 
 const { state, pending, parked, tooLarge, awaitingVerification } = useSyncStatus()
 
@@ -23,29 +27,17 @@ const parkedAlert = computed(
   () => (parked.value > 0 || tooLarge.value > 0)
     && !['offline', 'auth_expired', 'plan_limit', 'update_required'].includes(state.value),
 )
-const parkedTooltip = computed(() => parkedSummary(parked.value, tooLarge.value))
+const parkedTooltip = computed(() => parkedSummary(parked.value, tooLarge.value, locale.value))
 
-const stateLabels: Record<string, string> = {
-  connected: 'Sync connected',
-  pushing: 'Pushing changes...',
-  pulling: 'Pulling updates...',
-  subscribing: 'Connecting...',
-  offline: 'Offline',
-  resyncing: 'Resyncing...',
-  disconnected: 'Not connected',
-  idle: 'Idle',
-  auth_expired: 'Session expired — sign in to resume sync',
-  plan_limit: 'Sync paused — plan limit reached',
-  update_required: 'Sync stopped — update the app to read the newest changes',
-}
+const stateLabel = computed(() => rail.value.syncState[state.value as SyncStateKey] ?? rail.value.sync)
 </script>
 
 <template>
-  <Tooltip>
+  <Tooltip ignore-non-keyboard-focus>
     <TooltipTrigger as-child>
       <button
         class="flex items-center justify-center w-12 h-12 relative transition-opacity opacity-60 hover:opacity-100 cursor-pointer"
-        aria-label="Sync"
+        :aria-label="rail.sync"
         @click="emit('click')"
       >
         <div class="relative">
@@ -79,7 +71,7 @@ const stateLabels: Record<string, string> = {
     <TooltipContent side="right" :side-offset="4">
       <template v-if="awaitingVerification">{{ verify.indicatorTooltip }}</template>
       <template v-else-if="parkedAlert">{{ parkedTooltip }}</template>
-      <template v-else>{{ stateLabels[state] || 'Sync' }}</template>
+      <template v-else>{{ stateLabel }}</template>
     </TooltipContent>
   </Tooltip>
 </template>

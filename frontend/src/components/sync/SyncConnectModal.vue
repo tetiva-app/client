@@ -24,7 +24,7 @@ import { openExternal } from '@/lib/open-external'
 import { guarded, TRANSPORT_ERROR_CODE, TRANSPORT_ERROR_MESSAGE } from '@/lib/service-call'
 import { formatRelativeTime } from '@/lib/time'
 import { parkedQuotaNotice, parkedTooLargeNotice } from '@/lib/sync-notices'
-import { pickLocale } from '@/whats-new/notes'
+import { currentLocale, fill } from '@/lib/locale'
 import { ONBOARDING_COPY } from '@/onboarding/copy'
 import { useToast } from '@/composables/useToast'
 import { useResendCooldown, useVerificationPolling } from '@/composables/useVerificationPolling'
@@ -127,11 +127,11 @@ const devicesBusy = computed(
   () => revokingId.value !== '' || loggingOutAll.value || devicesRefreshing.value
 )
 
-const sentToText = computed(() => verify.sentTo.replace('{email}', email.value))
+const sentToText = computed(() => fill(verify.sentTo, { email: email.value }))
 
 const resendLabel = computed(() =>
   cooldown.secondsLeft.value > 0
-    ? verify.resendIn.replace('{seconds}', String(cooldown.secondsLeft.value))
+    ? fill(verify.resendIn, { seconds: cooldown.secondsLeft.value })
     : verify.resend
 )
 
@@ -355,7 +355,7 @@ async function loadCapabilities(): Promise<void> {
 async function startSignIn(intent: SignInIntent) {
   signInIntent.value = intent
   error.value = ''
-  await signIn.start(effectiveServerUrl.value, intent, pickLocale(navigator.language))
+  await signIn.start(effectiveServerUrl.value, intent, currentLocale.value)
 }
 
 // A refused, expired or cancelled request is dead on the server too, so the way
@@ -412,7 +412,7 @@ async function handleRegister() {
     email: email.value,
     password: password.value,
     name: name.value,
-    locale: pickLocale(navigator.language),
+    locale: currentLocale.value,
   }))
 
   loading.value = false

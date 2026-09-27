@@ -394,6 +394,8 @@ func TestLimits_ValueCount(t *testing.T) {
 	require.Greater(t, publication.CountValues(s), 500_000)
 	require.Equal(t, []string{"Petstore"}, errorPaths(report))
 	assert.Contains(t, report.Errors[0].Message, "500000")
+	assert.Equal(t, "too_many_values", report.Errors[0].Code)
+	assert.Equal(t, "500000", report.Errors[0].Params["limit"])
 }
 
 func jsonValues(v any) int {
@@ -444,4 +446,104 @@ func TestCountValues_MatchesTheCanonicalJSON(t *testing.T) {
 			assert.Equal(t, jsonValues(doc), publication.CountValues(s))
 		})
 	}
+}
+
+func TestBlockingErrors_CodeAndParams(t *testing.T) {
+	cases := map[string]struct {
+		setup  func(f *fixture)
+		code   string
+		params map[string]string
+	}{
+		"text": {func(f *fixture) {
+			f.request(f.in.Root, "r").Description = strings.Repeat("a", 1<<20+1)
+		}, "text_too_long", map[string]string{}},
+		"pair value": {func(f *fixture) {
+			f.request(f.in.Root, "r").Headers = []entities.HeaderItem{{Key: "X-A", Value: strings.Repeat("x", 16<<10+1), Enabled: true}}
+		}, "value_too_long", map[string]string{"limit": "16"}},
+		"variable value": {func(f *fixture) { f.variable("v", strings.Repeat("x", 64<<10+1), false) },
+			"value_too_long", map[string]string{"limit": "64"}},
+		"name": {func(f *fixture) { f.request(f.in.Root, strings.Repeat("я", 513)) },
+			"name_too_long", map[string]string{"limit": "512"}},
+		"header name": {func(f *fixture) {
+			f.request(f.in.Root, "r").Headers = []entities.HeaderItem{{Key: "X Api", Value: "1", Enabled: true}}
+		}, "header_name_invalid", map[string]string{"name": "X Api"}},
+		"long URL": {func(f *fixture) { f.request(f.in.Root, "r").URL = "https://a.example/" + strings.Repeat("p", 8<<10) },
+			"url_too_long", map[string]string{}},
+		"control character in URL": {func(f *fixture) { f.request(f.in.Root, "r").URL = "https://a.example/\nx" },
+			"url_control_char", map[string]string{}},
+		"blank collection name": {func(f *fixture) { f.in.Root.Name = " " }, "name_blank", map[string]string{}},
+		"headers": {func(f *fixture) { f.request(f.in.Root, "r").Headers = headerRows(201, "1") },
+			"too_many", map[string]string{"list": "headers", "count": "201", "limit": "200"}},
+		"metadata": {func(f *fixture) { f.in.Root.GRPCMetadata = headerRows(201, "1") },
+			"too_many", map[string]string{"list": "metadata", "count": "201", "limit": "200"}},
+		"form fields": {func(f *fixture) { formRequest(f, 201, "k", "1") },
+			"too_many", map[string]string{"list": "form_fields", "count": "201", "limit": "200"}},
+		"subprotocols": {func(f *fixture) { wsRequest(f, 65, 0) },
+			"too_many", map[string]string{"list": "subprotocols", "count": "65", "limit": "64"}},
+		"messages": {func(f *fixture) { wsRequest(f, 0, 201) },
+			"too_many", map[string]string{"list": "messages", "count": "201", "limit": "200"}},
+		"examples": {func(f *fixture) {
+			r := f.request(f.in.Root, "r")
+			for range 51 {
+				f.example(r, "e")
+			}
+		}, "too_many", map[string]string{"list": "examples", "count": "51", "limit": "50"}},
+		"variables": {func(f *fixture) {
+			for i := range 1001 {
+				f.variable(fmt.Sprintf("v%d", i), "1", false)
+			}
+		}, "too_many", map[string]string{"list": "variables", "count": "1001", "limit": "1000"}},
+		"auth fields": {func(f *fixture) { authRequest(f, entities.AuthTypeBearer, bearerFields(65)) },
+			"too_many", map[string]string{"list": "auth_fields", "count": "65", "limit": "64"}},
+		"auth depth": {func(f *fixture) {
+			authRequest(f, entities.AuthTypeJWT, map[string]any{"alg": "HS256", "claims": nested(5)})
+		}, "auth_too_deep", map[string]string{"limit": "4"}},
+		"auth values": {func(f *fixture) {
+			authRequest(f, entities.AuthTypeJWT, map[string]any{"alg": "HS256", "claims": claims(257)})
+		}, "auth_too_many_values", map[string]string{"count": "257", "limit": "256"}},
+		"folder depth": {func(f *fixture) {
+			parent := f.in.Root
+			for i := 1; i <= 17; i++ {
+				parent = f.folder(parent, fmt.Sprintf("L%d", i))
+			}
+		}, "folders_too_deep", map[string]string{"limit": "16"}},
+		"items": {func(f *fixture) {
+			for range 5001 {
+				f.request(f.in.Root, "r")
+			}
+		}, "too_many_items", map[string]string{"count": "5001", "limit": "5000"}},
+		"method": {func(f *fixture) { f.request(f.in.Root, "r").Method = "TRACE" },
+			"method_unsupported", map[string]string{"value": "TRACE"}},
+		"protocol": {func(f *fixture) { f.request(f.in.Root, "r").Protocol = "smtp" },
+			"protocol_unsupported", map[string]string{"value": "smtp"}},
+		"body type": {func(f *fixture) { f.request(f.in.Root, "r").BodyType = "yaml" },
+			"body_type_unsupported", map[string]string{"value": "yaml"}},
+		"status": {func(f *fixture) { f.example(f.request(f.in.Root, "r"), "e").StatusCode = 1000 },
+			"status_out_of_range", map[string]string{"value": "1000"}},
+		"auth type": {func(f *fixture) { authRequest(f, "kerberos", map[string]any{}) },
+			"auth_type_unsupported", map[string]string{"value": "kerberos"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture()
+			tc.setup(f)
+			_, report := f.build(t)
+			require.Len(t, report.Errors, 1)
+			e := report.Errors[0]
+			assert.Equal(t, tc.code, e.Code)
+			assert.Equal(t, tc.params, e.Params)
+			assert.NotEmpty(t, e.Message)
+			assert.NotRegexp(t, `\{(count|limit|list|name|value)\}`, e.Message)
+		})
+	}
+}
+
+func TestBlockingErrors_ListMessageNamesTheListInEnglish(t *testing.T) {
+	f := newFixture()
+	formRequest(f, 201, "k", "1")
+
+	_, report := f.build(t)
+
+	require.Len(t, report.Errors, 1)
+	assert.Equal(t, "201 form fields; at most 200 can be published", report.Errors[0].Message)
 }

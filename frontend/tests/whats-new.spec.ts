@@ -51,7 +51,6 @@ test.describe("What's New & update badge", () => {
     await expect(page.getByTestId('whats-new-modal')).toHaveCount(0);
   });
 
-  // The 1.1.1 notes need a scrolling list at 960x640 but fit whole at 1280x800 in both languages.
   const viewports = [
     { width: 960, height: 640, listOverflows: true },
     { width: 1280, height: 800, listOverflows: false },
@@ -70,7 +69,7 @@ test.describe("What's New & update badge", () => {
           await expect(list).toBeVisible();
           const title = dialog.getByRole('heading', { name: /What's New|Что нового/ });
           const gotIt = dialog.getByRole('button', { name: /Got it|Понятно/ });
-          const close = dialog.getByRole('button', { name: 'Close', exact: true });
+          const close = dialog.getByRole('button', { name: locale === 'ru-RU' ? 'Закрыть' : 'Close', exact: true });
           await expect(title).toBeInViewport({ ratio: 1 });
           await expect(gotIt).toBeInViewport({ ratio: 1 });
           await expect(close).toBeInViewport({ ratio: 1 });

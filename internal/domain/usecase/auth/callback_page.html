@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>{{.Heading}}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1' y2='1'%3E%3Cstop stop-color='%237A6CF0'/%3E%3Cstop offset='1' stop-color='%235B4BD5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='16' height='16' rx='3.4' fill='url(%23g)'/%3E%3Cg fill='none' stroke='%23fff' transform='matrix(.92 0 0 .92 .64 1.04)'%3E%3Cpath d='M2.25 4.75C4.45 2.75 11.55 2.75 13.75 4.75L8 7.65Z' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M8 10.45V13.5' stroke-width='1.55' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root{color-scheme:light dark;--bg:#fafaf7;--ink:#111;--ink2:#46463f;--ink3:#6b6b64;--line:#e3e3dd;--ok:#111;--err:#c73e1d}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0a0a0a;--ink:#e8e5de;--ink2:#a3a39b;--ink3:#86867f;--line:#232329;--ok:#e8e5de;--err:#ff6b6b}}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;padding:0 24px;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+main,footer{width:100%;max-width:30rem;margin:0 auto}
+main{padding:clamp(56px,19vh,180px) 0 48px}
+svg{display:block;width:56px;height:56px;margin-bottom:28px}
+h1{margin:0 0 10px;font-size:clamp(22px,1.05rem + .9vw,28px);line-height:1.25;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+p{margin:0 0 10px;color:var(--ink2);text-wrap:pretty}
+.c{margin-top:22px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink3)}
+footer{margin-top:auto;padding:16px 0 28px;border-top:1px solid var(--line);font-size:13px;line-height:1.5;color:var(--ink3)}
+.b{fill:var(--ok);stroke:var(--bg);stroke-width:3.5}
+.e{fill:var(--err)}
+.n{fill:var(--ink3)}
+.m{fill:none;stroke:var(--bg);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+</style>
+<main>
+<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#7A6CF0"/><stop offset="1" stop-color="#5B4BD5"/></linearGradient></defs><rect width="52" height="52" rx="11" fill="url(#g)"/><g fill="none" stroke="#fff" transform="matrix(2.99 0 0 2.99 2.08 3.38)"><path d="M2.25 4.75C4.45 2.75 11.55 2.75 13.75 4.75L8 7.65Z" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 10.45V13.5" stroke-width="1.55" stroke-linecap="round"/></g>{{if eq .Kind "error"}}<circle class="b e" cx="49" cy="49" r="12.5"/><path class="m" d="M49 42.6v7.6"/><circle cx="49" cy="55" r="1.8" style="fill:var(--bg)"/>{{else if eq .Kind "neutral"}}<circle class="b n" cx="49" cy="49" r="12.5"/><circle cx="49" cy="43" r="1.8" style="fill:var(--bg)"/><path class="m" d="M49 47.8v7.6"/>{{else}}<circle class="b" cx="49" cy="49" r="12.5"/><path class="m" d="M43.6 49.4l3.6 3.6 6.8-7.2"/>{{end}}</svg>
+<h1>{{.Heading}}</h1>
+<p>{{.Body}}</p>
+<p>{{.Next}}</p>
+{{with .Code}}<p class="c">error={{.}}</p>{{end}}
+</main>
+<footer>{{.Note}}</footer>
+</html>

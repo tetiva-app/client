@@ -3,10 +3,18 @@
 // Postman file cannot push a wall of text on screen.
 const DEFAULT_LIMIT = 3
 
-export function warningsToastMessage(warnings: string[] | undefined, limit = DEFAULT_LIMIT): string {
+export interface WarningsToastOptions {
+  limit?: number
+  more?: (rest: number) => string
+}
+
+export function warningsToastMessage(
+  warnings: string[] | undefined,
+  { limit = DEFAULT_LIMIT, more = rest => `and ${rest} more` }: WarningsToastOptions = {},
+): string {
   const items = (warnings ?? []).filter(w => w.trim() !== '')
   if (items.length === 0) return ''
   const listed = items.slice(0, limit).join('; ')
   const rest = items.length - Math.min(limit, items.length)
-  return rest > 0 ? `${listed} (and ${rest} more)` : listed
+  return rest > 0 ? `${listed} (${more(rest)})` : listed
 }

@@ -30,6 +30,22 @@ type PublicationStatus struct {
 	UnpublishError    string              `json:"unpublishError"`
 }
 
+type PublicationListRequest struct {
+	WorkspaceID string `json:"workspaceId"`
+	Remote      bool   `json:"remote"`
+}
+
+type PublicationListItem struct {
+	CollectionID string            `json:"collectionId"`
+	Name         string            `json:"name"`
+	Status       PublicationStatus `json:"status"`
+}
+
+type PublicationList struct {
+	Reason string                `json:"reason"`
+	Items  []PublicationListItem `json:"items"`
+}
+
 type PublishPlanRequest struct {
 	CollectionID string `json:"collectionId"`
 }
@@ -113,8 +129,10 @@ type ScanWarning struct {
 }
 
 type BlockingError struct {
-	Path    string `json:"path"`
-	Message string `json:"message"`
+	Path    string            `json:"path"`
+	Code    string            `json:"code"`
+	Params  map[string]string `json:"params"`
+	Message string            `json:"message"`
 }
 
 // PublishRequest.Locale is ru | en; Password is sent only with the password visibility.
@@ -173,7 +191,7 @@ func PublishPreviewFromReport(r publication.Report) PublishPreview {
 		})
 	}
 	for _, e := range r.Errors {
-		out.Errors = append(out.Errors, BlockingError{Path: e.Path, Message: e.Message})
+		out.Errors = append(out.Errors, BlockingError{Path: e.Path, Code: e.Code, Params: e.Params, Message: e.Message})
 	}
 	return out
 }

@@ -1,15 +1,16 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { createSSRApp } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import SharePageThumbnail from './SharePageThumbnail.vue'
 import { inside, tagWith } from '@/test-utils/markup'
+import { setCurrentLocale } from '@/lib/locale'
 
 function render(title: string): Promise<string> {
   return renderToString(createSSRApp(SharePageThumbnail, { title }))
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals()
+  setCurrentLocale('en')
 })
 
 describe('share page thumbnail', () => {
@@ -24,7 +25,6 @@ describe('share page thumbnail', () => {
   })
 
   it('draws the page header with the collection title, both buttons and the theme toggle for either theme', async () => {
-    vi.stubGlobal('navigator', { language: 'en-US' })
     const html = await render('Petstore API')
 
     expect(inside(html, 'data-testid="share-page-thumbnail-title"')).toContain('Petstore API')
@@ -36,13 +36,14 @@ describe('share page thumbnail', () => {
     expect(html).toContain('dark:inline')
   })
 
-  it('labels the buttons in Russian for an author whose system speaks it, as the page will', async () => {
-    vi.stubGlobal('navigator', { language: 'ru-RU' })
+  it('labels the buttons in Russian when the app is in Russian, as the page will be', async () => {
+    setCurrentLocale('ru')
     const html = await render('Petstore API')
 
     expect(html).toContain('>Открыть в Tetiva<')
     expect(html).toContain('>Скачать<')
     expect(html).not.toContain('>Download<')
+    expect(inside(html, 'data-testid="share-page-thumbnail"')).toContain('Как выглядит страница')
   })
 
   it('shortens a long title with an ellipsis', async () => {

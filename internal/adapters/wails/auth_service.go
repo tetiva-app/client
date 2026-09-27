@@ -222,7 +222,7 @@ func (s *AuthService) startFlow(req dto.StartFlowRequest, grant string) Result[d
 	if grant == auth.GrantAuthorizationCode {
 		// redirectPort is a presentation field, so it comes from the substituted
 		// document rather than from the config the hash is taken over.
-		info, err = s.flows.StartAuthCode(ctx, req.FlowID, owner, cfg, fields.Str("redirectPort"))
+		info, err = s.flows.StartAuthCode(ctx, req.FlowID, owner, cfg, fields.Str("redirectPort"), req.Locale)
 	} else {
 		info, err = s.flows.StartDevice(ctx, req.FlowID, owner, cfg)
 	}

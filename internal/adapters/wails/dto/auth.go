@@ -38,6 +38,7 @@ type StartFlowRequest struct {
 	AuthType  string `json:"authType"`
 	AuthData  string `json:"authData"`
 	FlowID    string `json:"flowId"`
+	Locale    string `json:"locale"`
 }
 
 // FlowRequest addresses a running or retained flow.

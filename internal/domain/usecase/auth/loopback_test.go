@@ -14,7 +14,7 @@ const testState = "the-state"
 func newTestLoopback(t *testing.T, drain time.Duration) *loopback {
 	t.Helper()
 
-	lb, err := startLoopback("0", testState, FlowOptions{DrainWindow: drain}.withDefaults())
+	lb, err := startLoopback("0", testState, "en", FlowOptions{DrainWindow: drain}.withDefaults())
 	if err != nil {
 		t.Fatalf("startLoopback: %v", err)
 	}

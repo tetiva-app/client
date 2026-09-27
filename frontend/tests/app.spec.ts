@@ -57,6 +57,7 @@ test.describe('Tetiva App', () => {
 test('documentation buttons use the app tooltip, not the native one', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByTestId('settings-nav-mcp').click();
 
   const help = page.getByRole('button', { name: 'Documentation: mcp server' });
   await expect(help).toBeVisible();
@@ -80,4 +81,16 @@ test('a dialog opens without its help tooltip, which still shows on keyboard foc
   await page.keyboard.press('Shift+Tab');
   await expect(help).toBeFocused();
   await expect(tooltip).toBeVisible();
+});
+
+test('closing a dialog with the mouse does not pop the tooltip of the rail button that opened it', async ({ page }) => {
+  await page.goto('/');
+  const settings = page.getByRole('button', { name: 'Settings' });
+  await settings.click();
+  await expect(page.getByTestId('settings-dialog')).toBeVisible();
+
+  await page.getByTestId('settings-dialog').getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByTestId('settings-dialog')).toHaveCount(0);
+  await expect(settings).toBeFocused();
+  await expect(page.locator('[data-slot="tooltip-content"]', { hasText: 'Settings' })).toHaveCount(0);
 });

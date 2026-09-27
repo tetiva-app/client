@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { harFromSnapshotRequest } from '../dist/snippets.mjs'
 
 // Pairs written by Go (request/snapshot_har_parity_test.go): the snapshot form of a request and
-// the HAR the Code tab builds from the saved row.
+// the snippet HAR built from the saved row.
 const DIR = new URL('../../../../../internal/domain/usecase/request/testdata/snapshot-har/', import.meta.url)
 const files = readdirSync(DIR).filter((f) => f.endsWith('.json')).sort()
 

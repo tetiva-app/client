@@ -84,6 +84,7 @@ export interface ServerCapabilities {
   serverVersion: string
   desktopSignIn: boolean
   signInHost: string
+  signInOrigin: string
   registrationOpen: boolean
 }
 

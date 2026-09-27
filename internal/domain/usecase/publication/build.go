@@ -3,6 +3,7 @@ package publication
 import (
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -64,6 +65,8 @@ type HiddenVar struct {
 // BlockingError is a problem the server would reject the snapshot for.
 type BlockingError struct {
 	Path    string
+	Code    string
+	Params  map[string]string
 	Message string
 }
 
@@ -169,7 +172,7 @@ func (p *pass) run() error {
 		return err
 	}
 	if p.items > maxItems {
-		p.fail(root.Name, "%d folders and requests; at most %d can be published", p.items, maxItems)
+		p.fail(root.Name, codeTooManyItems, countParams(p.items, maxItems))
 	}
 	owner := p.id(root.ID)
 	p.snap = &Snapshot{
@@ -211,7 +214,7 @@ func (p *pass) folder(c *entities.Collection, chain []*entities.Collection, name
 		p.report.Folders++
 		childNames := append(slices.Clip(names), child.Name)
 		if len(childNames) == maxFolderDepth+1 {
-			p.fail(joinPath(childNames...), "folders are nested deeper than %d levels", maxFolderDepth)
+			p.fail(joinPath(childNames...), codeFoldersTooDeep, limitParams(maxFolderDepth))
 		}
 		sub, err := p.folder(child, chain, childNames)
 		if err != nil {
@@ -248,7 +251,7 @@ func (p *pass) request(r *entities.Request, chain []*entities.Collection, names 
 	switch r.Protocol {
 	case entities.ProtocolHTTP:
 		if !r.Method.IsValid() {
-			p.fail(joinPath(path, "method"), "HTTP method %q cannot be published", r.Method)
+			p.fail(joinPath(path, "method"), codeMethodUnsupported, valueParams(string(r.Method)))
 		}
 		body, err := p.body(owner, path, r)
 		if err != nil {
@@ -290,7 +293,7 @@ func (p *pass) request(r *entities.Request, chain []*entities.Collection, names 
 		}
 		out.WebSocket = ws
 	default:
-		p.fail(joinPath(path, "protocol"), "protocol %q cannot be published", r.Protocol)
+		p.fail(joinPath(path, "protocol"), codeProtocolUnsupported, valueParams(string(r.Protocol)))
 	}
 
 	for _, e := range p.tree.examples[r.ID] {
@@ -324,7 +327,7 @@ func (p *pass) body(owner, path string, r *entities.Request) (Body, error) {
 		fields, err := p.form(owner, path, r.Body)
 		return Body{Type: string(r.BodyType), Fields: fields}, err
 	default:
-		p.fail(joinPath(path, "body"), "body type %q cannot be published", r.BodyType)
+		p.fail(joinPath(path, "body"), codeBodyTypeUnsupported, valueParams(string(r.BodyType)))
 		return Body{Type: string(r.BodyType)}, nil
 	}
 }
@@ -333,7 +336,7 @@ func (p *pass) example(e *entities.ResponseExample, requestPath string) Example 
 	owner := p.id(e.ID)
 	path := joinPath(requestPath, "examples", e.Name)
 	if e.StatusCode < 0 || e.StatusCode > 999 {
-		p.fail(joinPath(path, "status"), "status %d is outside 0–999", e.StatusCode)
+		p.fail(joinPath(path, "status"), codeStatusOutOfRange, valueParams(strconv.Itoa(e.StatusCode)))
 	}
 	p.bodyRefs(e.Body)
 	return Example{
@@ -399,8 +402,8 @@ func (p *pass) redact(r Redaction) {
 	p.report.Redactions = append(p.report.Redactions, r)
 }
 
-func (p *pass) fail(path, format string, args ...any) {
-	p.report.Errors = append(p.report.Errors, BlockingError{Path: path, Message: fmt.Sprintf(format, args...)})
+func (p *pass) fail(path, code string, params map[string]string) {
+	p.report.Errors = append(p.report.Errors, newBlockingError(path, code, params))
 }
 
 func (p *pass) addRefs(texts ...string) {

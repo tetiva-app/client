@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createSSRApp } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
@@ -19,6 +19,10 @@ import { getPublicationService } from '@/services'
 import { emptyPublicationStatus, type MockPublicationService } from '@/services/mock-publication'
 import type { PublishPlan } from '@/types/publication'
 import { inside, tagWith } from '@/test-utils/markup'
+import { currentLocale, formatNumber, setCurrentLocale } from '@/lib/locale'
+import { useSettingsStore } from '@/stores/settings'
+
+afterEach(() => { setCurrentLocale('en') })
 
 function published(over: Partial<PublicationStatus>): PublicationStatus {
   return {
@@ -30,8 +34,11 @@ function published(over: Partial<PublicationStatus>): PublicationStatus {
 }
 
 async function render(st: PublicationStatus, plan?: PublishPlan): Promise<string> {
+  // The settings store applies its own language when created; keep the one the test chose.
+  const locale = currentLocale.value
   const pinia = createPinia()
   setActivePinia(pinia)
+  useSettingsStore().setLanguage(locale)
   useCollectionStore().collectionsMap.set('c1', { id: 'c1', name: 'Petstore API', parentId: null, workspaceId: 'w1' } as never)
   usePublicationsStore().setStatus('c1', st)
   if (plan) {
@@ -188,5 +195,54 @@ describe('publication panel', () => {
     expect(html).toContain('data-testid="publication-unpublish-error"')
     expect(html).toContain('unknown service publication.v1')
     expect(html).toContain('data-testid="publication-unpublish"')
+  })
+})
+
+describe('publication panel in Russian', () => {
+  const SETTINGS = { environmentId: 'e1', environmentName: 'Prod', environmentMissing: true, includeScripts: true, publishAsIs: [] }
+
+  it('words the published state, the counters and the settings in Russian', async () => {
+    setCurrentLocale('ru')
+    const html = await render(published({
+      hasChanges: 'yes', counters: { views: 1284, imports: 57, downloads: 12 }, settings: SETTINGS,
+    }))
+
+    const header = inside(html, 'data-testid="publication-header"')
+    expect(header).toContain('Опубликована')
+    expect(header).toContain('Публичная')
+    expect(header).toContain('версия 2')
+    expect(header).toContain('Проверить и обновить…')
+    const counters = inside(html, 'data-testid="publication-counters"')
+    expect(counters).toContain('Просмотры')
+    expect(counters).toContain(formatNumber('ru', 1284))
+    expect(inside(html, 'data-testid="publication-settings"')).toContain('нет на этом устройстве')
+    expect(html).toContain('Страница пока показывает версию 2.')
+    expect(html).not.toContain('Published')
+  })
+
+  it('keeps the counter labels on one line with the full label in a title', async () => {
+    setCurrentLocale('ru')
+    const html = await render(published({}))
+
+    const label = tagWith(inside(html, 'data-testid="publication-counters"'), 'title="Открыли в Tetiva"')
+    expect(label).toContain('truncate')
+    expect(label).toContain('min-w-0')
+  })
+
+  it('says the environment is not on this device in English too', async () => {
+    const html = await render(published({ settings: SETTINGS }))
+
+    expect(inside(html, 'data-testid="publication-settings"')).toContain('not on this device')
+    expect(html).not.toContain('deleted')
+  })
+
+  it('offers the empty state in Russian', async () => {
+    setCurrentLocale('ru')
+    const html = await render(unpublished({}))
+
+    const empty = inside(html, 'data-testid="publication-empty"')
+    expect(empty).toContain('Опубликовать «Petstore API» как публичную страницу')
+    expect(inside(empty, 'data-testid="publication-publish"')).toContain('Опубликовать…')
+    expect(empty).toContain('Как выглядит страница')
   })
 })

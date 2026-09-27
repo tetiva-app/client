@@ -238,7 +238,7 @@ describe('examples across windows', () => {
   it('App.vue subscribes the main window the way openWindow does', () => {
     const app = readFileSync(fileURLToPath(new URL('../App.vue', import.meta.url)), 'utf8')
 
-    expect(app).toContain("useWindowEvents({ mode: 'main', ...exampleWindowEvents(examplesStore) })")
+    expect(app).toMatch(/useWindowEvents\(\{\s*mode: 'main',\s*\.\.\.exampleWindowEvents\(examplesStore\),/)
   })
 
   it('a closed window stops listening', async () => {

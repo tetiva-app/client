@@ -5,6 +5,7 @@ import { getEnvironmentService } from '@/services'
 import { emitWailsEvent } from '@/composables/useWindowEvents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { runMutation } from '@/stores/runMutation'
+import { contentSaved } from '@/lib/content-saved'
 
 export const useEnvironmentStore = defineStore('environments', () => {
   const environments = ref<Environment[]>([])
@@ -88,6 +89,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
     if (!data) return null
     environments.value = environments.value.map(e => (e.id === id ? data : e))
     emitWailsEvent('env:changed')
+    contentSaved()
     return data
   }
 
@@ -100,6 +102,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
     variablesMap.value.delete(id)
     variablesMap.value = new Map(variablesMap.value)
     emitWailsEvent('env:changed')
+    contentSaved()
   }
 
   async function setActive(id: string) {
@@ -152,6 +155,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
     variablesMap.value.set(environmentId, [...existing, data])
     variablesMap.value = new Map(variablesMap.value)
     emitWailsEvent('env:changed')
+    contentSaved()
     return data
   }
 
@@ -165,6 +169,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
     variablesMap.value.set(envId, vars.map(v => (v.id === req.id ? data : v)))
     variablesMap.value = new Map(variablesMap.value)
     emitWailsEvent('env:changed')
+    contentSaved()
     return data
   }
 
@@ -177,6 +182,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
     variablesMap.value.set(environmentId, vars.filter(v => v.id !== id))
     variablesMap.value = new Map(variablesMap.value)
     emitWailsEvent('env:changed')
+    contentSaved()
   }
 
   function getVariables(environmentId: string): Variable[] {

@@ -20,7 +20,6 @@ async function createCollectionWithRequests(page: Page, requestNames: string[]) 
     await reqDialog.getByPlaceholder('Request name').press('Enter');
   }
 
-  // Tab shortcuts are ignored while focus is still in the closing dialog.
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('[aria-placeholder="Enter request URL"]')).toBeVisible();
 }
@@ -110,6 +109,32 @@ test.describe('Keyboard Shortcuts', () => {
 
     await expect(page.getByRole('menu')).toBeVisible();
     await expect(tab2).toHaveClass(/border-b-primary/);
+  });
+
+  test('Cmd+, opens Settings', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('body').press('Meta+Comma');
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
+  });
+
+  test('Cmd+, under the Rename dialog leaves Settings closed and the dialog usable', async ({ page }) => {
+    await createCollectionWithRequests(page, ['Rename Me']);
+    const sidebar = page.locator('aside');
+    await sidebar.getByText('Rename Me').click({ button: 'right' });
+    await page.getByRole('menu').getByText('Rename').click();
+    const dialog = page.getByRole('dialog');
+    const input = dialog.locator('input');
+    await expect(input).toBeFocused();
+
+    await input.press('Meta+Comma');
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    await expect(page.getByTestId('settings-dialog')).toHaveCount(0);
+    await expect(input).toBeFocused();
+
+    await input.fill('Renamed Under Shortcut');
+    await input.press('Enter');
+    await expect(sidebar.getByText('Renamed Under Shortcut')).toBeVisible();
+    await expect(page.getByTestId('settings-dialog')).toHaveCount(0);
   });
 
   test('should handle Cmd+Enter for slow request (shows loading)', async ({ page }) => {

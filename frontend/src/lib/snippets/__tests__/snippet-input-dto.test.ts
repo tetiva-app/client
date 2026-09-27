@@ -39,7 +39,7 @@ const HTTP_FIXTURES = readdirSync(GO_CONTRACT_DIR)
   .filter((f) => goFixture(f).protocol === 'http')
   .sort()
 
-describe('Code tab: a Go reply that went through the Wails bindings', () => {
+describe('Snippet input: a Go reply that went through the Wails bindings', () => {
   it('carries postData as an own property even when Go left it out', async () => {
     const input = await throughBindings(goFixture('get_no_query.json'))
 

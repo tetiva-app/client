@@ -10,7 +10,7 @@ export function isEditingTarget(event: KeyboardEvent): boolean {
   return el.isContentEditable === true
 }
 
-// Open modal layer: Reka dialogs render with role="dialog"/"alertdialog", menus with role="menu".
+// Open modal layer: Reka dialogs use role="dialog"/"alertdialog", menus role="menu".
 export function isInsideOverlay(event: KeyboardEvent): boolean {
   const el = event.target as HTMLElement | null
   if (!el || typeof el.closest !== 'function') return false

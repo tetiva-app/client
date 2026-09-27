@@ -517,12 +517,13 @@ type flowStart struct {
 	owner  entities.AuthOwner
 	cfg    auth.OAuth2Config
 	port   string
+	locale string
 }
 
 func (m *flowManagerStub) StartAuthCode(_ context.Context, flowID string, owner entities.AuthOwner,
-	cfg auth.OAuth2Config, redirectPort string,
+	cfg auth.OAuth2Config, redirectPort, locale string,
 ) (auth.FlowInfo, error) {
-	m.codeStarts = append(m.codeStarts, flowStart{flowID: flowID, owner: owner, cfg: cfg, port: redirectPort})
+	m.codeStarts = append(m.codeStarts, flowStart{flowID: flowID, owner: owner, cfg: cfg, port: redirectPort, locale: locale})
 	if m.startErr != nil {
 		return auth.FlowInfo{}, m.startErr
 	}
@@ -569,8 +570,10 @@ func TestAuthService_StartAuthCodeFlow_ReturnsInfo(t *testing.T) {
 		ExpiresAt:    time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC),
 	}
 	id := uuid.NewString()
+	req := f.startRequest(id)
+	req.Locale = "ru"
 
-	res := f.svc.StartAuthCodeFlow(f.startRequest(id))
+	res := f.svc.StartAuthCodeFlow(req)
 
 	require.Nil(t, res.Error)
 	assert.Equal(t, "flow-1", res.Data.FlowID)
@@ -579,6 +582,7 @@ func TestAuthService_StartAuthCodeFlow_ReturnsInfo(t *testing.T) {
 	require.Len(t, f.flows.codeStarts, 1)
 	assert.Equal(t, id, f.flows.codeStarts[0].flowID)
 	assert.Equal(t, "31000", f.flows.codeStarts[0].port, "redirectPort comes from the substituted document")
+	assert.Equal(t, "ru", f.flows.codeStarts[0].locale)
 	assert.Equal(t, "https://idp.example/authorize", f.flows.codeStarts[0].cfg.AuthURL)
 	assert.Equal(t, entities.AuthOwner{
 		WorkspaceID: f.coll.WorkspaceID,

@@ -7,6 +7,8 @@ import { useTreeSelection } from '@/composables/useTreeSelection'
 import { isWailsEnvironment, getWindowService } from '@/services'
 import { useSidebarSearchStore, type RequestHitPreview } from '@/stores/sidebarSearch'
 import { useHighlight } from '@/composables/useHighlight'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { plural } from '@/lib/locale'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -14,6 +16,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { TREE_COPY } from './copy'
 
 const props = defineProps<{
   request: Request | RequestHitPreview
@@ -33,9 +36,11 @@ const paddingLeft = `${12 + props.depth * 16}px`
 
 const search = useSidebarSearchStore()
 const { isSelected, toggleSelect, rangeSelect, clearSelection, hasSelection, getSelectedIds } = useTreeSelection()
+const copy = useCopy(TREE_COPY)
+const locale = useLocale()
 
 const isMultiSelected = computed(() => isSelected(props.request.id) && hasSelection() && getSelectedIds().length > 1)
-const selectedCount = computed(() => getSelectedIds().length)
+const deleteSelectedLabel = computed(() => plural(locale.value, getSelectedIds().length, copy.value.menu.deleteItems))
 
 const parentCollectionId = computed(() => {
   const r = props.request as Request | RequestHitPreview
@@ -126,7 +131,7 @@ function handleMoreClick(e: MouseEvent) {
       >
         <span class="size-3.5 shrink-0" />
         <MethodBadge :method="request.method" :protocol="request.protocol" />
-        <span class="truncate flex-1" v-html="highlightedName" />
+        <span class="truncate flex-1" :title="request.name" v-html="highlightedName" />
         <div
           role="button"
           tabindex="0"
@@ -138,32 +143,32 @@ function handleMoreClick(e: MouseEvent) {
       </button>
     </ContextMenuTrigger>
 
-    <ContextMenuContent v-if="!isMultiSelected" class="w-48">
+    <ContextMenuContent v-if="!isMultiSelected" class="min-w-48">
       <ContextMenuItem @click="triggerRename">
-        Rename
+        {{ copy.menu.rename }}
       </ContextMenuItem>
       <ContextMenuItem @click="triggerMove">
-        Move to...
+        {{ copy.menu.moveTo }}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem
         class="text-destructive focus:text-destructive"
         @click="triggerDelete"
       >
-        Delete
+        {{ copy.menu.delete }}
       </ContextMenuItem>
     </ContextMenuContent>
 
-    <ContextMenuContent v-else class="w-48">
+    <ContextMenuContent v-else class="min-w-48">
       <ContextMenuItem @click="emit('move-selected')">
-        Move to...
+        {{ copy.menu.moveTo }}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem
         class="text-destructive focus:text-destructive"
         @click="emit('delete-selected')"
       >
-        Delete {{ selectedCount }} items
+        {{ deleteSelectedLabel }}
       </ContextMenuItem>
     </ContextMenuContent>
   </ContextMenu>

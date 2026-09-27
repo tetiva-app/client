@@ -1,4 +1,5 @@
 import type { Result } from '@/types/common'
+import type { Locale } from '@/lib/locale'
 
 export type TokenState = 'none' | 'valid' | 'expired-refreshable' | 'expired'
 
@@ -36,6 +37,7 @@ export type FlowState = 'idle' | 'starting' | 'pending' | 'done' | 'error' | 'ca
 // The flow id is minted here so the frontend can subscribe before the flow runs.
 export interface StartFlowReq extends AuthConfigReq {
   flowId: string
+  locale: Locale
 }
 
 // Both grants share the shape; the fields of the other one are empty.

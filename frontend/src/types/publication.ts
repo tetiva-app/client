@@ -45,6 +45,24 @@ export interface PublicationStatus {
   unpublishError: string
 }
 
+export type PublicationListReason = '' | 'not_logged_in' | 'no_capability' | 'offline'
+
+export interface PublicationListRequest {
+  workspaceId: string
+  remote: boolean
+}
+
+export interface PublicationListItem {
+  collectionId: string
+  name: string
+  status: PublicationStatus
+}
+
+export interface PublicationList {
+  reason: PublicationListReason
+  items: PublicationListItem[]
+}
+
 export interface HiddenVar {
   variableId: string
   key: string
@@ -73,6 +91,8 @@ export interface ScanWarning {
 
 export interface BlockingError {
   path: string
+  code: string
+  params: Record<string, string>
   message: string
 }
 

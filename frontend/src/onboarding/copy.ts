@@ -1,5 +1,3 @@
-import { pickLocale } from '@/whats-new/notes'
-
 export interface OnboardingChoiceCopy {
   title: string
   tagline: string
@@ -63,7 +61,7 @@ export const ONBOARDING_COPY: Record<'ru' | 'en', OnboardingCopy> = {
       subtitle: 'Выберите, как начать работу',
       local: {
         title: 'Работать локально',
-        tagline: 'Всё готово — отправляйте первый запрос прямо сейчас',
+        tagline: 'Всё готово\u00a0— отправляйте первый запрос прямо сейчас',
         points: [
           'HTTP, gRPC, GraphQL и WebSocket',
           'Коллекции, окружения, скрипты и тесты',
@@ -79,8 +77,8 @@ export const ONBOARDING_COPY: Record<'ru' | 'en', OnboardingCopy> = {
           'Копия данных в облаке, если с компьютером что-то случится',
         ],
       },
-      tourLink: 'Показать, что умеет Tetiva — около минуты',
-      hint: 'Аккаунт можно подключить позже — иконка облака на панели слева',
+      tourLink: 'Показать, что умеет Tetiva\u00a0— около минуты',
+      hint: 'Аккаунт можно подключить позже\u00a0— иконка облака на панели слева',
     },
     tour: {
       skip: 'Пропустить',
@@ -97,7 +95,7 @@ export const ONBOARDING_COPY: Record<'ru' | 'en', OnboardingCopy> = {
         },
         {
           title: 'gRPC без ручной сборки запроса',
-          body: 'Импортируйте .proto — методы и тело запроса берутся из схемы. Остаётся подставить значения.',
+          body: 'Импортируйте .proto\u00a0— методы и тело запроса берутся из схемы. Остаётся подставить значения.',
           alt: 'Список методов gRPC из импортированного .proto и тело запроса, собранное по схеме',
         },
         {
@@ -199,8 +197,4 @@ export const ONBOARDING_COPY: Record<'ru' | 'en', OnboardingCopy> = {
       indicatorTooltip: 'Confirm your email to turn sync on',
     },
   },
-}
-
-export function onboardingCopy(navLang: string): OnboardingCopy {
-  return ONBOARDING_COPY[pickLocale(navLang)]
 }

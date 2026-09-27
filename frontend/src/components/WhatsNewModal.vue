@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Sparkles, Wrench } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { notesFor, pickLocale, RELEASE_NOTES } from '@/whats-new/notes'
+import { notesFor, RELEASE_NOTES } from '@/whats-new/notes'
+import { useLocale } from '@/composables/useLocale'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 // Fall back to the newest entry when the running version ships no notes.
 const notes = notesFor(__APP_VERSION__) ?? RELEASE_NOTES[0]
-const locale = pickLocale(navigator.language)
-const copy = notes[locale]
+const locale = useLocale()
+const copy = computed(() => notes[locale.value])
 
-const t = locale === 'ru'
+const t = computed(() => locale.value === 'ru'
   ? { title: `Что нового в Tetiva ${notes.version}`, added: 'Новое', fixed: 'Исправлено', got: 'Понятно' }
-  : { title: `What's New in Tetiva ${notes.version}`, added: 'New', fixed: 'Fixed', got: 'Got it' }
+  : { title: `What's New in Tetiva ${notes.version}`, added: 'New', fixed: 'Fixed', got: 'Got it' })
 
 const open = ref(true)
 

@@ -3,6 +3,7 @@ import type { ResultError } from '@/types/common'
 import type { DeepLink, ImportConfirmRequest, ImportConfirmResult, ImportPreview } from '@/services'
 import { getDeepLinkService, getPortabilityService } from '@/services'
 import { guarded } from '@/lib/service-call'
+import { contentSaved } from '@/lib/content-saved'
 import { formatResultError, isUnreachable, UNREACHABLE_TEXT } from '@/lib/result-error'
 import { warningsToastMessage } from '@/lib/auth-warnings'
 import { useImportUi, type ImportSource } from '@/stores/importUi'
@@ -294,6 +295,7 @@ export function useImportFlow() {
     const warning = warningsToastMessage(result.warnings)
     if (warning) toast.info(warning, undefined, { sticky: true })
     await Promise.all([collections.fetchAll(wsId), useEnvironmentStore().fetchAll(wsId)])
+    contentSaved()
     const created = collections.collectionsMap.get(result.collectionId)
     if (created) useRequestStore().openCollectionTab(created.id, created.name)
   }

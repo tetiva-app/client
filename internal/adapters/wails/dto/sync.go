@@ -85,6 +85,7 @@ type ServerCapabilities struct {
 	ServerVersion    string `json:"serverVersion"`
 	DesktopSignIn    bool   `json:"desktopSignIn"`
 	SignInHost       string `json:"signInHost"`
+	SignInOrigin     string `json:"signInOrigin"`
 	RegistrationOpen bool   `json:"registrationOpen"`
 }
 

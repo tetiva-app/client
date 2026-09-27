@@ -15,6 +15,8 @@ import { removeEach } from '@/lib/bulk-delete'
 import { isModShortcut } from '@/lib/shortcut-guards'
 import { isRootCollection } from '@/lib/collections'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { fill, plural } from '@/lib/locale'
 import type { Collection } from '@/types/collection'
 import type { Request } from '@/types/request'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -33,6 +35,7 @@ import CreateRequestDialog from './CreateRequestDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import MoveToDialog from './MoveToDialog.vue'
+import { TREE_COPY } from './copy'
 
 const emit = defineEmits<{
   (e: 'select-request', request: Request): void
@@ -45,6 +48,8 @@ const publications = usePublicationsStore()
 const { hasSelection, clearSelection, setSelection, getSelectedIds } = useTreeSelection()
 const toast = useToast()
 const importFlow = useImportFlow()
+const copy = useCopy(TREE_COPY)
+const locale = useLocale()
 
 const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
 
@@ -136,10 +141,13 @@ function handleDelete(id: string) {
   const published = publishedCount([id])
   singleDelete.ask({
     payload: { kind: 'collection', id, version: collection.version },
-    title: 'Delete collection',
-    description: () => `Delete "${collection.name}" and all its contents? This action cannot be undone.`
-      + (published() ? ' The collection is published — its page will be taken down.' : ''),
-    confirmLabel: 'Delete',
+    title: () => copy.value.deleteCollection.title,
+    description: () => sentences(
+      fill(copy.value.deleteCollection.text, { name: collection.name }),
+      published() ? copy.value.deleteCollection.published : '',
+    ),
+    confirmLabel: () => copy.value.actions.delete,
+    failed: () => copy.value.results.deleteFailed,
   })
 }
 
@@ -175,9 +183,10 @@ function handleDeleteRequest(id: string) {
   if (!request) return
   singleDelete.ask({
     payload: { kind: 'request', id, version: request.version },
-    title: 'Delete request',
-    description: `Delete request "${request.name}"? This action cannot be undone.`,
-    confirmLabel: 'Delete',
+    title: () => copy.value.deleteRequest.title,
+    description: () => fill(copy.value.deleteRequest.text, { name: request.name }),
+    confirmLabel: () => copy.value.actions.delete,
+    failed: () => copy.value.results.deleteFailed,
   })
 }
 
@@ -193,10 +202,15 @@ function handleRequestCreated(request: Request) {
   emit('select-request', request)
 }
 
+function sentences(...parts: string[]): string {
+  return parts.filter(Boolean).join(' ')
+}
+
 function bulkPublishedNote(count: number): string {
+  const text = copy.value.deleteSelected
   if (count === 0) return ''
-  if (count === 1) return ' A published collection is among them — its page will be taken down.'
-  return ` ${count} published collections are among them — their pages will be taken down.`
+  if (count === 1) return text.publishedOne
+  return plural(locale.value, count, text.published)
 }
 
 function handleBulkDelete() {
@@ -204,9 +218,10 @@ function handleBulkDelete() {
   const published = publishedCount(ids)
   bulkDelete.ask({
     payload: ids,
-    title: 'Delete selected items',
-    description: () => `Delete all selected items? This action cannot be undone.${bulkPublishedNote(published())}`,
-    confirmLabel: 'Delete',
+    title: () => copy.value.deleteSelected.title,
+    description: () => sentences(copy.value.deleteSelected.text, bulkPublishedNote(published())),
+    confirmLabel: () => copy.value.actions.delete,
+    failed: () => copy.value.results.deleteFailed,
   })
 }
 
@@ -303,26 +318,26 @@ async function handleFileSelected(event: Event) {
 async function handleExportPostman(collectionId: string) {
   const service = await getPortabilityService()
   const wsId = useWorkspaceStore().activeWorkspace?.id
+  const text = copy.value.results
   if (!wsId) {
-    toast.error('No active workspace')
+    toast.error(text.noWorkspace)
     return
   }
   const result = await service.exportCollection(collectionId, wsId)
 
   if (result.error) {
-    toast.error(result.error.message)
+    toast.error(fill(text.exportFailed, { detail: result.error.message }))
     return
   }
   if (result.data.canceled) return
 
   if (result.data.path) {
-    toast.success(`Exported to ${result.data.path}`)
+    toast.success(fill(text.exported, { path: result.data.path }))
   }
   const { warnings } = result.data
-  const list = warningsToastMessage(warnings)
+  const list = warningsToastMessage(warnings, { more: rest => plural(locale.value, rest, text.moreWarnings) })
   if (list) {
-    const count = warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`
-    toast.info(`Exported with ${count}: ${list}`, undefined, { sticky: true })
+    toast.info(fill(plural(locale.value, warnings.length, text.exportedWithWarnings), { list }), undefined, { sticky: true })
   }
 }
 </script>
@@ -433,20 +448,20 @@ async function handleExportPostman(collectionId: string) {
   <RenameDialog
     v-if="renameTarget"
     v-model:open="renameDialogOpen"
-    title="Rename Collection"
-    :description="`Enter a new name for &quot;${renameTarget.name}&quot;.`"
+    :title="copy.rename.collectionTitle"
+    :description="fill(copy.rename.description, { name: renameTarget.name })"
     :initial-name="renameTarget.name"
-    placeholder="Collection name"
+    :placeholder="copy.names.collection"
     @save="handleCollectionRenameSave"
   />
 
   <RenameDialog
     v-if="renameRequestTarget"
     v-model:open="renameRequestDialogOpen"
-    title="Rename Request"
-    :description="`Enter a new name for &quot;${renameRequestTarget.name}&quot;.`"
+    :title="copy.rename.requestTitle"
+    :description="fill(copy.rename.description, { name: renameRequestTarget.name })"
     :initial-name="renameRequestTarget.name"
-    placeholder="Request name"
+    :placeholder="copy.names.request"
     @save="handleRequestRenameSave"
   />
 
@@ -470,6 +485,7 @@ async function handleExportPostman(collectionId: string) {
     :title="singleDelete.title.value"
     :description="singleDelete.description.value"
     :confirm-label="singleDelete.confirmLabel.value"
+    :cancel-label="copy.actions.cancel"
     destructive
     @update:open="singleDelete.open.value = $event"
     @confirm="singleDelete.confirm"
@@ -480,6 +496,7 @@ async function handleExportPostman(collectionId: string) {
     :title="bulkDelete.title.value"
     :description="bulkDelete.description.value"
     :confirm-label="bulkDelete.confirmLabel.value"
+    :cancel-label="copy.actions.cancel"
     destructive
     @update:open="bulkDelete.open.value = $event"
     @confirm="bulkDelete.confirm"

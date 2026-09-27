@@ -292,7 +292,16 @@ export const getPublicationService = memoize<PublicationServiceAPI>(async () => 
     return new WailsPublicationService()
   }
   const { MockPublicationService } = await import('./mock-publication')
-  return new MockPublicationService()
+  return new MockPublicationService({
+    async collections() {
+      const res = await (await getCollectionService()).list('')
+      return res.error ? [] : res.data
+    },
+    async requests(collectionId) {
+      const res = await (await getRequestService()).list(collectionId)
+      return res.error ? [] : res.data
+    },
+  })
 })
 
 export const getDeepLinkService = memoize<DeepLinkServiceAPI>(async () => {

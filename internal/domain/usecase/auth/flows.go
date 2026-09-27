@@ -160,7 +160,8 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 type FlowManager interface {
 	// StartAuthCode takes a caller-chosen flowID so the caller can subscribe before starting. One flow
 	// per owner: a second start cancels and joins the first, and FAILS if a committing flow misses JoinCap.
-	StartAuthCode(ctx context.Context, flowID string, owner entities.AuthOwner, cfg OAuth2Config, redirectPort string) (FlowInfo, error)
+	StartAuthCode(ctx context.Context, flowID string, owner entities.AuthOwner, cfg OAuth2Config,
+		redirectPort, locale string) (FlowInfo, error)
 	// StartDevice requests the device authorization before it returns, so the
 	// caller already has the user code to show.
 	StartDevice(ctx context.Context, flowID string, owner entities.AuthOwner, cfg OAuth2Config) (FlowInfo, error)
@@ -241,7 +242,7 @@ func NewFlowManager(repo TokenRepository, client *http.Client, sink FlowSink, op
 }
 
 func (m *manager) StartAuthCode(ctx context.Context, flowID string, owner entities.AuthOwner,
-	cfg OAuth2Config, redirectPort string,
+	cfg OAuth2Config, redirectPort, locale string,
 ) (FlowInfo, error) {
 	const funcName = "auth.FlowManager.StartAuthCode"
 
@@ -286,7 +287,7 @@ func (m *manager) StartAuthCode(ctx context.Context, flowID string, owner entiti
 		return FlowInfo{}, m.abandon(f, fmt.Errorf("%s: %w", funcName, err))
 	}
 
-	lb, err := m.bind(port, state, prev)
+	lb, err := m.bind(port, state, locale, prev)
 	if err != nil {
 		return FlowInfo{}, m.abandon(f, err)
 	}
@@ -782,8 +783,8 @@ func (m *manager) run(ctx context.Context, f *flow, work func(context.Context) (
 
 // bind opens the loopback listener. A busy fixed port is retried once: the owner's own previous flow
 // just released it, or a finished flow is still inside its drain window.
-func (m *manager) bind(port, state string, prev takeOverSnapshot) (*loopback, error) {
-	lb, err := startLoopback(port, state, m.opts)
+func (m *manager) bind(port, state, locale string, prev takeOverSnapshot) (*loopback, error) {
+	lb, err := startLoopback(port, state, locale, m.opts)
 	if err == nil {
 		return lb, nil
 	}
@@ -799,7 +800,7 @@ func (m *manager) bind(port, state string, prev takeOverSnapshot) (*loopback, er
 	default:
 		return nil, m.bindConflictError(port)
 	}
-	if lb, retryErr := startLoopback(port, state, m.opts); retryErr == nil {
+	if lb, retryErr := startLoopback(port, state, locale, m.opts); retryErr == nil {
 		return lb, nil
 	}
 

@@ -9,7 +9,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Pause, Play } from 'lucide-vue-next'
-import { onboardingCopy } from '@/onboarding/copy'
+import { ONBOARDING_COPY } from '@/onboarding/copy'
+import { useLocale } from '@/composables/useLocale'
 import { useSettingsStore } from '@/stores/settings'
 import protocolsClipDark from '@/assets/onboarding/protocols-dark.mp4'
 import protocolsPosterDark from '@/assets/onboarding/protocols-dark.webp'
@@ -59,14 +60,15 @@ const MEDIA = [
 // brings the choice screen back either way.
 const emit = defineEmits<{ (e: 'done'): void }>()
 
-const copy = onboardingCopy(navigator.language).tour
+const locale = useLocale()
+const copy = computed(() => ONBOARDING_COPY[locale.value].tour)
 const settings = useSettingsStore()
 
 // A dark clip on a light UI reads as a bug, so the themed pair is picked at
 // render time.
 const slides = computed<TourSlide[]>(() => {
   const theme = settings.effectiveTheme === 'dark' ? 'dark' : 'light'
-  return copy.slides.map((slide, i) => ({ ...slide, ...MEDIA[i][theme] }))
+  return copy.value.slides.map((slide, i) => ({ ...slide, ...MEDIA[i][theme] }))
 })
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false

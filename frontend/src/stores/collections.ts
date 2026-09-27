@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { runMutation } from '@/stores/runMutation'
 import { useToast } from '@/composables/useToast'
 import { adoptStashedValue } from '@/lib/description'
+import { contentSaved } from '@/lib/content-saved'
 
 export interface CollectionLocals {
   preScript: string
@@ -118,6 +119,7 @@ export const useCollectionStore = defineStore('collections', () => {
     collectionsMap.value.set(data.id, data)
     // Trigger reactivity by replacing the map
     collectionsMap.value = new Map(collectionsMap.value)
+    contentSaved()
     return data
   }
 
@@ -157,6 +159,7 @@ export const useCollectionStore = defineStore('collections', () => {
     const tabStore = useRequestStore()
     tabStore.syncCollectionTabName(id, data.name)
     emitWailsEvent('collection:updated')
+    contentSaved()
     return true
   }
 
@@ -181,6 +184,7 @@ export const useCollectionStore = defineStore('collections', () => {
     collectionsMap.value = new Map(collectionsMap.value)
     // Backend cascade-deleted the subtree — close its tabs too
     await useRequestStore().purgeCollectionSubtree(subtree)
+    contentSaved()
     return true
   }
 
@@ -192,6 +196,7 @@ export const useCollectionStore = defineStore('collections', () => {
     if (!data) return false
     collectionsMap.value.set(data.id, data)
     collectionsMap.value = new Map(collectionsMap.value)
+    contentSaved()
     return true
   }
 

@@ -71,6 +71,8 @@ describe('settings-storage', () => {
       availableUpdate: { version: '0.16.0', url: 'https://example.com/releases' },
       lastSeenWhatsNewVersion: '0.15.0',
       onboardingCompletedAt: '2026-07-27T09:30:00.000Z',
+      language: 'ru' as const,
+      publishingEnabled: false,
     }
     saveSettings(settings)
     expect(loadSettings()).toEqual(settings)
@@ -94,6 +96,29 @@ describe('settings-storage', () => {
   it('drops a non-string onboardingCompletedAt', () => {
     store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ onboardingCompletedAt: 1753600000000 }))
     expect(loadSettings().onboardingCompletedAt).toBeNull()
+  })
+
+  it('follows the system language unless a known one is stored', () => {
+    expect(loadSettings().language).toBe('system')
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ru' }))
+    expect(loadSettings().language).toBe('ru')
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'de' }))
+    expect(loadSettings().language).toBe('system')
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ language: 1 }))
+    expect(loadSettings().language).toBe('system')
+  })
+
+  it('keeps publishing on unless it was turned off', () => {
+    expect(loadSettings().publishingEnabled).toBe(true)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ publishingEnabled: false }))
+    expect(loadSettings().publishingEnabled).toBe(false)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ publishingEnabled: 'no' }))
+    expect(loadSettings().publishingEnabled).toBe(true)
   })
 
   it('drops a malformed availableUpdate to null', () => {

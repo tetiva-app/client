@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Folder, FolderOpen, ChevronRight } from 'lucide-vue-next'
 import { useCollectionStore } from '@/stores/collections'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { plural } from '@/lib/locale'
+import { TREE_COPY } from './copy'
 import type { CollectionTreeNode } from '@/types/collection'
 import {
   AlertDialog,
@@ -26,6 +29,9 @@ const emit = defineEmits<{
 }>()
 
 const store = useCollectionStore()
+const copy = useCopy(TREE_COPY)
+const locale = useLocale()
+const title = computed(() => plural(locale.value, props.selectedIds.length, copy.value.move.title))
 const selectedTargetId = ref<string | null>(null)
 const expandedIds = ref<Set<string>>(new Set())
 
@@ -83,9 +89,9 @@ function flattenVisible(nodes: CollectionTreeNode[], depth: number): Array<{ nod
   <AlertDialog :open="open" @update:open="emit('update:open', $event)">
     <AlertDialogContent class="max-w-sm">
       <AlertDialogHeader>
-        <AlertDialogTitle>Move {{ selectedIds.length }} item(s) to...</AlertDialogTitle>
+        <AlertDialogTitle>{{ title }}</AlertDialogTitle>
         <AlertDialogDescription>
-          Select a destination collection.
+          {{ copy.move.description }}
         </AlertDialogDescription>
       </AlertDialogHeader>
 
@@ -96,7 +102,7 @@ function flattenVisible(nodes: CollectionTreeNode[], depth: number): Array<{ nod
           @click="selectTarget(null)"
         >
           <Folder class="size-4 shrink-0 text-primary" />
-          <span>Root (top level)</span>
+          <span>{{ copy.move.root }}</span>
         </button>
 
         <button
@@ -123,9 +129,9 @@ function flattenVisible(nodes: CollectionTreeNode[], depth: number): Array<{ nod
       </div>
 
       <AlertDialogFooter>
-        <AlertDialogCancel @click="emit('update:open', false)">Cancel</AlertDialogCancel>
+        <AlertDialogCancel @click="emit('update:open', false)">{{ copy.actions.cancel }}</AlertDialogCancel>
         <AlertDialogAction @click="handleConfirm">
-          Move
+          {{ copy.actions.move }}
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>

@@ -20,7 +20,6 @@ export function useCopyAs(requestId: Ref<string>) {
   const codeDialog = useCodeDialogUi()
   const toast = useToast()
 
-  // The backend reads the stored row and dry-runs the pre-request script, so unsaved edits go first.
   async function copyCurlFromBackend(id: string, workspaceId: string) {
     if (!(await store.flushForHandoff(id))) {
       toast.error('Save the request first — it could not be saved')

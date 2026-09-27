@@ -43,13 +43,13 @@ test.describe('Move To Dialog', () => {
     await btnB.click({ button: 'right' });
     const menu = page.getByRole('menu');
     await expect(menu).toBeVisible();
-    await expect(menu.getByText('Move to...')).toBeVisible();
+    await expect(menu.getByText('Move to…')).toBeVisible();
 
-    await menu.getByText('Move to...').click();
+    await menu.getByText('Move to…').click();
 
     const moveDialog = page.getByRole('alertdialog');
     await expect(moveDialog).toBeVisible();
-    await expect(moveDialog).toContainText('Move 2 item(s) to...');
+    await expect(moveDialog).toContainText('Move 2 items to…');
   });
 
   test('should show Root and collections in move dialog', async ({ page }) => {
@@ -62,7 +62,7 @@ test.describe('Move To Dialog', () => {
     await btnA.click({ modifiers: ['Meta'] });
     await btnB.click({ modifiers: ['Meta'] });
     await btnA.click({ button: 'right' });
-    await page.getByRole('menu').getByText('Move to...').click();
+    await page.getByRole('menu').getByText('Move to…').click();
 
     const moveDialog = page.getByRole('alertdialog');
     await expect(moveDialog).toBeVisible();
@@ -82,7 +82,7 @@ test.describe('Move To Dialog', () => {
     await btn2.click({ modifiers: ['Meta'] });
 
     await btn1.click({ button: 'right' });
-    await page.getByRole('menu').getByText('Move to...').click();
+    await page.getByRole('menu').getByText('Move to…').click();
 
     const moveDialog = page.getByRole('alertdialog');
     await expect(moveDialog).toBeVisible();
@@ -116,7 +116,7 @@ test.describe('Move To Dialog', () => {
     await req2.click({ modifiers: ['Meta'] });
 
     await req2.click({ button: 'right' });
-    await page.getByRole('menu').getByText('Move to...').click();
+    await page.getByRole('menu').getByText('Move to…').click();
 
     const moveDialog = page.getByRole('alertdialog');
     await expect(moveDialog).toBeVisible();
@@ -141,7 +141,7 @@ test.describe('Move To Dialog', () => {
     await btn1.click({ modifiers: ['Meta'] });
     await btn2.click({ modifiers: ['Meta'] });
     await btn1.click({ button: 'right' });
-    await page.getByRole('menu').getByText('Move to...').click();
+    await page.getByRole('menu').getByText('Move to…').click();
 
     const moveDialog = page.getByRole('alertdialog');
     await expect(moveDialog).toBeVisible();

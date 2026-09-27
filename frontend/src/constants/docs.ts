@@ -1,11 +1,11 @@
 import { openExternal } from '@/lib/open-external'
+import { currentLocale, type Locale } from '@/lib/locale'
 
-// Landing serves /docs without a locale prefix and redirects by Accept-Language,
-// so the app links to the bare path. utm marks help traffic coming from the app.
-export const DOCS_BASE_URL = 'https://tetiva.app/docs'
+// Docs live under /en and /ru; the link follows the app language, not Accept-Language.
+export const SITE_URL = 'https://tetiva.app'
 
-export function buildDocsUrl(slug?: string): string {
-  const base = slug ? `${DOCS_BASE_URL}/${slug}` : DOCS_BASE_URL
+export function buildDocsUrl(slug?: string, locale: Locale = currentLocale.value): string {
+  const base = `${SITE_URL}/${locale}/docs${slug ? `/${slug}` : ''}`
   return `${base}?utm_source=app&utm_medium=help`
 }
 

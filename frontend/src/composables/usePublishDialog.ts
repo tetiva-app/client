@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import type { ResultError } from '@/types/common'
 import type { Environment } from '@/types/environment'
 import type {
   HiddenVar,
@@ -13,7 +14,8 @@ import { getEnvironmentService, getPublicationService } from '@/services'
 import { guarded } from '@/lib/service-call'
 import { formatResultError } from '@/lib/result-error'
 import { publicationErrorText, type PublicationErrorText } from '@/lib/publication-errors'
-import { pickLocale } from '@/whats-new/notes'
+import { currentLocale, type Locale } from '@/lib/locale'
+import { PUBLICATION_COPY } from '@/components/publication/copy'
 import { unavailableText, usePublicationsStore } from '@/stores/publications'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useCollectionStore } from '@/stores/collections'
@@ -30,10 +32,21 @@ export interface HiddenRow extends HiddenVar { toggle: boolean; on: boolean }
 export interface RemovedRow extends Redaction { toggle: boolean; on: boolean }
 export interface WarningRow extends ScanWarning { toggle: boolean; on: boolean }
 
+export type PublishError =
+  | { kind: 'save-failed' }
+  | { kind: 'publication'; error: ResultError }
+  | { kind: 'other'; error: ResultError }
+
 const MIN_PASSWORD_BYTES = 8
 const MAX_PASSWORD_BYTES = 72
-const PASSWORD_TEXT = 'Password must be 8–72 bytes'
-const SAVE_FAILED_TEXT = "Couldn't save your latest changes. Fix them and try again"
+
+function wordError(e: PublishError, locale: Locale): PublicationErrorText {
+  switch (e.kind) {
+    case 'save-failed': return { text: PUBLICATION_COPY[locale].dialog.saveFailed }
+    case 'publication': return publicationErrorText(e.error, locale)
+    case 'other': return { text: formatResultError(e.error) }
+  }
+}
 
 function warningSignature(p: PublishPreview | null): string {
   return (p?.warnings ?? []).map(w => w.selector).sort().join('\n')
@@ -53,7 +66,7 @@ export function usePublishDialog() {
 
   const status = ref<PublicationStatus | null>(null)
   const loading = ref(false)
-  const loadError = ref('')
+  const loadFailed = ref<string | null>(null)
   const environments = ref<Environment[]>([])
 
   const visibility = ref<Visibility>('public')
@@ -65,14 +78,22 @@ export function usePublishDialog() {
 
   const preview = ref<PublishPreview | null>(null)
   const previewing = ref(false)
-  const previewError = ref('')
+  const previewFailure = ref<PublishError | null>(null)
   const acknowledged = ref(false)
 
   const featureLocked = ref(false)
   const plan = ref<PublishPlan | null>(null)
   const confirmPublicOpen = ref(false)
   const publishing = ref(false)
-  const error = ref<PublicationErrorText | null>(null)
+  const error = ref<PublishError | null>(null)
+
+  const copy = computed(() => PUBLICATION_COPY[currentLocale.value].dialog)
+  const errorText = computed(() => (error.value ? wordError(error.value, currentLocale.value) : null))
+  const previewError = computed(() => (previewFailure.value ? wordError(previewFailure.value, currentLocale.value).text : ''))
+  const loadError = computed(() => {
+    const id = loadFailed.value
+    return id === null ? '' : publications.errorOf(id) || copy.value.loadFailed
+  })
 
   const isUpdate = computed(() => status.value?.published === true)
 
@@ -82,7 +103,7 @@ export function usePublishDialog() {
   })
 
   const manageText = computed(() =>
-    status.value?.published && !status.value.canManage ? "You can't manage this publication" : '')
+    status.value?.published && !status.value.canManage ? copy.value.manage : '')
 
   const publishable = computed(() => status.value?.available === true && !manageText.value)
 
@@ -96,7 +117,7 @@ export function usePublishDialog() {
   const passwordError = computed(() => {
     if (visibility.value !== 'password' || password.value === '') return ''
     const bytes = new TextEncoder().encode(password.value).length
-    return bytes < MIN_PASSWORD_BYTES || bytes > MAX_PASSWORD_BYTES ? PASSWORD_TEXT : ''
+    return bytes < MIN_PASSWORD_BYTES || bytes > MAX_PASSWORD_BYTES ? copy.value.passwordInvalid : ''
   })
 
   const passwordMissing = computed(() =>
@@ -156,7 +177,7 @@ export function usePublishDialog() {
 
   function reset() {
     status.value = null
-    loadError.value = ''
+    loadFailed.value = null
     environments.value = []
     visibility.value = 'public'
     password.value = ''
@@ -166,7 +187,7 @@ export function usePublishDialog() {
     publishAsIs.value = []
     preview.value = null
     previewing.value = false
-    previewError.value = ''
+    previewFailure.value = null
     acknowledged.value = false
     featureLocked.value = false
     plan.value = null
@@ -208,7 +229,7 @@ export function usePublishDialog() {
     if (target !== t) return
     loading.value = false
     status.value = st
-    if (!st) loadError.value = publications.errorOf(t.id) || "Couldn't load the publication status"
+    if (!st) loadFailed.value = t.id
     environments.value = envs
     applyStatus(st, envs)
     if (publishable.value) await refreshPreview()
@@ -224,13 +245,13 @@ export function usePublishDialog() {
     if (!t) return
     const seq = ++previewSeq
     previewing.value = true
-    previewError.value = ''
+    previewFailure.value = null
     const saved = await saveEdits(t)
     if (seq !== previewSeq || target !== t) return
     if (!saved) {
       previewing.value = false
       preview.value = null
-      previewError.value = SAVE_FAILED_TEXT
+      previewFailure.value = { kind: 'save-failed' }
       return
     }
     const res = await guarded((await getPublicationService()).preview({
@@ -244,7 +265,7 @@ export function usePublishDialog() {
     previewing.value = false
     if (res.error) {
       preview.value = null
-      previewError.value = publicationErrorText(res.error).text
+      previewFailure.value = { kind: 'publication', error: res.error }
       return
     }
     if (warningSignature(res.data) !== warningSignature(preview.value)) acknowledged.value = false
@@ -280,7 +301,7 @@ export function usePublishDialog() {
     if (!envId) return
     const res = await guarded((await getPublicationService()).markVariableSecret(envId, variableId))
     if (res.error) {
-      error.value = { text: formatResultError(res.error) }
+      error.value = { kind: 'other', error: res.error }
       return
     }
     const selector = preview.value?.hiddenVars.find(h => h.variableId === variableId)?.selector
@@ -302,7 +323,7 @@ export function usePublishDialog() {
     error.value = null
     if (!(await saveEdits(t))) {
       publishing.value = false
-      if (target === t) error.value = { text: SAVE_FAILED_TEXT }
+      if (target === t) error.value = { kind: 'save-failed' }
       return null
     }
     const res = await guarded((await getPublicationService()).publish({
@@ -313,26 +334,28 @@ export function usePublishDialog() {
       publishAsIs: [...publishAsIs.value],
       visibility: visibility.value,
       password: visibility.value === 'password' && password.value !== '' ? password.value : null,
-      locale: pickLocale(typeof navigator === 'undefined' ? '' : navigator.language ?? ''),
+      locale: currentLocale.value,
       confirmMakePublic: confirmedPublic,
       acknowledgedWarnings: acknowledged.value,
       previewHash: p.previewHash,
     }))
     publishing.value = false
+    publications.notePublishResult(res.error ?? null)
+    if (!res.error) void publications.refreshList({ remote: true })
     if (target !== t) return null
     if (!res.error) {
       publications.setStatus(t.id, res.data)
       status.value = res.data
       return res.data
     }
-    const text = publicationErrorText(res.error)
-    if (text.action === 'confirm-public') {
+    const { action } = publicationErrorText(res.error)
+    if (action === 'confirm-public') {
       confirmPublicOpen.value = true
       return null
     }
     if (res.error.reason === 'PUBLISH_FEATURE_REQUIRED') featureLocked.value = true
-    error.value = text
-    if (text.action === 'review-again') await refreshPreview()
+    error.value = { kind: 'publication', error: res.error }
+    if (action === 'review-again') await refreshPreview()
     return null
   }
 
@@ -380,6 +403,7 @@ export function usePublishDialog() {
     confirmPublicOpen,
     publishing,
     error,
+    errorText,
     isUpdate,
     unavailableText: unavailable,
     manageText,

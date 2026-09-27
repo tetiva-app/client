@@ -1110,6 +1110,7 @@ func (s *SyncService) GetServerCapabilities(req dto.ServerCapabilitiesRequest) R
 		} else {
 			out.DesktopSignIn = true
 			out.SignInHost = u.Hostname()
+			out.SignInOrigin = u.Scheme + "://" + u.Host
 		}
 	}
 	return OK(out)

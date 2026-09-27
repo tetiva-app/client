@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useCopy } from '@/composables/useLocale'
+import { TREE_COPY } from './copy'
 
 const props = defineProps<{
   parentId: string | null
@@ -19,6 +21,7 @@ const props = defineProps<{
 const open = defineModel<boolean>('open', { required: true })
 
 const store = useCollectionStore()
+const copy = useCopy(TREE_COPY)
 const name = ref('')
 const inputRef = ref<InstanceType<typeof Input> | null>(null)
 const submitting = ref(false)
@@ -55,17 +58,17 @@ function handleKeydown(event: KeyboardEvent) {
     <DialogContent class="sm:max-w-md">
       <DialogHeader>
         <DialogTitle>
-          {{ parentId ? 'New Sub-Collection' : 'New Collection' }}
+          {{ parentId ? copy.create.subCollectionTitle : copy.create.collectionTitle }}
         </DialogTitle>
         <DialogDescription>
-          Enter a name for the {{ parentId ? 'sub-collection' : 'collection' }}.
+          {{ parentId ? copy.create.subCollectionDescription : copy.create.collectionDescription }}
         </DialogDescription>
       </DialogHeader>
 
       <Input
         ref="inputRef"
         v-model="name"
-        placeholder="Collection name"
+        :placeholder="copy.names.collection"
         class="h-8"
         autofocus
         @keydown="handleKeydown"
@@ -73,10 +76,10 @@ function handleKeydown(event: KeyboardEvent) {
 
       <DialogFooter>
         <Button variant="outline" size="sm" @click="open = false">
-          Cancel
+          {{ copy.actions.cancel }}
         </Button>
         <Button size="sm" :disabled="!name.trim() || submitting" @click="handleCreate">
-          Create
+          {{ copy.actions.create }}
         </Button>
       </DialogFooter>
     </DialogContent>

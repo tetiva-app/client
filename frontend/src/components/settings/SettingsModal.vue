@@ -1,26 +1,79 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { Sun, Moon, Monitor, Eye, EyeOff, Copy, Check, ChevronDown } from 'lucide-vue-next'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Switch } from '@/components/ui/switch'
+import { computed, ref, watch } from 'vue'
+import { Code, Download, Info, Monitor, Plug, Radio, Search, X } from 'lucide-vue-next'
+import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import InterfaceSection from './sections/InterfaceSection.vue'
+import EditorSection from './sections/EditorSection.vue'
+import PublishingSection from './sections/PublishingSection.vue'
+import McpSection from './sections/McpSection.vue'
+import UpdatesSection from './sections/UpdatesSection.vue'
+import AboutSection from './sections/AboutSection.vue'
+import { SETTINGS_COPY, SETTINGS_SEARCH_INDEX } from './copy'
+import { useCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
 import { useSettingsStore } from '@/stores/settings'
-import { useWhatsNewUi } from '@/stores/whatsNewUi'
+import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { useOnboardingUi } from '@/stores/onboardingUi'
-import { FONT_SIZE_OPTIONS, type ThemePreference } from '@/lib/settings-storage'
-import { checkForUpdates, type UpdateCheckResult } from '@/lib/updates'
-import { openExternal } from '@/lib/open-external'
-import { openDocs } from '@/constants/docs'
-import HelpLink from '@/components/ui/HelpLink.vue'
-import { getSettingsService, type MCPSettings } from '@/services'
-import { buildMcpPreset, isNetworkExposedAddr, MCP_CLIENTS, type McpClient } from '@/lib/mcp-config-presets'
+import { searchSettings, SETTINGS_SECTIONS, type SettingsSectionId } from '@/lib/settings-search'
+import { isNewerVersion } from '@/lib/semver'
+import { isMac } from '@/lib/platform'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
 
 const settings = useSettingsStore()
-const whatsNewUi = useWhatsNewUi()
+const ui = useSettingsModalUi()
 const onboardingUi = useOnboardingUi()
+const copy = useCopy(SETTINGS_COPY)
 const appVersion = __APP_VERSION__
+const shortcut = isMac() ? '⌘,' : 'Ctrl+,'
+
+const SECTION_ICONS = {
+  interface: Monitor, editor: Code, publishing: Radio, mcp: Plug, updates: Download, about: Info,
+} as const
+
+const SECTION_COMPONENTS = {
+  interface: InterfaceSection,
+  editor: EditorSection,
+  publishing: PublishingSection,
+  mcp: McpSection,
+  updates: UpdatesSection,
+  about: AboutSection,
+} as const
+
+const query = ref('')
+const searching = computed(() => query.value.trim() !== '')
+const hits = computed(() => searchSettings(query.value, SETTINGS_SEARCH_INDEX))
+const nothingFound = computed(() => searching.value && hits.value.size === 0)
+
+const current = computed<SettingsSectionId>(() => {
+  if (!searching.value || hits.value.size === 0 || hits.value.has(ui.section)) return ui.section
+  return SETTINGS_SECTIONS.find((id) => hits.value.has(id)) ?? ui.section
+})
+const visibleRows = computed(() => (searching.value ? hits.value.get(current.value) ?? new Set<string>() : null))
+
+const updateAvailable = computed(() =>
+  settings.availableUpdate !== null && isNewerVersion(settings.availableUpdate.version, appVersion))
+
+const scroller = ref<HTMLElement | null>(null)
+
+watch(current, (id) => {
+  ui.section = id
+  if (scroller.value) scroller.value.scrollTop = 0
+})
+
+watch(() => props.open, (open) => { if (open) query.value = '' })
+
+function selectSection(id: SettingsSectionId) {
+  if (searching.value && !hits.value.has(id)) query.value = ''
+  ui.section = id
+}
+
+function onEscape(e: KeyboardEvent) {
+  if (!searching.value) return
+  e.preventDefault()
+  query.value = ''
+}
 
 // Clearing the flag replays a genuine first launch; the welcome screen writes it
 // back when dismissed. Settings closes so the two dialogs don't stack.
@@ -29,415 +82,114 @@ function showWelcome() {
   onboardingUi.show()
   emit('update:open', false)
 }
-
-const themeOptions: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: Monitor },
-]
-
-const checking = ref(false)
-const updateResult = ref<UpdateCheckResult | null>(null)
-
-async function runUpdateCheck() {
-  checking.value = true
-  updateResult.value = null
-  try {
-    const result = await checkForUpdates(appVersion)
-    updateResult.value = result
-    // A manual check writes through to the persisted store so the badge and
-    // throttle stay in sync with what the user just saw. Errors leave it alone.
-    if (result.status === 'update-available') {
-      settings.setAvailableUpdate({ version: result.version, url: result.url })
-      settings.setLastUpdateCheckAt(new Date().toISOString())
-    } else if (result.status === 'up-to-date') {
-      settings.setAvailableUpdate(null)
-      settings.setLastUpdateCheckAt(new Date().toISOString())
-    }
-  } finally {
-    checking.value = false
-  }
-}
-
-function downloadUpdate() {
-  const update = settings.availableUpdate
-  if (update) void openExternal(update.url)
-}
-
-const statusText = computed(() => {
-  const r = updateResult.value
-  if (!r) return ''
-  if (r.status === 'up-to-date') return "You're up to date"
-  if (r.status === 'update-available') return `v${r.version} available`
-  return "Couldn't reach the update server"
-})
-
-const statusClass = computed(() => {
-  const r = updateResult.value
-  if (r?.status === 'up-to-date') return 'text-[var(--gc-success)]'
-  if (r?.status === 'update-available') return 'text-primary cursor-pointer underline'
-  return 'text-muted-foreground'
-})
-
-function onStatusClick() {
-  const r = updateResult.value
-  if (r?.status === 'update-available') void openExternal(r.url)
-}
-
-const mcp = ref<MCPSettings | null>(null)
-const mcpDraft = ref<{ enabled: boolean; addr: string; requireToken: boolean }>({
-  enabled: false,
-  addr: '127.0.0.1:9300',
-  requireToken: true,
-})
-const mcpError = ref('')
-const mcpClient = ref<McpClient>('claude')
-const mcpCopied = ref(false)
-const mcpTokenCopied = ref(false)
-const mcpTokenVisible = ref(false)
-const mcpRegenArmed = ref(false)
-const mcpRequireOffArmed = ref(false)
-const mcpAddrExposed = computed(() => isNetworkExposedAddr(mcpDraft.value.addr))
-const mcpTokenDisplay = computed(() => {
-  const token = mcp.value?.token ?? ''
-  if (!token) return '—'
-  return mcpTokenVisible.value ? token : '•'.repeat(Math.min(token.length, 24))
-})
-
-async function loadMcp() {
-  mcpError.value = ''
-  mcpTokenVisible.value = false
-  mcpRegenArmed.value = false
-  mcpRequireOffArmed.value = false
-  const svc = await getSettingsService()
-  const res = await svc.getMCPSettings()
-  if (res.error) { mcp.value = null; return }
-  mcp.value = res.data
-  mcpDraft.value = { enabled: res.data.enabled, addr: res.data.addr, requireToken: res.data.requireToken }
-}
-
-async function saveMcp() {
-  if (!mcp.value || mcp.value.envManaged) return
-  mcpError.value = ''
-  const svc = await getSettingsService()
-  const res = await svc.setMCPSettings({
-    enabled: mcpDraft.value.enabled,
-    addr: mcpDraft.value.addr,
-    requireToken: mcpDraft.value.requireToken,
-  })
-  if (res.error) {
-    mcpError.value = res.error.fields?.addr ?? res.error.message
-    // revert draft to last good persisted state
-    mcpDraft.value = { enabled: mcp.value.enabled, addr: mcp.value.addr, requireToken: mcp.value.requireToken }
-    return
-  }
-  mcp.value = res.data
-}
-
-// Turning the guard off exposes every collection to any local process, so it
-// takes a second click; turning it back on is harmless and saves immediately.
-function setRequireToken(v: boolean) {
-  if (!v && !mcpRequireOffArmed.value) {
-    mcpRequireOffArmed.value = true
-    setTimeout(() => { mcpRequireOffArmed.value = false }, 4000)
-    return
-  }
-  mcpRequireOffArmed.value = false
-  mcpDraft.value.requireToken = v
-  void saveMcp()
-}
-
-// Two-step so a stray click cannot break every configured agent at once.
-async function regenerateMcpToken() {
-  if (!mcpRegenArmed.value) {
-    mcpRegenArmed.value = true
-    setTimeout(() => { mcpRegenArmed.value = false }, 4000)
-    return
-  }
-  mcpRegenArmed.value = false
-  mcpError.value = ''
-  const svc = await getSettingsService()
-  const res = await svc.regenerateMCPToken()
-  if (res.error) { mcpError.value = res.error.message; return }
-  mcp.value = res.data
-  mcpTokenVisible.value = true
-}
-
-async function copyText(text: string) {
-  try {
-    // navigator.clipboard is unreliable in the Wails WebView after awaited
-    // backend calls — prefer the runtime Clipboard with a browser fallback.
-    const { Clipboard } = await import('@wailsio/runtime')
-    await Clipboard.SetText(text)
-  } catch {
-    await navigator.clipboard.writeText(text)
-  }
-}
-
-async function copyMcpConfig() {
-  if (!mcp.value) return
-  await copyText(buildMcpPreset(mcpClient.value, mcp.value.sseUrl, mcp.value.requireToken ? mcp.value.token : ''))
-  mcpCopied.value = true
-  setTimeout(() => { mcpCopied.value = false }, 1500)
-}
-
-// The docs tell people to paste the token into `claude mcp add --header`, which
-// needs the raw value rather than a whole config block.
-async function copyMcpToken() {
-  if (!mcp.value?.token) return
-  await copyText(mcp.value.token)
-  mcpTokenCopied.value = true
-  setTimeout(() => { mcpTokenCopied.value = false }, 1500)
-}
-
-watch(() => props.open, (open) => { if (open) void loadMcp() }, { immediate: true })
 </script>
 
 <template>
   <Dialog :open="open" @update:open="(v) => emit('update:open', v)">
-    <DialogContent class="sm:max-w-[480px] max-h-[calc(100vh-2rem)] overflow-y-auto">
-      <DialogHeader>
-        <DialogTitle>Settings</DialogTitle>
-      </DialogHeader>
-
-      <div class="flex flex-col gap-5 py-1">
-        <section class="flex flex-col gap-3">
-          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Appearance</h3>
-          <div class="flex items-center justify-between">
-            <span class="text-[13px]">Theme</span>
-            <div class="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5">
-              <button
-                v-for="opt in themeOptions"
-                :key="opt.value"
-                type="button"
-                class="flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-xs transition-colors"
-                :class="settings.theme === opt.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'"
-                @click="settings.theme = opt.value"
-              >
-                <component :is="opt.icon" class="size-3.5" />
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="flex flex-col gap-3 border-t border-border pt-4">
-          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Editor</h3>
-          <div class="flex items-center justify-between">
-            <span class="text-[13px]">Font size</span>
-            <div class="relative">
-              <select
-                v-model.number="settings.editorFontSize"
-                class="h-8 cursor-pointer appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option v-for="size in FONT_SIZE_OPTIONS" :key="size" :value="size">{{ size }} px</option>
-              </select>
-              <ChevronDown class="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-            </div>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[13px]">Word wrap</span>
-            <Switch v-model="settings.editorWordWrap" />
-          </div>
-        </section>
-
-        <section class="flex flex-col gap-3 border-t border-border pt-4">
-          <div class="flex items-center gap-1">
-            <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MCP / DevTools</h3>
-            <HelpLink slug="mcp-server" />
-          </div>
-
-          <template v-if="mcp">
-            <div class="flex items-center justify-between">
-              <span class="text-[13px]">Status</span>
-              <span class="text-[11px]" :class="mcp.running ? 'text-[var(--gc-success)]' : 'text-muted-foreground'">
-                {{ mcp.running ? '● Running' : '○ Stopped' }}
-              </span>
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <span class="shrink-0 text-[13px]">Endpoint</span>
-              <code class="truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{{ mcp.sseUrl }}</code>
-            </div>
-
-            <div class="flex items-center justify-between gap-2">
-              <span class="shrink-0 text-[13px]">Access token</span>
-              <div class="flex min-w-0 items-center gap-1">
-                <code class="truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{{ mcpTokenDisplay }}</code>
-                <button
-                  type="button"
-                  class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border hover:bg-accent"
-                  :title="mcpTokenVisible ? 'Hide token' : 'Show token'"
-                  @click="mcpTokenVisible = !mcpTokenVisible"
-                >
-                  <component :is="mcpTokenVisible ? EyeOff : Eye" class="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border hover:bg-accent"
-                  :title="mcpTokenCopied ? 'Copied' : 'Copy token'"
-                  @click="copyMcpToken"
-                >
-                  <component :is="mcpTokenCopied ? Check : Copy" class="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="h-7 shrink-0 cursor-pointer rounded-md border px-2 text-[11px] hover:bg-accent"
-                  :class="mcpRegenArmed ? 'border-destructive text-destructive' : 'border-border'"
-                  @click="regenerateMcpToken"
-                >
-                  {{ mcpRegenArmed ? 'Confirm' : 'Regenerate' }}
-                </button>
-              </div>
-            </div>
-            <p v-if="mcpRegenArmed" class="text-[11px] text-[var(--gc-warning)]">
-              A new token breaks every agent still configured with the old one.
-            </p>
-
-            <div class="flex items-center justify-between">
-              <span class="text-[13px]">Require token</span>
-              <Switch
-                :model-value="mcpDraft.requireToken"
-                :disabled="mcp.envManaged"
-                @update:model-value="setRequireToken"
-              />
-            </div>
-            <p v-if="mcpRequireOffArmed" class="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
-              Click the switch again to turn the token check off. Any process on this machine — a browser tab
-              included — will then read your collections and variables and send requests as you.
-            </p>
-            <p v-else-if="!mcpDraft.requireToken" class="rounded-md border border-[var(--gc-warning)]/30 bg-[var(--gc-warning)]/5 px-2 py-1 text-[11px] text-[var(--gc-warning)]">
-              Any process on this machine — including a browser tab — can then read your collections and variables and send requests as you.
-            </p>
-
-            <div class="flex items-center justify-between">
-              <div class="relative">
-                <select
-                  v-model="mcpClient"
-                  class="h-8 cursor-pointer appearance-none rounded-md border border-input bg-background pl-2 pr-7 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option v-for="c in MCP_CLIENTS" :key="c.value" :value="c.value">{{ c.label }}</option>
-                </select>
-                <ChevronDown class="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-              </div>
-              <button
-                type="button"
-                class="h-8 cursor-pointer rounded-md border border-border px-3 text-[13px] hover:bg-accent"
-                @click="copyMcpConfig"
-              >
-                {{ mcpCopied ? 'Copied' : 'Copy config' }}
-              </button>
-            </div>
-            <p class="text-[11px] text-muted-foreground">
-              The server takes the token either as <code>Authorization: Bearer …</code> or as <code>?token=…</code> —
-              Copy config picks the form your client understands.
-            </p>
-
-            <div class="flex items-center justify-between">
-              <span class="text-[13px]">Enable</span>
-              <Switch
-                :model-value="mcpDraft.enabled"
-                :disabled="mcp.envManaged"
-                @update:model-value="(v: boolean) => { mcpDraft.enabled = v; saveMcp() }"
-              />
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-[13px]">Port / address</span>
-              <input
-                v-model="mcpDraft.addr"
-                :disabled="mcp.envManaged"
-                class="h-8 w-36 rounded-md border border-input bg-background px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                :class="mcpAddrExposed ? 'border-[var(--gc-warning)]' : ''"
-                placeholder="127.0.0.1:9300"
-                @change="saveMcp"
-              />
-            </div>
-            <p
-              v-if="mcpAddrExposed"
-              class="rounded-md border border-[var(--gc-warning)]/30 bg-[var(--gc-warning)]/5 px-2 py-1 text-[11px] text-[var(--gc-warning)]"
-            >
-              Reachable from your network. The token is the only thing standing between anyone who can reach this
-              address and your collections — keep 127.0.0.1 unless you need remote access, and never turn the token off here.
-            </p>
-
-            <p v-if="mcpError" class="text-[11px] text-destructive">{{ mcpError }}</p>
-            <p v-else-if="mcp.envManaged" class="text-[11px] text-muted-foreground">Managed by environment variables.</p>
-            <p v-else-if="mcp.restartRequired" class="text-[11px] text-[var(--gc-warning)]">Restart required to apply.</p>
-            <p class="text-[11px] text-muted-foreground">
-              Enabling MCP and changing the address take effect after you restart the app; the token and the
-              Require token switch apply to the running server right away.
-            </p>
-          </template>
-          <p v-else class="text-[11px] text-muted-foreground">MCP info unavailable.</p>
-        </section>
-
-        <section class="flex flex-col gap-3 border-t border-border pt-4">
-          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Updates</h3>
-          <div class="flex items-center justify-between">
-            <span class="text-[13px]">Check for updates automatically</span>
-            <Switch
-              :model-value="settings.checkUpdatesAutomatically"
-              @update:model-value="(v: boolean) => settings.setCheckUpdatesAutomatically(v)"
+    <DialogContent
+      data-testid="settings-dialog"
+      :show-close-button="false"
+      class="flex h-[min(620px,calc(100vh-2rem))] w-[min(880px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
+      @escape-key-down="onEscape"
+    >
+      <nav
+        data-testid="settings-nav"
+        class="flex w-52 shrink-0 flex-col border-r border-border bg-sidebar px-2 pb-2 pt-3.5"
+        :aria-label="copy.title"
+      >
+        <DialogTitle class="truncate px-1.5 pb-2.5 text-[15px] font-semibold">{{ copy.title }}</DialogTitle>
+        <label class="relative mb-2 block">
+          <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            v-model="query"
+            type="text"
+            data-testid="settings-search"
+            spellcheck="false"
+            autocomplete="off"
+            :placeholder="copy.searchPlaceholder"
+            :aria-label="copy.searchPlaceholder"
+            class="h-8 w-full min-w-0 rounded-md border border-input bg-background pl-8 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </label>
+        <div class="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto">
+          <button
+            v-for="id in SETTINGS_SECTIONS"
+            :key="id"
+            type="button"
+            :data-testid="`settings-nav-${id}`"
+            :aria-current="current === id && !nothingFound ? 'page' : undefined"
+            class="flex h-8 w-full min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors"
+            :class="[
+              current === id && !nothingFound ? 'bg-primary/15 text-foreground' : 'text-foreground/85 hover:bg-accent',
+              searching && !hits.has(id) ? 'opacity-40' : '',
+            ]"
+            @click="selectSection(id)"
+          >
+            <component
+              :is="SECTION_ICONS[id]"
+              class="size-3.5 shrink-0"
+              :class="current === id && !nothingFound ? 'text-primary' : 'text-muted-foreground'"
             />
-          </div>
-          <div v-if="settings.availableUpdate" class="flex items-center justify-between">
-            <span class="text-[13px]">Version {{ settings.availableUpdate.version }} available</span>
-            <button
-              type="button"
-              class="h-8 cursor-pointer rounded-md border border-border px-3 text-[13px] hover:bg-accent"
-              @click="downloadUpdate"
-            >
-              Download
-            </button>
-          </div>
-          <div class="flex items-center justify-between">
             <span
-              class="min-h-[14px] text-[11px]"
-              :class="statusClass"
-              @click="onStatusClick"
-            >{{ statusText }}</span>
-            <button
-              type="button"
-              class="h-8 cursor-pointer rounded-md border border-border px-3 text-[13px] hover:bg-accent disabled:cursor-default disabled:opacity-50"
-              :disabled="checking"
-              @click="runUpdateCheck"
-            >
-              {{ checking ? 'Checking…' : 'Check now' }}
-            </button>
-          </div>
-          <div class="flex items-center gap-4">
-            <button
-              type="button"
-              class="cursor-pointer text-[13px] text-primary hover:underline"
-              @click="whatsNewUi.show()"
-            >
-              What's New
-            </button>
-            <button
-              type="button"
-              data-testid="show-welcome"
-              class="cursor-pointer text-[13px] text-primary hover:underline"
-              @click="showWelcome"
-            >
-              Show welcome
-            </button>
-            <button
-              type="button"
-              class="cursor-pointer text-[13px] text-primary hover:underline"
-              @click="openDocs()"
-            >
-              Documentation
-            </button>
-          </div>
-        </section>
+              data-testid="settings-nav-label"
+              class="min-w-0 flex-1 truncate"
+              :title="copy.sections[id].title"
+            >{{ copy.sections[id].title }}</span>
+            <span
+              v-if="searching && hits.get(id)"
+              class="shrink-0 rounded-full bg-muted px-1.5 text-[11px] leading-[18px] tabular-nums text-muted-foreground"
+            >{{ hits.get(id)?.size }}</span>
+            <span
+              v-else-if="id === 'publishing' && !settings.publishingEnabled"
+              class="shrink-0 rounded-full bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground"
+            >{{ copy.off }}</span>
+            <span
+              v-else-if="id === 'updates' && updateAvailable"
+              class="mr-1 size-1.5 shrink-0 rounded-full bg-primary"
+              :title="copy.updateAvailable"
+            />
+          </button>
+        </div>
+        <div class="mt-1.5 flex min-w-0 items-center justify-between gap-1.5 border-t border-border px-1.5 pt-2 text-[11px] text-muted-foreground">
+          <span class="truncate">Tetiva {{ appVersion }}</span>
+          <kbd class="shrink-0 rounded border border-border px-1 font-mono text-[11px]">{{ shortcut }}</kbd>
+        </div>
+      </nav>
 
-        <section class="flex flex-col gap-3 border-t border-border pt-4">
-          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">About</h3>
-          <span class="text-[13px] font-medium">
-            Tetiva <span class="font-normal text-muted-foreground">v{{ appVersion }}</span>
-          </span>
-        </section>
+      <div ref="scroller" data-testid="settings-content" class="relative min-w-0 flex-1 overflow-y-auto">
+        <header
+          data-testid="settings-section-header"
+          class="sticky top-0 z-10 flex items-start gap-3 border-b border-border bg-background py-3.5 pl-5 pr-3.5"
+        >
+          <div class="min-w-0 flex-1">
+            <h3 class="text-[15px] font-semibold">{{ copy.sections[current].title }}</h3>
+            <p class="mt-0.5 text-xs text-muted-foreground">{{ copy.sections[current].description }}</p>
+          </div>
+          <DialogClose
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            :title="copy.close"
+            :aria-label="copy.close"
+          >
+            <X class="size-3.5" />
+          </DialogClose>
+        </header>
+        <div class="px-5 pb-4 pt-1">
+          <div
+            v-if="nothingFound"
+            data-testid="settings-search-empty"
+            class="flex flex-col items-center gap-1.5 px-4 py-12 text-center text-[13px] text-muted-foreground"
+          >
+            <Search class="size-4" />
+            <span>{{ fill(copy.nothingFound, { q: query.trim() }) }}</span>
+            <span class="text-xs">{{ copy.nothingFoundHint }}</span>
+          </div>
+          <component
+            :is="SECTION_COMPONENTS[current]"
+            v-else
+            :visible="visibleRows"
+            @show-welcome="showWelcome"
+          />
+        </div>
       </div>
     </DialogContent>
   </Dialog>

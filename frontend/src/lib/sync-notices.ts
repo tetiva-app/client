@@ -1,3 +1,5 @@
+import { plural, type Locale, type PluralForms } from '@/lib/locale'
+
 export interface SyncNotice {
   message: string
   showPlans: boolean
@@ -57,9 +59,31 @@ export function parkedTooLargeNotice(count: number): SyncNotice | null {
   }
 }
 
-export function parkedSummary(quota: number, tooLarge: number): string {
+export const PARKED_COPY: Record<Locale, { quota: PluralForms; tooLarge: PluralForms }> = {
+  en: {
+    quota: { one: '{n} change not synced — plan limit', other: '{n} changes not synced — plan limit' },
+    tooLarge: { one: '{n} item too large for the server', other: '{n} items too large for the server' },
+  },
+  ru: {
+    quota: {
+      one: '{n} изменение не синхронизировано\u00a0— лимит тарифа',
+      few: '{n} изменения не синхронизированы\u00a0— лимит тарифа',
+      many: '{n} изменений не синхронизировано\u00a0— лимит тарифа',
+      other: '{n} изменения не синхронизированы\u00a0— лимит тарифа',
+    },
+    tooLarge: {
+      one: '{n} элемент слишком велик для сервера',
+      few: '{n} элемента слишком велики для сервера',
+      many: '{n} элементов слишком велики для сервера',
+      other: '{n} элемента слишком велики для сервера',
+    },
+  },
+}
+
+export function parkedSummary(quota: number, tooLarge: number, locale: Locale = 'en'): string {
+  const copy = PARKED_COPY[locale]
   const parts: string[] = []
-  if (quota > 0) parts.push(`${quota} change${quota === 1 ? '' : 's'} not synced — plan limit`)
-  if (tooLarge > 0) parts.push(`${tooLarge} item${tooLarge === 1 ? '' : 's'} too large for the server`)
+  if (quota > 0) parts.push(plural(locale, quota, copy.quota))
+  if (tooLarge > 0) parts.push(plural(locale, tooLarge, copy.tooLarge))
   return parts.join(' · ')
 }

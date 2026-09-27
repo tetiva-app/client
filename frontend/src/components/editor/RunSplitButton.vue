@@ -34,12 +34,11 @@ const menu = computed(() => copyMenuModel(props.targets))
 const variant = computed(() => (props.loading ? 'destructive' : props.toggleVariant ?? 'default'))
 const open = ref(false)
 
-// Native Close Tab bypasses the overlay guard, and KeepAlive would leave the portaled menu over the next tab.
 onDeactivated(() => {
   open.value = false
 })
 
-// The menu hands focus back to the chevron after its close animation, which would pull it out of the dialog.
+// The menu refocuses the chevron after its close animation, stealing focus from the dialog.
 let generating = false
 
 function generate() {

@@ -5,12 +5,6 @@ import (
 	"time"
 )
 
-// signalPage is what the cabinet's redirect lands on. It carries no parameters:
-// the tokens come from the poll, this is only a nudge and a place to close.
-const signalPage = `<!doctype html><meta charset="utf-8"><title>Tetiva</title>` +
-	`<body style="font:16px system-ui;padding:3rem;text-align:center">` +
-	`You can close this tab. Return to Tetiva.</body>`
-
 // signalLoopback answers the cabinet's redirect with the same hardening as loopback, but every query
 // parameter is ignored: nothing secret travels this way.
 type signalLoopback struct {
@@ -18,8 +12,8 @@ type signalLoopback struct {
 	done chan struct{}
 }
 
-func startSignalLoopback(port string, opts FlowOptions) (*signalLoopback, error) {
-	srv, err := listenLoopback(port, opts)
+func startSignalLoopback(port, locale string, opts FlowOptions) (*signalLoopback, error) {
+	srv, err := listenLoopback(port, locale, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +40,11 @@ func (l *signalLoopback) handle(w http.ResponseWriter, r *http.Request, drain ti
 		return
 	}
 	if !l.consume(drain) {
-		http.Error(w, "this callback was already handled", http.StatusGone)
+		writeCallbackPage(w, http.StatusGone, renderCallbackPage(l.locale, pageSignInAlreadyHandled, ""))
 
 		return
 	}
 
-	writeCallbackPage(w, signalPage)
+	writeCallbackPage(w, http.StatusOK, renderCallbackPage(l.locale, pageSignedIn, ""))
 	close(l.done)
 }

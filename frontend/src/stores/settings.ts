@@ -12,6 +12,7 @@ import {
   type ThemePreference,
 } from '@/lib/settings-storage'
 import { shouldBackfillOnboarding } from '@/lib/onboarding-decisions'
+import { resolveLocale, setCurrentLocale, systemLocale, type LanguagePreference, type Locale } from '@/lib/locale'
 
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 
@@ -21,8 +22,12 @@ function prefersDark(): boolean {
     : false
 }
 
+function navigatorLanguage(): string | undefined {
+  return typeof navigator === 'undefined' ? undefined : navigator.language
+}
+
 // UI preferences: persisted to localStorage, live-synced across windows, and
-// applied directly to documentElement (`dark` class, `--gc-editor-font-size`).
+// applied directly to documentElement (`dark` class, `--gc-editor-font-size`, `lang`).
 export const useSettingsStore = defineStore('settings', () => {
   const initial = loadSettings()
   const theme = ref<ThemePreference>(initial.theme)
@@ -34,6 +39,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastSeenWhatsNewVersion = ref<string | null>(initial.lastSeenWhatsNewVersion)
   const onboardingCompletedAt = ref<string | null>(initial.onboardingCompletedAt)
   const snippetTargets = ref<SnippetTargets>(initial.snippetTargets)
+  const language = ref<LanguagePreference>(initial.language)
+  const publishingEnabled = ref<boolean>(initial.publishingEnabled)
 
   // Track the OS color scheme so `system` resolves reactively.
   const systemPrefersDark = ref<boolean>(prefersDark())
@@ -43,15 +50,32 @@ export const useSettingsStore = defineStore('settings', () => {
     })
   }
 
+  const osTheme = computed<'light' | 'dark'>(() => (systemPrefersDark.value ? 'dark' : 'light'))
   const effectiveTheme = computed<'light' | 'dark'>(() =>
-    theme.value === 'system' ? (systemPrefersDark.value ? 'dark' : 'light') : theme.value,
+    theme.value === 'system' ? osTheme.value : theme.value,
   )
 
+  const systemLanguage = ref<string | undefined>(navigatorLanguage())
+  if (typeof window !== 'undefined') {
+    window.addEventListener('languagechange', () => {
+      systemLanguage.value = navigatorLanguage()
+    })
+  }
+
+  const osLocale = computed<Locale>(() => systemLocale(systemLanguage.value))
+  const effectiveLocale = computed<Locale>(() => resolveLocale(language.value, systemLanguage.value))
+
   function applyThemeClass() {
+    if (typeof document === 'undefined') return
     document.documentElement.classList.toggle('dark', effectiveTheme.value === 'dark')
   }
   function applyFontSize() {
+    if (typeof document === 'undefined') return
     document.documentElement.style.setProperty('--gc-editor-font-size', `${editorFontSize.value}px`)
+  }
+  function applyLocale(l: Locale) {
+    setCurrentLocale(l)
+    if (typeof document !== 'undefined') document.documentElement.lang = l
   }
 
   function snapshot(): AppSettings {
@@ -65,6 +89,8 @@ export const useSettingsStore = defineStore('settings', () => {
       lastSeenWhatsNewVersion: lastSeenWhatsNewVersion.value,
       onboardingCompletedAt: onboardingCompletedAt.value,
       snippetTargets: snippetTargets.value,
+      language: language.value,
+      publishingEnabled: publishingEnabled.value,
     }
   }
 
@@ -74,6 +100,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   watch(effectiveTheme, applyThemeClass)
   watch(editorFontSize, applyFontSize)
+  watch(effectiveLocale, applyLocale, { immediate: true, flush: 'sync' })
   watch([
     theme,
     editorFontSize,
@@ -84,6 +111,8 @@ export const useSettingsStore = defineStore('settings', () => {
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
     snippetTargets,
+    language,
+    publishingEnabled,
   ], () => {
     if (applyingRemote) return
     saveSettings(snapshot())
@@ -103,6 +132,8 @@ export const useSettingsStore = defineStore('settings', () => {
       lastSeenWhatsNewVersion.value = next.lastSeenWhatsNewVersion
       onboardingCompletedAt.value = next.onboardingCompletedAt
       snippetTargets.value = next.snippetTargets
+      language.value = next.language
+      publishingEnabled.value = next.publishingEnabled
       applyingRemote = false
     })
   }
@@ -126,6 +157,12 @@ export const useSettingsStore = defineStore('settings', () => {
   function setSnippetTarget(family: SnippetFamily, key: string) {
     snippetTargets.value = { ...snippetTargets.value, [family]: key }
   }
+  function setLanguage(p: LanguagePreference) {
+    language.value = p
+  }
+  function setPublishingEnabled(v: boolean) {
+    publishingEnabled.value = v
+  }
 
   // Backfill for installs upgraded from a build without the flag. Runs here and
   // not in loadSettings, which also serves every cross-window `storage` event.
@@ -147,17 +184,24 @@ export const useSettingsStore = defineStore('settings', () => {
     editorFontSize,
     editorWordWrap,
     effectiveTheme,
+    osTheme,
     checkUpdatesAutomatically,
     lastUpdateCheckAt,
     availableUpdate,
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
     snippetTargets,
+    language,
+    effectiveLocale,
+    osLocale,
+    publishingEnabled,
     setCheckUpdatesAutomatically,
     setLastUpdateCheckAt,
     setAvailableUpdate,
     setLastSeenWhatsNewVersion,
     setOnboardingCompletedAt,
     setSnippetTarget,
+    setLanguage,
+    setPublishingEnabled,
   }
 })

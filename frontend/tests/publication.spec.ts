@@ -75,6 +75,39 @@ test.describe('Publication', () => {
     await expect(dialog.getByText('Environment Default')).toBeVisible();
   });
 
+  test('hides the Publish tab and menu item while publishing is off in Settings', async ({ page }) => {
+    await page.goto('/');
+    const root = await createCollection(page, 'Petstore API');
+    const menu = page.getByRole('menu');
+    const publishTab = page.getByRole('tab', { name: /Publish/ });
+
+    async function togglePublishing() {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByTestId('settings-nav-publishing').click();
+      await page.getByTestId('settings-publishing-switch').click();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('settings-dialog')).toHaveCount(0);
+    }
+
+    await root.click({ button: 'right' });
+    await menu.getByText('Open Details').click();
+    await publishTab.click();
+    await expect(publishTab).toHaveAttribute('aria-selected', 'true');
+
+    await togglePublishing();
+    await expect(publishTab).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    await root.click({ button: 'right' });
+    await expect(menu.getByText('Export as Postman')).toBeVisible();
+    await expect(menu.getByTestId('collection-publish')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await togglePublishing();
+    await expect(publishTab).toBeVisible();
+    await root.click({ button: 'right' });
+    await expect(menu.getByTestId('collection-publish')).toHaveText('Publish…');
+  });
+
   test('offers publishing only on top-level collections', async ({ page }) => {
     await page.goto('/');
     const root = await createCollection(page, 'Root');

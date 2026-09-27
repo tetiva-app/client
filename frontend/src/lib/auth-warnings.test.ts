@@ -19,6 +19,10 @@ describe('warningsToastMessage', () => {
   })
 
   it('honours a custom limit', () => {
-    expect(warningsToastMessage(['one', 'two'], 1)).toBe('one (and 1 more)')
+    expect(warningsToastMessage(['one', 'two'], { limit: 1 })).toBe('one (and 1 more)')
+  })
+
+  it('lets the caller word the rest', () => {
+    expect(warningsToastMessage(['one', 'two', 'three', 'four'], { more: n => `и ещё ${n}` })).toBe('one; two; three (и ещё 1)')
   })
 })

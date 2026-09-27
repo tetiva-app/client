@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import { isWailsEnvironment } from '@/services'
+import { onContentSaved } from '@/lib/content-saved'
 
 interface WindowEventsConfig {
   mode: 'main' | 'detached-request' | 'schema-viewer'
@@ -12,6 +13,7 @@ interface WindowEventsConfig {
   onSaveAndClose?: () => void
   onSyncChanged?: () => void
   onExamplesChanged?: (requestId: string) => void
+  onSavedInOtherWindow?: () => void
 }
 
 // The Wails runtime may wrap the emitted map in `data` depending on version.
@@ -54,7 +56,12 @@ export function useWindowEvents(config: WindowEventsConfig) {
       }))
     }
 
+    if (config.onSavedInOtherWindow) {
+      unsubscribers.push(Events.On('content:saved', config.onSavedInOtherWindow))
+    }
+
     if (config.mode === 'detached-request' && config.requestId) {
+      unsubscribers.push(onContentSaved(() => { void Events.Emit('content:saved') }))
       if (config.onRequestDeleted) {
         unsubscribers.push(
           Events.On(`request:deleted:${config.requestId}`, config.onRequestDeleted),

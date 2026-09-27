@@ -17,7 +17,7 @@ type flowManagerSpy struct {
 }
 
 func (m *flowManagerSpy) StartAuthCode(context.Context, string, entities.AuthOwner,
-	auth.OAuth2Config, string,
+	auth.OAuth2Config, string, string,
 ) (auth.FlowInfo, error) {
 	panic("not used")
 }

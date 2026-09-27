@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ArrowRight, Cloud, Laptop, PlayCircle } from 'lucide-vue-next'
 import {
   Dialog,
@@ -8,7 +8,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { onboardingCopy } from '@/onboarding/copy'
+import { ONBOARDING_COPY } from '@/onboarding/copy'
+import { useLocale } from '@/composables/useLocale'
 
 // `close` follows every dismissal (including a choice) and means "hide me and
 // record the flag"; `open-tour` leaves the dialog to the parent, which restores it.
@@ -18,13 +19,14 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const copy = onboardingCopy(navigator.language).welcome
+const locale = useLocale()
+const copy = computed(() => ONBOARDING_COPY[locale.value].welcome)
 const open = ref(true)
 
-const choices = [
-  { kind: 'local' as const, icon: Laptop, text: copy.local },
-  { kind: 'account' as const, icon: Cloud, text: copy.account },
-]
+const choices = computed(() => [
+  { kind: 'local' as const, icon: Laptop, text: copy.value.local },
+  { kind: 'account' as const, icon: Cloud, text: copy.value.account },
+])
 
 function choose(kind: 'local' | 'account') {
   open.value = false

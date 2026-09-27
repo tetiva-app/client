@@ -411,44 +411,14 @@ describe('useCodeSnippet', () => {
     expect(snippet.error.value).toBeNull()
   })
 
-  it('does not rebuild while paused and rebuilds once, with the latest state, on resume', async () => {
-    const { snippet, request, envVersion } = setup()
-    await settle()
-    snippet.resume()
-    await settle()
-    expect(buildSnippetInput).toHaveBeenCalledTimes(1)
-
-    snippet.pause()
-    envVersion.value = 'env-2'
-    replace(request, { url: 'https://edited.test' })
-    await vi.advanceTimersByTimeAsync(1000)
-
-    expect(buildSnippetInput).toHaveBeenCalledTimes(1)
-    expect(snippet.canCopy.value).toBe(false)
-
-    snippet.resume()
-    await settle()
-
-    expect(buildSnippetInput).toHaveBeenCalledTimes(2)
-    expect(buildSnippetInput.mock.calls[1][0].request.url).toBe('https://edited.test')
-    expect(snippet.canCopy.value).toBe(true)
-  })
-
   it('rebuilds when the request finishes executing', async () => {
-    const { snippet, executing } = setup()
+    const { executing } = setup()
     await settle()
 
     executing.value = true
     await settle()
     expect(buildSnippetInput).toHaveBeenCalledTimes(1)
 
-    executing.value = false
-    await settle()
-    expect(buildSnippetInput).toHaveBeenCalledTimes(2)
-
-    snippet.pause()
-    executing.value = true
-    await settle()
     executing.value = false
     await settle()
     expect(buildSnippetInput).toHaveBeenCalledTimes(2)

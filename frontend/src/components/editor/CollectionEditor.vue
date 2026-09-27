@@ -6,6 +6,7 @@ import { useCollectionStore, type StashedLocals } from '@/stores/collections'
 import { useRequestStore, AUTOSAVE_DELAY_MS } from '@/stores/tabs'
 import { useEnvironmentStore } from '@/stores/environments'
 import { publishTabLabel, usePublicationsStore } from '@/stores/publications'
+import { useSettingsStore } from '@/stores/settings'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { adoptStoreValue, descriptionSaveBlocked } from '@/lib/description'
 import { isRootCollection } from '@/lib/collections'
@@ -13,6 +14,8 @@ import CollectionOverview from './CollectionOverview.vue'
 import CollectionAuth from './CollectionAuth.vue'
 import ScriptEditor from './ScriptEditor.vue'
 import PublicationPanel from '@/components/publication/PublicationPanel.vue'
+import { PUBLICATION_COPY } from '@/components/publication/copy'
+import { useCopy } from '@/composables/useLocale'
 
 const props = defineProps<{
   collectionId: string
@@ -29,6 +32,8 @@ const collectionStore = useCollectionStore()
 const tabStore = useRequestStore()
 const envStore = useEnvironmentStore()
 const publications = usePublicationsStore()
+const settings = useSettingsStore()
+const copy = useCopy(PUBLICATION_COPY)
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -45,7 +50,8 @@ const publishStatus = computed(() => publications.statusOf(props.collectionId))
 const publishLabel = computed(() => publishTabLabel(publishStatus.value))
 const isRoot = computed(() => !!collection.value && isRootCollection(collection.value))
 // A nested collection gets the tab only while it still has a page, to take it down.
-const showPublishTab = computed(() => isRoot.value || publishStatus.value?.published === true)
+const showPublishTab = computed(() =>
+  settings.publishingEnabled && (isRoot.value || publishStatus.value?.published === true))
 
 const isActiveTab = computed(
   () => tabStore.activeTab?.type === 'collection' && tabStore.activeTab.collectionId === props.collectionId,
@@ -74,6 +80,10 @@ watch(() => tabStore.hasInitialSection(props.collectionId), pending => {
 
 watch(showPublishTab, show => {
   if (!show && activeSection.value === 'publish') activeSection.value = 'overview'
+})
+
+watch(() => settings.publishingEnabled, enabled => {
+  if (enabled && isRoot.value) void publications.refresh(props.collectionId)
 })
 
 const stashed = collectionStore.takeLocals(props.collectionId, collection.value)
@@ -139,7 +149,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
-  if (isRoot.value) void publications.refresh(props.collectionId)
+  if (isRoot.value && settings.publishingEnabled) void publications.refresh(props.collectionId)
   tabStore.registerCollectionEditor(props.collectionId, {
     saveScripts: saveCollection,
     get scriptsDirty() { return isDirty.value },
@@ -192,13 +202,13 @@ onUnmounted(() => {
     <Tabs v-model="activeSection" :unmount-on-hide="false" class="flex flex-col h-full">
       <TabsList class="h-auto w-full shrink-0 justify-start rounded-none border-b border-border bg-transparent p-0 px-3">
         <TabsTrigger value="overview" :class="SECTION_TAB">
-          Overview
+          {{ copy.tabs.overview }}
         </TabsTrigger>
         <TabsTrigger value="authorization" :class="SECTION_TAB">
-          Authorization
+          {{ copy.tabs.authorization }}
         </TabsTrigger>
         <TabsTrigger value="scripts" :class="SECTION_TAB">
-          Scripts
+          {{ copy.tabs.scripts }}
         </TabsTrigger>
         <TabsTrigger
           v-if="showPublishTab"
@@ -211,7 +221,7 @@ onUnmounted(() => {
           <span
             v-if="publishLabel.changed"
             class="inline-block size-1.5 rounded-full bg-[var(--gc-warning)]"
-            title="Changed since publication"
+            :title="copy.tabs.changed"
           />
         </TabsTrigger>
       </TabsList>

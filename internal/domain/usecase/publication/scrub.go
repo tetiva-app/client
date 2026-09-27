@@ -424,7 +424,7 @@ func (p *pass) auth(owner, path string, t entities.AuthType, raw string, isReque
 	authPath := joinPath(path, "auth")
 	known := t.IsValid()
 	if !known {
-		p.fail(authPath, "auth type %q cannot be published", t)
+		p.fail(authPath, codeAuthTypeUnsupported, valueParams(string(t)))
 	}
 	out := &Auth{Type: string(t), Fields: make(map[string]any, len(fields))}
 	for _, key := range slices.Sorted(maps.Keys(fields)) {

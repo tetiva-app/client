@@ -18,6 +18,10 @@ vi.mock('@/components/publication/PublicationPanel.vue', () => ({ default: { ren
 
 import CollectionEditor from './CollectionEditor.vue'
 import { useCollectionStore } from '@/stores/collections'
+import { usePublicationsStore } from '@/stores/publications'
+import { emptyPublicationStatus } from '@/services/mock-publication'
+import { setCurrentLocale } from '@/lib/locale'
+import { useSettingsStore } from '@/stores/settings'
 
 const ROOT = {
   id: 'c1', workspaceId: 'w1', name: 'Petstore API', description: '', authType: 'none',
@@ -30,7 +34,15 @@ function classesOf(html: string, role: string): string[][] {
 }
 
 beforeEach(() => vi.stubGlobal('window', { addEventListener: () => {}, removeEventListener: () => {} }))
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  setCurrentLocale('en')
+})
+
+function tabLabels(html: string): string[] {
+  return [...html.matchAll(/<button[^>]*role="tab"[^>]*>([\s\S]*?)<\/button>/g)]
+    .map(([, inner]) => inner.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
+}
 
 describe('collection editor sections', () => {
   it('draws its tabs like the request editor: underlined, as wide as their label', async () => {
@@ -56,5 +68,22 @@ describe('collection editor sections', () => {
       expect(tab).not.toContain('dark:data-[state=active]:bg-input/30')
       expect(tab).not.toContain('dark:data-[state=active]:border-input')
     }
+  })
+
+  it('names the whole tab strip in the app language, the publish mark included', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useSettingsStore().setLanguage('ru')
+    useCollectionStore().collectionsMap.set('c1', ROOT)
+    usePublicationsStore().setStatus('c1', {
+      ...emptyPublicationStatus(), published: true, canManage: true, visibility: 'unlisted', hasChanges: 'yes',
+    })
+    const app = createSSRApp(CollectionEditor, { collectionId: 'c1' })
+    app.use(pinia)
+
+    const html = await renderToString(app)
+
+    expect(tabLabels(html)).toEqual(['Обзор', 'Авторизация', 'Скрипты', 'Публикация (По ссылке)'])
+    expect(html).toContain('title="Изменена после публикации"')
   })
 })

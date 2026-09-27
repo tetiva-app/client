@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { DEFAULT_SETTINGS, loadSettings, SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings-storage'
+import { currentLocale, setCurrentLocale } from '@/lib/locale'
 import { useSettingsStore } from './settings'
 
 type StorageHandler = (e: { key: string | null }) => void
@@ -8,6 +9,7 @@ type StorageHandler = (e: { key: string | null }) => void
 function mockEnv() {
   const store = new Map<string, string>()
   const handlers: StorageHandler[] = []
+  const other: { type: string, h: () => void }[] = []
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => { store.set(k, v) },
@@ -17,15 +19,18 @@ function mockEnv() {
   vi.stubGlobal('window', {
     addEventListener: (type: string, h: StorageHandler) => {
       if (type === 'storage') handlers.push(h)
+      else other.push({ type, h: h as () => void })
     },
   })
   vi.stubGlobal('document', {
     documentElement: {
+      lang: 'en',
       classList: { toggle: () => {} },
       style: { setProperty: () => {} },
     },
   })
-  return { store, handlers }
+  const emit = (type: string) => { for (const l of other) if (l.type === type) l.h() }
+  return { store, handlers, emit }
 }
 
 function stored(store: Map<string, string>): Partial<AppSettings> {
@@ -150,5 +155,87 @@ describe('settings store — snippet targets', () => {
     env.handlers[0]({ key: SETTINGS_STORAGE_KEY })
 
     expect(settings.snippetTargets.http).toBe('go')
+  })
+})
+
+describe('settings store — language', () => {
+  let env: ReturnType<typeof mockEnv>
+
+  beforeEach(() => {
+    env = mockEnv()
+    setActivePinia(createPinia())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    setCurrentLocale('en')
+  })
+
+  it('follows the system language by default', () => {
+    vi.stubGlobal('navigator', { language: 'ru-RU' })
+    const settings = useSettingsStore()
+
+    expect(settings.language).toBe('system')
+    expect(settings.effectiveLocale).toBe('ru')
+    expect(currentLocale.value).toBe('ru')
+  })
+
+  it('switches the current locale and the document language', () => {
+    const settings = useSettingsStore()
+    expect(currentLocale.value).toBe('en')
+
+    settings.setLanguage('ru')
+
+    expect(settings.effectiveLocale).toBe('ru')
+    expect(currentLocale.value).toBe('ru')
+    expect(document.documentElement.lang).toBe('ru')
+    expect(stored(env.store).language).toBe('ru')
+  })
+
+  it('picks up a system language change while on the system preference', () => {
+    const settings = useSettingsStore()
+    vi.stubGlobal('navigator', { language: 'ru' })
+
+    env.emit('languagechange')
+
+    expect(settings.effectiveLocale).toBe('ru')
+    expect(currentLocale.value).toBe('ru')
+  })
+
+  it('takes the language chosen in another window from the storage event', () => {
+    const first = useSettingsStore()
+    first.setLanguage('ru')
+    setActivePinia(createPinia())
+    const second = useSettingsStore()
+    expect(second.language).toBe('ru')
+
+    first.setLanguage('en')
+    env.handlers[1]({ key: SETTINGS_STORAGE_KEY })
+
+    expect(second.language).toBe('en')
+    expect(second.effectiveLocale).toBe('en')
+  })
+
+  it('persists the publishing switch and syncs it across windows', () => {
+    const first = useSettingsStore()
+    expect(first.publishingEnabled).toBe(true)
+    setActivePinia(createPinia())
+    const second = useSettingsStore()
+
+    first.setPublishingEnabled(false)
+    env.handlers[1]({ key: SETTINGS_STORAGE_KEY })
+
+    expect(stored(env.store).publishingEnabled).toBe(false)
+    expect(second.publishingEnabled).toBe(false)
+  })
+
+  it('can be created without a document', () => {
+    vi.stubGlobal('document', undefined)
+
+    const settings = useSettingsStore()
+    settings.setLanguage('ru')
+    settings.theme = 'dark'
+    settings.editorFontSize = 16
+
+    expect(currentLocale.value).toBe('ru')
   })
 })

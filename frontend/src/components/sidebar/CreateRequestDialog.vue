@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useCopy } from '@/composables/useLocale'
+import { TREE_COPY } from './copy'
 
 const props = defineProps<{
   collectionId: string
@@ -25,6 +27,7 @@ const emit = defineEmits<{
 const open = defineModel<boolean>('open', { required: true })
 
 const store = useRequestStore()
+const copy = useCopy(TREE_COPY)
 const name = ref('')
 const protocol = ref<Protocol>('http')
 const submitting = ref(false)
@@ -60,8 +63,8 @@ function handleKeydown(event: KeyboardEvent) {
   <Dialog v-model:open="open">
     <DialogContent class="sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>New Request</DialogTitle>
-        <DialogDescription>Enter a name for the request.</DialogDescription>
+        <DialogTitle>{{ copy.create.requestTitle }}</DialogTitle>
+        <DialogDescription>{{ copy.create.requestDescription }}</DialogDescription>
       </DialogHeader>
 
       <div class="flex items-center gap-1 p-0.5 rounded-md bg-muted/50 w-fit">
@@ -105,15 +108,15 @@ function handleKeydown(event: KeyboardEvent) {
 
       <Input
         v-model="name"
-        placeholder="Request name"
+        :placeholder="copy.names.request"
         class="h-8"
         autofocus
         @keydown="handleKeydown"
       />
 
       <DialogFooter>
-        <Button variant="outline" size="sm" @click="open = false">Cancel</Button>
-        <Button size="sm" :disabled="!name.trim() || submitting" @click="handleCreate">Create</Button>
+        <Button variant="outline" size="sm" @click="open = false">{{ copy.actions.cancel }}</Button>
+        <Button size="sm" :disabled="!name.trim() || submitting" @click="handleCreate">{{ copy.actions.create }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

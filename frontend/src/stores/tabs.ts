@@ -11,6 +11,7 @@ import { useExamplesStore } from '@/stores/examples'
 import { runMutation } from '@/stores/runMutation'
 import { formatResultError } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
+import { contentSaved } from '@/lib/content-saved'
 
 export type Tab =
   | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
@@ -145,6 +146,7 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.set(data.id, { ...data })
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    contentSaved()
     return data
   }
 
@@ -308,6 +310,7 @@ export const useRequestStore = defineStore('requests', () => {
       savedSnapshots.value.set(result.data.id, { ...result.data })
       requestsMap.value = new Map(requestsMap.value)
       savedSnapshots.value = new Map(savedSnapshots.value)
+      contentSaved()
       return true
     } catch (err) {
       console.error('Failed to save request:', err)
@@ -392,6 +395,7 @@ export const useRequestStore = defineStore('requests', () => {
         tab.name = newName
         openTabs.value = [...openTabs.value]
       }
+      contentSaved()
       return true
     } catch (err) {
       console.error('Failed to rename request:', err)
@@ -434,6 +438,7 @@ export const useRequestStore = defineStore('requests', () => {
     await forgetTokenStatus([{ kind: 'request', id }])
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    contentSaved()
     return true
   }
 
@@ -603,7 +608,7 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
-  // Cancel only resets the UI; the call keeps running, and its late answer is dropped by token.
+  // Cancel only resets the UI; the call keeps running and its late answer is dropped by token.
   const runTokens = new Map<string, number>()
 
   async function executeRequest(id: string) {
@@ -680,6 +685,7 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.set(data.id, { ...data })
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    contentSaved()
     return true
   }
 

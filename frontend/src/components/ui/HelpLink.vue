@@ -3,14 +3,19 @@ import { computed } from 'vue'
 import { CircleHelp } from 'lucide-vue-next'
 import { openDocs } from '@/constants/docs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { UI_COPY } from './copy'
 
 defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{ slug?: string }>()
 
+const copy = useCopy(UI_COPY)
+
 // Distinct labels so several help buttons on one screen read differently in AT.
 const label = computed(() =>
-  props.slug ? `Documentation: ${props.slug.replace(/-/g, ' ')}` : 'Documentation',
+  props.slug ? fill(copy.value.docsTopic, { topic: props.slug.replace(/-/g, ' ') }) : copy.value.docs,
 )
 
 function open() {
@@ -19,7 +24,6 @@ function open() {
 </script>
 
 <template>
-  <!-- A dialog auto-focuses its header help link; only Tab focus should pop the tooltip. -->
   <Tooltip ignore-non-keyboard-focus>
     <TooltipTrigger as-child>
       <button

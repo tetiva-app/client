@@ -19,7 +19,7 @@ const deviceData = JSON.stringify({
 })
 
 function startReq(authData: string, flowId = crypto.randomUUID()): StartFlowReq {
-  return { ownerKind: 'request', ownerId: 'r1', authType: 'oauth2', authData, flowId }
+  return { ownerKind: 'request', ownerId: 'r1', authType: 'oauth2', authData, flowId, locale: 'en' }
 }
 
 describe('MockAuthService browser flows', () => {

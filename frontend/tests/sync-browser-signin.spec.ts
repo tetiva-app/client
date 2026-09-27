@@ -21,7 +21,7 @@ function forgetExternalUrl(page: Page): Promise<void> {
 }
 
 async function openSync(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Sync', exact: true }).click();
+  await page.getByRole('button', { name: /^(Sync|Синхронизация)$/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   return dialog;

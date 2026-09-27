@@ -13,7 +13,7 @@ import (
 func newTestSignalLoopback(t *testing.T, drain time.Duration) *signalLoopback {
 	t.Helper()
 
-	lb, err := startSignalLoopback("0", FlowOptions{DrainWindow: drain}.withDefaults())
+	lb, err := startSignalLoopback("0", "en", FlowOptions{DrainWindow: drain}.withDefaults())
 	if err != nil {
 		t.Fatalf("startSignalLoopback: %v", err)
 	}
@@ -175,10 +175,10 @@ func TestBothLoopbacksReportAFailedBind(t *testing.T) {
 		return nil, boom
 	}}.withDefaults()
 
-	if _, err := startSignalLoopback("0", opts); !errors.Is(err, boom) {
+	if _, err := startSignalLoopback("0", "en", opts); !errors.Is(err, boom) {
 		t.Errorf("startSignalLoopback error = %v, want %v", err, boom)
 	}
-	if _, err := startLoopback("0", testState, opts); !errors.Is(err, boom) {
+	if _, err := startLoopback("0", testState, "en", opts); !errors.Is(err, boom) {
 		t.Errorf("startLoopback error = %v, want %v", err, boom)
 	}
 }

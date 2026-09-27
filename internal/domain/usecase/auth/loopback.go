@@ -4,7 +4,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -23,9 +22,6 @@ const (
 
 const callbackPath = "/callback"
 
-const callbackPage = `<!doctype html><meta charset="utf-8"><title>Tetiva</title>` +
-	`<body style="font:16px system-ui;padding:3rem;text-align:center">You can close this tab.</body>`
-
 // callbackResult is the redirect the IdP sent the browser, already validated
 // against the flow's state.
 type callbackResult struct {
@@ -37,9 +33,10 @@ type callbackResult struct {
 // loopbackServer is the listener half both callbacks share: 127.0.0.1 only, the
 // same timeouts, keep-alives off, the same one-shot-plus-drain discipline.
 type loopbackServer struct {
-	ln   net.Listener
-	srv  *http.Server
-	port int
+	ln     net.Listener
+	srv    *http.Server
+	port   int
+	locale string
 
 	closeOnce sync.Once
 
@@ -50,7 +47,7 @@ type loopbackServer struct {
 
 // listenLoopback binds 127.0.0.1 only, so the redirect is never reachable from the network; port "0"
 // asks the OS for a free one. The caller attaches its handler with serve.
-func listenLoopback(port string, opts FlowOptions) (*loopbackServer, error) {
+func listenLoopback(port, locale string, opts FlowOptions) (*loopbackServer, error) {
 	const funcName = "auth.listenLoopback"
 
 	ln, err := opts.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
@@ -64,7 +61,7 @@ func listenLoopback(port string, opts FlowOptions) (*loopbackServer, error) {
 		return nil, fmt.Errorf("%s: unexpected listener address %v", funcName, ln.Addr())
 	}
 
-	return &loopbackServer{ln: ln, port: addr.Port}, nil
+	return &loopbackServer{ln: ln, port: addr.Port, locale: locale}, nil
 }
 
 func (l *loopbackServer) serve(h http.HandlerFunc) {
@@ -154,10 +151,15 @@ func (l *loopbackServer) close() {
 
 // writeCallbackPage reaches the browser before the flow is told: the flow may close this listener the
 // moment it has the result, and a half-written response would leave the user at a connection error.
-func writeCallbackPage(w http.ResponseWriter, page string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, page)
+func writeCallbackPage(w http.ResponseWriter, status int, page []byte) {
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+	w.WriteHeader(status)
+	_, _ = w.Write(page)
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
@@ -168,8 +170,8 @@ type loopback struct {
 	done chan callbackResult
 }
 
-func startLoopback(port, state string, opts FlowOptions) (*loopback, error) {
-	srv, err := listenLoopback(port, opts)
+func startLoopback(port, state, locale string, opts FlowOptions) (*loopback, error) {
+	srv, err := listenLoopback(port, locale, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +196,16 @@ func (l *loopback) handle(w http.ResponseWriter, r *http.Request, state string, 
 		return
 	}
 	if !l.consume(drain) {
-		http.Error(w, "this callback was already handled", http.StatusGone)
+		writeCallbackPage(w, http.StatusGone, renderCallbackPage(l.locale, pageOAuthAlreadyHandled, ""))
 
 		return
 	}
 
-	writeCallbackPage(w, callbackPage)
+	kind := pageAuthorized
+	if res.Err != "" {
+		kind = pageOAuthError
+	}
+	writeCallbackPage(w, http.StatusOK, renderCallbackPage(l.locale, kind, res.Err))
 	l.done <- res
 }
 

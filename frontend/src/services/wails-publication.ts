@@ -1,5 +1,7 @@
 import type { Result } from '@/types/common'
 import type {
+  PublicationList,
+  PublicationListRequest,
   PublicationStatus,
   PublishPlan,
   PublishPreview,
@@ -22,6 +24,10 @@ async function svc() {
 export class WailsPublicationService implements PublicationServiceAPI {
   async status(collectionId: string): Promise<Result<PublicationStatus>> {
     return unwrap<PublicationStatus>(await (await svc()).Status({ collectionId }))
+  }
+
+  async list(req: PublicationListRequest): Promise<Result<PublicationList>> {
+    return unwrap<PublicationList>(await (await svc()).List(req))
   }
 
   async plan(collectionId: string): Promise<Result<PublishPlan>> {

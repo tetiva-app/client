@@ -363,6 +363,7 @@ export class MockSyncService implements SyncServiceAPI {
         signInHost: this.scenario === SIGNIN_CAPS_SLOW_SCENARIO
           ? serverUrl.replace(/:\d+$/, '')
           : SIGNIN_HOST,
+        signInOrigin: desktopSignIn ? `https://${SIGNIN_HOST}` : '',
         registrationOpen: true,
       },
     }

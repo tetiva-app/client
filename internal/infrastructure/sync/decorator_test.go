@@ -313,3 +313,91 @@ func TestSyncedRequestRepo_Update_NoNotifyOnOuterRollback(t *testing.T) {
 		t.Errorf("expected an empty queue after rollback, got %d", n)
 	}
 }
+
+func TestSyncedRepos_LinkedWorkspaceQueuesWhileTheSyncerIsDown(t *testing.T) {
+	db := setupTestDB(t)
+	if _, err := db.Exec(`UPDATE workspaces SET remote_workspace_id = 'ws_remote' WHERE id = ?`, testWorkspaceID.String()); err != nil {
+		t.Fatalf("link workspace: %v", err)
+	}
+	queueRepo := sqlite.NewSyncQueueRepo(db)
+	engine := &SyncEngine{}
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	col := newTestCollection("Offline", nil)
+	if err := NewSyncedCollectionRepo(sqlite.NewCollectionRepo(db), queueRepo, db, engine).Create(ctx, col); err != nil {
+		t.Fatalf("collection: %v", err)
+	}
+	req := newLocalRequest("Ping", col.ID)
+	if err := NewSyncedRequestRepo(sqlite.NewRequestRepo(db), queueRepo, db, engine).Create(ctx, req); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	example := &entities.ResponseExample{
+		ID: uuid.New(), RequestID: req.ID, WorkspaceID: testWorkspaceID, Name: "OK", StatusCode: 200,
+		Headers: []entities.HeaderItem{}, Protocol: entities.ProtocolHTTP, Version: 1,
+		CreatedBy: "test_user", CreatedAt: now, UpdatedBy: "test_user", UpdatedAt: now,
+	}
+	if err := NewSyncedResponseExampleRepo(sqlite.NewResponseExampleRepo(db), queueRepo, db, engine).Create(ctx, example); err != nil {
+		t.Fatalf("example: %v", err)
+	}
+
+	envs := NewSyncedEnvironmentRepo(sqlite.NewEnvironmentRepo(db), queueRepo, db, engine)
+	env := &entities.Environment{
+		ID: uuid.New(), WorkspaceID: testWorkspaceID, Name: "develop", Version: 1,
+		CreatedBy: "test_user", CreatedAt: now, UpdatedBy: "test_user", UpdatedAt: now,
+	}
+	if err := envs.Create(ctx, env); err != nil {
+		t.Fatalf("environment: %v", err)
+	}
+	env.Name, env.Version = "prod", 2
+	if err := envs.Update(ctx, env); err != nil {
+		t.Fatalf("environment update: %v", err)
+	}
+
+	vars := NewSyncedVariableRepo(sqlite.NewVariableRepo(db), queueRepo, db, engine)
+	variable := &entities.Variable{
+		ID: uuid.New(), EnvironmentID: env.ID, Key: "host", Value: "api.local", Enabled: true, Version: 1,
+		CreatedBy: "test_user", CreatedAt: now, UpdatedBy: "test_user", UpdatedAt: now,
+	}
+	if err := vars.Create(ctx, variable); err != nil {
+		t.Fatalf("variable: %v", err)
+	}
+	variable.Value, variable.Version = "api.prod", 2
+	if err := vars.Update(ctx, variable); err != nil {
+		t.Fatalf("variable update: %v", err)
+	}
+	if err := vars.Delete(ctx, variable.ID); err != nil {
+		t.Fatalf("variable delete: %v", err)
+	}
+
+	for _, want := range []struct {
+		id     uuid.UUID
+		action string
+	}{
+		{col.ID, "create"}, {req.ID, "create"}, {example.ID, "create"},
+		{env.ID, "create"}, {env.ID, "update"},
+		{variable.ID, "create"}, {variable.ID, "update"}, {variable.ID, "delete"},
+	} {
+		if n := countQueueEntriesWithAction(t, db, want.id.String(), want.action); n != 1 {
+			t.Errorf("%s %s: expected 1 queue entry, got %d", want.id, want.action, n)
+		}
+	}
+}
+
+func TestSyncedEnvironmentRepo_Create_UnlinkedWorkspaceStaysLocal(t *testing.T) {
+	db := setupTestDB(t)
+	decorator := NewSyncedEnvironmentRepo(sqlite.NewEnvironmentRepo(db), sqlite.NewSyncQueueRepo(db), db, &SyncEngine{})
+
+	now := time.Now().Truncate(time.Second)
+	env := &entities.Environment{
+		ID: uuid.New(), WorkspaceID: testWorkspaceID, Name: "develop", Version: 1,
+		CreatedBy: "test_user", CreatedAt: now, UpdatedBy: "test_user", UpdatedAt: now,
+	}
+	if err := decorator.Create(context.Background(), env); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if n := countQueueEntries(t, db, "environment", env.ID.String()); n != 0 {
+		t.Errorf("a local-only workspace must not fill the outbox, got %d entries", n)
+	}
+}

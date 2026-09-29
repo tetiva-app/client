@@ -351,6 +351,27 @@ func (e *SyncEngine) IsEnabledForWorkspace(workspaceID string) bool {
 	return v.(bool)
 }
 
+func queuesWrites(ctx context.Context, db *sql.DB, engine *SyncEngine, workspaceID string) (bool, error) {
+	const funcName = "queuesWrites"
+
+	if engine == nil {
+		return false, nil
+	}
+	if engine.IsEnabledForWorkspace(workspaceID) {
+		return true, nil
+	}
+	var remoteID sql.NullString
+	err := sqlite.DBTXFromContext(ctx, db).QueryRowContext(ctx,
+		`SELECT remote_workspace_id FROM workspaces WHERE id = ?`, workspaceID).Scan(&remoteID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return remoteID.String != "", nil
+}
+
 // StartWorkspace waits out a running StopAll instead of slipping a syncer past its barrier.
 func (e *SyncEngine) StartWorkspace(localWorkspaceID, remoteWorkspaceID string, lastSyncSeq int64) {
 	e.startBarrier.RLock()
@@ -2131,10 +2152,19 @@ func (ws *workspaceSyncer) upsertEnvironment(ctx context.Context, e *entities.En
 	if err != nil {
 		return err
 	}
-	if exists {
-		return ws.engine.environments.Update(ctx, e)
+	if !exists {
+		return ws.engine.environments.Create(ctx, e)
 	}
-	return ws.engine.environments.Create(ctx, e)
+
+	// The active choice is per device and never travels.
+	local, err := ws.engine.environments.GetByID(ctx, e.ID)
+	if err != nil {
+		return err
+	}
+	if local != nil {
+		e.IsActive = local.IsActive
+	}
+	return ws.engine.environments.Update(ctx, e)
 }
 
 func (ws *workspaceSyncer) upsertVariable(ctx context.Context, v *entities.Variable) error {

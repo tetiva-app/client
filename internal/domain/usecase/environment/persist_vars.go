@@ -33,6 +33,7 @@ func (u *usecase) PersistVariableChanges(ctx context.Context, workspaceID uuid.U
 	}
 
 	now := time.Now()
+	sortOrder := nextSortOrder(existing)
 
 	for key, value := range newVars {
 		if ev, ok := existingByKey[key]; ok {
@@ -54,7 +55,7 @@ func (u *usecase) PersistVariableChanges(ctx context.Context, workspaceID uuid.U
 				Value:         value,
 				IsSecret:      false,
 				Enabled:       true,
-				SortOrder:     0,
+				SortOrder:     sortOrder,
 				Version:       1,
 				IsDelete:      false,
 				CreatedBy:     userID,
@@ -65,6 +66,7 @@ func (u *usecase) PersistVariableChanges(ctx context.Context, workspaceID uuid.U
 			if err := u.varRepo.Create(ctx, newVar); err != nil {
 				return fmt.Errorf("%s: create %q: %w", funcName, key, err)
 			}
+			sortOrder++
 		}
 	}
 

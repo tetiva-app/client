@@ -186,14 +186,14 @@ func TestMigration020BackfillsRequestDescriptions(t *testing.T) {
 	seed := []string{
 		`INSERT INTO workspaces (id, name, remote_workspace_id) VALUES ('ws1', 'Synced', 'remote-1')`,
 		`INSERT INTO workspaces (id, name) VALUES ('ws2', 'Local only')`,
-		`INSERT INTO collections (id, workspace_id, name) VALUES ('col1', 'ws1', 'Root')`,
+		`INSERT INTO collections (id, workspace_id, name, is_synced) VALUES ('col1', 'ws1', 'Root', 1)`,
 		`INSERT INTO collections (id, workspace_id, name) VALUES ('col2', 'ws2', 'Root')`,
-		`INSERT INTO requests (id, collection_id, name, description) VALUES ('req1', 'col1', 'Documented', '# Docs')`,
-		`INSERT INTO requests (id, collection_id, name) VALUES ('req2', 'col1', 'Undocumented')`,
+		`INSERT INTO requests (id, collection_id, name, description, is_synced) VALUES ('req1', 'col1', 'Documented', '# Docs', 1)`,
+		`INSERT INTO requests (id, collection_id, name, is_synced) VALUES ('req2', 'col1', 'Undocumented', 1)`,
 		`INSERT INTO requests (id, collection_id, name, description, is_delete) VALUES ('req3', 'col1', 'Deleted', 'gone', 1)`,
 		`INSERT INTO requests (id, collection_id, name, description, is_draft) VALUES ('req4', 'col1', 'Draft', 'scratch', 1)`,
 		`INSERT INTO requests (id, collection_id, name, description) VALUES ('req5', 'col2', 'Unlinked', 'local only')`,
-		fmt.Sprintf(`INSERT INTO requests (id, collection_id, name, description) VALUES ('req6', 'col1', 'Oversized', '%s')`,
+		fmt.Sprintf(`INSERT INTO requests (id, collection_id, name, description, is_synced) VALUES ('req6', 'col1', 'Oversized', '%s', 1)`,
 			strings.Repeat("x", domain.MaxDescriptionLen+1)),
 	}
 	for _, stmt := range seed {
@@ -535,5 +535,75 @@ func TestMigrationsKeepThe111SeededEnvironmentOutOfTheFirstLink(t *testing.T) {
 	}
 	if got, want := queueRows(t, db, ws), []string{"collection:c1:create:pending"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("queue = %v, want %v", got, want)
+	}
+}
+
+func TestMigration026QueuesWritesThatNeverReachedTheServer(t *testing.T) {
+	db := openMigrationTestDB(t)
+
+	if err := migrate.Run(db, migrationsUpTo(t, 24), "."); err != nil {
+		t.Fatalf("migrate to 024: %v", err)
+	}
+	seeded := testWorkspaceID.String()
+	for _, stmt := range []string{
+		`INSERT INTO workspaces (id, name, remote_workspace_id) VALUES ('ws1', 'Linked', 'remote-1')`,
+		`INSERT INTO workspaces (id, name) VALUES ('ws2', 'Local only')`,
+		`UPDATE workspaces SET remote_workspace_id = 'remote-0' WHERE id = '` + seeded + `'`,
+
+		`INSERT INTO collections (id, workspace_id, name, is_synced) VALUES ('c-root', 'ws1', 'Pushed', 1)`,
+		`INSERT INTO collections (id, workspace_id, parent_id, name) VALUES ('c-offline', 'ws1', 'c-root', 'Made offline')`,
+		`INSERT INTO collections (id, workspace_id, name, created_by) VALUES ('c-pulled', 'ws1', 'Pulled by 1.1.1', 'sync')`,
+		`INSERT INTO collections (id, workspace_id, name, is_delete) VALUES ('c-gone', 'ws1', 'Deleted', 1)`,
+		`INSERT INTO collections (id, workspace_id, parent_id, name) VALUES ('c-orphan', 'ws1', 'c-gone', 'Under a deleted folder')`,
+		`INSERT INTO collections (id, workspace_id, name) VALUES ('c-local', 'ws2', 'Never linked')`,
+		`INSERT INTO collections (id, workspace_id, name) VALUES ('c-queued', 'ws1', 'Already queued')`,
+
+		`INSERT INTO requests (id, collection_id, name) VALUES ('r-offline', 'c-root', 'Made offline')`,
+		`INSERT INTO requests (id, collection_id, name, is_draft) VALUES ('r-draft', 'c-root', 'Draft', 1)`,
+		`INSERT INTO requests (id, collection_id, name) VALUES ('r-orphan', 'c-orphan', 'Under a deleted folder')`,
+
+		`INSERT INTO environments (id, workspace_id, name) VALUES ('e-offline', 'ws1', 'develop')`,
+		`INSERT INTO environments (id, workspace_id, name, is_synced) VALUES ('e-pushed', 'ws1', 'prod', 1)`,
+		`INSERT INTO variables (id, environment_id, key) VALUES ('v-offline', 'e-offline', 'host')`,
+		`INSERT INTO variables (id, environment_id, key) VALUES ('v-added', 'e-pushed', 'token')`,
+		`INSERT INTO variables (id, environment_id, key, created_by) VALUES ('v-pulled', 'e-pushed', 'old', 'sync')`,
+		`INSERT INTO variables (id, environment_id, key) VALUES ('v-seeded', '` + seededEnvironmentID + `', 'baseUrl')`,
+
+		`INSERT INTO response_examples (id, request_id, workspace_id, name, created_at, updated_at)
+			VALUES ('x-offline', 'r-offline', 'ws1', 'OK', '2026-09-21T10:00:00Z', '2026-09-21T10:00:00Z')`,
+
+		`INSERT INTO sync_queue (workspace_id, entity_type, entity_id, action, operation_id, status, created_at)
+			VALUES ('ws1', 'collection', 'c-queued', 'create', 'op-1', 'failed', '2026-09-21T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+
+	want := []string{
+		"collection:c-queued:create:failed",
+		"collection:c-offline:create:pending",
+		"environment:e-offline:create:pending",
+		"request:r-offline:create:pending",
+		"variable:v-offline:create:pending",
+		"variable:v-added:create:pending",
+		"response_example:x-offline:create:pending",
+	}
+	if got := queueRows(t, db, "ws1"); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("ws1 queue = %v\nwant       %v", got, want)
+	}
+	for _, ws := range []string{"ws2", seeded} {
+		if got := queueRows(t, db, ws); len(got) != 0 {
+			t.Errorf("%s queue = %v, want empty", ws, got)
+		}
+	}
+
+	var opID string
+	if err := db.QueryRow(`SELECT operation_id FROM sync_queue WHERE entity_id = 'e-offline'`).Scan(&opID); err != nil || !uuidLike.MatchString(opID) {
+		t.Errorf("operation_id = %q, %v; want a v4 UUID", opID, err)
 	}
 }

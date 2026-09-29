@@ -30,14 +30,21 @@ func NewSyncedRequestRepo(inner request.Repository, syncQueue sqlite.SyncQueueRe
 	}
 }
 
-func (r *SyncedRequestRepo) isSyncEnabled(workspaceID string) bool {
-	return r.engine != nil && r.engine.IsEnabledForWorkspace(workspaceID)
+func (r *SyncedRequestRepo) queuesWrites(ctx context.Context, workspaceID string) (bool, error) {
+	return queuesWrites(ctx, r.db, r.engine, workspaceID)
 }
 
 // Create inserts a request and enqueues a sync "create" entry within the same TX.
 func (r *SyncedRequestRepo) Create(ctx context.Context, req *entities.Request) error {
 	wsID, err := r.getWorkspaceID(ctx, req.CollectionID)
-	if err != nil || !r.isSyncEnabled(wsID) {
+	if err != nil {
+		return r.inner.Create(ctx, req)
+	}
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Create(ctx, req)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -71,7 +78,14 @@ func (r *SyncedRequestRepo) List(ctx context.Context, filter request.Filter) ([]
 // Update persists a request and enqueues a sync "update" or "delete" entry within the same TX.
 func (r *SyncedRequestRepo) Update(ctx context.Context, req *entities.Request) error {
 	wsID, err := r.getWorkspaceID(ctx, req.CollectionID)
-	if err != nil || !r.isSyncEnabled(wsID) {
+	if err != nil {
+		return r.inner.Update(ctx, req)
+	}
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Update(ctx, req)
 	}
 	action := "update"

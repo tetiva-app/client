@@ -20,6 +20,9 @@
 - An imported environment whose name is taken in the workspace gets a suffix, "Dev (2)", instead of a second "Dev" — the environment of a collection imported from share.tetiva.app too
 - A Postman globals file becomes an environment named after the file, or "Globals", with a warning that Tetiva has no global variables; it used to turn into an environment without a word
 - A Postman or Tetiva collection file picked in Manage Environments says "This is a collection, not an environment — import it from the sidebar" instead of "environment name is empty", and other environment import errors name what is wrong instead of printing the internal error chain
+- Changes made in a cloud workspace while sync was off — signed out, session expired, email not yet confirmed — now reach the server once sync starts. They used to stay on this device while the indicator showed nothing pending, so an environment created that way never appeared on your other devices. What got stranded before the update is sent once
+- The selected environment stays selected when it changes on another device or when you sign in for the first time; `{{variables}}` used to stop resolving after either
+- Variables keep the same order on every device, including duplicated and imported environments, with a sync server that stores the order
 
 ## [v1.2.0] — 2026-09-27 — Public collections
 

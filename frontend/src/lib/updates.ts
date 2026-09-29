@@ -1,4 +1,5 @@
 import { isNewerVersion } from './semver'
+import { clientOS, type ClientOS } from './platform'
 import { UPDATE_MANIFEST_URL, UPDATE_FALLBACK_URL } from '@/constants/updates'
 
 export type UpdateCheckResult =
@@ -21,13 +22,20 @@ function safeUrl(url: unknown): string {
   return UPDATE_FALLBACK_URL
 }
 
-// No headers on the request (privacy invariant: no phone-home fingerprint).
+// The update check sends only these two params: no headers, no identifiers.
+export function updateManifestUrl(version: string, os: ClientOS | null): string {
+  const url = new URL(UPDATE_MANIFEST_URL)
+  url.searchParams.set('v', version)
+  if (os) url.searchParams.set('os', os)
+  return url.toString()
+}
+
 // Any failure maps to `error` — never throws, never `up-to-date`.
 export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(UPDATE_MANIFEST_URL, { signal: controller.signal })
+    const res = await fetch(updateManifestUrl(currentVersion, clientOS()), { signal: controller.signal })
     if (!res.ok) return { status: 'error' }
     const data = (await res.json()) as { version?: string; url?: string }
     const version = data.version

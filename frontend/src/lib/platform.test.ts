@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { isLinux, isMac } from './platform'
+import { clientOS, isLinux, isMac } from './platform'
 
 function setNavigator(nav: unknown) {
   vi.stubGlobal('navigator', nav)
@@ -73,5 +73,31 @@ describe('isMac', () => {
   it('is false when there is no navigator at all', () => {
     setNavigator(undefined)
     expect(isMac()).toBe(false)
+  })
+})
+
+describe('clientOS', () => {
+  it('names the three desktop webviews the way the update server expects', () => {
+    setNavigator({ platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15' })
+    expect(clientOS()).toBe('darwin')
+
+    setNavigator({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/129.0' })
+    expect(clientOS()).toBe('windows')
+
+    setNavigator({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15' })
+    expect(clientOS()).toBe('linux')
+  })
+
+  it('trusts userAgentData when the webview provides it', () => {
+    setNavigator({ userAgentData: { platform: 'Windows' }, platform: 'MacIntel', userAgent: 'Macintosh' })
+    expect(clientOS()).toBe('windows')
+  })
+
+  it('is null for anything else', () => {
+    setNavigator({ platform: 'Linux armv8l', userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)' })
+    expect(clientOS()).toBeNull()
+
+    setNavigator(undefined)
+    expect(clientOS()).toBeNull()
   })
 })

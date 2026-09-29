@@ -58,7 +58,7 @@ ManifestDPIAware true
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 # SignPath requires the update check to be disclosed during installation.
-!define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva on this computer.$\r$\n$\r$\nTetiva checks for a new version at most once a day by requesting a small file from api.tetiva.app. The request carries nothing about you, and you can turn the check off in Settings, under Updates.$\r$\n$\r$\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva on this computer.$\r$\n$\r$\nTetiva checks for a new version at most once a day by requesting a small file from api.tetiva.app. The request carries only the app version and operating system, nothing about you, and you can turn the check off in Settings, under Updates.$\r$\n$\r$\nClick Next to continue."
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.

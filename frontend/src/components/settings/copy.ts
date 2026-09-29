@@ -101,7 +101,7 @@ export interface SettingsCopy {
     availableHint: string
     download: string
     sends: string
-    sendsNothing: string
+    sendsOnly: string
     sendsOff: string
   }
   about: {
@@ -224,7 +224,7 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
       availableHint: 'You have {current}. The download opens in your browser.',
       download: 'Download',
       sends: 'What the check sends',
-      sendsNothing: 'No account, collections or settings are sent.',
+      sendsOnly: 'Only the app version and OS go with it: no account, collections or settings.',
       sendsOff: 'Automatic check is off: nothing is sent until you press Check now.',
     },
     about: {
@@ -345,7 +345,7 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
       availableHint: 'У вас {current}. Скачивание откроется в браузере.',
       download: 'Скачать',
       sends: 'Что отправляет проверка',
-      sendsNothing: 'Ни аккаунт, ни коллекции, ни настройки не отправляются.',
+      sendsOnly: 'С запросом уходят только версия приложения и ОС\u00a0— ни аккаунт, ни коллекции, ни настройки.',
       sendsOff: 'Автопроверка выключена: ничего не отправляется, пока вы не нажмёте «Проверить сейчас».',
     },
     about: {
@@ -431,7 +431,7 @@ const ROWS: IndexedRow[] = [
   },
   {
     id: 'updates-sends', section: 'updates',
-    text: (c) => [c.updates.sends, c.updates.sendsNothing],
+    text: (c) => [c.updates.sends, c.updates.sendsOnly],
     keywords: { en: 'privacy request', ru: 'приватность запрос' },
   },
   {

@@ -8,6 +8,10 @@
 - A Postman environment or globals file picked with Import File… in the sidebar is imported as an environment at once: a toast names it and counts its variables, and its Open button opens Manage Environments with that environment selected
 - `pm.collectionVariables` in scripts: `get`, `set` and `unset` work on the active environment, the same variables `pm.environment` sees, so Postman scripts that keep values in collection variables no longer fail on it
 
+### Changed
+
+- The update check tells the server which version and OS it runs on (`latest.json?v=1.2.0&os=darwin`), so we can see which releases are in use and whether a new one reaches people. Nothing else is added: no headers, identifiers, account or collections. Settings → Updates shows the exact request, and the Windows installer's first page says so too
+
 ### Fixed
 
 - Importing a Postman environment keeps disabled variables disabled; they used to come in enabled. A variable without `enabled`, as older Postman exports write it, stays enabled

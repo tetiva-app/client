@@ -128,7 +128,8 @@ describe('settings dialog', () => {
     const html = await render('en', 'updates')
     const sends = inside(html, 'data-testid="settings-update-sends"')
 
-    expect(sends).toContain('GET https://api.tetiva.app/updates/latest.json')
+    expect(sends).toContain(`GET https://api.tetiva.app/updates/latest.json?v=${__APP_VERSION__}`)
+    expect(sends).toContain('Only the app version and OS go with it')
     expect(sends).not.toMatch(/IP|User-Agent|hash/i)
   })
 })

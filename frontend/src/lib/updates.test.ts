@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { checkForUpdates } from './updates'
+import { checkForUpdates, updateManifestUrl } from './updates'
 import { UPDATE_MANIFEST_URL, UPDATE_FALLBACK_URL } from '@/constants/updates'
 
 type FetchImpl = (url: string, init: RequestInit) => Promise<unknown>
@@ -94,12 +94,26 @@ describe('checkForUpdates', () => {
     await expect(p).resolves.toEqual({ status: 'error' })
   })
 
-  it('fetches the manifest url with no Accept (default) headers', async () => {
-    const fn = mockFetch(async () => okManifest({ version: '0.10.0' }))
-    await checkForUpdates('0.10.0')
+  it('sends the app version and OS as query parameters and no headers', async () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' })
+    const fn = mockFetch(async () => okManifest({ version: '1.2.0' }))
+    await checkForUpdates('1.2.0')
     expect(fn).toHaveBeenCalledTimes(1)
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe(UPDATE_MANIFEST_URL)
+    expect(url).toBe(`${UPDATE_MANIFEST_URL}?v=1.2.0&os=darwin`)
     expect(init.headers).toBeUndefined()
+  })
+
+  it('leaves the OS out when the webview does not name one', async () => {
+    vi.stubGlobal('navigator', undefined)
+    const fn = mockFetch(async () => okManifest({ version: '1.2.0' }))
+    await checkForUpdates('1.2.0')
+    expect(fn.mock.calls[0][0]).toBe(`${UPDATE_MANIFEST_URL}?v=1.2.0`)
+  })
+})
+
+describe('updateManifestUrl', () => {
+  it('encodes whatever version string it gets', () => {
+    expect(updateManifestUrl('1.2.0 beta&x=1', 'linux')).toBe(`${UPDATE_MANIFEST_URL}?v=1.2.0+beta%26x%3D1&os=linux`)
   })
 })

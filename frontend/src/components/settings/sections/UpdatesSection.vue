@@ -6,11 +6,12 @@ import { Switch } from '@/components/ui/switch'
 import { SETTINGS_COPY } from '../copy'
 import { useCopy, useLocale } from '@/composables/useLocale'
 import { useSettingsStore } from '@/stores/settings'
-import { checkForUpdates, type UpdateCheckResult } from '@/lib/updates'
+import { checkForUpdates, updateManifestUrl, type UpdateCheckResult } from '@/lib/updates'
 import { isNewerVersion } from '@/lib/semver'
 import { fill, formatRelative } from '@/lib/locale'
 import { openExternal } from '@/lib/open-external'
-import { UPDATE_FALLBACK_URL, UPDATE_MANIFEST_URL } from '@/constants/updates'
+import { clientOS } from '@/lib/platform'
+import { UPDATE_FALLBACK_URL } from '@/constants/updates'
 
 const props = defineProps<{ visible: Set<string> | null }>()
 
@@ -19,6 +20,7 @@ const copy = useCopy(SETTINGS_COPY)
 const locale = useLocale()
 const shown = (id: string) => !props.visible || props.visible.has(id)
 const appVersion = __APP_VERSION__
+const manifestUrl = updateManifestUrl(appVersion, clientOS())
 
 const checking = ref(false)
 const updateResult = ref<UpdateCheckResult | null>(null)
@@ -142,7 +144,7 @@ const manifestExample = computed(() =>
         <ShieldCheck class="size-3 shrink-0" />
         <span class="min-w-0 truncate">{{ copy.updates.sends }}</span>
       </div>
-      <pre class="m-0 overflow-x-auto rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] leading-relaxed"><span class="text-muted-foreground">→</span> GET {{ UPDATE_MANIFEST_URL }}
+      <pre class="m-0 overflow-x-auto rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] leading-relaxed"><span class="text-muted-foreground">→</span> GET {{ manifestUrl }}
 <span class="text-muted-foreground">←</span> {{ manifestExample }}</pre>
       <p v-if="!settings.checkUpdatesAutomatically" class="flex items-start gap-1.5 text-xs text-[var(--gc-warning)]">
         <AlertTriangle class="mt-px size-3.5 shrink-0" />
@@ -150,7 +152,7 @@ const manifestExample = computed(() =>
       </p>
       <p class="flex items-start gap-1.5 text-xs text-muted-foreground">
         <Check class="mt-px size-3.5 shrink-0" />
-        <span class="min-w-0">{{ copy.updates.sendsNothing }}</span>
+        <span class="min-w-0">{{ copy.updates.sendsOnly }}</span>
       </p>
     </div>
   </div>

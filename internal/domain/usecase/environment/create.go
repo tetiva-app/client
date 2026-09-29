@@ -134,6 +134,7 @@ type AddVariable struct {
 	Key           string
 	Value         string
 	IsSecret      bool
+	Disabled      bool
 }
 
 type AddVariableOpt struct {
@@ -165,7 +166,7 @@ func (u *usecase) AddVariable(ctx context.Context, input AddVariable, opt AddVar
 		Key:           input.Key,
 		Value:         input.Value,
 		IsSecret:      input.IsSecret,
-		Enabled:       true,
+		Enabled:       !input.Disabled,
 		SortOrder:     0,
 		Version:       1,
 		IsDelete:      false,

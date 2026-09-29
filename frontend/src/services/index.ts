@@ -191,8 +191,10 @@ export const getPortabilityService = memoize<PortabilityServiceAPI>(async () => 
     const { WailsPortabilityService } = await import('./wails-portability')
     return new WailsPortabilityService()
   }
-  const { MockPortabilityService } = await import('./mock-portability')
-  return new MockPortabilityService()
+  const { MockPortabilityService, addMockEnvironment } = await import('./mock-portability')
+  return new MockPortabilityService({
+    onEnvironmentImported: async env => addMockEnvironment(await getEnvironmentService(), env),
+  })
 })
 
 export const getWorkspaceService = memoize<WorkspaceServiceAPI>(async () => {

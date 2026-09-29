@@ -85,7 +85,7 @@ func (r *VariableRepo) List(ctx context.Context, environmentID uuid.UUID) ([]*en
 	const funcName = "VariableRepo.List"
 
 	query := `SELECT id, environment_id, key, value, is_secret, enabled, sort_order, version, is_delete, created_by, created_at, updated_by, updated_at
-		FROM variables WHERE environment_id = ? AND is_delete = 0 ORDER BY sort_order ASC, created_at ASC`
+		FROM variables WHERE environment_id = ? AND is_delete = 0 ORDER BY sort_order ASC, created_at ASC, rowid ASC`
 
 	rows, err := DBTXFromContext(ctx, r.db).QueryContext(ctx, query, environmentID.String())
 	if err != nil {

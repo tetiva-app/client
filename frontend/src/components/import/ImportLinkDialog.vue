@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { keepOpenOnToast } from '@/components/ui/toast'
 import { useImportFlow } from '@/composables/useImportFlow'
 
 const flow = useImportFlow()
@@ -58,7 +59,7 @@ async function submit() {
 
 <template>
   <Dialog :open="true" @update:open="onOpenChange">
-    <DialogContent class="sm:max-w-md">
+    <DialogContent class="sm:max-w-md" @pointer-down-outside="keepOpenOnToast">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2 text-sm font-medium">
           <component :is="locked ? Lock : Link" class="size-4 text-primary" />

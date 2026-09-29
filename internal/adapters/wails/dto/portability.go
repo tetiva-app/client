@@ -1,6 +1,9 @@
 package dto
 
-import "github.com/tetiva-app/client/internal/adapters/portability"
+import (
+	"github.com/tetiva-app/client/internal/adapters/portability"
+	"github.com/tetiva-app/client/internal/adapters/portability/postman"
+)
 
 type ImportCollectionRequest struct {
 	Content     string  `json:"content"`
@@ -26,8 +29,10 @@ type ImportEnvironmentRequest struct {
 }
 
 type ImportEnvironmentResponse struct {
-	EnvironmentName  string `json:"environmentName"`
-	VariablesCreated int    `json:"variablesCreated"`
+	EnvironmentID    string   `json:"environmentId"`
+	EnvironmentName  string   `json:"environmentName"`
+	VariablesCreated int      `json:"variablesCreated"`
+	Warnings         []string `json:"warnings"`
 }
 
 type ExportEnvironmentRequest struct {
@@ -103,11 +108,12 @@ type ImportConfirmRequest struct {
 }
 
 type ImportConfirmResult struct {
-	CollectionID string   `json:"collectionId"`
-	Folders      int      `json:"folders"`
-	Requests     int      `json:"requests"`
-	Examples     int      `json:"examples"`
-	Warnings     []string `json:"warnings"`
+	CollectionID    string   `json:"collectionId"`
+	Folders         int      `json:"folders"`
+	Requests        int      `json:"requests"`
+	Examples        int      `json:"examples"`
+	EnvironmentName string   `json:"environmentName"`
+	Warnings        []string `json:"warnings"`
 }
 
 func ImportPreviewFrom(p *portability.ImportPreview) ImportPreview {
@@ -124,6 +130,13 @@ func ImportPreviewFrom(p *portability.ImportPreview) ImportPreview {
 func ImportConfirmResultFrom(r *portability.ImportResult) ImportConfirmResult {
 	return ImportConfirmResult{
 		CollectionID: r.CollectionID.String(), Folders: r.Folders, Requests: r.Requests, Examples: r.Examples,
-		Warnings: nonNilStrings(r.Warnings),
+		EnvironmentName: r.EnvironmentName, Warnings: nonNilStrings(r.Warnings),
+	}
+}
+
+func ImportEnvironmentResponseFrom(r *postman.ImportEnvResult) ImportEnvironmentResponse {
+	return ImportEnvironmentResponse{
+		EnvironmentID: r.EnvironmentID.String(), EnvironmentName: r.EnvironmentName,
+		VariablesCreated: r.VariablesCreated, Warnings: nonNilStrings(r.Warnings),
 	}
 }

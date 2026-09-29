@@ -194,7 +194,7 @@ func TestImportCollection_SimpleStructure(t *testing.T) {
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: workspaceID,
 		UserID:      "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, result.FoldersCreated)
@@ -236,7 +236,7 @@ func TestImportCollection_WithParentID(t *testing.T) {
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
 		ParentID:    &parentID,
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.FoldersCreated)
@@ -256,7 +256,7 @@ func TestImportCollection_InvalidSchema(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "v2.1")
@@ -289,7 +289,7 @@ func TestImportCollection_Headers(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(reqUC.created))
@@ -336,7 +336,7 @@ func TestImportCollection_FormData(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(reqUC.created))
@@ -350,7 +350,7 @@ func TestImportCollection_InvalidJSON(t *testing.T) {
 	_, err := postman.ImportCollection(context.Background(), []byte("not json"), postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid JSON")
@@ -390,7 +390,7 @@ func TestImportCollection_WithDescriptionAndAuth(t *testing.T) {
 
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.True(t, len(collUC.created) >= 2)
@@ -412,7 +412,7 @@ func TestImportCollection_RequestLevelDescription(t *testing.T) {
 
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	byName := make(map[string]request.Create, len(reqUC.created))
@@ -445,7 +445,7 @@ func TestImportCollection_NestedUnderRequestAndUnnamedItem(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	var names []string
@@ -467,7 +467,7 @@ func TestImportCollection_NamelessFolders(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err, `an explicitly empty "item": [] under a nameless folder must not abort the import`)
 
 	var folders []string
@@ -491,7 +491,7 @@ func TestImportCollection_EmptyFolderAndDescriptionTypes(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, res.FoldersCreated, "an item with neither request nor item is an empty folder")
@@ -523,7 +523,7 @@ func TestImportCollection_RealPostmanFile(t *testing.T) {
 	result, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.MustParse("00000000-0000-4000-a000-000000000001"),
 		UserID:      "local_user",
-	}, collUC, reqUC, exUC)
+	}, collUC, reqUC, exUC, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 
@@ -595,7 +595,7 @@ func TestImportCollection_GraphQL(t *testing.T) {
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(),
 		UserID:      "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	require.Equal(t, 2, len(reqUC.created))
@@ -642,7 +642,7 @@ func TestImportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -675,7 +675,7 @@ func TestImportCollection_TruncatesOversizedDescription(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -696,7 +696,7 @@ func TestImportCollection_ScriptsAndBodies(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -735,7 +735,7 @@ func TestImportCollection_ScriptsAndBodies(t *testing.T) {
 		`request "Login form": disabled test script was not imported`,
 		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
 		`request "Put blob": the file body was imported without its file; pick it again`,
-		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.request, pm.response, pm.test), so some may need changes",
+		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test), so some may need changes",
 	}, res.Warnings)
 }
 
@@ -746,7 +746,7 @@ func TestImportCollection_ScriptsAreOptIn(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -778,7 +778,7 @@ func TestImportCollection_NoScriptsNoScriptWarning(t *testing.T) {
 
 	res, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
-	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{})
+	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 	assert.Empty(t, res.Warnings)
 }

@@ -1,8 +1,10 @@
 import type { Result } from '@/types/common'
 
 export interface ImportEnvironmentResult {
+  environmentId: string
   environmentName: string
   variablesCreated: number
+  warnings: string[]
 }
 
 // path is the saved file (desktop) or '' for a browser blob download;
@@ -58,6 +60,7 @@ export interface ImportConfirmResult {
   folders: number
   requests: number
   examples: number
+  environmentName: string
   warnings: string[]
 }
 

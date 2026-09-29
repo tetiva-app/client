@@ -5,8 +5,11 @@ import { useEnvironmentStore } from '@/stores/environments'
 import { useEnvModalUi } from '@/stores/envModalUi'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getPortabilityService } from '@/services'
+import { guarded } from '@/lib/service-call'
+import { warningsToastMessage } from '@/lib/auth-warnings'
 import { useToast } from '@/composables/useToast'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
+import { importedEnvironmentText, importErrorText } from '@/composables/useImportFlow'
 import {
   Dialog,
   DialogContent,
@@ -97,7 +100,12 @@ async function applyTargetKey() {
 watch(() => props.open, async (isOpen) => {
   if (isOpen) {
     await store.fetchAll()
-    autoSelectFirst()
+    const target = envModalUi.targetEnvId
+    if (target && store.environments.some(e => e.id === target)) {
+      selectEnv(target)
+    } else {
+      autoSelectFirst()
+    }
     await nextTick()
     await applyTargetKey()
   }
@@ -295,28 +303,27 @@ function triggerEnvImport() {
 async function handleEnvFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
+  input.value = ''
   if (!file) return
 
-  const content = await file.text()
-  const service = await getPortabilityService()
   const wsId = useWorkspaceStore().activeWorkspace?.id
   if (!wsId) {
     toast.error('No active workspace')
     return
   }
-  const result = await service.importEnvironment(content, wsId)
-
+  const content = await file.text()
+  const result = await guarded((await getPortabilityService()).importEnvironment(content, wsId))
   if (result.error) {
-    toast.error(result.error.message)
-  } else {
-    toast.success(`Imported environment "${result.data.environmentName}" with ${result.data.variablesCreated} variables`)
-    await store.fetchAll()
-    if (store.environments.length > 0) {
-      selectEnv(store.environments[store.environments.length - 1].id)
-    }
+    toast.error(importErrorText(result.error))
+    return
   }
-
-  input.value = ''
+  toast.success(importedEnvironmentText(result.data))
+  const warning = warningsToastMessage(result.data.warnings)
+  if (warning) toast.info(warning, undefined, { sticky: true })
+  await store.fetchAll()
+  if (store.environments.some(e => e.id === result.data.environmentId)) {
+    selectEnv(result.data.environmentId)
+  }
 }
 
 async function exportEnv(id: string) {

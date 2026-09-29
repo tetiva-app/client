@@ -60,7 +60,7 @@ func NewPortabilityService(
 		tx:            tx,
 		previews:      newPreviewCache(),
 		snapshots:     snapshot.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
-		postman:       postman.NewImporter(collectionUC, requestUC, exampleUC),
+		postman:       postman.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
 	}
 }
 
@@ -139,6 +139,12 @@ func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[
 	const funcName = "PortabilityService.ImportPreview"
 
 	data := []byte(req.Content)
+	if postman.IsEnvironment(data) {
+		return Err[dto.ImportPreview](&domain.ReasonError{
+			Reason: portability.ReasonEnvironmentFile,
+			Err:    &domain.ValidationError{Fields: map[string]string{"content": "a Postman environment, not a collection"}},
+		})
+	}
 	imp, err := portability.Select(data, s.snapshots, s.postman)
 	if err != nil {
 		return Err[dto.ImportPreview](err)
@@ -253,8 +259,6 @@ func (s *PortabilityService) ExportCollection(req dto.ExportCollectionRequest) R
 
 // ImportEnvironment imports a Postman Environment JSON string.
 func (s *PortabilityService) ImportEnvironment(req dto.ImportEnvironmentRequest) Result[dto.ImportEnvironmentResponse] {
-	ctx := context.Background()
-
 	workspaceID, err := uuid.Parse(req.WorkspaceID)
 	if err != nil {
 		return Err[dto.ImportEnvironmentResponse](&domain.ValidationError{
@@ -262,18 +266,20 @@ func (s *PortabilityService) ImportEnvironment(req dto.ImportEnvironmentRequest)
 		})
 	}
 
-	result, err := postman.ImportEnvironment(ctx, []byte(req.Content), postman.ImportEnvOpts{
-		WorkspaceID: workspaceID,
-		UserID:      defaultUserID,
-	}, s.environmentUC)
+	var result *postman.ImportEnvResult
+	err = s.tx.Run(context.Background(), func(ctx context.Context) error {
+		var err error
+		result, err = postman.ImportEnvironment(ctx, []byte(req.Content), postman.ImportEnvOpts{
+			WorkspaceID: workspaceID,
+			UserID:      defaultUserID,
+		}, s.environmentUC)
+		return err
+	})
 	if err != nil {
 		return Err[dto.ImportEnvironmentResponse](fmt.Errorf("import failed: %w", err))
 	}
 
-	return OK(dto.ImportEnvironmentResponse{
-		EnvironmentName:  result.EnvironmentName,
-		VariablesCreated: result.VariablesCreated,
-	})
+	return OK(dto.ImportEnvironmentResponseFrom(result))
 }
 
 // ExportEnvironment builds a Postman Environment JSON, prompts for a save location,

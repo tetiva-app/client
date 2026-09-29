@@ -127,4 +127,86 @@ test.describe('Import / Export Management', () => {
     await expect(confirm).toContainText('Import “Snapshot API”');
     await expect(confirm).toContainText('Tetiva collections are always imported as a new top-level collection.');
   });
+
+  test('imports a Postman environment dropped into Import and opens it from the toast', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('button[title="Import"]').click();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Import File…' }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name: 'Staging.postman_environment.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({
+        name: 'Staging',
+        values: [
+          { key: 'baseUrl', value: 'https://staging.example.com', enabled: true },
+          { key: 'legacyToken', value: 'old', enabled: false },
+        ],
+        _postman_variable_scope: 'environment',
+      })),
+    });
+
+    const toast = page.getByTestId('toast-message').filter({ hasText: 'Imported environment “Staging” · 2 variables' });
+    await expect(toast).toBeVisible();
+    await expect(page.getByTestId('import-confirm')).not.toBeVisible();
+    await toast.locator('..').getByRole('button', { name: 'Open' }).click();
+
+    const envDialog = page.getByRole('dialog').filter({ hasText: 'Manage Environments' });
+    await expect(envDialog).toContainText('Variables: Staging');
+    const baseUrl = envDialog.locator('[data-var-key="baseUrl"]');
+    await expect(baseUrl.locator('input.font-mono')).toHaveValue('https://staging.example.com');
+    await expect(envDialog.locator('[data-var-key="legacyToken"] input[type="checkbox"]')).not.toBeChecked();
+  });
+
+  test('keeps an import dialog open when a toast is pressed', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('button[title="Import"]').click();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Import File…' }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name: 'workspace.postman_globals.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({ name: '', values: [{ key: 'a', value: '1' }], _postman_variable_scope: 'globals' })),
+    });
+    const warning = page.getByTestId('toast-message').filter({ hasText: 'Tetiva has no global variables' });
+    await expect(warning).toBeVisible();
+
+    await page.locator('button[title="Import"]').click();
+    await page.getByRole('menuitem', { name: 'Import from Link…' }).click();
+    const linkDialog = page.getByRole('dialog').filter({ has: page.getByTestId('import-link-input') });
+    await expect(linkDialog).toBeVisible();
+
+    await warning.locator('xpath=../..').locator('button[aria-label="Dismiss"]').click();
+
+    await expect(warning).not.toBeVisible();
+    await expect(linkDialog).toBeVisible();
+  });
+
+  test('says where Postman collection variables go before the import', async ({ page }) => {
+    await page.goto('/');
+
+    await page.locator('button[title="Import"]').click();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Import File…' }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name: 'petstore.postman_collection.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({
+        info: { name: 'Petstore', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+        variable: [{ key: 'baseUrl', value: 'https://petstore.example.com/v1' }],
+        item: [{ name: 'List pets', request: { method: 'GET', url: { raw: '{{baseUrl}}/pets' } } }],
+      })),
+    });
+
+    const confirm = page.getByTestId('import-confirm');
+    await expect(confirm.getByTestId('import-environment')).toContainText(
+      'Collection variables become the environment “Petstore”. Switch to it in the environment picker to use them',
+    );
+    await expect(confirm.getByTestId('import-hosts')).toHaveText('petstore.example.com');
+  });
 });

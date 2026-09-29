@@ -3,6 +3,7 @@ package portability
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -25,6 +26,8 @@ const (
 	ReasonRateLimited      = "RATE_LIMITED"
 	ReasonPreviewExpired   = "PREVIEW_EXPIRED"
 	ReasonUnsupportedFile  = "UNSUPPORTED_FILE"
+	ReasonCollectionFile   = "COLLECTION_FILE"
+	ReasonEnvironmentFile  = "ENVIRONMENT_FILE"
 )
 
 type TxRunner interface {
@@ -65,11 +68,12 @@ type ScriptPreview struct {
 }
 
 type ImportResult struct {
-	CollectionID uuid.UUID
-	Folders      int
-	Requests     int
-	Examples     int
-	Warnings     []string
+	CollectionID    uuid.UUID
+	Folders         int
+	Requests        int
+	Examples        int
+	EnvironmentName string
+	Warnings        []string
 }
 
 func Select(data []byte, importers ...Importer) (Importer, error) {
@@ -81,6 +85,14 @@ func Select(data []byte, importers ...Importer) (Importer, error) {
 	return nil, &domain.ReasonError{Reason: ReasonUnsupportedFile, Err: &domain.ValidationError{Fields: map[string]string{
 		"content": "not a Tetiva collection or a Postman Collection v2.1 file",
 	}}}
+}
+
+func FreeName(name string, taken map[string]bool) string {
+	candidate := name
+	for n := 2; taken[candidate]; n++ {
+		candidate = fmt.Sprintf("%s (%d)", name, n)
+	}
+	return candidate
 }
 
 var varPattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)

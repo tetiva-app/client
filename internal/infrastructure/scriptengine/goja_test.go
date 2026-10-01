@@ -61,6 +61,22 @@ func TestPreScript_EnvironmentUnset(t *testing.T) {
 	assert.False(t, exists)
 }
 
+func TestPreScript_CollectionVariablesShareTheEnvironment(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+
+	result, err := engine.RunPreScript(context.Background(), `
+		pm.collectionVariables.set("k", "v");
+		console.log(pm.environment.get("k"));
+		console.log(pm.collectionVariables.get("host"));
+		pm.collectionVariables.unset("token");
+		console.log(pm.environment.get("token"));
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"v", "https://api.example.com", "undefined"}, result.ConsoleOutput)
+	assert.Equal(t, map[string]string{"host": "https://api.example.com", "k": "v"}, result.Variables)
+}
+
 func TestPreScript_ConsoleLog(t *testing.T) {
 	engine := scriptengine.NewGojaEngine()
 	result, err := engine.RunPreScript(context.Background(), `

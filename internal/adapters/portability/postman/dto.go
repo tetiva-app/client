@@ -1,6 +1,7 @@
 package postman
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -65,6 +66,8 @@ type PostmanCollection struct {
 	Item  []PostmanItem  `json:"item"`
 	Auth  *PostmanAuth   `json:"auth,omitempty"`
 	Event []PostmanEvent `json:"event,omitempty"`
+	// Raw so a malformed block is skipped instead of failing the file.
+	Variable json.RawMessage `json:"variable,omitempty"`
 }
 
 type PostmanInfo struct {
@@ -320,6 +323,37 @@ type PostmanEnvValue struct {
 	Value   string `json:"value"`
 	Type    string `json:"type,omitempty"`
 	Enabled bool   `json:"enabled"`
+}
+
+type postmanEnvironmentIn struct {
+	Name   string              `json:"name"`
+	Values []postmanEnvValueIn `json:"values"`
+	Scope  string              `json:"_postman_variable_scope"`
+}
+
+type postmanEnvValueIn struct {
+	Key     string       `json:"key"`
+	Value   postmanValue `json:"value"`
+	Type    string       `json:"type"`
+	Enabled *bool        `json:"enabled"`
+}
+
+type postmanValue string
+
+func (v *postmanValue) UnmarshalJSON(b []byte) error {
+	const funcName = "postman.postmanValue.UnmarshalJSON"
+
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*v = postmanValue(s)
+		return nil
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, b); err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	*v = postmanValue(buf.String())
+	return nil
 }
 
 const SchemaV21 = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

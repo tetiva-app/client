@@ -54,7 +54,7 @@ func TestImportCollection_AuthSchemesFixture(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 1)
@@ -137,7 +137,7 @@ func TestImportCollection_UnsupportedGrantWarning(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -169,7 +169,7 @@ func TestImportCollection_JWTPayloadNotAnObject(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	result, err := postman.ImportCollection(context.Background(), raw, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, reqUC.created, 1)
@@ -243,7 +243,7 @@ func TestAuthRoundTrip(t *testing.T) {
 			reqUC := &stubRequestUC{}
 			result, err := postman.ImportCollection(context.Background(), exported, postman.ImportOpts{
 				WorkspaceID: uuid.New(), UserID: "local_user",
-			}, collUC, reqUC, &stubExampleUC{})
+			}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 			require.NoError(t, err)
 			assert.Empty(t, result.Warnings)
 
@@ -374,7 +374,7 @@ func TestImportCollection_RealFileKeyValuesUnchanged(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC, &stubExampleUC{})
+	}, &stubCollectionUC{}, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 	require.Len(t, reqUC.created, len(wantHeaders))
 

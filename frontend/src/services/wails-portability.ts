@@ -40,7 +40,12 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
     return {
       ...res,
       data: res.data
-        ? { environmentName: res.data.environmentName, variablesCreated: res.data.variablesCreated }
+        ? {
+            environmentId: res.data.environmentId,
+            environmentName: res.data.environmentName,
+            variablesCreated: res.data.variablesCreated,
+            warnings: res.data.warnings ?? [],
+          }
         : undefined,
     } as Result<ImportEnvironmentResult>
   }

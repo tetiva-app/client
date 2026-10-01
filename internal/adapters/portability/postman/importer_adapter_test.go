@@ -13,6 +13,7 @@ import (
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
+	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
@@ -80,8 +81,22 @@ func (failingExamples) Create(context.Context, example.Create, example.CreateOpt
 	panic("preview must not write")
 }
 
+type failingEnvironments struct{}
+
+func (failingEnvironments) Create(context.Context, environment.Create, environment.CreateOpt) (*entities.Environment, error) {
+	panic("preview must not write")
+}
+
+func (failingEnvironments) AddVariable(context.Context, environment.AddVariable, environment.AddVariableOpt) (*entities.Variable, error) {
+	panic("preview must not write")
+}
+
+func (failingEnvironments) List(context.Context, environment.ListOpt) ([]*entities.Environment, error) {
+	panic("preview must not read the workspace")
+}
+
 func TestImporter_Detect(t *testing.T) {
-	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{})
+	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
 
 	assert.True(t, imp.Detect(adapterFixture(t)))
 	assert.True(t, imp.Detect([]byte(`{"info":{"schema":"https://schema.getpostman.com/json/collection/v2.0.0/collection.json"},"item":[]}`)))
@@ -92,7 +107,7 @@ func TestImporter_Detect(t *testing.T) {
 }
 
 func TestImporter_PreviewWritesNothing(t *testing.T) {
-	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{})
+	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
 
 	p, err := imp.Preview(adapterFixture(t))
 	require.NoError(t, err)
@@ -112,8 +127,24 @@ func TestImporter_PreviewWritesNothing(t *testing.T) {
 	assert.Equal(t, []string{`request "Upload": file field "file" was imported without its file; pick it again`}, p.Warnings)
 }
 
+func TestImporter_PreviewResolvesCollectionVariables(t *testing.T) {
+	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
+	data := collectionWithVariables(`[`+
+		`{"id":"baseUrl","value":"https://petstore.example.com/v1"},`+
+		`{"key":"vault","value":"https://vault.example.com","type":"secret"},`+
+		`{"key":"legacy","value":"https://legacy.example.com","disabled":true}]`,
+		"{{baseUrl}}/pets", "{{vault}}/keys", "{{legacy}}/old")
+
+	p, err := imp.Preview(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Petstore", p.EnvironmentName)
+	assert.Equal(t, []string{"petstore.example.com", "{{legacy}}", "{{vault}}"}, p.Hosts)
+	assert.Empty(t, p.Warnings)
+}
+
 func TestImporter_PreviewRejectsAnOlderSchema(t *testing.T) {
-	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{})
+	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
 
 	_, err := imp.Preview([]byte(`{"info":{"name":"x","schema":"https://schema.getpostman.com/json/collection/v2.0.0/collection.json"},"item":[]}`))
 	require.Error(t, err)
@@ -125,7 +156,7 @@ func TestImporter_ImportPassesParentAndScriptsFlag(t *testing.T) {
 		reqUC := &stubRequestUC{}
 		exUC := &stubExampleUC{}
 		parent := uuid.New()
-		imp := postman.NewImporter(collUC, reqUC, exUC)
+		imp := postman.NewImporter(collUC, reqUC, exUC, &stubEnvironmentUC{})
 
 		res, err := imp.Import(context.Background(), adapterFixture(t), portability.ImportOpt{
 			WorkspaceID: uuid.New(), ParentID: &parent, UserID: "local_user", IncludeScripts: include,
@@ -158,7 +189,7 @@ func TestImportCollection_ReportsRootAndExamples(t *testing.T) {
 
 	res, err := postman.ImportCollection(context.Background(), adapterFixture(t), postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, &stubRequestUC{}, exUC)
+	}, collUC, &stubRequestUC{}, exUC, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	assert.NotEqual(t, uuid.Nil, res.RootID)

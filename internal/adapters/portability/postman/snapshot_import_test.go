@@ -34,13 +34,13 @@ func TestImportCollection_FromSnapshotConverter(t *testing.T) {
 		WorkspaceID:    uuid.MustParse("00000000-0000-4000-a000-000000000001"),
 		UserID:         "local_user",
 		IncludeScripts: true,
-	}, collUC, reqUC, exUC)
+	}, collUC, reqUC, exUC, &stubEnvironmentUC{})
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		`request "Загрузить фото": file field "file" was imported without its file; pick it again`,
 		`request "Replace avatar": the file body was imported without its file; pick it again`,
-		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.request, pm.response, pm.test), so some may need changes",
+		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test), so some may need changes",
 	}, result.Warnings)
 	assert.Equal(t, 4, result.FoldersCreated)
 	assert.Equal(t, 10, result.RequestsCreated)

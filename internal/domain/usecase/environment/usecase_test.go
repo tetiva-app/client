@@ -333,6 +333,25 @@ func TestAddVariable(t *testing.T) {
 	}
 }
 
+func TestAddVariable_Disabled(t *testing.T) {
+	uc, _, _ := newTestUsecase()
+
+	env := createTestEnv(t, uc, "Dev")
+
+	v, err := uc.AddVariable(context.Background(), environment.AddVariable{
+		EnvironmentID: env.ID,
+		Key:           "debug",
+		Value:         "true",
+		Disabled:      true,
+	}, environment.AddVariableOpt{UserID: "local_user"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Enabled {
+		t.Error("variable added with Disabled should not be enabled")
+	}
+}
+
 func TestAddVariable_EmptyKey(t *testing.T) {
 	uc, _, _ := newTestUsecase()
 

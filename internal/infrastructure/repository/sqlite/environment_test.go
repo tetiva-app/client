@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +179,42 @@ func TestVariableRepo_CreateAndList(t *testing.T) {
 	}
 	if len(vars) != 2 {
 		t.Errorf("len = %d, want 2", len(vars))
+	}
+}
+
+func TestVariableRepo_List_KeepsInsertOrderWithinTheSameSecond(t *testing.T) {
+	db := setupTestDB(t)
+	envRepo := NewEnvironmentRepo(db)
+	varRepo := NewVariableRepo(db)
+	ctx := context.Background()
+
+	// Walking this index, SQLite hands out same-second ties by key unless rowid orders them.
+	if _, err := db.Exec(`CREATE INDEX test_variables_by_key ON variables(environment_id, sort_order, created_at, key)`); err != nil {
+		t.Fatalf("create index: %v", err)
+	}
+	env := newTestEnvironment("Dev")
+	if err := envRepo.Create(ctx, env); err != nil {
+		t.Fatalf("create env: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	for _, key := range []string{"c", "a", "b"} {
+		v := newTestVariable(env.ID, key, "")
+		v.CreatedAt, v.UpdatedAt = now, now
+		if err := varRepo.Create(ctx, v); err != nil {
+			t.Fatalf("create %s: %v", key, err)
+		}
+	}
+
+	vars, err := varRepo.List(ctx, env.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var got []string
+	for _, v := range vars {
+		got = append(got, v.Key)
+	}
+	if strings.Join(got, ",") != "c,a,b" {
+		t.Errorf("order = %v, want [c a b]", got)
 	}
 }
 

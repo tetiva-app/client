@@ -1,15 +1,17 @@
 import { computed, watch } from 'vue'
 import type { ResultError } from '@/types/common'
-import type { DeepLink, ImportConfirmRequest, ImportConfirmResult, ImportPreview } from '@/services'
+import type { DeepLink, ImportConfirmRequest, ImportConfirmResult, ImportEnvironmentResult, ImportPreview } from '@/services'
 import { getDeepLinkService, getPortabilityService } from '@/services'
 import { guarded } from '@/lib/service-call'
 import { contentSaved } from '@/lib/content-saved'
 import { formatResultError, isUnreachable, UNREACHABLE_TEXT } from '@/lib/result-error'
 import { warningsToastMessage } from '@/lib/auth-warnings'
+import { freeName } from '@/lib/free-name'
 import { useImportUi, type ImportSource } from '@/stores/importUi'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useEnvModalUi } from '@/stores/envModalUi'
 import { useRequestStore } from '@/stores/tabs'
 import { useToast } from '@/composables/useToast'
 
@@ -29,6 +31,7 @@ const REASON_TEXT: Record<string, string> = {
   UPDATE_REQUIRED: 'Update Tetiva to import this collection',
   PREVIEW_EXPIRED: 'The download expired — import from the link again',
   UNSUPPORTED_FILE: "This file isn't a Postman or Tetiva collection",
+  COLLECTION_FILE: 'This is a collection, not an environment — import it from the sidebar',
 }
 
 const ANY_SHARE_HOST = import.meta.env.MODE !== 'production'
@@ -73,10 +76,16 @@ export function importCounts(c: Pick<ImportPreview, 'folders' | 'requests' | 'ex
   return [plural(c.folders, 'folder'), plural(c.requests, 'request'), plural(c.examples, 'example')].join(' · ')
 }
 
+export function importedEnvironmentText(r: Pick<ImportEnvironmentResult, 'environmentName' | 'variablesCreated'>): string {
+  return `Imported environment “${r.environmentName}” · ${plural(r.variablesCreated, 'variable')}`
+}
+
 export function useImportFlow() {
   const ui = useImportUi()
   const workspaces = useWorkspaceStore()
   const collections = useCollectionStore()
+  const environments = useEnvironmentStore()
+  const envModalUi = useEnvModalUi()
   const toast = useToast()
 
   function authOwnerName(folderId: string): string {
@@ -94,12 +103,14 @@ export function useImportFlow() {
     const ws = workspaces.activeWorkspace
     const parentId = ui.source?.kind === 'file' ? ui.source.parentId : null
     const tetiva = ui.preview?.format === 'tetiva'
+    const envName = ui.preview?.environmentName ?? ''
     return {
       workspaceName: ws?.name ?? '',
       cloud: !!ws?.remoteWorkspaceId,
       folderName: parentId && !tetiva ? collections.collectionsMap.get(parentId)?.name ?? '' : '',
       alwaysTopLevel: parentId !== null && tetiva,
       inheritedAuth: parentId && !tetiva ? authOwnerName(parentId) : '',
+      environmentName: envName ? freeName(envName, environments.environments.map(e => e.name)) : '',
     }
   })
 
@@ -205,6 +216,7 @@ export function useImportFlow() {
       return
     }
     const flow = ui.reset()
+    const wsId = workspaces.activeWorkspace?.id ?? ''
     ui.busy = 'Reading the file…'
     let content: string
     try {
@@ -222,6 +234,10 @@ export function useImportFlow() {
     if (!current(flow)) return
     const res = await guarded((await getPortabilityService()).importPreview(content))
     if (!current(flow)) return
+    if (res.error?.reason === 'ENVIRONMENT_FILE') {
+      await importEnvironmentFile(flow, content, wsId)
+      return
+    }
     ui.busy = ''
     if (res.error) {
       toast.error(importErrorText(res.error))
@@ -229,6 +245,30 @@ export function useImportFlow() {
       return
     }
     showPreview({ kind: 'file', content, parentId }, res.data)
+  }
+
+  async function importEnvironmentFile(flow: number, content: string, wsId: string) {
+    if (!wsId) {
+      toast.error('No active workspace')
+      finish()
+      return
+    }
+    ui.busy = 'Importing the environment…'
+    const res = await guarded((await getPortabilityService()).importEnvironment(content, wsId))
+    if (current(flow)) finish()
+    if (res.error) {
+      toast.error(importErrorText(res.error))
+      return
+    }
+    const id = res.data.environmentId
+    const stillHere = workspaces.activeWorkspace?.id === wsId
+    toast.success(
+      importedEnvironmentText(res.data),
+      stillHere ? { label: 'Open', onClick: () => envModalUi.openForEnvironment(id) } : undefined,
+    )
+    const warning = warningsToastMessage(res.data.warnings)
+    if (warning) toast.info(warning, undefined, { sticky: true })
+    if (stillHere) await environments.fetchAll(wsId)
   }
 
   async function redownload(flow: number, src: Extract<ImportSource, { kind: 'link' }>) {
@@ -286,10 +326,11 @@ export function useImportFlow() {
   }
 
   async function imported(wsId: string, title: string, result: ImportConfirmResult) {
-    toast.success(`Imported “${title}”: ${importCounts(result)}`)
+    const env = result.environmentName ? ` · environment “${result.environmentName}”` : ''
+    toast.success(`Imported “${title}”: ${importCounts(result)}${env}`)
     const warning = warningsToastMessage(result.warnings)
     if (warning) toast.info(warning, undefined, { sticky: true })
-    await Promise.all([collections.fetchAll(wsId), useEnvironmentStore().fetchAll(wsId)])
+    await Promise.all([collections.fetchAll(wsId), environments.fetchAll(wsId)])
     contentSaved()
     const created = collections.collectionsMap.get(result.collectionId)
     if (created) useRequestStore().openCollectionTab(created.id, created.name)

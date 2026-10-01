@@ -13,18 +13,25 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
+	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
 type Importer struct {
-	collections CollectionCreator
-	requests    RequestCreator
-	examples    ExampleCreator
+	collections  CollectionCreator
+	requests     RequestCreator
+	examples     ExampleCreator
+	environments EnvironmentCreator
 }
 
-func NewImporter(collections CollectionCreator, requests RequestCreator, examples ExampleCreator) *Importer {
-	return &Importer{collections: collections, requests: requests, examples: examples}
+func NewImporter(
+	collections CollectionCreator,
+	requests RequestCreator,
+	examples ExampleCreator,
+	environments EnvironmentCreator,
+) *Importer {
+	return &Importer{collections: collections, requests: requests, examples: examples, environments: environments}
 }
 
 func (i *Importer) Detect(data []byte) bool {
@@ -43,9 +50,9 @@ func (i *Importer) Detect(data []byte) bool {
 func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 	const funcName = "postman.Importer.Preview"
 
-	rec := &recorder{}
+	rec := &recorder{vars: map[string]string{}}
 	res, err := ImportCollection(context.Background(), data, ImportOpts{},
-		collectionRecorder{rec}, requestRecorder{rec}, exampleRecorder{rec})
+		collectionRecorder{rec}, requestRecorder{rec}, exampleRecorder{rec}, environmentRecorder{rec})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
@@ -54,35 +61,39 @@ func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 	return &portability.ImportPreview{
-		Format:   portability.FormatPostman,
-		Title:    pc.Info.Name,
-		Folders:  res.FoldersCreated - 1,
-		Requests: res.RequestsCreated,
-		Examples: res.ExamplesCreated,
-		Hosts:    portability.Hosts(rec.urls, nil),
-		Scripts:  scriptPreviews(pc),
-		Warnings: nonNil(res.Warnings),
+		Format:          portability.FormatPostman,
+		Title:           pc.Info.Name,
+		Folders:         res.FoldersCreated - 1,
+		Requests:        res.RequestsCreated,
+		Examples:        res.ExamplesCreated,
+		EnvironmentName: res.EnvironmentName,
+		Hosts:           portability.Hosts(rec.urls, rec.vars),
+		Scripts:         scriptPreviews(pc),
+		Warnings:        nonNil(res.Warnings),
 	}, nil
 }
 
 func (i *Importer) Import(ctx context.Context, data []byte, opt portability.ImportOpt) (*portability.ImportResult, error) {
 	res, err := ImportCollection(ctx, data, ImportOpts{
 		WorkspaceID: opt.WorkspaceID, UserID: opt.UserID, ParentID: opt.ParentID, IncludeScripts: opt.IncludeScripts,
-	}, i.collections, i.requests, i.examples)
+	}, i.collections, i.requests, i.examples, i.environments)
 	if err != nil {
 		return nil, err
 	}
 	return &portability.ImportResult{
-		CollectionID: res.RootID,
-		Folders:      res.FoldersCreated - 1,
-		Requests:     res.RequestsCreated,
-		Examples:     res.ExamplesCreated,
-		Warnings:     nonNil(res.Warnings),
+		CollectionID:    res.RootID,
+		Folders:         res.FoldersCreated - 1,
+		Requests:        res.RequestsCreated,
+		Examples:        res.ExamplesCreated,
+		EnvironmentName: res.EnvironmentName,
+		Warnings:        nonNil(res.Warnings),
 	}, nil
 }
 
+// Secret values stay out of vars so the preview's host list cannot show them.
 type recorder struct {
 	urls []string
+	vars map[string]string
 }
 
 func (r *recorder) auth(authType entities.AuthType, data string) {
@@ -119,6 +130,23 @@ type exampleRecorder struct{ *recorder }
 
 func (exampleRecorder) Create(_ context.Context, in example.Create, _ example.CreateOpt) (*entities.ResponseExample, error) {
 	return &entities.ResponseExample{ID: uuid.New(), RequestID: in.RequestID, Name: in.Name}, nil
+}
+
+type environmentRecorder struct{ *recorder }
+
+func (environmentRecorder) Create(_ context.Context, in environment.Create, _ environment.CreateOpt) (*entities.Environment, error) {
+	return &entities.Environment{ID: uuid.New(), Name: in.Name, Version: 1}, nil
+}
+
+func (r environmentRecorder) AddVariable(_ context.Context, in environment.AddVariable, _ environment.AddVariableOpt) (*entities.Variable, error) {
+	if !in.Disabled && !in.IsSecret {
+		r.vars[in.Key] = in.Value
+	}
+	return &entities.Variable{ID: uuid.New(), EnvironmentID: in.EnvironmentID, Key: in.Key, Value: in.Value}, nil
+}
+
+func (environmentRecorder) List(context.Context, environment.ListOpt) ([]*entities.Environment, error) {
+	return nil, nil
 }
 
 // scriptPreviews mirrors collectScripts: the same scripts, in the same order.

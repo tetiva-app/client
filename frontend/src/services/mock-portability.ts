@@ -9,8 +9,11 @@ import type {
   ImportConfirmResult,
   ImportScript,
 } from './portability-api'
+import type { EnvironmentServiceAPI } from './environment-api'
+import type { Environment } from '@/types/environment'
 import type { Result, ResultError } from '@/types/common'
 import { listPostmanScripts } from '@/lib/postman-scripts'
+import { freeName } from '@/lib/free-name'
 
 // Browser mode only — desktop uses a native Save dialog because WKWebView does
 // not reliably trigger downloads for blob URLs.
@@ -97,10 +100,45 @@ function snapshotPreview(data: any): ImportPreview {
   }
 }
 
+function variableValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  return JSON.stringify(value)
+}
+
+function collectionVariables(data: any): MockImportedVariable[] {
+  if (!Array.isArray(data.variable)) return []
+  return data.variable
+    .filter((v: any) => v && typeof v === 'object')
+    .map((v: any) => ({
+      key: typeof v.key === 'string' && v.key.trim() !== '' ? v.key : typeof v.id === 'string' ? v.id : '',
+      value: variableValue(v.value),
+      isSecret: v.type === 'secret',
+      enabled: v.disabled !== true,
+    }))
+    .filter((v: MockImportedVariable) => v.key.trim() !== '')
+}
+
+function isObject(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isCollectionFile(data: any): boolean {
+  return data?.format === 'tetiva.collection-snapshot' || (isObject(data?.info) && Array.isArray(data?.item))
+}
+
+function isPostmanEnvironment(data: any): boolean {
+  if (!isObject(data) || 'info' in data || !Array.isArray(data.values)) return false
+  const scope = data._postman_variable_scope
+  return scope === 'environment' || scope === 'globals' || typeof data.name === 'string'
+}
+
 function postmanPreview(data: any, content: string): ImportPreview {
   let folders = 0
   let requests = 0
   const hosts = new Set<string>()
+  const variables = collectionVariables(data)
+  const vars = new Map(variables.filter(v => v.enabled && !v.isSecret).map(v => [v.key, v.value]))
   const walk = (items: any[]) => {
     for (const item of items) {
       if (item.item) {
@@ -110,15 +148,20 @@ function postmanPreview(data: any, content: string): ImportPreview {
       }
       requests++
       const url = item.request?.url
-      const host = hostOf(typeof url === 'string' ? url : url?.raw, new Map())
+      const host = hostOf(typeof url === 'string' ? url : url?.raw, vars)
       if (host) hosts.add(host)
     }
   }
   walk(data.item)
   return {
-    format: 'postman', title: data.info?.name ?? '', folders, requests, examples: 0, environmentName: '',
+    format: 'postman', title: data.info?.name ?? '', folders, requests, examples: 0,
+    environmentName: variables.length > 0 ? (data.info?.name?.trim() || 'Collection variables') : '',
     hosts: [...hosts].sort(), scripts: listPostmanScripts(content), warnings: mockAuthWarnings(data),
   }
+}
+
+function unnamedWarning(n: number): string {
+  return n === 1 ? 'a variable without a name was skipped' : `${n} variables without a name were skipped`
 }
 
 function failure<T>(error: ResultError): Result<T> {
@@ -160,11 +203,45 @@ export interface MockCall {
   args: unknown[]
 }
 
+export interface MockImportedVariable {
+  key: string
+  value: string
+  isSecret: boolean
+  enabled: boolean
+}
+
+export interface MockImportedEnvironment {
+  workspaceId: string
+  name: string
+  variables: MockImportedVariable[]
+}
+
+export interface MockPortabilityHooks {
+  onEnvironmentImported?: (env: MockImportedEnvironment) => Promise<Result<Environment>>
+}
+
+export async function addMockEnvironment(
+  environments: EnvironmentServiceAPI,
+  { workspaceId, name, variables }: MockImportedEnvironment,
+): Promise<Result<Environment>> {
+  const listed = await environments.list(workspaceId)
+  const created = await environments.create({ name: freeName(name, listed.data.map(e => e.name)), workspaceId })
+  if (created.error) return created
+  for (const v of variables) {
+    const added = await environments.addVariable({ environmentId: created.data.id, key: v.key, value: v.value, isSecret: v.isSecret })
+    if (added.error) return failure(added.error)
+    if (!v.enabled) await environments.editVariable({ ...added.data, enabled: false })
+  }
+  return created
+}
+
 export class MockPortabilityService implements PortabilityServiceAPI {
   readonly calls: MockCall[] = []
   lastImportedId = ''
   private links = new Map<string, MockLink>(Object.entries(DEMO_LINKS))
   private previews = new Map<string, ImportPreview>()
+
+  constructor(private readonly hooks: MockPortabilityHooks = {}) {}
 
   setLink(slug: string, link: MockLink) {
     this.links.set(slug, link)
@@ -183,18 +260,44 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     return { data: { path: '', canceled: false, warnings: [] } }
   }
 
-  async importEnvironment(content: string, _workspaceId: string): Promise<Result<ImportEnvironmentResult>> {
+  async importEnvironment(content: string, workspaceId: string): Promise<Result<ImportEnvironmentResult>> {
+    this.calls.push({ method: 'importEnvironment', args: [content, workspaceId] })
+    let data: any
     try {
-      const data = JSON.parse(content)
-      return {
-        data: {
-          environmentName: data.name || 'Imported',
-          variablesCreated: data.values?.length || 0,
-        },
-      }
+      data = JSON.parse(content)
     } catch {
-      return { data: { environmentName: '', variablesCreated: 0 }, error: { code: 'validation', message: 'Invalid JSON file' } }
+      return failure({ code: 'validation', message: 'validation failed', fields: { content: 'invalid JSON' } })
     }
+    if (isCollectionFile(data)) {
+      return failure({
+        code: 'validation', reason: 'COLLECTION_FILE', message: 'validation failed',
+        fields: { content: 'a collection, not an environment' },
+      })
+    }
+    const globals = data?._postman_variable_scope === 'globals'
+    const name = (typeof data?.name === 'string' ? data.name.trim() : '') || (globals ? 'Globals' : '')
+    if (!name) {
+      return failure({ code: 'validation', message: 'validation failed', fields: { name: 'environment name is empty' } })
+    }
+    const values: any[] = Array.isArray(data.values) ? data.values : []
+    const variables: MockImportedVariable[] = values
+      .filter((v: any) => typeof v?.key === 'string' && v.key.trim() !== '')
+      .map((v: any) => ({ key: v.key, value: variableValue(v.value), isSecret: v.type === 'secret', enabled: v.enabled !== false }))
+    const env = await this.addEnvironment({ workspaceId, name, variables })
+    if (env.error) return failure(env.error)
+    const warnings: string[] = []
+    if (globals) {
+      warnings.push(`Tetiva has no global variables: they were imported as the environment ${JSON.stringify(env.data.name)}`)
+    }
+    if (values.length > variables.length) warnings.push(unnamedWarning(values.length - variables.length))
+    return {
+      data: { environmentId: env.data.id, environmentName: env.data.name, variablesCreated: variables.length, warnings },
+    }
+  }
+
+  private async addEnvironment(env: MockImportedEnvironment): Promise<Result<{ id: string, name: string }>> {
+    if (!this.hooks.onEnvironmentImported) return { data: { id: crypto.randomUUID(), name: env.name } }
+    return this.hooks.onEnvironmentImported(env)
   }
 
   async exportEnvironment(_id: string): Promise<Result<ExportResult>> {
@@ -253,11 +356,18 @@ export class MockPortabilityService implements PortabilityServiceAPI {
       if (res.error) return failure(res.error)
       preview = res.data
     }
+    let environmentName = preview.environmentName
+    if (preview.format === 'postman' && environmentName) {
+      const variables = collectionVariables(JSON.parse(req.content ?? ''))
+      const env = await this.addEnvironment({ workspaceId: req.workspaceId, name: environmentName, variables })
+      if (env.error) return failure(env.error)
+      environmentName = env.data.name
+    }
     this.lastImportedId = crypto.randomUUID()
     return {
       data: {
         collectionId: this.lastImportedId, folders: preview.folders, requests: preview.requests,
-        examples: preview.examples, warnings: [...preview.warnings],
+        examples: preview.examples, environmentName, warnings: [...preview.warnings],
       },
     }
   }
@@ -268,6 +378,12 @@ export class MockPortabilityService implements PortabilityServiceAPI {
       data = JSON.parse(content)
     } catch {
       data = null
+    }
+    if (isPostmanEnvironment(data)) {
+      return failure({
+        code: 'validation', reason: 'ENVIRONMENT_FILE', message: 'validation failed',
+        fields: { content: 'a Postman environment, not a collection' },
+      })
     }
     if (data?.format === 'tetiva.collection-snapshot') return { data: snapshotPreview(data) }
     if (data?.info?.schema && Array.isArray(data.item)) return { data: postmanPreview(data, content) }

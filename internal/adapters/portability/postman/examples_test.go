@@ -24,7 +24,7 @@ func importWithExamples(t *testing.T, data []byte) (*postman.ImportResult, *stub
 	reqUC, exUC := &stubRequestUC{}, &stubExampleUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, &stubCollectionUC{}, reqUC, exUC)
+	}, &stubCollectionUC{}, reqUC, exUC, &stubEnvironmentUC{})
 	require.NoError(t, err)
 	return res, reqUC, exUC
 }
@@ -171,7 +171,7 @@ func TestImportCollection_ExampleErrorNeverAbortsImport(t *testing.T) {
 		map[string]any{"name": "Huge", "code": 200},
 		map[string]any{"name": "Kept", "code": 201},
 		map[string]any{"name": "Storage", "code": 500},
-	), postman.ImportOpts{WorkspaceID: uuid.New(), UserID: "local_user"}, &stubCollectionUC{}, reqUC, exUC)
+	), postman.ImportOpts{WorkspaceID: uuid.New(), UserID: "local_user"}, &stubCollectionUC{}, reqUC, exUC, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, res.RequestsCreated)

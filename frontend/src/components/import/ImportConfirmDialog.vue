@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { keepOpenOnToast } from '@/components/ui/toast'
 import { importCounts, useImportFlow } from '@/composables/useImportFlow'
 
 const flow = useImportFlow()
@@ -33,6 +34,7 @@ function onOpenChange(open: boolean) {
     <DialogContent
       class="flex max-h-[calc(100vh-2rem)] w-[92vw] flex-col gap-0 border-border/50 bg-background p-0 sm:max-w-[560px]"
       data-testid="import-confirm"
+      @pointer-down-outside="keepOpenOnToast"
     >
       <DialogHeader class="border-b border-border px-4 py-3">
         <DialogTitle class="flex items-center gap-2 text-sm font-medium">
@@ -63,13 +65,19 @@ function onOpenChange(open: boolean) {
           </p>
           <p v-if="destination.cloud" class="flex items-center gap-1.5 text-xs text-[var(--gc-warning)]" data-testid="import-cloud-note">
             <TriangleAlert class="size-3.5 shrink-0" />
-            This collection will be shared with everyone in {{ destination.workspaceName }}.
+            <template v-if="destination.environmentName">
+              This collection and the environment “{{ destination.environmentName }}” will be shared with everyone in {{ destination.workspaceName }}.
+            </template>
+            <template v-else>This collection will be shared with everyone in {{ destination.workspaceName }}.</template>
           </p>
         </section>
 
-        <section v-if="preview.environmentName" class="space-y-1">
+        <section v-if="destination.environmentName" class="space-y-1" data-testid="import-environment">
           <h3 class="text-xs font-medium text-muted-foreground">Environment</h3>
-          <p>Adds the environment “{{ preview.environmentName }}”. Secret values stay empty.</p>
+          <p v-if="preview.format === 'postman'">
+            Collection variables become the environment “{{ destination.environmentName }}”. Switch to it in the environment picker to use them — only one environment is active at a time.
+          </p>
+          <p v-else>Adds the environment “{{ destination.environmentName }}”. Secret values stay empty.</p>
         </section>
 
         <section v-if="preview.hosts.length > 0" class="space-y-1">

@@ -74,7 +74,7 @@ func TestImportCollection_ExamplesThroughRealUsecases(t *testing.T) {
 
 	res, err := postman.ImportCollection(ctx, raw, postman.ImportOpts{
 		WorkspaceID: defaultWorkspaceID, UserID: "local_user",
-	}, collUC, reqUC, exUC)
+	}, collUC, reqUC, exUC, &stubEnvironmentUC{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{`request "Login": example 2 skipped: example is too large (max 480 KB)`}, res.Warnings)
 

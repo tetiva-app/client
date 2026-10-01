@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Postman collection variables come in with the collection: its root `variable` block becomes an environment named after the collection, created in the same import, with disabled variables off and `secret` ones secret. The import dialog names that environment and says to switch to it in the environment picker, since only one environment is active at a time; in a cloud workspace its warning says the environment is shared with the team too. The preview's host list fills in the non-secret variables instead of showing `{{baseUrl}}`, and a `variable` block that can't be read is skipped with a warning instead of failing the import
+- A Postman environment or globals file picked with Import File… in the sidebar is imported as an environment at once: a toast names it and counts its variables, and its Open button opens Manage Environments with that environment selected
+- `pm.collectionVariables` in scripts: `get`, `set` and `unset` work on the active environment, the same variables `pm.environment` sees, so Postman scripts that keep values in collection variables no longer fail on it
+
+### Fixed
+
+- Importing a Postman environment keeps disabled variables disabled; they used to come in enabled. A variable without `enabled`, as older Postman exports write it, stays enabled
+- An environment file with a number, boolean, `null` or object value imports instead of failing as invalid JSON: the value comes in as its JSON text, `null` as an empty string
+- A failed environment import leaves nothing behind; a variable without a name used to stop it halfway and leave a half-filled environment. Such variables are now skipped with a warning
+- An imported environment whose name is taken in the workspace gets a suffix, "Dev (2)", instead of a second "Dev" — the environment of a collection imported from share.tetiva.app too
+- A Postman globals file becomes an environment named after the file, or "Globals", with a warning that Tetiva has no global variables; it used to turn into an environment without a word
+- A Postman or Tetiva collection file picked in Manage Environments says "This is a collection, not an environment — import it from the sidebar" instead of "environment name is empty", and other environment import errors name what is wrong instead of printing the internal error chain
+
 ## [v1.2.0] — 2026-09-27 — Public collections
 
 ### Added

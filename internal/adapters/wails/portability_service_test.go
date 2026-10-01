@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
@@ -106,12 +107,17 @@ const minimalEnvironmentJSON = `{"id":"e-1","name":"prod","values":[]}`
 
 func TestPortabilityService_ImportEnvironment_Happy(t *testing.T) {
 	wsID := uuid.New()
+	envID := uuid.New()
 	envUC := &stubEnvironmentUsecase{
+		listFn: func(_ context.Context, opt environment.ListOpt) ([]*entities.Environment, error) {
+			assert.Equal(t, wsID, opt.WorkspaceID)
+			return []*entities.Environment{{Name: "prod"}}, nil
+		},
 		createFn: func(_ context.Context, in environment.Create, opt environment.CreateOpt) (*entities.Environment, error) {
-			assert.Equal(t, "prod", in.Name)
+			assert.Equal(t, "prod (2)", in.Name)
 			assert.Equal(t, defaultUserID, opt.UserID)
 			assert.Equal(t, wsID, opt.WorkspaceID)
-			return &entities.Environment{ID: uuid.New(), Name: in.Name, WorkspaceID: opt.WorkspaceID}, nil
+			return &entities.Environment{ID: envID, Name: in.Name, WorkspaceID: opt.WorkspaceID}, nil
 		},
 	}
 	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, envUC, &stubExampleUsecase{}, nil, nil)
@@ -122,8 +128,24 @@ func TestPortabilityService_ImportEnvironment_Happy(t *testing.T) {
 	})
 
 	require.Nil(t, res.Error)
-	assert.Equal(t, "prod", res.Data.EnvironmentName)
+	assert.Equal(t, envID.String(), res.Data.EnvironmentID)
+	assert.Equal(t, "prod (2)", res.Data.EnvironmentName)
 	assert.Equal(t, 0, res.Data.VariablesCreated)
+	assert.NotNil(t, res.Data.Warnings)
+}
+
+func TestPortabilityService_ImportEnvironment_InputErrorsKeepTheirFields(t *testing.T) {
+	svc := NewPortabilityService(&stubCollectionUsecase{}, &stubRequestUsecase{}, &stubEnvironmentUsecase{}, &stubExampleUsecase{}, nil, nil)
+
+	invalid := svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: "nope", WorkspaceID: uuid.NewString()})
+	require.NotNil(t, invalid.Error)
+	assert.Equal(t, ErrCodeValidation, invalid.Error.Code)
+	assert.Equal(t, map[string]string{"content": "invalid JSON"}, invalid.Error.Fields)
+
+	collection := svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: minimalCollectionJSON, WorkspaceID: uuid.NewString()})
+	require.NotNil(t, collection.Error)
+	assert.Equal(t, ErrCodeValidation, collection.Error.Code)
+	assert.Equal(t, portability.ReasonCollectionFile, collection.Error.Reason)
 }
 
 func TestPortabilityService_ImportEnvironment_Error_BadUUID(t *testing.T) {

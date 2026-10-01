@@ -487,6 +487,26 @@ func TestImport_NameConflictGetsASuffix(t *testing.T) {
 	assert.Equal(t, []string{"Imported", "Imported (2)", "Imported (3)"}, names)
 }
 
+func TestImport_EnvironmentNameConflictGetsASuffix(t *testing.T) {
+	e := newEnv(t)
+	raw := fixture(t, "all-protocols.json")
+
+	first, err := e.imp.Import(context.Background(), raw, opt(false))
+	require.NoError(t, err)
+	second, err := e.imp.Import(context.Background(), raw, opt(false))
+	require.NoError(t, err)
+
+	assert.Equal(t, "prod", first.EnvironmentName)
+	assert.Equal(t, "prod (2)", second.EnvironmentName)
+	envs, err := e.envs.List(context.Background(), environment.ListOpt{WorkspaceID: workspaceID})
+	require.NoError(t, err)
+	var names []string
+	for _, env := range envs {
+		names = append(names, env.Name)
+	}
+	assert.ElementsMatch(t, []string{"Default", "prod", "prod (2)"}, names)
+}
+
 func TestPreview_AllProtocolsWritesNothing(t *testing.T) {
 	e := newEnv(t)
 

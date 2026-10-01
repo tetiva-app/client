@@ -373,7 +373,7 @@ func TestExportImportRoundTrip_KeepsDescriptions(t *testing.T) {
 	reqUC := &stubRequestUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -450,7 +450,7 @@ func TestExportImportRoundTrip_KeepsEmptyFolder(t *testing.T) {
 	collUC := &stubCollectionUC{}
 	_, err = postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user",
-	}, collUC, &stubRequestUC{}, &stubExampleUC{})
+	}, collUC, &stubRequestUC{}, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 2)
@@ -551,7 +551,7 @@ func TestExportImportRoundTrip_ScriptsAndRequestAuth(t *testing.T) {
 	collUC, reqUC := &stubCollectionUC{}, &stubRequestUC{}
 	res, err := postman.ImportCollection(context.Background(), data, postman.ImportOpts{
 		WorkspaceID: uuid.New(), UserID: "local_user", IncludeScripts: true,
-	}, collUC, reqUC, &stubExampleUC{})
+	}, collUC, reqUC, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 
 	require.Len(t, collUC.created, 1)

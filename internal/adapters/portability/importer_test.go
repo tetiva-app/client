@@ -100,3 +100,26 @@ func TestHosts_SubstitutesPublicVariablesSortsAndDedupes(t *testing.T) {
 
 	assert.Equal(t, []string{"auth.example.com", "petstore.example.com", "{{unknown}}"}, got)
 }
+
+func TestFreeName(t *testing.T) {
+	cases := []struct {
+		name  string
+		taken []string
+		want  string
+	}{
+		{"Dev", nil, "Dev"},
+		{"Dev", []string{"Prod"}, "Dev"},
+		{"Dev", []string{"Dev"}, "Dev (2)"},
+		{"Dev", []string{"Dev", "Dev (2)"}, "Dev (3)"},
+		{"Dev", []string{"Dev", "Dev (3)"}, "Dev (2)"},
+		{"Dev", []string{"dev"}, "Dev"},
+		{"Dev (2)", []string{"Dev (2)"}, "Dev (2) (2)"},
+	}
+	for _, tc := range cases {
+		taken := map[string]bool{}
+		for _, n := range tc.taken {
+			taken[n] = true
+		}
+		assert.Equal(t, tc.want, portability.FreeName(tc.name, taken), "%s taken=%v", tc.name, tc.taken)
+	}
+}

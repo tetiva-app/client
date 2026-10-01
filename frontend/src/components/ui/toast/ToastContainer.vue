@@ -27,7 +27,7 @@ const colorByKind = {
 
 <template>
   <Teleport to="body">
-    <div class="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+    <div class="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm" data-toasts>
       <TransitionGroup name="toast">
         <div
           v-for="t in toasts"

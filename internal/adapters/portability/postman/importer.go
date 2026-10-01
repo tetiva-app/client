@@ -1,6 +1,7 @@
 package postman
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
+	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 	"github.com/tetiva-app/client/internal/domain/usecase/example"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
@@ -25,7 +27,9 @@ import (
 const maxExampleNameLen = 200
 
 const scriptsWarning = "scripts were imported: only part of the pm.* API is available " +
-	"(pm.environment, pm.request, pm.response, pm.test), so some may need changes"
+	"(pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test), so some may need changes"
+
+const unreadableVariablesWarning = "collection variables could not be read and were skipped"
 
 type ImportOpts struct {
 	WorkspaceID    uuid.UUID
@@ -40,6 +44,8 @@ type ImportResult struct {
 	FoldersCreated  int
 	RequestsCreated int
 	ExamplesCreated int
+	EnvironmentID   uuid.UUID
+	EnvironmentName string
 	Warnings        []string
 	scriptsImported bool
 	suspectExamples []string
@@ -64,8 +70,10 @@ func ImportCollection(
 	collUC CollectionCreator,
 	reqUC RequestCreator,
 	exUC ExampleCreator,
+	envUC EnvironmentCreator,
 ) (*ImportResult, error) {
 	const funcName = "postman.ImportCollection"
+	const collectionVariablesName = "Collection variables"
 
 	var pc PostmanCollection
 	if err := json.Unmarshal(data, &pc); err != nil {
@@ -107,6 +115,20 @@ func ImportCollection(
 	if err := importItems(ctx, pc.Item, rootColl.ID, opts, collUC, reqUC, exUC, result); err != nil {
 		return nil, err
 	}
+	vars, varWarnings := collectionVariables(pc.Variable)
+	if len(vars) > 0 {
+		name := strings.TrimSpace(pc.Info.Name)
+		if name == "" {
+			name = collectionVariablesName
+		}
+		env, err := createEnvironment(ctx, envUC, name, vars, opts.WorkspaceID, opts.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, err)
+		}
+		result.EnvironmentID = env.ID
+		result.EnvironmentName = env.Name
+	}
+	result.Warnings = append(result.Warnings, varWarnings...)
 	if result.scriptsImported {
 		appendWarning(result, scriptsWarning)
 	}
@@ -116,6 +138,74 @@ func ImportCollection(
 	}
 
 	return result, nil
+}
+
+func collectionVariables(raw json.RawMessage) ([]environment.AddVariable, []string) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, []string{unreadableVariablesWarning}
+	}
+
+	var (
+		vars       []environment.AddVariable
+		unreadable bool
+		unnamed    int
+	)
+	for _, item := range items {
+		var fields map[string]json.RawMessage
+		if !bytes.HasPrefix(item, []byte("{")) || json.Unmarshal(item, &fields) != nil {
+			unreadable = true
+			continue
+		}
+		key, keyOK := variableField[string](fields, "key")
+		if strings.TrimSpace(key) == "" {
+			id, idOK := variableField[string](fields, "id")
+			key = id
+			keyOK = keyOK && idOK
+		}
+		if strings.TrimSpace(key) == "" {
+			if keyOK {
+				unnamed++
+			} else {
+				unreadable = true
+			}
+			continue
+		}
+		value, _ := variableField[postmanValue](fields, "value")
+		typ, _ := variableField[string](fields, "type")
+		disabled, _ := variableField[bool](fields, "disabled")
+		vars = append(vars, environment.AddVariable{
+			Key:      key,
+			Value:    string(value),
+			IsSecret: typ == "secret",
+			Disabled: disabled,
+		})
+	}
+
+	var warnings []string
+	if unreadable {
+		warnings = append(warnings, unreadableVariablesWarning)
+	}
+	if unnamed > 0 {
+		warnings = append(warnings, unnamedVariablesWarning(unnamed))
+	}
+	return vars, warnings
+}
+
+func variableField[T any](fields map[string]json.RawMessage, name string) (T, bool) {
+	var v T
+	raw, found := fields[name]
+	if !found {
+		return v, true
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		var zero T
+		return zero, false
+	}
+	return v, true
 }
 
 func importItems(

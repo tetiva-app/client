@@ -41,6 +41,7 @@ type Examples interface {
 type Environments interface {
 	Create(ctx context.Context, input environment.Create, opt environment.CreateOpt) (*entities.Environment, error)
 	AddVariable(ctx context.Context, input environment.AddVariable, opt environment.AddVariableOpt) (*entities.Variable, error)
+	List(ctx context.Context, opt environment.ListOpt) ([]*entities.Environment, error)
 }
 
 type Importer struct {
@@ -132,11 +133,7 @@ func (i *Importer) freeName(ctx context.Context, workspaceID uuid.UUID, name str
 			taken[c.Name] = true
 		}
 	}
-	candidate := name
-	for n := 2; taken[candidate]; n++ {
-		candidate = fmt.Sprintf("%s (%d)", name, n)
-	}
-	return candidate, nil
+	return portability.FreeName(name, taken), nil
 }
 
 type writer struct {
@@ -191,11 +188,20 @@ func (w *writer) request(ctx context.Context, collectionID uuid.UUID, rp *reques
 }
 
 func (w *writer) environment(ctx context.Context, ep *envPlan) error {
-	env, err := w.environments.Create(ctx, environment.Create{Name: ep.name},
+	existing, err := w.environments.List(ctx, environment.ListOpt{WorkspaceID: w.opt.WorkspaceID})
+	if err != nil {
+		return fmt.Errorf("list environments: %w", err)
+	}
+	taken := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		taken[e.Name] = true
+	}
+	env, err := w.environments.Create(ctx, environment.Create{Name: portability.FreeName(ep.name, taken)},
 		environment.CreateOpt{UserID: w.opt.UserID, WorkspaceID: w.opt.WorkspaceID})
 	if err != nil {
 		return fmt.Errorf("create environment %q: %w", ep.name, err)
 	}
+	w.res.EnvironmentName = env.Name
 	for _, v := range ep.vars {
 		v.EnvironmentID = env.ID
 		if _, err := w.environments.AddVariable(ctx, v, environment.AddVariableOpt{UserID: w.opt.UserID}); err != nil {

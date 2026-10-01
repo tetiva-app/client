@@ -24,10 +24,12 @@ vi.mock('@/services', async () => {
 
 import {
   MAX_SNAPSHOT_FILE_BYTES,
+  importErrorText,
   parseShareLink,
   useImportFlow,
 } from './useImportFlow'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useEnvModalUi } from '@/stores/envModalUi'
 import { useCollectionStore } from '@/stores/collections'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useRequestStore } from '@/stores/tabs'
@@ -56,6 +58,18 @@ const POSTMAN_FILE = JSON.stringify({
   item: [],
 })
 
+const ENV_FILE = JSON.stringify({
+  name: 'Dev',
+  values: [{ key: 'host', value: 'https://dev.example.com' }, { key: 'token', value: 't', enabled: false }],
+  _postman_variable_scope: 'environment',
+})
+
+const POSTMAN_WITH_VARIABLES = JSON.stringify({
+  info: { name: 'Petstore', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+  variable: [{ key: 'baseUrl', value: 'https://petstore.example.com/v1' }],
+  item: [{ name: 'List pets', request: { method: 'GET', url: { raw: '{{baseUrl}}/pets' } } }],
+})
+
 async function portability(): Promise<MockPortabilityService> {
   return ((await import('@/services')) as unknown as { __portability: () => MockPortabilityService }).__portability()
 }
@@ -70,6 +84,15 @@ function calls(svc: MockPortabilityService, method: string) {
 
 function file(content: string): Blob {
   return new Blob([content])
+}
+
+function toastsOf(kind: string) {
+  return useToast().toasts.value.filter(t => t.kind === kind)
+}
+
+function clearToasts() {
+  const toast = useToast()
+  for (const t of [...toast.toasts.value]) toast.dismiss(t.id)
 }
 
 function workspace(remote: string | null = null) {
@@ -376,6 +399,181 @@ describe('importing a file', () => {
     off()
 
     expect(order).toEqual(['tree', 'saved'])
+  })
+})
+
+describe('an environment file in Import', () => {
+  beforeEach(clearToasts)
+
+  it('becomes an environment the toast offers to open', async () => {
+    const svc = await portability()
+    const importEnvironment = vi.spyOn(svc, 'importEnvironment')
+    const flow = useImportFlow()
+
+    await flow.openFile(file(ENV_FILE), 'folder-1')
+
+    expect(calls(svc, 'importEnvironment').map(c => c.args)).toEqual([[ENV_FILE, 'w1']])
+    expect(calls(svc, 'importConfirm')).toHaveLength(0)
+    expect(flow.ui.preview).toBeNull()
+    expect(flow.ui.active).toBe(false)
+    expect(useEnvironmentStore().fetchAll).toHaveBeenCalledWith('w1')
+    const [toast] = toastsOf('success')
+    expect(toast.message).toBe('Imported environment “Dev” · 2 variables')
+    expect(toast.action?.label).toBe('Open')
+
+    toast.action!.onClick()
+
+    const { data } = await importEnvironment.mock.results[0].value
+    const envUi = useEnvModalUi()
+    expect(envUi.open).toBe(true)
+    expect(envUi.targetEnvId).toBe(data.environmentId)
+  })
+
+  it('shows what the import changed until it is dismissed', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importEnvironment').mockResolvedValueOnce({
+      data: {
+        environmentId: 'env-1', environmentName: 'Globals', variablesCreated: 1,
+        warnings: ['Tetiva has no global variables: they were imported as the environment "Globals"'],
+      },
+    })
+    const flow = useImportFlow()
+
+    await flow.openFile(file(JSON.stringify({ name: '', values: [], _postman_variable_scope: 'globals' })), null)
+
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported environment “Globals” · 1 variable'])
+    expect(toastsOf('info')).toMatchObject([{
+      message: 'Tetiva has no global variables: they were imported as the environment "Globals"',
+      sticky: true,
+    }])
+  })
+
+  it('reports a file the backend refuses and frees the flow', async () => {
+    const svc = await portability()
+    const flow = useImportFlow()
+
+    await flow.openFile(file(JSON.stringify({ values: [], _postman_variable_scope: 'environment' })), null)
+
+    expect(calls(svc, 'importEnvironment')).toHaveLength(1)
+    expect(toastsOf('error').map(t => t.message)).toEqual(['name: environment name is empty'])
+    expect(toastsOf('success')).toHaveLength(0)
+    expect(useEnvironmentStore().fetchAll).not.toHaveBeenCalled()
+    expect(flow.ui.active).toBe(false)
+  })
+
+  it('lands in the workspace the file was picked in, even if the user switches while it is read', async () => {
+    const svc = await portability()
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const slow = { size: ENV_FILE.length, text: async () => { await gate; return ENV_FILE } } as unknown as Blob
+    const flow = useImportFlow()
+
+    const pending = flow.openFile(slow, null)
+    useWorkspaceStore().workspaces = [
+      { id: 'w1', name: 'Team', isActive: false, version: 1, remoteWorkspaceId: null, createdAt: '', updatedAt: '' },
+      { id: 'w2', name: 'Solo', isActive: true, version: 1, remoteWorkspaceId: null, createdAt: '', updatedAt: '' },
+    ]
+    release()
+    await pending
+
+    expect(calls(svc, 'importEnvironment').map(c => c.args)).toEqual([[ENV_FILE, 'w1']])
+    const [toast] = toastsOf('success')
+    expect(toast.message).toBe('Imported environment “Dev” · 2 variables')
+    expect(toast.action).toBeUndefined()
+    expect(useEnvironmentStore().fetchAll).not.toHaveBeenCalled()
+    expect(flow.ui.active).toBe(false)
+  })
+
+  it('needs an active workspace', async () => {
+    const svc = await portability()
+    useWorkspaceStore().workspaces = []
+    const flow = useImportFlow()
+
+    await flow.openFile(file(ENV_FILE), null)
+
+    expect(calls(svc, 'importEnvironment')).toHaveLength(0)
+    expect(toastsOf('error').map(t => t.message)).toEqual(['No active workspace'])
+    expect(flow.ui.active).toBe(false)
+  })
+
+  it('keeps the flow busy until the environment is in, so a second file waits its turn', async () => {
+    const svc = await portability()
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const importEnvironment = svc.importEnvironment.bind(svc)
+    svc.importEnvironment = async (content, ws) => { await gate; return importEnvironment(content, ws) }
+    const flow = useImportFlow()
+
+    const first = flow.openFile(file(ENV_FILE), null)
+    await vi.waitFor(() => expect(flow.ui.busy).toBe('Importing the environment…'))
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    expect(toastsOf('info').map(t => t.message)).toEqual(['Finish the current import first'])
+    expect(calls(svc, 'importPreview')).toHaveLength(1)
+
+    release()
+    await first
+
+    expect(flow.ui.active).toBe(false)
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported environment “Dev” · 2 variables'])
+  })
+
+  it('holds a deep link that arrives while the environment is imported', async () => {
+    const svc = await portability()
+    const dl = await deeplinks()
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const importEnvironment = svc.importEnvironment.bind(svc)
+    svc.importEnvironment = async (content, ws) => { await gate; return importEnvironment(content, ws) }
+    const flow = useImportFlow()
+    await flow.listenDeepLinks()
+
+    const pending = flow.openFile(file(ENV_FILE), null)
+    await vi.waitFor(() => expect(flow.ui.busy).toBe('Importing the environment…'))
+    dl.deliver({ slug: PUBLIC, token: '' })
+    await vi.waitFor(() => expect(flow.ui.queue).toHaveLength(1))
+    expect(calls(svc, 'linkMeta')).toHaveLength(0)
+
+    release()
+    await pending
+
+    await vi.waitFor(() => expect(flow.ui.preview?.title).toBe('Petstore API'))
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported environment “Dev” · 2 variables'])
+  })
+})
+
+describe('collection variables', () => {
+  beforeEach(clearToasts)
+
+  it('name the environment in the import toast', async () => {
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_WITH_VARIABLES), null)
+    expect(flow.ui.preview?.environmentName).toBe('Petstore')
+    expect(flow.ui.preview?.hosts).toEqual(['petstore.example.com'])
+
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual([
+      'Imported “Petstore”: 0 folders · 1 request · 0 examples · environment “Petstore”',
+    ])
+  })
+
+  it('get the next free name in the dialog, like the backend gives them', async () => {
+    useEnvironmentStore().environments = [
+      { id: 'e1', name: 'Petstore', isActive: false, version: 1, createdAt: '', updatedAt: '' },
+    ]
+    const flow = useImportFlow()
+
+    await flow.openFile(file(POSTMAN_WITH_VARIABLES), null)
+
+    expect(flow.destination.value.environmentName).toBe('Petstore (2)')
+  })
+})
+
+describe('importErrorText', () => {
+  it('points a collection dropped into the environment import to the sidebar', () => {
+    expect(importErrorText({ code: 'validation', reason: 'COLLECTION_FILE', message: 'validation failed' }))
+      .toBe('This is a collection, not an environment — import it from the sidebar')
   })
 })
 

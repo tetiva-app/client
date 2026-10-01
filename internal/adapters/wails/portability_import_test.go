@@ -49,6 +49,10 @@ const threeRequestPostman = `{"info":{"name":"P","schema":"https://schema.getpos
 	`{"name":"B","request":{"method":"GET","url":{"raw":"https://b.example.com"}}},` +
 	`{"name":"C","request":{"method":"GET","url":{"raw":"https://c.example.com"}}}]}`
 
+const postmanWithVariables = `{"info":{"name":"P","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},` +
+	`"variable":[{"key":"host","value":"https://a.example.com"},{"key":"b","value":"2","disabled":true},{"key":"c","value":"3"}],` +
+	`"item":[{"name":"A","request":{"method":"GET","url":{"raw":"{{host}}/a"}}}]}`
+
 type failAfterRequests struct {
 	request.Usecase
 	n int
@@ -62,13 +66,31 @@ func (f *failAfterRequests) Create(ctx context.Context, in request.Create, opt r
 	return f.Usecase.Create(ctx, in, opt)
 }
 
+type failAfterVariables struct {
+	environment.Usecase
+	n int
+}
+
+func (f *failAfterVariables) AddVariable(ctx context.Context, in environment.AddVariable, opt environment.AddVariableOpt) (*entities.Variable, error) {
+	if f.n == 0 {
+		return nil, errors.New("disk full")
+	}
+	f.n--
+	return f.Usecase.AddVariable(ctx, in, opt)
+}
+
 type importFixture struct {
 	db        *sql.DB
 	svc       *PortabilityService
 	snapshots atomic.Int32
 }
 
-func newImportFixture(t *testing.T, handler http.HandlerFunc, wrapRequests func(request.Usecase) request.Usecase) *importFixture {
+type importFixtureOpts struct {
+	wrapRequests     func(request.Usecase) request.Usecase
+	wrapEnvironments func(environment.Usecase) environment.Usecase
+}
+
+func newImportFixture(t *testing.T, handler http.HandlerFunc, opts importFixtureOpts) *importFixture {
 	t.Helper()
 	f := &importFixture{db: setupSyncTestDB(t)}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,14 +103,18 @@ func newImportFixture(t *testing.T, handler http.HandlerFunc, wrapRequests func(
 
 	colRepo := sqlite.NewCollectionRepo(f.db)
 	reqRepo := sqlite.NewRequestRepo(f.db)
-	var reqUC request.Usecase = request.NewUsecase(reqRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	if wrapRequests != nil {
-		reqUC = wrapRequests(reqUC)
+	reqUC := request.NewUsecase(reqRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if opts.wrapRequests != nil {
+		reqUC = opts.wrapRequests(reqUC)
+	}
+	envUC := environment.NewUsecase(sqlite.NewEnvironmentRepo(f.db), sqlite.NewVariableRepo(f.db))
+	if opts.wrapEnvironments != nil {
+		envUC = opts.wrapEnvironments(envUC)
 	}
 	f.svc = NewPortabilityService(
 		collection.NewUsecase(colRepo, nil, nil, nil),
 		reqUC,
-		environment.NewUsecase(sqlite.NewEnvironmentRepo(f.db), sqlite.NewVariableRepo(f.db)),
+		envUC,
 		example.NewUsecase(sqlite.NewResponseExampleRepo(f.db), reqRepo, colRepo),
 		publicapi.New(srv.URL),
 		sqlite.NewTxRunner(f.db),
@@ -136,7 +162,7 @@ func TestLinkFetch_ConfirmImportsWithoutASecondDownload(t *testing.T) {
 	f := newImportFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		auth = r.Header.Get("Authorization")
 		serveSnapshot(t, snap)(w, r)
-	}, nil)
+	}, importFixtureOpts{})
 
 	fetched := f.svc.LinkFetch(dto.LinkFetchRequest{Slug: importSlug, Token: "import-token"})
 	require.Nil(t, fetched.Error)
@@ -153,6 +179,7 @@ func TestLinkFetch_ConfirmImportsWithoutASecondDownload(t *testing.T) {
 	assert.Equal(t, 3, confirmed.Data.Folders)
 	assert.Equal(t, 12, confirmed.Data.Requests)
 	assert.Equal(t, 6, confirmed.Data.Examples)
+	assert.Equal(t, "prod", confirmed.Data.EnvironmentName)
 	assert.Equal(t, int32(1), f.snapshots.Load())
 	assert.Equal(t, 4, f.count(t, "collections"))
 
@@ -162,7 +189,7 @@ func TestLinkFetch_ConfirmImportsWithoutASecondDownload(t *testing.T) {
 }
 
 func TestImportConfirm_UnknownAndExpiredPreview(t *testing.T) {
-	f := newImportFixture(t, serveSnapshot(t, allProtocolsSnapshot(t)), nil)
+	f := newImportFixture(t, serveSnapshot(t, allProtocolsSnapshot(t)), importFixtureOpts{})
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	f.svc.previews.now = func() time.Time { return now }
 
@@ -206,9 +233,9 @@ func TestImportConfirm_RollsBackBothFormats(t *testing.T) {
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
-			f := newImportFixture(t, statusOnly(http.StatusNotFound), func(u request.Usecase) request.Usecase {
+			f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{wrapRequests: func(u request.Usecase) request.Usecase {
 				return &failAfterRequests{Usecase: u, n: 1}
-			})
+			}})
 
 			res := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: content, WorkspaceID: importWorkspace, IncludeScripts: true})
 
@@ -220,6 +247,68 @@ func TestImportConfirm_RollsBackBothFormats(t *testing.T) {
 			assert.Equal(t, 1, f.count(t, "environments"), "only the seeded Default")
 		})
 	}
+}
+
+func TestImportEnvironment_RollsBackOnAFailedVariable(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{wrapEnvironments: func(u environment.Usecase) environment.Usecase {
+		return &failAfterVariables{Usecase: u, n: 1}
+	}})
+	envs, vars := f.count(t, "environments"), f.count(t, "variables")
+
+	res := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{
+		Content:     `{"name":"Dev","values":[{"key":"a","value":"1"},{"key":"b","value":"2"},{"key":"c","value":"3"}]}`,
+		WorkspaceID: importWorkspace,
+	})
+
+	require.NotNil(t, res.Error)
+	assert.Contains(t, res.Error.Message, "disk full")
+	assert.Equal(t, envs, f.count(t, "environments"))
+	assert.Equal(t, vars, f.count(t, "variables"))
+}
+
+func TestImportEnvironment_ThroughTheService(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	content := `{"name":"Dev","values":[{"key":"a","value":"1"},{"key":"b","value":"2","enabled":false},{"key":"","value":"3"}]}`
+
+	first := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: content, WorkspaceID: importWorkspace})
+	second := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: content, WorkspaceID: importWorkspace})
+
+	require.Nil(t, first.Error)
+	require.Nil(t, second.Error)
+	assert.Equal(t, "Dev", first.Data.EnvironmentName)
+	assert.Equal(t, "Dev (2)", second.Data.EnvironmentName)
+	assert.Equal(t, 2, first.Data.VariablesCreated)
+	assert.Equal(t, []string{"a variable without a name was skipped"}, first.Data.Warnings)
+	var enabled []bool
+	rows, err := f.db.Query(`SELECT enabled FROM variables WHERE environment_id = ? ORDER BY rowid`, first.Data.EnvironmentID)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var e bool
+		require.NoError(t, rows.Scan(&e))
+		enabled = append(enabled, e)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []bool{true, false}, enabled)
+	var active bool
+	require.NoError(t, f.db.QueryRow(`SELECT is_active FROM environments WHERE id = ?`, second.Data.EnvironmentID).Scan(&active))
+	assert.False(t, active)
+}
+
+func TestImportConfirm_PostmanVariablesRollBackWithTheCollection(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{wrapEnvironments: func(u environment.Usecase) environment.Usecase {
+		return &failAfterVariables{Usecase: u, n: 1}
+	}})
+	envs, vars := f.count(t, "environments"), f.count(t, "variables")
+
+	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: postmanWithVariables, WorkspaceID: importWorkspace})
+
+	require.NotNil(t, res.Error)
+	assert.Contains(t, res.Error.Message, "disk full")
+	assert.Zero(t, f.count(t, "collections"))
+	assert.Zero(t, f.count(t, "requests"))
+	assert.Equal(t, envs, f.count(t, "environments"))
+	assert.Equal(t, vars, f.count(t, "variables"))
 }
 
 type recordingTx struct {
@@ -271,7 +360,7 @@ func TestImportConfirm_OneTransactionForEitherFormat(t *testing.T) {
 }
 
 func TestImportConfirm_ExactlyOneSource(t *testing.T) {
-	f := newImportFixture(t, statusOnly(http.StatusNotFound), nil)
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
 
 	for _, req := range []dto.ImportConfirmRequest{
 		{WorkspaceID: importWorkspace},
@@ -284,7 +373,7 @@ func TestImportConfirm_ExactlyOneSource(t *testing.T) {
 }
 
 func TestImportConfirm_PostmanKeepsParentAndScriptsFlag(t *testing.T) {
-	f := newImportFixture(t, statusOnly(http.StatusNotFound), nil)
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
 	parent := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: threeRequestPostman, WorkspaceID: importWorkspace})
 	require.Nil(t, parent.Error)
 	withScript := strings.Replace(threeRequestPostman, `"item":[`,
@@ -303,7 +392,7 @@ func TestImportConfirm_PostmanKeepsParentAndScriptsFlag(t *testing.T) {
 }
 
 func TestImportPreview_DetectsTheFormat(t *testing.T) {
-	f := newImportFixture(t, statusOnly(http.StatusNotFound), nil)
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
 
 	postmanPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: threeRequestPostman})
 	require.Nil(t, postmanPreview.Error)
@@ -320,6 +409,27 @@ func TestImportPreview_DetectsTheFormat(t *testing.T) {
 	junk := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: `{"hello":"world"}`})
 	requireReason(t, junk, ErrCodeValidation, portability.ReasonUnsupportedFile)
 	assert.Zero(t, f.count(t, "collections"))
+	assert.Equal(t, 1, f.count(t, "environments"), "only the seeded Default")
+}
+
+func TestImportPreview_HandsEnvironmentFilesBack(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	envs, vars := f.count(t, "environments"), f.count(t, "variables")
+	files := map[string]string{
+		"environment": `{"name":"Dev","values":[{"key":"a","value":"1"}],"_postman_variable_scope":"environment"}`,
+		"globals":     `{"name":"","values":[{"key":"a","value":"1"}],"_postman_variable_scope":"globals"}`,
+	}
+	for name, content := range files {
+		t.Run(name, func(t *testing.T) {
+			res := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: content})
+
+			requireReason(t, res, ErrCodeValidation, portability.ReasonEnvironmentFile)
+			assert.Equal(t, map[string]string{"content": "a Postman environment, not a collection"}, res.Error.Fields)
+		})
+	}
+	assert.Zero(t, f.count(t, "collections"))
+	assert.Equal(t, envs, f.count(t, "environments"))
+	assert.Equal(t, vars, f.count(t, "variables"))
 }
 
 func TestLinkMeta(t *testing.T) {
@@ -327,7 +437,7 @@ func TestLinkMeta(t *testing.T) {
 		require.Equal(t, "/pub/"+importSlug, r.URL.Path)
 		_, _ = io.WriteString(w, `{"slug":"`+importSlug+`","title":"Petstore","locale":"en","visibility":"password",`+
 			`"revision":4,"updated_at":"2026-09-20T10:00:00Z","password_required":true}`)
-	}, nil)
+	}, importFixtureOpts{})
 
 	res := f.svc.LinkMeta(dto.LinkMetaRequest{Slug: importSlug})
 	require.Nil(t, res.Error)
@@ -337,28 +447,28 @@ func TestLinkMeta(t *testing.T) {
 }
 
 func TestLinkMeta_Errors(t *testing.T) {
-	notFound := newImportFixture(t, statusOnly(http.StatusNotFound), nil)
+	notFound := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
 	requireReason(t, notFound.svc.LinkMeta(dto.LinkMetaRequest{Slug: importSlug}), ErrCodeNotFound, portability.ReasonLinkNotFound)
 
-	limited := newImportFixture(t, statusOnly(http.StatusTooManyRequests), nil)
+	limited := newImportFixture(t, statusOnly(http.StatusTooManyRequests), importFixtureOpts{})
 	res := limited.svc.LinkMeta(dto.LinkMetaRequest{Slug: importSlug})
 	require.NotNil(t, res.Error)
 	assert.Equal(t, portability.ReasonRateLimited, res.Error.Reason)
 
-	down := newImportFixture(t, statusOnly(http.StatusServiceUnavailable), nil)
+	down := newImportFixture(t, statusOnly(http.StatusServiceUnavailable), importFixtureOpts{})
 	requireReason(t, down.svc.LinkMeta(dto.LinkMetaRequest{Slug: importSlug}), ErrCodeInternal, ReasonServerUnreachable)
 
 	dropped := newImportFixture(t, func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
 		require.NoError(t, err)
 		_ = conn.Close()
-	}, nil)
+	}, importFixtureOpts{})
 	requireReason(t, dropped.svc.LinkMeta(dto.LinkMetaRequest{Slug: importSlug}), ErrCodeInternal, ReasonServerUnreachable)
 	requireReason(t, dropped.svc.LinkFetch(dto.LinkFetchRequest{Slug: importSlug}), ErrCodeInternal, ReasonServerUnreachable)
 	requireReason(t, dropped.svc.LinkUnlock(dto.LinkUnlockRequest{Slug: importSlug, Password: "password1"}), ErrCodeInternal, ReasonServerUnreachable)
 
 	var hits atomic.Int32
-	bad := newImportFixture(t, func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }, nil)
+	bad := newImportFixture(t, func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }, importFixtureOpts{})
 	invalid := bad.svc.LinkMeta(dto.LinkMetaRequest{Slug: "../etc"})
 	require.NotNil(t, invalid.Error)
 	assert.Equal(t, ErrCodeValidation, invalid.Error.Code)
@@ -374,7 +484,7 @@ func TestLinkUnlock(t *testing.T) {
 			return
 		}
 		_, _ = io.WriteString(w, `{"token":"view-token","expires_at":"2026-10-25T00:00:00Z"}`)
-	}, nil)
+	}, importFixtureOpts{})
 
 	ok := f.svc.LinkUnlock(dto.LinkUnlockRequest{Slug: importSlug, Password: "correct horse"})
 	require.Nil(t, ok.Error)
@@ -403,20 +513,20 @@ func TestLinkFetch_Errors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			f := newImportFixture(t, tc.handler, nil)
+			f := newImportFixture(t, tc.handler, importFixtureOpts{})
 
 			requireReason(t, f.svc.LinkFetch(dto.LinkFetchRequest{Slug: importSlug}), tc.code, tc.reason)
 		})
 	}
 
-	limited := newImportFixture(t, statusOnly(http.StatusTooManyRequests), nil)
+	limited := newImportFixture(t, statusOnly(http.StatusTooManyRequests), importFixtureOpts{})
 	res := limited.svc.LinkFetch(dto.LinkFetchRequest{Slug: importSlug})
 	require.NotNil(t, res.Error)
 	assert.Equal(t, portability.ReasonRateLimited, res.Error.Reason)
 }
 
 func TestImportCollection_TakesASnapshotFileThroughTheSamePath(t *testing.T) {
-	f := newImportFixture(t, statusOnly(http.StatusNotFound), nil)
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
 
 	res := f.svc.ImportCollection(dto.ImportCollectionRequest{Content: string(allProtocolsSnapshot(t)), WorkspaceID: importWorkspace})
 

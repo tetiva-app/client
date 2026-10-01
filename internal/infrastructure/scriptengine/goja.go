@@ -125,6 +125,7 @@ func setupPmEnvironment(vm *goja.Runtime, vars map[string]string) {
 
 	pm := getPmObject(vm)
 	_ = pm.Set("environment", env)
+	_ = pm.Set("collectionVariables", env)
 }
 
 func setupPmRequestPreScript(vm *goja.Runtime, sctx request.ScriptContext, headers map[string][]string) {

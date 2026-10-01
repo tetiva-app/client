@@ -14,7 +14,7 @@ import { usePublicationsStore } from '@/stores/publications'
 import { useCopy, useLocale } from '@/composables/useLocale'
 import { TREE_COPY } from '@/components/sidebar/copy'
 import { isNewerVersion } from '@/lib/semver'
-import { plural } from '@/lib/locale'
+import { fill, plural } from '@/lib/locale'
 
 interface ActivityItem {
   id: string
@@ -54,11 +54,14 @@ const topItems = computed<ActivityItem[]>(() => {
 
 const syncModalUi = useSyncModalUi()
 
-const updateAvailable = computed(() =>
-  settingsStore.availableUpdate !== null &&
-  isNewerVersion(settingsStore.availableUpdate.version, __APP_VERSION__))
+const updateVersion = computed(() => {
+  const update = settingsStore.availableUpdate
+  return update && isNewerVersion(update.version, __APP_VERSION__) ? update.version : null
+})
 
-const settingsTooltip = computed(() => (updateAvailable.value ? tree.value.rail.settingsUpdate : tree.value.rail.settings))
+const settingsLabel = computed(() => (updateVersion.value
+  ? fill(tree.value.rail.settingsUpdate, { version: updateVersion.value })
+  : tree.value.rail.settings))
 </script>
 
 <template>
@@ -67,10 +70,9 @@ const settingsTooltip = computed(() => (updateAvailable.value ? tree.value.rail.
       <Tooltip v-for="item in topItems" :key="item.id" ignore-non-keyboard-focus>
         <TooltipTrigger as-child>
           <button
-            class="flex items-center justify-center w-12 h-12 relative transition-opacity cursor-pointer"
+            class="group flex items-center justify-center w-12 h-12 relative cursor-pointer"
             :aria-label="item.label"
             :data-testid="`activity-${item.id}`"
-            :class="props.activeSection === item.id ? 'opacity-100' : 'opacity-60 hover:opacity-100'"
             @click="item.id === 'environments' ? emit('open-environments') : emit('update:activeSection', item.id)"
           >
             <div
@@ -78,7 +80,11 @@ const settingsTooltip = computed(() => (updateAvailable.value ? tree.value.rail.
               class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r"
             />
             <span class="relative flex">
-              <component :is="item.icon" class="size-5" />
+              <component
+                :is="item.icon"
+                class="size-5 transition-opacity"
+                :class="props.activeSection === item.id ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'"
+              />
               <span
                 v-if="item.id === 'publications' && publications.outdatedCount > 0"
                 class="absolute -top-1 -right-1.5 min-w-3.5 h-3.5 rounded-full bg-[var(--gc-warning)] text-[9px] font-bold text-white flex items-center justify-center px-0.5 ring-2 ring-background"
@@ -98,19 +104,21 @@ const settingsTooltip = computed(() => (updateAvailable.value ? tree.value.rail.
       <Tooltip ignore-non-keyboard-focus>
         <TooltipTrigger as-child>
           <button
-            class="flex items-center justify-center w-12 h-12 relative transition-opacity opacity-60 hover:opacity-100 cursor-pointer"
-            :aria-label="tree.rail.settings"
+            class="group flex items-center justify-center w-12 h-12 cursor-pointer"
+            :aria-label="settingsLabel"
             @click="emit('open-settings')"
           >
-            <span
-              v-if="updateAvailable"
-              class="absolute top-2 right-2 size-1.5 rounded-full bg-primary"
-              data-testid="update-badge"
-            />
-            <Settings class="size-5" />
+            <span class="relative flex">
+              <Settings class="size-5 opacity-60 transition-opacity group-hover:opacity-100" />
+              <span
+                v-if="updateVersion"
+                class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
+                data-testid="update-badge"
+              />
+            </span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" :side-offset="4">{{ settingsTooltip }}</TooltipContent>
+        <TooltipContent side="right" :side-offset="4">{{ settingsLabel }}</TooltipContent>
       </Tooltip>
     </div>
   </div>

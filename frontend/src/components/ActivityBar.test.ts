@@ -64,9 +64,22 @@ describe('activity bar labels', () => {
     }
   })
 
-  it('says an update is available in the app language', async () => {
-    expect(await render('en', { update: true })).toContain('Settings — update available')
-    expect(await render('ru', { update: true })).toContain('Настройки — есть обновление')
+  it('names the available version in the Settings tooltip and label', async () => {
+    const en = await render('en', { update: true })
+    expect(en).toContain('>Settings — Tetiva 99.0.0 is available</span>')
+    expect(en).toContain('aria-label="Settings — Tetiva 99.0.0 is available"')
+
+    const ru = await render('ru', { update: true })
+    expect(ru).toContain('>Настройки — доступна Tetiva 99.0.0</span>')
+    expect(ru).toContain('aria-label="Настройки — доступна Tetiva 99.0.0"')
+  })
+
+  it('draws the update dot at full strength, outlined against the rail', async () => {
+    const html = await render('en', { update: true })
+
+    expect(tagWith(html, 'aria-label="Settings — Tetiva 99.0.0 is available"')).not.toContain('opacity-60')
+    expect(tagWith(html, 'data-testid="update-badge"')).toContain('ring-2 ring-background')
+    expect(await render('en')).not.toContain('data-testid="update-badge"')
   })
 
   it('keeps rail tooltips shut when a closing dialog hands focus back to its button', async () => {
@@ -91,6 +104,12 @@ describe('activity bar Publications item', () => {
     expect(html).not.toContain('orange')
     expect(tagWith(html, 'data-testid="activity-publications"')).toContain('aria-label="Публикации\u00a0— 2 устарели"')
     expect(await render('en')).not.toContain('data-testid="publications-badge"')
+  })
+
+  it('keeps the badge at full strength while another section is open', async () => {
+    const html = await render('en', { outdated: 2 })
+
+    expect(tagWith(html, 'data-testid="activity-publications"')).not.toContain('opacity-60')
   })
 
   it('is gone while publishing is turned off', async () => {

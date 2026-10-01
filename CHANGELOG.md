@@ -23,6 +23,8 @@
 - Changes made in a cloud workspace while sync was off — signed out, session expired, email not yet confirmed — now reach the server once sync starts. They used to stay on this device while the indicator showed nothing pending, so an environment created that way never appeared on your other devices. What got stranded before the update is sent once
 - The selected environment stays selected when it changes on another device or when you sign in for the first time; `{{variables}}` used to stop resolving after either
 - Variables keep the same order on every device, including duplicated and imported environments, with a sync server that stores the order
+- The update dot on Settings is easier to see: it no longer fades with the icon, it is a little larger and sits on the gear's corner. Its tooltip names the version, "Settings — Tetiva 1.2.1 is available"
+- The outdated-publications counter on the Publications icon stays bright while another section is open; it used to fade along with the icon
 
 ## [v1.2.0] — 2026-09-27 — Public collections
 

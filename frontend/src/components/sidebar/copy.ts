@@ -235,7 +235,7 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       environments: 'Environments',
       history: 'History',
       settings: 'Settings',
-      settingsUpdate: 'Settings — update available',
+      settingsUpdate: 'Settings — Tetiva {version} is available',
       sync: 'Sync',
       syncState: {
         connected: 'Sync connected',
@@ -404,7 +404,7 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       environments: 'Окружения',
       history: 'История',
       settings: 'Настройки',
-      settingsUpdate: 'Настройки\u00a0— есть обновление',
+      settingsUpdate: 'Настройки\u00a0— доступна Tetiva\u00a0{version}',
       sync: 'Синхронизация',
       syncState: {
         connected: 'Синхронизация включена',

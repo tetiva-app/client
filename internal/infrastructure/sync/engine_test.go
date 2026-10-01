@@ -1620,6 +1620,25 @@ func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
 	assert.Equal(t, "New", repo.data[incoming.ID].Name)
 }
 
+func TestUpsertEnvironment_KeepsTheLocalActiveChoice(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, uuid.New().String(), StateConnected)
+	defer cancel()
+
+	repo := engine.environments.(*stubEnvironmentRepo)
+	id := uuid.New()
+	repo.data[id] = &entities.Environment{ID: id, Name: "Staging", IsActive: true}
+	_, err := engine.db.Exec(
+		"INSERT INTO environments (id, workspace_id, name, is_active) VALUES (?, '00000000-0000-4000-a000-000000000001', 'Staging', 1)",
+		id.String())
+	require.NoError(t, err)
+
+	require.NoError(t, ws.upsertEnvironment(context.Background(), &entities.Environment{ID: id, Name: "Staging EU"}))
+
+	assert.True(t, repo.data[id].IsActive, "a rename from another device must not unselect the environment here")
+	assert.Equal(t, "Staging EU", repo.data[id].Name)
+}
+
 // gatedSyncClient holds a run goroutine inside the transport: Pull blocks until its context
 // is cancelled and then until the test opens the gate, so a syncer can outlive a missing barrier.
 type gatedSyncClient struct {

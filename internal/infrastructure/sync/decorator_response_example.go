@@ -29,13 +29,17 @@ func NewSyncedResponseExampleRepo(inner example.Repository, syncQueue sqlite.Syn
 	}
 }
 
-func (r *SyncedResponseExampleRepo) isSyncEnabled(workspaceID string) bool {
-	return r.engine != nil && r.engine.IsEnabledForWorkspace(workspaceID)
+func (r *SyncedResponseExampleRepo) queuesWrites(ctx context.Context, workspaceID string) (bool, error) {
+	return queuesWrites(ctx, r.db, r.engine, workspaceID)
 }
 
 func (r *SyncedResponseExampleRepo) Create(ctx context.Context, e *entities.ResponseExample) error {
 	wsID := e.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Create(ctx, e)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -56,7 +60,11 @@ func (r *SyncedResponseExampleRepo) ListByRequest(ctx context.Context, requestID
 
 func (r *SyncedResponseExampleRepo) Update(ctx context.Context, e *entities.ResponseExample) error {
 	wsID := e.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Update(ctx, e)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -69,7 +77,11 @@ func (r *SyncedResponseExampleRepo) Update(ctx context.Context, e *entities.Resp
 
 func (r *SyncedResponseExampleRepo) UpdateAtVersion(ctx context.Context, e *entities.ResponseExample, baseVersion int) error {
 	wsID := e.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.UpdateAtVersion(ctx, e, baseVersion)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {

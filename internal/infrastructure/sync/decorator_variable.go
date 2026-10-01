@@ -30,14 +30,21 @@ func NewSyncedVariableRepo(inner environment.VariableRepository, syncQueue sqlit
 	}
 }
 
-func (r *SyncedVariableRepo) isSyncEnabled(workspaceID string) bool {
-	return r.engine != nil && r.engine.IsEnabledForWorkspace(workspaceID)
+func (r *SyncedVariableRepo) queuesWrites(ctx context.Context, workspaceID string) (bool, error) {
+	return queuesWrites(ctx, r.db, r.engine, workspaceID)
 }
 
 // Create inserts a variable and enqueues a sync "create" entry within the same TX.
 func (r *SyncedVariableRepo) Create(ctx context.Context, v *entities.Variable) error {
 	wsID, err := r.getWorkspaceIDByEnvironment(ctx, v.EnvironmentID)
-	if err != nil || !r.isSyncEnabled(wsID) {
+	if err != nil {
+		return r.inner.Create(ctx, v)
+	}
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Create(ctx, v)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -71,7 +78,14 @@ func (r *SyncedVariableRepo) List(ctx context.Context, environmentID uuid.UUID) 
 // Update persists a variable and enqueues a sync "update" or "delete" entry within the same TX.
 func (r *SyncedVariableRepo) Update(ctx context.Context, v *entities.Variable) error {
 	wsID, err := r.getWorkspaceIDByEnvironment(ctx, v.EnvironmentID)
-	if err != nil || !r.isSyncEnabled(wsID) {
+	if err != nil {
+		return r.inner.Update(ctx, v)
+	}
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Update(ctx, v)
 	}
 	action := "update"
@@ -101,7 +115,14 @@ func (r *SyncedVariableRepo) Update(ctx context.Context, v *entities.Variable) e
 // Delete soft-deletes a synced variable, whose tombstone must still name the environment.
 func (r *SyncedVariableRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	wsID, err := r.getWorkspaceIDByVariable(ctx, id)
-	if err != nil || !r.isSyncEnabled(wsID) {
+	if err != nil {
+		return r.inner.Delete(ctx, id)
+	}
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Delete(ctx, id)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -103,6 +105,12 @@ func (m *mockVarRepo) List(_ context.Context, envID uuid.UUID) ([]*entities.Vari
 			result = append(result, &cp)
 		}
 	}
+	slices.SortFunc(result, func(a, b *entities.Variable) int {
+		if a.SortOrder != b.SortOrder {
+			return a.SortOrder - b.SortOrder
+		}
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
 	return result, nil
 }
 
@@ -590,5 +598,77 @@ func TestResolveVariables_DisabledSkipped(t *testing.T) {
 	}
 	if _, ok := vars["disabled_key"]; ok {
 		t.Error("disabled variable should not be resolved")
+	}
+}
+
+func TestAddVariable_GoesAfterTheLastVariable(t *testing.T) {
+	uc, _, _ := newTestUsecase()
+	env := createTestEnv(t, uc, "Dev")
+
+	var orders []int
+	for _, key := range []string{"zeta", "alpha", "mike"} {
+		v, err := uc.AddVariable(context.Background(), environment.AddVariable{EnvironmentID: env.ID, Key: key},
+			environment.AddVariableOpt{UserID: "local_user"})
+		if err != nil {
+			t.Fatalf("add %s: %v", key, err)
+		}
+		orders = append(orders, v.SortOrder)
+	}
+
+	if !slices.IsSorted(orders) || orders[0] == orders[1] || orders[1] == orders[2] {
+		t.Errorf("sort orders = %v, want strictly increasing so another device keeps the order", orders)
+	}
+}
+
+func TestDuplicate_NumbersTheCopiesInTheSourceOrder(t *testing.T) {
+	uc, _, varRepo := newTestUsecase()
+	source := createTestEnv(t, uc, "Dev")
+
+	base := time.Now().Truncate(time.Second)
+	for i, key := range []string{"zeta", "alpha", "mike"} {
+		id := uuid.New()
+		varRepo.vars[id] = &entities.Variable{ID: id, EnvironmentID: source.ID, Key: key, Enabled: true, Version: 1,
+			CreatedAt: base.Add(time.Duration(i) * time.Second)}
+	}
+
+	dup, err := uc.Duplicate(context.Background(), environment.DuplicateOpt{
+		SourceID: source.ID, NewName: "Dev copy", UserID: "local_user", WorkspaceID: testWorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("duplicate: %v", err)
+	}
+
+	copies, _ := varRepo.List(context.Background(), dup.ID)
+	var got []string
+	var orders []int
+	for _, v := range copies {
+		got = append(got, v.Key)
+		orders = append(orders, v.SortOrder)
+	}
+	if !slices.Equal(got, []string{"zeta", "alpha", "mike"}) || orders[0] == orders[1] || orders[1] == orders[2] {
+		t.Errorf("copies = %v with sort orders %v, want the source order with distinct numbers", got, orders)
+	}
+}
+
+func TestPersistVariableChanges_NewKeyGoesAfterTheLastVariable(t *testing.T) {
+	uc, _, varRepo := newTestUsecase()
+	env := createTestEnv(t, uc, "Dev")
+	if err := uc.SetActive(context.Background(), environment.SetActiveOpt{WorkspaceID: testWorkspaceID, EnvironmentID: env.ID}); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+	existing, err := uc.AddVariable(context.Background(), environment.AddVariable{EnvironmentID: env.ID, Key: "host"},
+		environment.AddVariableOpt{UserID: "local_user"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if err := uc.PersistVariableChanges(context.Background(), testWorkspaceID, "local_user", map[string]string{"token": "t1"}); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	for _, v := range varRepo.vars {
+		if v.Key == "token" && v.SortOrder <= existing.SortOrder {
+			t.Errorf("token sort order = %d, want after host (%d)", v.SortOrder, existing.SortOrder)
+		}
 	}
 }

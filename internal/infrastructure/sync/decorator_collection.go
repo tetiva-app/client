@@ -30,14 +30,18 @@ func NewSyncedCollectionRepo(inner collection.Repository, syncQueue sqlite.SyncQ
 	}
 }
 
-func (r *SyncedCollectionRepo) isSyncEnabled(workspaceID string) bool {
-	return r.engine != nil && r.engine.IsEnabledForWorkspace(workspaceID)
+func (r *SyncedCollectionRepo) queuesWrites(ctx context.Context, workspaceID string) (bool, error) {
+	return queuesWrites(ctx, r.db, r.engine, workspaceID)
 }
 
 // Create inserts a collection and enqueues a sync "create" entry within the same TX.
 func (r *SyncedCollectionRepo) Create(ctx context.Context, c *entities.Collection) error {
 	wsID := c.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Create(ctx, c)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -71,7 +75,11 @@ func (r *SyncedCollectionRepo) List(ctx context.Context, filter collection.Filte
 // Update persists a collection and enqueues a sync "update" or "delete" entry within the same TX.
 func (r *SyncedCollectionRepo) Update(ctx context.Context, c *entities.Collection) error {
 	wsID := c.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Update(ctx, c)
 	}
 	action := "update"
@@ -117,7 +125,11 @@ func (r *SyncedCollectionRepo) SoftDeleteDescendants(ctx context.Context, parent
 
 		notified := make(map[string]bool)
 		for _, d := range descendants {
-			if !r.isSyncEnabled(d.workspaceID) {
+			queued, err := r.queuesWrites(txCtx, d.workspaceID)
+			if err != nil {
+				return err
+			}
+			if !queued {
 				continue
 			}
 			if err := r.syncQueue.Enqueue(txCtx, sqlite.SyncEntry{

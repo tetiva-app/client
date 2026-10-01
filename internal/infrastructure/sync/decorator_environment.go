@@ -29,14 +29,18 @@ func NewSyncedEnvironmentRepo(inner environment.Repository, syncQueue sqlite.Syn
 	}
 }
 
-func (r *SyncedEnvironmentRepo) isSyncEnabled(workspaceID string) bool {
-	return r.engine != nil && r.engine.IsEnabledForWorkspace(workspaceID)
+func (r *SyncedEnvironmentRepo) queuesWrites(ctx context.Context, workspaceID string) (bool, error) {
+	return queuesWrites(ctx, r.db, r.engine, workspaceID)
 }
 
 // Create inserts an environment and enqueues a sync "create" entry within the same TX.
 func (r *SyncedEnvironmentRepo) Create(ctx context.Context, e *entities.Environment) error {
 	wsID := e.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Create(ctx, e)
 	}
 	return sqlite.WithTx(ctx, r.db, func(txCtx context.Context) error {
@@ -70,7 +74,11 @@ func (r *SyncedEnvironmentRepo) List(ctx context.Context, filter environment.Fil
 // Update persists an environment and enqueues a sync "update" or "delete" entry within the same TX.
 func (r *SyncedEnvironmentRepo) Update(ctx context.Context, e *entities.Environment) error {
 	wsID := e.WorkspaceID.String()
-	if !r.isSyncEnabled(wsID) {
+	queued, err := r.queuesWrites(ctx, wsID)
+	if err != nil {
+		return err
+	}
+	if !queued {
 		return r.inner.Update(ctx, e)
 	}
 	action := "update"

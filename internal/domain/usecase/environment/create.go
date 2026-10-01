@@ -105,7 +105,7 @@ func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.En
 		return nil, fmt.Errorf("%s: failed to list source variables: %w", funcName, err)
 	}
 
-	for _, v := range vars {
+	for i, v := range vars {
 		newVar := &entities.Variable{
 			ID:            uuid.New(),
 			EnvironmentID: newEnv.ID,
@@ -113,7 +113,7 @@ func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.En
 			Value:         v.Value,
 			IsSecret:      v.IsSecret,
 			Enabled:       v.Enabled,
-			SortOrder:     v.SortOrder,
+			SortOrder:     i,
 			Version:       1,
 			IsDelete:      false,
 			CreatedBy:     opt.UserID,
@@ -159,6 +159,11 @@ func (u *usecase) AddVariable(ctx context.Context, input AddVariable, opt AddVar
 		return nil, err
 	}
 
+	existing, err := u.varRepo.List(ctx, input.EnvironmentID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
 	now := time.Now()
 	v := &entities.Variable{
 		ID:            uuid.New(),
@@ -167,7 +172,7 @@ func (u *usecase) AddVariable(ctx context.Context, input AddVariable, opt AddVar
 		Value:         input.Value,
 		IsSecret:      input.IsSecret,
 		Enabled:       !input.Disabled,
-		SortOrder:     0,
+		SortOrder:     nextSortOrder(existing),
 		Version:       1,
 		IsDelete:      false,
 		CreatedBy:     opt.UserID,
@@ -181,4 +186,14 @@ func (u *usecase) AddVariable(ctx context.Context, input AddVariable, opt AddVar
 	}
 
 	return v, nil
+}
+
+func nextSortOrder(vars []*entities.Variable) int {
+	next := 0
+	for _, v := range vars {
+		if v.SortOrder >= next {
+			next = v.SortOrder + 1
+		}
+	}
+	return next
 }

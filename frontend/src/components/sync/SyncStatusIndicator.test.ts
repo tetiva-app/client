@@ -2,15 +2,15 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createSSRApp, defineComponent, h, ref } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 
-const status = vi.hoisted(() => ({ state: 'connected', parked: 0, tooLarge: 0 }))
+const status = vi.hoisted(() => ({ state: 'connected', pending: 0, parked: 0, tooLarge: 0, verify: false }))
 
 vi.mock('@/composables/useSyncStatus', () => ({
   useSyncStatus: () => ({
     state: ref(status.state),
-    pending: ref(0),
+    pending: ref(status.pending),
     parked: ref(status.parked),
     tooLarge: ref(status.tooLarge),
-    awaitingVerification: ref(false),
+    awaitingVerification: ref(status.verify),
   }),
 }))
 
@@ -28,7 +28,7 @@ import { inside, tagWith } from '@/test-utils/markup'
 
 afterEach(() => {
   setCurrentLocale('en')
-  Object.assign(status, { state: 'connected', parked: 0, tooLarge: 0 })
+  Object.assign(status, { state: 'connected', pending: 0, parked: 0, tooLarge: 0, verify: false })
 })
 
 function render(): Promise<string> {
@@ -54,6 +54,25 @@ describe('sync button on the rail', () => {
 
     expect(inside(await render(), 'side="right"'))
       .toContain('3 изменения не синхронизированы — лимит тарифа · 5 элементов слишком велики для сервера')
+  })
+
+  it('fades the calm icon but never the pending counter', async () => {
+    status.pending = 3
+    const html = await render()
+
+    expect(inside(html, 'opacity-60')).not.toContain('sync-pending-badge')
+    expect(inside(html, 'data-testid="sync-pending-badge"')).toContain('3')
+  })
+
+  it('keeps warnings at full strength', async () => {
+    for (const state of ['auth_expired', 'plan_limit', 'update_required']) {
+      status.state = state
+      expect(await render(), state).not.toContain('opacity-60')
+    }
+    Object.assign(status, { state: 'connected', verify: true })
+    expect(await render()).not.toContain('opacity-60')
+    Object.assign(status, { verify: false, parked: 2 })
+    expect(await render()).not.toContain('opacity-60')
   })
 
   it('does not pop its tooltip when a closing dialog hands focus back', async () => {

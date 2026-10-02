@@ -29,6 +29,11 @@ const parkedAlert = computed(
 )
 const parkedTooltip = computed(() => parkedSummary(parked.value, tooLarge.value, locale.value))
 
+const warning = computed(
+  () => awaitingVerification.value || parkedAlert.value
+    || ['auth_expired', 'plan_limit', 'update_required'].includes(state.value),
+)
+
 const stateLabel = computed(() => rail.value.syncState[state.value as SyncStateKey] ?? rail.value.sync)
 </script>
 
@@ -36,32 +41,34 @@ const stateLabel = computed(() => rail.value.syncState[state.value as SyncStateK
   <Tooltip ignore-non-keyboard-focus>
     <TooltipTrigger as-child>
       <button
-        class="flex items-center justify-center w-12 h-12 relative transition-opacity opacity-60 hover:opacity-100 cursor-pointer"
+        class="group flex items-center justify-center w-12 h-12 cursor-pointer"
         :aria-label="rail.sync"
         @click="emit('click')"
       >
         <div class="relative">
-          <!-- Sync is off until the address is confirmed, so this wins over the engine state. -->
-          <template v-if="awaitingVerification">
-            <Cloud class="size-5 text-amber-500" />
-            <span
-              class="absolute -top-0.5 -right-1 size-2 rounded-full bg-amber-500 ring-2 ring-background"
-              data-testid="sync-verify-badge"
+          <span class="flex transition-opacity" :class="warning ? '' : 'opacity-60 group-hover:opacity-100'">
+            <!-- Sync is off until the address is confirmed, so this wins over the engine state. -->
+            <Cloud v-if="awaitingVerification" class="size-5 text-amber-500" />
+            <CloudAlert v-else-if="parkedAlert" class="size-5 text-amber-500" data-testid="sync-parked-alert" />
+            <Cloud v-else-if="state === 'connected'" class="size-5 text-green-500" />
+            <CloudAlert v-else-if="state === 'auth_expired'" class="size-5 text-red-400" />
+            <CloudAlert v-else-if="state === 'plan_limit'" class="size-5 text-amber-500" />
+            <CloudAlert v-else-if="state === 'update_required'" class="size-5 text-red-400" data-testid="sync-update-required" />
+            <Loader2
+              v-else-if="['pushing', 'pulling', 'subscribing', 'resyncing'].includes(state)"
+              class="size-5 text-orange-400 animate-spin"
             />
-          </template>
-          <CloudAlert v-else-if="parkedAlert" class="size-5 text-amber-500" data-testid="sync-parked-alert" />
-          <Cloud v-else-if="state === 'connected'" class="size-5 text-green-500" />
-          <CloudAlert v-else-if="state === 'auth_expired'" class="size-5 text-red-400" />
-          <CloudAlert v-else-if="state === 'plan_limit'" class="size-5 text-amber-500" />
-          <CloudAlert v-else-if="state === 'update_required'" class="size-5 text-red-400" data-testid="sync-update-required" />
-          <Loader2
-            v-else-if="['pushing', 'pulling', 'subscribing', 'resyncing'].includes(state)"
-            class="size-5 text-orange-400 animate-spin"
+            <CloudOff v-else class="size-5 text-muted-foreground" />
+          </span>
+          <span
+            v-if="awaitingVerification"
+            class="absolute -top-0.5 -right-1 size-2 rounded-full bg-amber-500 ring-2 ring-background"
+            data-testid="sync-verify-badge"
           />
-          <CloudOff v-else class="size-5 text-muted-foreground" />
           <span
             v-if="pending > 0"
             class="absolute -top-1 -right-1 min-w-3.5 h-3.5 rounded-full bg-orange-500 text-[9px] font-bold text-white flex items-center justify-center px-0.5"
+            data-testid="sync-pending-badge"
           >
             {{ pending > 99 ? '99+' : pending }}
           </span>

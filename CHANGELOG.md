@@ -25,6 +25,7 @@
 - Variables keep the same order on every device, including duplicated and imported environments, with a sync server that stores the order
 - The update dot on Settings is easier to see: it no longer fades with the icon, it is a little larger and sits on the gear's corner. Its tooltip names the version, "Settings — Tetiva 1.2.1 is available"
 - The outdated-publications counter on the Publications icon stays bright while another section is open; it used to fade along with the icon
+- The sync icon no longer fades its warnings: a stopped sync, an expired session, a plan limit, the pending-changes counter and the unconfirmed-email dot show at full strength. Only the calm states stay muted
 
 ## [v1.2.0] — 2026-09-27 — Public collections
 

@@ -11,6 +11,38 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.2.1',
+    date: '2026-10-03',
+    en: {
+      added: [
+        'Tetiva now updates itself on macOS and Windows: a new version downloads in the background, is checked against our signature and installs when you click "Restart to update" on the card at the bottom of the sidebar. The tabs you had open come back after the restart. On Linux the card shows the apt command.',
+        'Postman collection variables come in with the collection as an environment, and Postman environment and globals files import from Import File… in the sidebar.',
+        'pm.collectionVariables works in scripts: get, set and unset use the active environment.',
+        'Windows: Tetiva installs for your user without an administrator prompt, and a copy in Program Files is removed after one confirmation.',
+      ],
+      fixed: [
+        'Changes made in a cloud workspace while sync was off now reach the server once sync starts.',
+        'The selected environment stays selected after a change on another device or the first sign-in, and variables keep the same order on every device (needs server 0.20).',
+        'Environment import keeps disabled variables disabled, takes numbers and other non-text values, and no longer leaves a half-filled environment behind.',
+        'The update dot and the sync warnings on the left rail no longer fade.',
+      ],
+    },
+    ru: {
+      added: [
+        'Tetiva обновляется сама на macOS и Windows: новая версия скачивается в фоне, проверяется по нашей подписи и ставится, когда вы нажмёте «Перезапустить для обновления» на карточке внизу боковой панели. Открытые вкладки возвращаются после перезапуска. В Linux карточка показывает команду apt.',
+        'Переменные коллекции Postman приходят вместе с коллекцией как окружение, а файлы окружений и глобальных переменных Postman импортируются через Import File… в боковой панели.',
+        'В скриптах работает pm.collectionVariables: get, set и unset работают с активным окружением.',
+        'Windows: Tetiva ставится для вашего пользователя без запроса прав администратора, а копия в Program Files удаляется после одного подтверждения.',
+      ],
+      fixed: [
+        'Изменения в облачном воркспейсе, сделанные при выключенной синхронизации, доходят до сервера, как только синхронизация запустится.',
+        'Выбранное окружение остаётся выбранным после правки на другом устройстве и после первого входа, а переменные идут в одном порядке на всех устройствах (нужен сервер 0.20).',
+        'Импорт окружения не включает выключенные переменные, принимает числа и другие нетекстовые значения и больше не оставляет недозаполненное окружение.',
+        'Точка обновления и предупреждения синхронизации на левой панели больше не тускнеют.',
+      ],
+    },
+  },
+  {
     version: '1.2.0',
     date: '2026-09-27',
     en: {

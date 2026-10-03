@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v1.2.1] — 2026-10-03
+
 ### Added
 
 - Postman collection variables come in with the collection: its root `variable` block becomes an environment named after the collection, created in the same import, with disabled variables off and `secret` ones secret. The import dialog names that environment and says to switch to it in the environment picker, since only one environment is active at a time; in a cloud workspace its warning says the environment is shared with the team too. The preview's host list fills in the non-secret variables instead of showing `{{baseUrl}}`, and a `variable` block that can't be read is skipped with a warning instead of failing the import

@@ -18,5 +18,6 @@ func NewApp(migrationsFS fs.FS, links *deeplink.Store, dir sqlite.DataDir) fx.Op
 		MCPModule(),
 		WebSocketModule(),
 		PublicationModule(),
+		UpdateModule(),
 	)
 }

@@ -1,5 +1,10 @@
 import { fill, type Locale } from '@/lib/locale'
 import type { SettingsRowIndex, SettingsSectionId } from '@/lib/settings-search'
+import type { ClientOS } from '@/lib/platform'
+
+export type UpdateReason =
+  | 'dev_build' | 'translocated' | 'read_only_location' | 'not_installed_copy' | 'disabled_by_manifest'
+  | 'no_artifact' | 'network' | 'checksum_mismatch' | 'codesign_failed' | 'bad_manifest' | 'install_failed'
 
 export interface SettingsCopy {
   title: string
@@ -90,19 +95,28 @@ export interface SettingsCopy {
   updates: {
     auto: string
     autoHint: string
+    downloadAuto: string
+    downloadAutoHint: string
     check: string
     lastChecked: string
     neverChecked: string
     checkNow: string
     checking: string
     upToDate: string
-    unreachable: string
     available: string
     availableHint: string
     download: string
+    downloading: string
+    cancel: string
+    ready: string
+    restartToUpdate: string
+    aptTitle: string
+    retry: string
+    reason: Record<UpdateReason, string>
     sends: string
     sendsOnly: string
     sendsOff: string
+    sendsDownload: string
   }
   about: {
     version: string
@@ -130,7 +144,7 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
       editor: { title: 'Editor', description: 'How code looks in the body, script and response editors.' },
       publishing: { title: 'Publishing', description: 'Collections published as read-only web pages.' },
       mcp: { title: 'AI agents (MCP)', description: 'Claude, Cursor and other agents get access to your collections.' },
-      updates: { title: 'Updates', description: 'Tetiva tells you when a new version is out.' },
+      updates: { title: 'Updates', description: 'Tetiva checks for, downloads and installs new versions. On Linux, through apt.' },
       about: { title: 'About', description: 'Version, documentation and release notes.' },
     },
     interface: {
@@ -212,20 +226,41 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
     },
     updates: {
       auto: 'Check automatically',
-      autoHint: 'On launch, at most once a day.',
+      autoHint: 'On launch and while Tetiva is open, at most once a day.',
+      downloadAuto: 'Download updates automatically',
+      downloadAutoHint: 'In the background, right after a new version is found.',
       check: 'Check for updates',
       lastChecked: 'Last checked {when}.',
       neverChecked: 'Not checked yet.',
       checkNow: 'Check now',
       checking: 'Checking…',
       upToDate: 'You’re up to date',
-      unreachable: 'Couldn’t reach the update server',
       available: 'Tetiva {version} is available',
       availableHint: 'You have {current}. The download opens in your browser.',
       download: 'Download',
+      downloading: 'Downloading {version}… {percent}%',
+      cancel: 'Cancel',
+      ready: 'Tetiva {version} is downloaded and verified.',
+      restartToUpdate: 'Restart to update',
+      aptTitle: 'Updated through APT',
+      retry: 'Retry',
+      reason: {
+        dev_build: 'Development builds don’t update themselves.',
+        translocated: 'Move Tetiva to Applications to update it from here.',
+        read_only_location: 'Tetiva can’t write to its folder; download the update from the site.',
+        not_installed_copy: 'This copy wasn’t installed by the installer; download the update from the site.',
+        disabled_by_manifest: 'Download this update from the site.',
+        no_artifact: 'Download this update from the site.',
+        network: 'Couldn’t reach the update server.',
+        checksum_mismatch: 'The update failed verification and was discarded.',
+        codesign_failed: 'The signature check failed; download the update from the site.',
+        bad_manifest: 'Couldn’t read the update information.',
+        install_failed: 'The update didn’t finish installing.',
+      },
       sends: 'What the check sends',
       sendsOnly: 'Only the app version and OS go with it: no account, collections or settings.',
       sendsOff: 'Automatic check is off: nothing is sent until you press Check now.',
+      sendsDownload: 'The update itself downloads from s3.twcstorage.ru.',
     },
     about: {
       version: 'Version {version}',
@@ -251,7 +286,7 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
       editor: { title: 'Редактор', description: 'Как выглядит код в редакторах тела запроса, скриптов и ответа.' },
       publishing: { title: 'Публикация', description: 'Коллекции, опубликованные как веб-страницы только для чтения.' },
       mcp: { title: 'ИИ-агенты (MCP)', description: 'Claude, Cursor и другие агенты получают доступ к вашим коллекциям.' },
-      updates: { title: 'Обновления', description: 'Tetiva сообщает, когда выходит новая версия.' },
+      updates: { title: 'Обновления', description: 'Tetiva сама проверяет, скачивает и устанавливает новые версии. В Linux\u00a0— через apt.' },
       about: { title: 'О программе', description: 'Версия, документация и список изменений.' },
     },
     interface: {
@@ -333,20 +368,41 @@ export const SETTINGS_COPY: Record<Locale, SettingsCopy> = {
     },
     updates: {
       auto: 'Проверять автоматически',
-      autoHint: 'При запуске, не чаще раза в сутки.',
+      autoHint: 'При запуске и пока приложение открыто, не чаще раза в сутки.',
+      downloadAuto: 'Скачивать обновления автоматически',
+      downloadAutoHint: 'В фоне, сразу как нашлась новая версия.',
       check: 'Проверка обновлений',
       lastChecked: 'Последняя проверка: {when}.',
       neverChecked: 'Ещё не проверялось.',
       checkNow: 'Проверить сейчас',
       checking: 'Проверяем…',
       upToDate: 'У вас последняя версия',
-      unreachable: 'Сервер обновлений недоступен',
       available: 'Доступна Tetiva {version}',
       availableHint: 'У вас {current}. Скачивание откроется в браузере.',
       download: 'Скачать',
+      downloading: 'Скачивается {version}… {percent}%',
+      cancel: 'Отменить',
+      ready: 'Tetiva {version} скачана и проверена.',
+      restartToUpdate: 'Перезапустить для обновления',
+      aptTitle: 'Обновляется через APT',
+      retry: 'Повторить',
+      reason: {
+        dev_build: 'Сборки для разработки не обновляются сами.',
+        translocated: 'Перенесите Tetiva в «Программы», чтобы обновлять её отсюда.',
+        read_only_location: 'У Tetiva нет прав на запись в её папку, скачайте обновление с сайта.',
+        not_installed_copy: 'Эта копия поставлена не установщиком, скачайте обновление с сайта.',
+        disabled_by_manifest: 'Это обновление скачайте с сайта.',
+        no_artifact: 'Это обновление скачайте с сайта.',
+        network: 'Не удалось связаться с сервером обновлений.',
+        checksum_mismatch: 'Обновление не прошло проверку и удалено.',
+        codesign_failed: 'Подпись не прошла проверку; скачайте обновление с сайта.',
+        bad_manifest: 'Не удалось прочитать данные об обновлении.',
+        install_failed: 'Обновление не установилось до конца.',
+      },
       sends: 'Что отправляет проверка',
       sendsOnly: 'С запросом уходят только версия приложения и ОС\u00a0— ни аккаунт, ни коллекции, ни настройки.',
       sendsOff: 'Автопроверка выключена: ничего не отправляется, пока вы не нажмёте «Проверить сейчас».',
+      sendsDownload: 'Само обновление скачивается с s3.twcstorage.ru.',
     },
     about: {
       version: 'Версия {version}',
@@ -425,6 +481,11 @@ const ROWS: IndexedRow[] = [
     keywords: { en: 'update', ru: 'обновление' },
   },
   {
+    id: 'updates-download', section: 'updates',
+    text: (c) => [c.updates.downloadAuto, c.updates.downloadAutoHint],
+    keywords: { en: 'update background', ru: 'обновление фон' },
+  },
+  {
     id: 'updates-check', section: 'updates',
     text: (c) => [c.updates.check, c.updates.checkNow, c.updates.download],
     keywords: { en: 'version', ru: 'версия' },
@@ -459,3 +520,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsRowIndex[] = ROWS.map((row) => ({
     ru: [SETTINGS_COPY.ru.sections[row.section].title, ...row.text(SETTINGS_COPY.ru), row.keywords.ru],
   },
 }))
+
+export function settingsSearchIndex(os: ClientOS | null): SettingsRowIndex[] {
+  return os === 'linux' ? SETTINGS_SEARCH_INDEX.filter((row) => row.id !== 'updates-download') : SETTINGS_SEARCH_INDEX
+}

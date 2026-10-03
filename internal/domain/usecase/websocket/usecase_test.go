@@ -414,6 +414,19 @@ func TestDisconnectAll(t *testing.T) {
 	}
 }
 
+func TestCount(t *testing.T) {
+	uc := newTestUsecase(&fakeDialer{conn: newFakeConn()}, &fakeResolver{dial: ResolvedDial{URL: "ws://x"}}, &fakeSink{}, &fakeHistory{})
+	if n := uc.Count(); n != 0 {
+		t.Fatalf("Count = %d, want 0", n)
+	}
+	if _, err := uc.Connect(context.Background(), ConnectOpt{ConnectionID: uuid.New(), RequestID: uuid.New(), WorkspaceID: uuid.New()}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if n := uc.Count(); n != 1 {
+		t.Fatalf("Count = %d, want 1", n)
+	}
+}
+
 // dialStep scripts one Dial outcome; a gate blocks the call, ignoring cancellation, so a dial can land late.
 type dialStep struct {
 	conn   Conn

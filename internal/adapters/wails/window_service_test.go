@@ -280,6 +280,31 @@ func TestWindowService_FocusDetachedWindow_Happy_Exists_NoFocus(t *testing.T) {
 	require.Nil(t, res.Error)
 }
 
+func TestWindowService_ChildWindowCount(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := NewWindowService()
+	ws.mu.Lock()
+	ws.windows["detached-request-a"] = &WindowInfo{Type: "detached-request"}
+	ws.windows["schema-viewer-b"] = &WindowInfo{Type: "schema-viewer"}
+	ws.mu.Unlock()
+
+	res := ws.ChildWindowCount()
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, 2, res.Data)
+}
+
+func TestWindowService_CloseChildWindows_NoneReturnsAtOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := NewWindowService()
+	start := time.Now()
+
+	res := ws.CloseChildWindows()
+
+	require.Nil(t, res.Error)
+	assert.Less(t, time.Since(start), 50*time.Millisecond)
+}
+
 func writePrefsFile(t *testing.T, content string) {
 	t.Helper()
 	home := t.TempDir()

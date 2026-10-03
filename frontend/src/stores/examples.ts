@@ -130,6 +130,10 @@ export const useExamplesStore = defineStore('examples', () => {
     return Object.values(drafts.value).some(d => d.requestId === requestId && d.dirty)
   }
 
+  function hasAnyUnsaved(): boolean {
+    return Object.values(drafts.value).some(d => d.dirty)
+  }
+
   async function fetch(requestId: string): Promise<void> {
     const seq = nextSeq(requestId)
     try {
@@ -320,6 +324,7 @@ export const useExamplesStore = defineStore('examples', () => {
     applyServerList,
     listFor,
     hasUnsaved,
+    hasAnyUnsaved,
     refreshLoaded,
     refreshIfLoaded,
     openDraft,

@@ -18,6 +18,7 @@ type fakeWSUsecase struct {
 	opt       ws.ConnectOpt
 	sent      []ws.OutgoingMessage
 	disconnID ws.ConnectionID
+	count     int
 }
 
 func (f *fakeWSUsecase) Connect(_ context.Context, opt ws.ConnectOpt) (ws.ConnectResult, error) {
@@ -33,6 +34,7 @@ func (f *fakeWSUsecase) Disconnect(_ context.Context, id ws.ConnectionID) error 
 	return nil
 }
 func (f *fakeWSUsecase) DisconnectAll(_ context.Context) error { return nil }
+func (f *fakeWSUsecase) Count() int                            { return f.count }
 
 func TestWSServiceConnectOK(t *testing.T) {
 	fake := &fakeWSUsecase{result: ws.ConnectResult{

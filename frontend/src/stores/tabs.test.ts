@@ -1124,3 +1124,65 @@ describe('move', () => {
     expect(useExamplesStore().hasUnsaved('r1')).toBe(true)
   })
 })
+
+describe('restart helpers', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    getByIdMock.mockReset()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('opens no tab for a request that is gone', async () => {
+    const store = useRequestStore()
+    getByIdMock.mockResolvedValue({ error: { code: 'not_found', message: 'request not found' } })
+
+    await store.openTab('gone')
+
+    expect(store.openTabs).toEqual([])
+    expect(store.activeTabId).toBeNull()
+  })
+
+  it('opens a cached replay draft even when the fetch fails', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'draft', isDraft: true }))
+    getByIdMock.mockResolvedValue({ error: { code: 'not_found', message: 'request not found' } })
+
+    await store.openTab('draft')
+
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:draft'])
+    expect(store.activeTabId).toBe('request:draft')
+  })
+
+  it('lists the open tabs in order without replay drafts', () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'r1' }))
+    store.loadRequest(makeRequest({ id: 'draft', isDraft: true }))
+    store.loadRequest(makeRequest({ id: 'r2' }))
+    store.openTabs.push(
+      { id: 'request:r2', type: 'request', requestId: 'r2', name: 'B', method: 'GET', protocol: 'http' },
+      { id: 'request:draft', type: 'request', requestId: 'draft', name: 'Replay', method: 'GET', protocol: 'http' },
+      { id: 'collection:c1', type: 'collection', collectionId: 'c1', name: 'Col' },
+      { id: 'request:r1', type: 'request', requestId: 'r1', name: 'A', method: 'GET', protocol: 'http' },
+    )
+
+    expect(store.restorableTabs()).toEqual([
+      { type: 'request', id: 'r2' },
+      { type: 'collection', id: 'c1' },
+      { type: 'request', id: 'r1' },
+    ])
+  })
+
+  it('reports an edited request as dirty', () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    expect(store.hasDirty()).toBe(false)
+
+    store.updateLocal('r1', { url: '/edited' })
+
+    expect(store.hasDirty()).toBe(true)
+  })
+})

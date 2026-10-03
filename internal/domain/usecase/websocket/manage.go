@@ -74,6 +74,12 @@ func (u *usecase) DisconnectAll(ctx context.Context) error {
 	return nil
 }
 
+func (u *usecase) Count() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return len(u.conns)
+}
+
 func NewUsecase(dialer Dialer, resolver RequestResolver, sink MessageSink, history HistoryRepository) Usecase {
 	return &usecase{
 		conns:    make(map[ConnectionID]*entry),

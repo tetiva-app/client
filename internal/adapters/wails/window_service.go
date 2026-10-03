@@ -453,6 +453,23 @@ func (ws *WindowService) GetSchemaContent(schemaID string) Result[SchemaData] {
 	return OK(*data)
 }
 
+func (ws *WindowService) ChildWindowCount() Result[int] {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	return OK(len(ws.windows))
+}
+
+func (ws *WindowService) CloseChildWindows() Result[Empty] {
+	ws.CloseAllChildWindows()
+	deadline := time.Now().Add(ws.closeGrace + time.Second)
+	for {
+		if n := ws.ChildWindowCount().Data; n == 0 || time.Now().After(deadline) {
+			return OK(Empty{})
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // Called on main window close.
 func (ws *WindowService) CloseAllChildWindows() {
 	ws.mu.RLock()

@@ -2,9 +2,12 @@ import type { LanguagePreference } from '@/lib/locale'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-export interface AvailableUpdate {
+export interface UpdateCardPrefs {
   version: string
-  url: string
+  shownAt: string
+  collapsed: boolean
+  dismissed: boolean
+  escalated: boolean
 }
 
 export interface SnippetTargets {
@@ -20,8 +23,9 @@ export interface AppSettings {
   editorFontSize: number
   editorWordWrap: boolean
   checkUpdatesAutomatically: boolean
+  downloadUpdatesAutomatically: boolean
   lastUpdateCheckAt: string | null
-  availableUpdate: AvailableUpdate | null
+  updateCard: UpdateCardPrefs | null
   lastSeenWhatsNewVersion: string | null
   onboardingCompletedAt: string | null
   snippetTargets: SnippetTargets
@@ -39,8 +43,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorFontSize: 13,
   editorWordWrap: true,
   checkUpdatesAutomatically: true,
+  downloadUpdatesAutomatically: true,
   lastUpdateCheckAt: null,
-  availableUpdate: null,
+  updateCard: null,
   lastSeenWhatsNewVersion: null,
   onboardingCompletedAt: null,
   snippetTargets: { http: 'curl', grpc: 'grpcurl', websocket: 'websocat' },
@@ -72,16 +77,12 @@ function normalizeNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-// Both fields must be present strings, otherwise the whole update is dropped —
-// a half-written value must never light up the badge.
-function normalizeAvailableUpdate(value: unknown): AvailableUpdate | null {
-  if (value && typeof value === 'object') {
-    const v = value as Record<string, unknown>
-    if (typeof v.version === 'string' && typeof v.url === 'string') {
-      return { version: v.version, url: v.url }
-    }
-  }
-  return null
+function normalizeUpdateCard(value: unknown): UpdateCardPrefs | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (typeof v.version !== 'string' || typeof v.shownAt !== 'string') return null
+  if (typeof v.collapsed !== 'boolean' || typeof v.dismissed !== 'boolean' || typeof v.escalated !== 'boolean') return null
+  return { version: v.version, shownAt: v.shownAt, collapsed: v.collapsed, dismissed: v.dismissed, escalated: v.escalated }
 }
 
 // No registry check: an unknown key falls back to the first offered target.
@@ -114,8 +115,11 @@ export function loadSettings(): AppSettings {
       checkUpdatesAutomatically: typeof parsed.checkUpdatesAutomatically === 'boolean'
         ? parsed.checkUpdatesAutomatically
         : DEFAULT_SETTINGS.checkUpdatesAutomatically,
+      downloadUpdatesAutomatically: typeof parsed.downloadUpdatesAutomatically === 'boolean'
+        ? parsed.downloadUpdatesAutomatically
+        : DEFAULT_SETTINGS.downloadUpdatesAutomatically,
       lastUpdateCheckAt: normalizeNullableString(parsed.lastUpdateCheckAt),
-      availableUpdate: normalizeAvailableUpdate(parsed.availableUpdate),
+      updateCard: normalizeUpdateCard(parsed.updateCard),
       lastSeenWhatsNewVersion: normalizeNullableString(parsed.lastSeenWhatsNewVersion),
       onboardingCompletedAt: normalizeNullableString(parsed.onboardingCompletedAt),
       snippetTargets: normalizeSnippetTargets(parsed.snippetTargets),

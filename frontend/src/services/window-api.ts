@@ -14,4 +14,6 @@ export interface WindowServiceAPI {
   focusDetachedWindow(requestId: string): Promise<Result<boolean>>
   closeDetached(requestId: string): Promise<Result<boolean>>
   getSchemaContent(schemaId: string): Promise<Result<SchemaContent>>
+  childWindowCount(): Promise<Result<number>>
+  closeChildWindows(): Promise<Result<void>>
 }

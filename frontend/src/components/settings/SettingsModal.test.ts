@@ -11,6 +11,13 @@ vi.mock('@/services', () => ({
   getSettingsService: async () => ({ getMCPSettings: async () => ({ error: { code: 'x', message: 'x' } }) }),
 }))
 
+const os = vi.hoisted(() => ({ value: 'darwin' as 'darwin' | 'windows' | 'linux' }))
+vi.mock('@/lib/platform', () => ({
+  clientOS: () => os.value,
+  isMac: () => os.value === 'darwin',
+  isLinux: () => os.value === 'linux',
+}))
+
 vi.mock('@/components/ui/dialog', () => {
   const inline = (tag: string) => defineComponent({
     inheritAttrs: false,
@@ -34,6 +41,8 @@ import { SETTINGS_COPY } from './copy'
 import { SETTINGS_SECTIONS, type SettingsSectionId } from '@/lib/settings-search'
 import { useSettingsStore } from '@/stores/settings'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
+import { useAppUpdateStore } from '@/stores/appUpdate'
+import type { UpdateState } from '@/services'
 import { setCurrentLocale, type Locale } from '@/lib/locale'
 import { inside, tagWith } from '@/test-utils/markup'
 
@@ -50,7 +59,16 @@ async function render(locale: Locale, section?: SettingsSectionId, before?: () =
 
 afterEach(() => {
   setCurrentLocale('en')
+  os.value = 'darwin'
 })
+
+function withUpdate(over: Partial<UpdateState>) {
+  return () => {
+    useAppUpdateStore().state = {
+      phase: 'up_to_date', version: '1.2.2', current: '1.2.1', received: 0, total: 0, install: 'in_app', reason: '', ...over,
+    }
+  }
+}
 
 describe('settings dialog', () => {
   it('is a wide two-column dialog that the base max width does not cap', async () => {
@@ -131,5 +149,89 @@ describe('settings dialog', () => {
     expect(sends).toContain(`GET https://api.tetiva.app/updates/latest.json?v=${__APP_VERSION__}`)
     expect(sends).toContain('Only the app version and OS go with it')
     expect(sends).not.toMatch(/IP|User-Agent|hash/i)
+  })
+
+  it('mentions where the update itself downloads from', async () => {
+    const sends = inside(await render('en', 'updates'), 'data-testid="settings-update-sends"')
+
+    expect(sends).toContain('s3.twcstorage.ru')
+  })
+
+  it('offers automatic downloads everywhere but Linux', async () => {
+    expect(inside(await render('en', 'updates'), 'data-row="updates-download"')).toContain('Download updates automatically')
+
+    os.value = 'linux'
+    expect(await render('en', 'updates')).not.toContain('data-row="updates-download"')
+  })
+
+  it('shows download progress with a way to cancel', async () => {
+    const html = await render('en', 'updates', withUpdate({ phase: 'downloading', received: 25, total: 100 }))
+    const status = inside(html, 'data-testid="settings-update-status"')
+
+    expect(status).toContain('data-testid="settings-update-progress"')
+    expect(status).toContain('Downloading 1.2.2… 25%')
+    expect(status).toContain('Cancel')
+  })
+
+  it('offers the restart once the update is ready', async () => {
+    const html = await render('en', 'updates', withUpdate({ phase: 'ready' }))
+    const status = inside(html, 'data-testid="settings-update-status"')
+
+    expect(status).toContain('Tetiva 1.2.2 is downloaded and verified.')
+    expect(inside(status, 'data-testid="settings-update-restart"')).toContain('Restart to update')
+    expect(status).not.toContain('data-testid="settings-update-site"')
+  })
+
+  it('offers the site next to the restart after an install failed', async () => {
+    const html = await render('en', 'updates', withUpdate({ phase: 'ready', reason: 'install_failed' }))
+    const status = inside(html, 'data-testid="settings-update-status"')
+
+    expect(status).toContain('The update didn’t finish installing.')
+    expect(status).toContain('data-testid="settings-update-restart"')
+    expect(status).toContain('data-testid="settings-update-site"')
+  })
+
+  it('downloads inside the app when the install allows it', async () => {
+    const status = inside(await render('en', 'updates', withUpdate({ phase: 'available' })), 'data-testid="settings-update-status"')
+
+    expect(status).toContain('Tetiva 1.2.2 is available')
+    expect(status).toContain('data-testid="settings-update-download"')
+  })
+
+  it('gives the apt command on Linux, or the setup commands without the repository', async () => {
+    const apt = inside(await render('en', 'updates', withUpdate({ phase: 'available', install: 'apt' })), 'data-testid="settings-update-status"')
+    expect(apt).toContain('Updated through APT')
+    expect(apt.replace(/<[^>]*>/g, '')).toContain('sudo apt update &amp;&amp; sudo apt install --only-upgrade tetiva')
+
+    const missing = inside(
+      await render('en', 'updates', withUpdate({ phase: 'available', install: 'apt_not_configured' })),
+      'data-testid="settings-update-status"',
+    )
+    expect(missing).toContain('https://apt.tetiva.app/tetiva.gpg')
+  })
+
+  it('explains an unsupported install and links to the site', async () => {
+    const html = await render('en', 'updates', withUpdate({ phase: 'available', install: 'unsupported', reason: 'not_installed_copy' }))
+    const status = inside(html, 'data-testid="settings-update-status"')
+
+    expect(status).toContain('installed by the installer')
+    expect(status).toContain('data-testid="settings-update-site"')
+  })
+
+  it('names the error and offers Retry and the site', async () => {
+    const html = await render('ru', 'updates', withUpdate({ phase: 'error', reason: 'network' }))
+    const status = inside(html, 'data-testid="settings-update-status"')
+
+    expect(status).toContain('Не удалось связаться с сервером обновлений.')
+    expect(inside(status, 'data-testid="settings-update-retry"')).toContain('Повторить')
+    expect(status).toContain('data-testid="settings-update-site"')
+  })
+
+  it('marks Updates in the nav while an update waits', async () => {
+    const idle = await render('en', 'interface')
+    expect(inside(idle, 'data-testid="settings-nav-updates"')).not.toContain('Update available')
+
+    const ready = await render('en', 'interface', withUpdate({ phase: 'ready' }))
+    expect(inside(ready, 'data-testid="settings-nav-updates"')).toContain('title="Update available"')
   })
 })

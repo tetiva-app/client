@@ -8,15 +8,15 @@ import PublishingSection from './sections/PublishingSection.vue'
 import McpSection from './sections/McpSection.vue'
 import UpdatesSection from './sections/UpdatesSection.vue'
 import AboutSection from './sections/AboutSection.vue'
-import { SETTINGS_COPY, SETTINGS_SEARCH_INDEX } from './copy'
+import { SETTINGS_COPY, settingsSearchIndex } from './copy'
 import { useCopy } from '@/composables/useLocale'
 import { fill } from '@/lib/locale'
 import { useSettingsStore } from '@/stores/settings'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { useOnboardingUi } from '@/stores/onboardingUi'
+import { useAppUpdateStore } from '@/stores/appUpdate'
 import { searchSettings, SETTINGS_SECTIONS, type SettingsSectionId } from '@/lib/settings-search'
-import { isNewerVersion } from '@/lib/semver'
-import { isMac } from '@/lib/platform'
+import { clientOS, isMac } from '@/lib/platform'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
@@ -24,6 +24,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
 const settings = useSettingsStore()
 const ui = useSettingsModalUi()
 const onboardingUi = useOnboardingUi()
+const appUpdate = useAppUpdateStore()
 const copy = useCopy(SETTINGS_COPY)
 const appVersion = __APP_VERSION__
 const shortcut = isMac() ? '⌘,' : 'Ctrl+,'
@@ -41,9 +42,10 @@ const SECTION_COMPONENTS = {
   about: AboutSection,
 } as const
 
+const searchIndex = settingsSearchIndex(clientOS())
 const query = ref('')
 const searching = computed(() => query.value.trim() !== '')
-const hits = computed(() => searchSettings(query.value, SETTINGS_SEARCH_INDEX))
+const hits = computed(() => searchSettings(query.value, searchIndex))
 const nothingFound = computed(() => searching.value && hits.value.size === 0)
 
 const current = computed<SettingsSectionId>(() => {
@@ -51,9 +53,6 @@ const current = computed<SettingsSectionId>(() => {
   return SETTINGS_SECTIONS.find((id) => hits.value.has(id)) ?? ui.section
 })
 const visibleRows = computed(() => (searching.value ? hits.value.get(current.value) ?? new Set<string>() : null))
-
-const updateAvailable = computed(() =>
-  settings.availableUpdate !== null && isNewerVersion(settings.availableUpdate.version, appVersion))
 
 const scroller = ref<HTMLElement | null>(null)
 
@@ -144,7 +143,7 @@ function showWelcome() {
               class="shrink-0 rounded-full bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground"
             >{{ copy.off }}</span>
             <span
-              v-else-if="id === 'updates' && updateAvailable"
+              v-else-if="id === 'updates' && appUpdate.offeredVersion"
               class="mr-1 size-1.5 shrink-0 rounded-full bg-primary"
               :title="copy.updateAvailable"
             />

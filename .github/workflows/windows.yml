@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: read
       id-token: write
@@ -46,6 +46,13 @@ jobs:
 
       - run: bash build/release-windows.sh
 
+      - name: Release binary has no test key
+        run: |
+          if grep -qaF "$(cat build/updatesign/testdata/test-public.b64)" bin/client-amd64.exe; then
+            echo "bin/client-amd64.exe carries the updatetest public key"
+            exit 1
+          fi
+
       - uses: actions/attest@v4
         with:
           subject-path: bin/Tetiva-*-installer.exe
@@ -54,6 +61,33 @@ jobs:
         with:
           name: windows-installers
           path: bin/Tetiva-*-installer.exe
+          if-no-files-found: error
+
+      - name: Build the update-cycle pair
+        run: |
+          K=$(cat build/updatesign/testdata/test-public.b64)
+          TAGS=production,updatetest OUT_SUFFIX=-updatetest bash build/release-windows.sh
+          grep -qaF "$K" bin/client-amd64-updatetest.exe
+          cp -r . "$RUNNER_TEMP/b"
+          (
+            cd "$RUNNER_TEMP/b"
+            bash build/set-version.sh 99.0.0
+            TAGS=production,updatetest bash build/release-windows.sh
+            go run ./build/updatesign sign --version 99.0.0 --dir bin \
+              --key-file build/updatesign/testdata/test-key.b64 \
+              --base-url http://127.0.0.1:8765/ --out bin/latest.json
+          )
+          mkdir -p bin/served
+          cp "$RUNNER_TEMP"/b/bin/Tetiva-99.0.0-windows-*-installer.exe "$RUNNER_TEMP/b/bin/latest.json" bin/served/
+          cp "$RUNNER_TEMP/b/bin/client-amd64.exe" bin/client-b-amd64.exe
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-updatetest
+          path: |
+            bin/Tetiva-*-installer-updatetest.exe
+            bin/served/**
+            bin/client-b-amd64.exe
           if-no-files-found: error
 
   smoke:
@@ -81,3 +115,21 @@ jobs:
           name: windows-installers
 
       - run: ./build/windows/smoke.ps1 -Version $env:VERSION -Arch ${{ matrix.arch }}
+
+  update-cycle:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-updatetest
+
+      - run: ./build/windows/update-cycle.ps1 -Arch amd64 -Version $env:VERSION

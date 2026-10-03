@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Builds, signs, notarizes and staples the Tetiva macOS DMG.
+# Builds, signs, notarizes and staples the Tetiva macOS DMG and the in-app update zip.
 # Prereqs: Developer ID cert in the keychain, notarytool profile "tetiva".
 
 cd "$(dirname "$0")/.."
@@ -12,6 +12,11 @@ DMG="bin/Tetiva-${VERSION}-macos-universal.dmg"
 
 export PATH="$HOME/go/bin:$PATH"
 wails3 task darwin:package:universal
+# Task picks up an exported EXTRA_TAGS=updatetest left over from the local update cycle.
+if grep -qaF "$(cat build/updatesign/testdata/test-public.b64)" "$APP/Contents/MacOS/client"; then
+  echo "$APP carries the updatetest public key" >&2
+  exit 1
+fi
 
 rm -rf "$STAGE" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/Tetiva.app"
@@ -29,4 +34,13 @@ codesign --force --sign "$IDENTITY" "$DMG"
 xcrun notarytool submit "$DMG" --keychain-profile tetiva --wait
 xcrun stapler staple "$DMG"
 spctl -a -t open --context context:primary-signature -v "$DMG" || true
-echo "DONE: $DMG"
+
+xcrun stapler staple "$STAGE/Tetiva.app"
+ZIP="bin/Tetiva-${VERSION}-macos-universal.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$STAGE/Tetiva.app" "$ZIP"
+T=$(mktemp -d)
+ditto -x -k "$ZIP" "$T"
+codesign --verify --deep --strict -R="$(go run ./build/updatesign requirement)" "$T/Tetiva.app"
+rm -rf "$T"
+echo "DONE: $DMG $ZIP"

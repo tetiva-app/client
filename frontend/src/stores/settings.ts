@@ -6,10 +6,10 @@ import {
   saveSettings,
   SETTINGS_STORAGE_KEY,
   type AppSettings,
-  type AvailableUpdate,
   type SnippetFamily,
   type SnippetTargets,
   type ThemePreference,
+  type UpdateCardPrefs,
 } from '@/lib/settings-storage'
 import { shouldBackfillOnboarding } from '@/lib/onboarding-decisions'
 import { resolveLocale, setCurrentLocale, systemLocale, type LanguagePreference, type Locale } from '@/lib/locale'
@@ -34,8 +34,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorFontSize = ref<number>(initial.editorFontSize)
   const editorWordWrap = ref<boolean>(initial.editorWordWrap)
   const checkUpdatesAutomatically = ref<boolean>(initial.checkUpdatesAutomatically)
+  const downloadUpdatesAutomatically = ref<boolean>(initial.downloadUpdatesAutomatically)
   const lastUpdateCheckAt = ref<string | null>(initial.lastUpdateCheckAt)
-  const availableUpdate = ref<AvailableUpdate | null>(initial.availableUpdate)
+  const updateCard = ref<UpdateCardPrefs | null>(initial.updateCard)
   const lastSeenWhatsNewVersion = ref<string | null>(initial.lastSeenWhatsNewVersion)
   const onboardingCompletedAt = ref<string | null>(initial.onboardingCompletedAt)
   const snippetTargets = ref<SnippetTargets>(initial.snippetTargets)
@@ -84,8 +85,9 @@ export const useSettingsStore = defineStore('settings', () => {
       editorFontSize: editorFontSize.value,
       editorWordWrap: editorWordWrap.value,
       checkUpdatesAutomatically: checkUpdatesAutomatically.value,
+      downloadUpdatesAutomatically: downloadUpdatesAutomatically.value,
       lastUpdateCheckAt: lastUpdateCheckAt.value,
-      availableUpdate: availableUpdate.value,
+      updateCard: updateCard.value,
       lastSeenWhatsNewVersion: lastSeenWhatsNewVersion.value,
       onboardingCompletedAt: onboardingCompletedAt.value,
       snippetTargets: snippetTargets.value,
@@ -106,8 +108,9 @@ export const useSettingsStore = defineStore('settings', () => {
     editorFontSize,
     editorWordWrap,
     checkUpdatesAutomatically,
+    downloadUpdatesAutomatically,
     lastUpdateCheckAt,
-    availableUpdate,
+    updateCard,
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
     snippetTargets,
@@ -127,8 +130,9 @@ export const useSettingsStore = defineStore('settings', () => {
       editorFontSize.value = next.editorFontSize
       editorWordWrap.value = next.editorWordWrap
       checkUpdatesAutomatically.value = next.checkUpdatesAutomatically
+      downloadUpdatesAutomatically.value = next.downloadUpdatesAutomatically
       lastUpdateCheckAt.value = next.lastUpdateCheckAt
-      availableUpdate.value = next.availableUpdate
+      updateCard.value = next.updateCard
       lastSeenWhatsNewVersion.value = next.lastSeenWhatsNewVersion
       onboardingCompletedAt.value = next.onboardingCompletedAt
       snippetTargets.value = next.snippetTargets
@@ -141,11 +145,14 @@ export const useSettingsStore = defineStore('settings', () => {
   function setCheckUpdatesAutomatically(v: boolean) {
     checkUpdatesAutomatically.value = v
   }
+  function setDownloadUpdatesAutomatically(v: boolean) {
+    downloadUpdatesAutomatically.value = v
+  }
   function setLastUpdateCheckAt(v: string | null) {
     lastUpdateCheckAt.value = v
   }
-  function setAvailableUpdate(v: AvailableUpdate | null) {
-    availableUpdate.value = v
+  function setUpdateCard(v: UpdateCardPrefs | null) {
+    updateCard.value = v
   }
   function setLastSeenWhatsNewVersion(v: string | null) {
     lastSeenWhatsNewVersion.value = v
@@ -186,8 +193,9 @@ export const useSettingsStore = defineStore('settings', () => {
     effectiveTheme,
     osTheme,
     checkUpdatesAutomatically,
+    downloadUpdatesAutomatically,
     lastUpdateCheckAt,
-    availableUpdate,
+    updateCard,
     lastSeenWhatsNewVersion,
     onboardingCompletedAt,
     snippetTargets,
@@ -196,8 +204,9 @@ export const useSettingsStore = defineStore('settings', () => {
     osLocale,
     publishingEnabled,
     setCheckUpdatesAutomatically,
+    setDownloadUpdatesAutomatically,
     setLastUpdateCheckAt,
-    setAvailableUpdate,
+    setUpdateCard,
     setLastSeenWhatsNewVersion,
     setOnboardingCompletedAt,
     setSnippetTarget,

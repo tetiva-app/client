@@ -7,7 +7,7 @@ on a developer machine — and CI calls exactly that script:
 
 | Platform | Build | Smoke check | Workflow |
 |---|---|---|---|
-| Windows | `build/release-windows.sh` | `build/windows/smoke.ps1` | `.github/workflows/windows.yml` |
+| Windows | `build/release-windows.sh` | `build/windows/smoke.ps1`, `build/windows/update-cycle.ps1` | `.github/workflows/windows.yml` |
 | Linux | `build/release-linux.sh` | `build/linux/smoke.sh` | `.github/workflows/linux.yml` |
 | macOS | `build/release-macos.sh` | — | — |
 
@@ -119,7 +119,11 @@ automated:
 build/release-macos.sh
 ```
 
-Result: `bin/Tetiva-<version>-macos-universal.dmg` — ready to distribute.
+Result: `bin/Tetiva-<version>-macos-universal.dmg` — ready to distribute — and
+`bin/Tetiva-<version>-macos-universal.zip`, the archive the app downloads for an in-app update.
+The script staples the app inside the zip and unpacks the zip once more to run the check the app
+runs before installing: `codesign --verify --deep --strict -R=<requirement>`, where the requirement
+comes from `go run ./build/updatesign requirement`.
 
 Windows NSIS installers (amd64 + arm64, cross-built from macOS):
 
@@ -190,12 +194,27 @@ Bundle ID: `yudinsv.com.Tetiva`
 ## Windows
 
 `.github/workflows/windows.yml` builds both installers on every push to `main`. It
-cross-compiles on Ubuntu with `build/release-windows.sh`, then installs each installer over
-1.1.1 and opens the app on Windows x64 and ARM64. Take them with
+cross-compiles on Ubuntu with `build/release-windows.sh`, then on Windows x64 and ARM64 installs
+1.2.0 from S3, installs the new build over it and opens the app; the `update-cycle` job runs a
+full in-app update (see "In-app updates" below). Take the installers with
 `bash build/fetch-ci-artifacts.sh windows`.
 
 Without CI: `bash build/release-windows.sh` (needs `makensis`: `brew install nsis`). It writes
-`bin/Tetiva-X.Y.Z-windows-{amd64,arm64}-installer.exe`.
+`bin/Tetiva-X.Y.Z-windows-{amd64,arm64}-installer.exe`. `TAGS` (default `production`) sets the
+Go build tags and `OUT_SUFFIX` is appended to the file names.
+
+The installer is per user: `%LOCALAPPDATA%\Programs\Tetiva`, uninstall key under HKCU, no UAC
+prompt. `WAILS_INSTALL_SCOPE` defaults to `user` in `project.nsi`, so the release script, the
+Taskfile and CI build the same installer. Behaviour worth knowing:
+
+- An interactive install with Tetiva running asks to close it (Retry/Cancel).
+- A machine-wide copy from 1.2.0 or older (HKLM `Saveliy YudinTetiva` or `Saveliy LudinTetiva`)
+  is removed through its own uninstaller, which costs one UAC prompt. If the user declines, the
+  install still finishes and the last page says the old copy can be removed in Settings → Apps.
+- `/S /UPDATE /D=<dir>` is how the app starts it: no migration, wait up to 60 s for
+  `client.exe` to unlock (exit code 2 if it doesn't), install into `<dir>`, start Tetiva again.
+- Uninstalling keeps `%APPDATA%\client.exe`: that is the WebView2 profile with the frontend
+  settings.
 
 ## Linux
 
@@ -221,4 +240,85 @@ Mac's `node_modules` and Task's checksums out as well. Smoke-check the result th
 `docker run --rm --platform linux/amd64 --shm-size=512m -v "$PWD":/src -w /src ubuntu:22.04 bash build/linux/smoke.sh bin/linux/Tetiva-X.Y.Z-linux-amd64.deb`.
 
 Before a release, `bash build/check-versions.sh` confirms the version matches in every file that
-carries it; CI runs the same check.
+carries it; CI runs the same check. `bash build/set-version.sh X.Y.Z` writes the version into all
+of them, adds a `## [vX.Y.Z]` heading to `CHANGELOG.md` if there is none, and runs the check.
+
+## In-app updates
+
+The app reads `https://api.tetiva.app/updates/latest.json` (`?v=<version>&os=<GOOS>`, at most once
+a day). Clients up to 1.2.0 read only its top-level `version` and `url`; 1.2.1 and newer ignore
+them and trust only `payload`, a base64 JSON with the version, `inAppDisabled` and one artifact per
+platform (macOS zip, Windows amd64 and arm64 installers, each with URL, size and sha256), signed
+with ed25519. The public keys are compiled in (`internal/infrastructure/appupdate/config_release.go`).
+
+macOS and Windows download the artifact into `<data dir>/updates/<version>/`, check size and
+sha256 (macOS also unpacks the zip and runs `codesign` with the requirement above) and install on
+Restart to update. Linux only reads the version and shows the apt command. Only release builds
+update themselves: without the `production` tag, from an ad-hoc signed bundle, from a DMG or
+App Translocation, from a read-only folder or from a Windows copy without `uninstall.exe` next to
+it, Settings → Updates says why and offers the site.
+
+Files in `<data dir>/updates/`: `<version>/` with the artifact and its `manifest.json`, `attempt`
+(the version being installed; if the next start still runs an older version, the install failed),
+`restore.json` (tabs to reopen) and `apply.log` (output of the macOS swap script).
+
+### `build/updatesign`
+
+Run from the client root:
+
+```bash
+go run ./build/updatesign sign --version X.Y.Z --dir <upload dir> --out latest.json
+go run ./build/updatesign verify --manifest latest.json --files <upload dir>
+go run ./build/updatesign verify --manifest latest.json --remote
+go run ./build/updatesign requirement
+```
+
+`sign` hashes whichever of the three artifacts are in `--dir` and builds their S3 URLs
+(`--base-url` changes the prefix). `--legacy-version V` keeps the top-level `version` at V so old
+clients see nothing; `--disable 1.2.1,…` lists client versions that must not install in-app and
+get the site link instead. `verify` uses the app's own parser and keys; `--files` re-hashes local
+files, `--remote` downloads every URL. The release steps are in the workspace `RELEASES.md`.
+
+The private key lives only in the login keychain (service `tetiva-update-signing`, account
+`tetiva`, created with `-T ""`, so every read asks for the password) and in the owner's password
+manager. `keygen` creates it once, prints the public key as Go source and rewrites
+`internal/infrastructure/appupdate/testdata/release-signed.json`; a new key means a new constant
+in `releaseKeys` (`config_release.go`) shipped before the switch, and signatures from both keys for
+as long as older clients matter. `appupdate.Sign` takes several keys; `updatesign sign` signs with
+one today.
+
+### Testing an update locally
+
+The `updatetest` build tag swaps in the test key from `build/updatesign/testdata/`, reads the
+manifest URL and an auto-apply flag from `<data dir>/updatetest.json`
+(`{"manifestUrl": "http://127.0.0.1:8765/latest.json", "autoApply": true}`; a file because `open`
+drops the environment on macOS) and allows plain http to `127.0.0.1`. Never ship it: the Windows CI
+and `build/release-macos.sh` fail if a release binary contains the test key.
+
+macOS needs two Developer ID signed builds. Build A:
+
+```bash
+wails3 task darwin:package EXTRA_TAGS=updatetest
+codesign --force --deep --options runtime --timestamp \
+  --sign "Developer ID Application: Saveliy Ludin (KB5J57CKFL)" bin/client.app
+```
+
+Build B the same way in a scratch copy of the tree after `bash build/set-version.sh 99.0.0`, then
+in that copy:
+
+```bash
+mkdir -p served && ditto -c -k --keepParent bin/client.app served/Tetiva-99.0.0-macos-universal.zip
+go run ./build/updatesign sign --version 99.0.0 --dir served \
+  --key-file build/updatesign/testdata/test-key.b64 --base-url http://127.0.0.1:8765/ --out served/latest.json
+python3 -m http.server 8765 --bind 127.0.0.1 --directory served
+```
+
+Copy A into a writable folder, write `updatetest.json` into a fresh `TETIVA_DATA_DIR` and start A
+with that variable: it should download B, swap the bundle, relaunch as 99.0.0 and remove
+`updates/attempt`.
+
+Windows runs the same cycle in CI: the `build` job makes A (`TAGS=production,updatetest`) and B
+(99.0.0 from a copy of the tree) and a manifest signed with the test key, and `update-cycle.ps1`
+installs A into a folder with a space and Cyrillic letters, serves B from `127.0.0.1:8765` and
+waits for HKCU `DisplayVersion` 99.0.0, B's `client.exe` running and no second installer
+download. It then reinstalls A, breaks one byte of the payload and checks that nothing installs.

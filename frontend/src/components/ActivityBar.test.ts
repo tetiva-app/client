@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createSSRApp, defineComponent, h } from 'vue'
+import { createSSRApp, defineComponent, h, nextTick } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -20,6 +20,9 @@ vi.mock('@/components/ui/tooltip', () => {
 import ActivityBar from './ActivityBar.vue'
 import { usePublicationsStore } from '@/stores/publications'
 import { useSettingsStore } from '@/stores/settings'
+import { useAppUpdateStore } from '@/stores/appUpdate'
+import type { UpdateState } from '@/services'
+import { find, mountTree } from '@/test-utils/tree'
 import { emptyPublicationStatus } from '@/services/mock-publication'
 import { inside, tagWith } from '@/test-utils/markup'
 import { setCurrentLocale, type Locale } from '@/lib/locale'
@@ -33,9 +36,13 @@ function outdated(n: number) {
   }))
 }
 
+function updateState(phase: UpdateState['phase']): UpdateState {
+  return { phase, version: '99.0.0', current: '1.2.0', received: 0, total: 0, install: 'in_app', reason: '' }
+}
+
 async function render(
   locale: Locale,
-  opts: { enabled?: boolean; outdated?: number; update?: boolean } = {},
+  opts: { enabled?: boolean; outdated?: number; update?: UpdateState['phase'] } = {},
 ): Promise<string> {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -43,7 +50,7 @@ async function render(
   const settings = useSettingsStore()
   settings.setLanguage(locale)
   settings.setPublishingEnabled(opts.enabled ?? true)
-  if (opts.update) settings.setAvailableUpdate({ version: '99.0.0', url: 'https://tetiva.app/download' })
+  if (opts.update) useAppUpdateStore().state = updateState(opts.update)
   usePublicationsStore().list = outdated(opts.outdated ?? 0)
   const app = createSSRApp(defineComponent({ render: () => h(ActivityBar, { activeSection: 'collections' }) }))
   app.use(pinia)
@@ -65,21 +72,39 @@ describe('activity bar labels', () => {
   })
 
   it('names the available version in the Settings tooltip and label', async () => {
-    const en = await render('en', { update: true })
+    const en = await render('en', { update: 'ready' })
     expect(en).toContain('>Settings — Tetiva 99.0.0 is available</span>')
     expect(en).toContain('aria-label="Settings — Tetiva 99.0.0 is available"')
 
-    const ru = await render('ru', { update: true })
+    const ru = await render('ru', { update: 'available' })
     expect(ru).toContain('>Настройки — доступна Tetiva 99.0.0</span>')
     expect(ru).toContain('aria-label="Настройки — доступна Tetiva 99.0.0"')
   })
 
   it('draws the update dot at full strength, outlined against the rail', async () => {
-    const html = await render('en', { update: true })
+    const html = await render('en', { update: 'ready' })
 
     expect(tagWith(html, 'aria-label="Settings — Tetiva 99.0.0 is available"')).not.toContain('opacity-60')
     expect(tagWith(html, 'data-testid="update-badge"')).toContain('ring-2 ring-background')
     expect(await render('en')).not.toContain('data-testid="update-badge"')
+    expect(await render('en', { update: 'up_to_date' })).not.toContain('data-testid="update-badge"')
+  })
+
+  it('opens Settings on Updates while the dot is lit', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const openSettings = vi.fn()
+    const { app, root } = mountTree(ActivityBar, pinia, { activeSection: 'collections', onOpenSettings: openSettings })
+    const settingsButton = () => find(root, 'activity-settings')!.props.onClick as () => void
+
+    settingsButton()()
+    expect(openSettings).toHaveBeenLastCalledWith(undefined)
+
+    useAppUpdateStore().state = updateState('ready')
+    await nextTick()
+    settingsButton()()
+    expect(openSettings).toHaveBeenLastCalledWith('updates')
+    app.unmount()
   })
 
   it('keeps rail tooltips shut when a closing dialog hands focus back to its button', async () => {

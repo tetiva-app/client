@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Builds both NSIS installers where it runs; ARCH does not pass through `wails3 task`.
-# Needs makensis (nsis). Output: bin/Tetiva-<ver>-windows-<arch>-installer.exe
+# Needs makensis (nsis). Output: bin/Tetiva-<ver>-windows-<arch>-installer<OUT_SUFFIX>.exe
 
 cd "$(dirname "$0")/.."
 export PATH="$HOME/go/bin:$PATH"
+TAGS="${TAGS:-production}"
+OUT_SUFFIX="${OUT_SUFFIX:-}"
 
 # info.json and wails_tools.nsh are generated assets and go stale on version
 # bumps — sync them from config.yml instead of trusting the committed values.
@@ -14,7 +16,7 @@ perl -pi -e 's/("(?:file_version|ProductVersion)":\s*")[^"]+/${1}'"$VERSION"'/' 
 perl -pi -e 's/(<assemblyIdentity type="win32" name="yudinsv.com.Tetiva" version=")[^"]+/${1}'"$VERSION"'/' build/windows/wails.exe.manifest
 
 # GOOS and tags of the .exe below: bindings match it, and Linux cgo files stay out.
-GOOS=windows wails3 task common:build:frontend BUILD_FLAGS='-tags production'
+GOOS=windows wails3 task common:build:frontend BUILD_FLAGS="-tags $TAGS"
 
 # Gitignored, and makensis embeds it into every installer.
 wails3 generate webview2bootstrapper -dir build/windows/nsis
@@ -23,12 +25,13 @@ for ARCH in amd64 arm64; do
   wails3 generate syso -arch "$ARCH" -icon build/windows/icon.ico \
     -manifest build/windows/wails.exe.manifest -info build/windows/info.json \
     -out "wails_windows_${ARCH}.syso"
-  GOOS=windows GOARCH="$ARCH" CGO_ENABLED=0 go build -tags production \
+  GOOS=windows GOARCH="$ARCH" CGO_ENABLED=0 go build -tags "$TAGS" \
     -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui" -o bin/client.exe
+  cp bin/client.exe "bin/client-${ARCH}${OUT_SUFFIX}.exe"
   rm -f "wails_windows_${ARCH}.syso"
   FLAG=$([ "$ARCH" = amd64 ] && echo AMD64 || echo ARM64)
   (cd build/windows/nsis && makensis -DINFO_PRODUCTVERSION="$VERSION" \
     -DARG_WAILS_${FLAG}_BINARY="$(pwd)/../../../bin/client.exe" project.nsi)
-  mv "bin/client-${ARCH}-installer.exe" "bin/Tetiva-${VERSION}-windows-${ARCH}-installer.exe"
+  mv "bin/client-${ARCH}-installer.exe" "bin/Tetiva-${VERSION}-windows-${ARCH}-installer${OUT_SUFFIX}.exe"
 done
-echo "DONE: bin/Tetiva-${VERSION}-windows-{amd64,arm64}-installer.exe"
+echo "DONE: bin/Tetiva-${VERSION}-windows-{amd64,arm64}-installer${OUT_SUFFIX}.exe"

@@ -58,9 +58,10 @@ describe('settings-storage', () => {
     const s = loadSettings()
     expect(s.checkUpdatesAutomatically).toBe(true)
     expect(s.lastUpdateCheckAt).toBeNull()
-    expect(s.availableUpdate).toBeNull()
     expect(s.lastSeenWhatsNewVersion).toBeNull()
     expect(s.onboardingCompletedAt).toBeNull()
+    expect(s.downloadUpdatesAutomatically).toBe(true)
+    expect(s.updateCard).toBeNull()
   })
 
   it('round-trips the update fields through save and load', () => {
@@ -68,11 +69,12 @@ describe('settings-storage', () => {
       ...DEFAULT_SETTINGS,
       checkUpdatesAutomatically: false,
       lastUpdateCheckAt: '2026-07-12T10:00:00.000Z',
-      availableUpdate: { version: '0.16.0', url: 'https://example.com/releases' },
       lastSeenWhatsNewVersion: '0.15.0',
       onboardingCompletedAt: '2026-07-27T09:30:00.000Z',
       language: 'ru' as const,
       publishingEnabled: false,
+      downloadUpdatesAutomatically: false,
+      updateCard: { version: '1.2.2', shownAt: '2026-10-20T12:00:00.000Z', collapsed: true, dismissed: false, escalated: true },
     }
     saveSettings(settings)
     expect(loadSettings()).toEqual(settings)
@@ -121,14 +123,20 @@ describe('settings-storage', () => {
     expect(loadSettings().publishingEnabled).toBe(true)
   })
 
-  it('drops a malformed availableUpdate to null', () => {
-    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({
-      availableUpdate: { version: '0.16.0' }, // url missing
-    }))
-    expect(loadSettings().availableUpdate).toBeNull()
+  it('drops a malformed updateCard to null', () => {
+    const card = { version: '1.2.2', shownAt: '2026-10-20T12:00:00.000Z', collapsed: false, dismissed: false, escalated: false }
+    for (const bad of ['nope', { ...card, version: 122 }, { ...card, collapsed: 'no' }, { version: '1.2.2' }]) {
+      store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ updateCard: bad }))
+      expect(loadSettings().updateCard).toBeNull()
+    }
+  })
 
-    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ availableUpdate: 'nope' }))
-    expect(loadSettings().availableUpdate).toBeNull()
+  it('keeps downloading updates automatically unless it was turned off', () => {
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ downloadUpdatesAutomatically: false }))
+    expect(loadSettings().downloadUpdatesAutomatically).toBe(false)
+
+    store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ downloadUpdatesAutomatically: 'no' }))
+    expect(loadSettings().downloadUpdatesAutomatically).toBe(true)
   })
 
   it('saveSettings writes serialized settings', () => {

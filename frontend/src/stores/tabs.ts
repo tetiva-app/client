@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Request, Protocol } from '@/types/request'
-import { getRequestService, getWindowService } from '@/services'
+import { getRequestService, getWindowService, type RestoreTabs } from '@/services'
 import { DEFAULT_PROTOCOL, DEFAULT_METHOD, DEFAULT_BODY_TYPE, DEFAULT_AUTH_TYPE, DEFAULT_AUTH_DATA } from '@/constants/defaults'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { clearDrafts } from '@/composables/useBodyDrafts'
@@ -213,6 +213,17 @@ export const useRequestStore = defineStore('requests', () => {
       ...editors.map(e => e.saveScripts().catch(() => false)),
       useExamplesStore().flushDrafts(),
     ])
+  }
+
+  function hasDirty(): boolean {
+    return Array.from(requestsMap.value.values()).some(r => !r.isDraft && isRequestDirty(r.id))
+      || Array.from(collectionEditorRefs.value.values()).some(e => e.scriptsDirty)
+  }
+
+  function restorableTabs(): RestoreTabs['tabs'] {
+    return openTabs.value
+      .filter(t => t.type === 'collection' || !requestsMap.value.get(t.requestId)?.isDraft)
+      .map(t => (t.type === 'request' ? { type: 'request', id: t.requestId } : { type: 'collection', id: t.collectionId }))
   }
 
   async function flushCollections(collectionIds: Iterable<string>): Promise<boolean> {
@@ -459,13 +470,14 @@ export const useRequestStore = defineStore('requests', () => {
     }
 
     const req = requestsMap.value.get(requestId)
+    if (!req) return
     openTabs.value.push({
       id: `request:${requestId}`,
       type: 'request',
       requestId,
-      name: req?.name ?? 'Untitled',
-      method: req?.method ?? 'GET',
-      protocol: req?.protocol ?? 'http',
+      name: req.name,
+      method: req.method,
+      protocol: req.protocol,
     })
     activeTabId.value = `request:${requestId}`
   }
@@ -798,6 +810,8 @@ export const useRequestStore = defineStore('requests', () => {
     flush,
     flushForHandoff,
     flushAllDirty,
+    hasDirty,
+    restorableTabs,
     flushCollections,
     saveRequestAndExamples,
     cancelAutosave,

@@ -17,6 +17,7 @@ type Usecase interface {
 	Send(ctx context.Context, connID ConnectionID, msg OutgoingMessage) error
 	Disconnect(ctx context.Context, connID ConnectionID) error
 	DisconnectAll(ctx context.Context) error
+	Count() int
 }
 
 // Dialer is implemented by adapters/requester; DialInfo carries the handshake response on both outcomes.

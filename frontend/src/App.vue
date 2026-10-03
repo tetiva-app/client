@@ -15,16 +15,17 @@ import { usePublicationsStore } from '@/stores/publications'
 import { useCodeDialogUi } from '@/stores/codeDialog'
 import { useImportUi } from '@/stores/importUi'
 import { useImportFlow } from '@/composables/useImportFlow'
-import { checkForUpdates } from '@/lib/updates'
-import { shouldCheckForUpdates, shouldShowWhatsNew } from '@/lib/update-decisions'
+import { useSyncStatus } from '@/composables/useSyncStatus'
+import { useAppUpdateStore } from '@/stores/appUpdate'
+import { shouldShowWhatsNew } from '@/lib/update-decisions'
 import { shouldShowOnboarding } from '@/lib/onboarding-decisions'
 import { OnboardingModal, OnboardingTour } from '@/components/onboarding'
 import { notesFor } from '@/whats-new/notes'
-import { isNewerVersion } from '@/lib/semver'
 import { quotaNotice, rejectNotice, type SyncNotice } from '@/lib/sync-notices'
 import { openExternal } from '@/lib/open-external'
 import { PRICING_URL } from '@/constants/pricing'
-import { isWailsEnvironment } from '@/services'
+import { getUpdateService, isWailsEnvironment } from '@/services'
+import { restoreTabs } from '@/lib/restore-tabs'
 import { eventPayload, useWindowEvents } from '@/composables/useWindowEvents'
 import ActivityBar from '@/components/ActivityBar.vue'
 import AppSidebar from '@/components/sidebar/AppSidebar.vue'
@@ -38,6 +39,8 @@ import EnvironmentModal from '@/components/EnvironmentModal.vue'
 import CookieManagerModal from '@/components/CookieManagerModal.vue'
 import { useCookieModalUi } from '@/stores/cookieModalUi'
 import SettingsModal from '@/components/settings/SettingsModal.vue'
+import RestartOverlay from '@/components/RestartOverlay.vue'
+import RestartConfirmDialog from '@/components/RestartConfirmDialog.vue'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { ToastContainer } from '@/components/ui/toast'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -93,9 +96,14 @@ const codeDialog = useCodeDialogUi()
 const importUi = useImportUi()
 const importFlow = useImportFlow()
 const historyStore = useHistoryStore()
+const appUpdate = useAppUpdateStore()
+const syncStatus = windowMode ? null : useSyncStatus()
 const toast = useToast()
 const linux = isLinux()
 const stopPublicationList = windowMode ? null : publications.trackList()
+
+let resolveStartup!: () => void
+const startupReady = new Promise<void>(r => { resolveStartup = r })
 
 watch(() => settingsStore.publishingEnabled, enabled => {
   if (!enabled && activeSection.value === 'publications') activeSection.value = 'collections'
@@ -116,14 +124,28 @@ async function onHistoryReplay() {
 }
 
 onMounted(async () => {
-  if (windowMode) return // Child windows handle their own initialization
-  await workspaceStore.fetchAll()
-  const wsId = workspaceStore.activeWorkspace?.id
-  if (wsId) {
-    await Promise.all([
-      collectionStore.fetchAll(wsId),
-      environmentStore.fetchAll(wsId),
-    ])
+  try {
+    if (windowMode) return // Child windows handle their own initialization
+    await workspaceStore.fetchAll()
+    const wsId = workspaceStore.activeWorkspace?.id
+    if (wsId) {
+      await Promise.all([
+        collectionStore.fetchAll(wsId),
+        environmentStore.fetchAll(wsId),
+      ])
+    }
+    await restoreTabs((await (await getUpdateService()).takeRestore()).data ?? null, {
+      activeWorkspaceId: workspaceStore.activeWorkspace?.id,
+      openTab: id => store.openTab(id),
+      openCollection: id => {
+        const collection = collectionStore.collectionsMap.get(id)
+        if (collection) store.openCollectionTab(id, collection.name)
+      },
+      setActive: tabId => { store.activeTabId = tabId },
+      hasTab: tabId => store.openTabs.some(t => t.id === tabId),
+    })
+  } finally {
+    resolveStartup()
   }
 })
 
@@ -283,28 +305,6 @@ function runStartupWelcomeFlow() {
   }
 }
 
-// The throttled auto-check. Fire-and-forget: any failure stays silent (privacy
-// invariant — the update check never surfaces errors).
-async function runStartupUpdateFlow() {
-  if (windowMode) return
-  const current = __APP_VERSION__
-  if (settingsStore.availableUpdate && !isNewerVersion(settingsStore.availableUpdate.version, current)) {
-    settingsStore.setAvailableUpdate(null)
-  }
-  if (!isWailsEnvironment()) return
-  if (!settingsStore.checkUpdatesAutomatically) return
-  if (!shouldCheckForUpdates(settingsStore.lastUpdateCheckAt, Date.now())) return
-  const result = await checkForUpdates(current)
-  if (result.status === 'update-available') {
-    settingsStore.setAvailableUpdate({ version: result.version, url: result.url })
-    settingsStore.setLastUpdateCheckAt(new Date().toISOString())
-  } else if (result.status === 'up-to-date') {
-    settingsStore.setAvailableUpdate(null)
-    settingsStore.setLastUpdateCheckAt(new Date().toISOString())
-  }
-  // error → silent, timestamp untouched so the next launch retries.
-}
-
 // One nudge per launch: this update moved sign-in to the browser and signed every
 // existing session out.
 async function runStartupReauthNotice() {
@@ -355,6 +355,7 @@ async function listenDeepLinksThenWelcome() {
   } catch (err) {
     console.error('Failed to listen for deep links:', err)
   }
+  await startupReady
   if (!unmounted) importFlow.afterImports(runStartupWelcomeFlow)
 }
 
@@ -365,7 +366,7 @@ onMounted(() => {
   window.addEventListener('beforeunload', flushOnUnload)
   setupSyncEvents()
   void listenDeepLinksThenWelcome()
-  void runStartupUpdateFlow()
+  if (syncStatus) void appUpdate.init({ syncState: syncStatus.state })
   void runStartupReauthNotice()
 })
 onUnmounted(() => {
@@ -396,7 +397,7 @@ onUnmounted(() => {
       <ActivityBar
         v-model:active-section="activeSection"
         @open-environments="envModalUi.openBlank()"
-        @open-settings="settingsModalUi.show()"
+        @open-settings="(section) => settingsModalUi.show(section)"
       />
 
       <ResizablePanelGroup direction="horizontal" auto-save-id="main-layout">
@@ -479,6 +480,13 @@ onUnmounted(() => {
         @close="onOnboardingClose"
       />
       <OnboardingTour v-if="onboardingUi.tourOpen" @done="onboardingUi.closeTour()" />
+      <RestartConfirmDialog
+        :open="appUpdate.pendingRestart !== null"
+        :items="appUpdate.pendingRestart?.items ?? []"
+        @confirm="appUpdate.pendingRestart?.confirm()"
+        @cancel="appUpdate.pendingRestart?.cancel()"
+      />
+      <RestartOverlay v-if="appUpdate.restarting" />
       <ToastContainer />
     </div>
   </TooltipProvider>

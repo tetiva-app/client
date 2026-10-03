@@ -16,7 +16,7 @@ type Text = string | (() => string)
 withDefaults(defineProps<{
   open: boolean
   title: Text
-  description: Text
+  description?: Text
   confirmLabel?: Text
   cancelLabel?: Text
   destructive?: boolean
@@ -36,7 +36,9 @@ const emit = defineEmits<{
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>{{ toValue(title) }}</AlertDialogTitle>
-        <AlertDialogDescription>{{ toValue(description) }}</AlertDialogDescription>
+        <AlertDialogDescription as="div">
+          <slot>{{ toValue(description) }}</slot>
+        </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
         <AlertDialogCancel @click="emit('update:open', false)">{{ toValue(cancelLabel) }}</AlertDialogCancel>

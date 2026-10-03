@@ -79,6 +79,38 @@ export interface TreeCopy {
   }
   rail: RailCopy
   publications: PublicationsPanelCopy
+  update: UpdateSlotCopy
+}
+
+export interface UpdateSlotCopy {
+  readyTitle: string
+  readyBody: string
+  restart: string
+  readyLine: string
+  availableTitle: string
+  availableBody: string
+  externalBody: string
+  download: string
+  availableLine: string
+  externalLine: string
+  failedTitle: string
+  failedBody: string
+  tryAgain: string
+  failedLine: string
+  aptTitle: string
+  aptBody: string
+  aptMissingBody: string
+  aptLine: string
+  syncTitle: string
+  syncBody: string
+  syncWaitBody: string
+  checkAgain: string
+  syncLine: string
+  later: string
+  hide: string
+  collapse: string
+  copy: string
+  copied: string
 }
 
 export type SyncStateKey =
@@ -301,6 +333,36 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
         nothingFound: 'Nothing found',
       },
     },
+    update: {
+      readyTitle: 'Tetiva {version} downloaded',
+      readyBody: 'Signature verified. The update installs on restart.',
+      restart: 'Restart',
+      readyLine: '{version} ready · Restart',
+      availableTitle: 'Tetiva {version} is out',
+      availableBody: 'You have {current}.',
+      externalBody: 'You have {current}. The download opens in your browser.',
+      download: 'Download',
+      availableLine: '{version} available · Download',
+      externalLine: '{version} available · Update',
+      failedTitle: 'Tetiva {version} didn’t install',
+      failedBody: 'The update didn’t finish.',
+      tryAgain: 'Try again',
+      failedLine: '{version} didn’t install · Retry',
+      aptTitle: 'Tetiva {version} in apt.tetiva.app',
+      aptBody: 'The package is updated by the system. Run this in a terminal and restart Tetiva:',
+      aptMissingBody: 'Add the Tetiva repository once, then updates come with apt:',
+      aptLine: '{version} in APT · How to update',
+      syncTitle: 'Sync stopped',
+      syncBody: 'This version can’t read part of the workspace data. Everything works locally; sync resumes after the update.',
+      syncWaitBody: 'A teammate uses a newer Tetiva. Sync resumes once that version reaches you.',
+      checkAgain: 'Check again',
+      syncLine: 'Sync waits for an update',
+      later: 'Later',
+      hide: 'Hide for this version',
+      collapse: 'Collapse',
+      copy: 'Copy',
+      copied: 'Copied',
+    },
   },
   ru: {
     header: {
@@ -474,6 +536,36 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
         none: 'Коллекций пока нет',
         nothingFound: 'Ничего не найдено',
       },
+    },
+    update: {
+      readyTitle: 'Tetiva {version} скачана',
+      readyBody: 'Подпись проверена. Обновление установится при перезапуске.',
+      restart: 'Перезапустить',
+      readyLine: '{version} готова · Перезапустить',
+      availableTitle: 'Вышла Tetiva {version}',
+      availableBody: 'У вас {current}.',
+      externalBody: 'У вас {current}. Скачивание откроется в браузере.',
+      download: 'Скачать',
+      availableLine: 'Доступна {version} · Скачать',
+      externalLine: 'Доступна {version} · Обновить',
+      failedTitle: 'Tetiva {version} не установилась',
+      failedBody: 'Обновление не завершилось.',
+      tryAgain: 'Повторить',
+      failedLine: '{version} не установилась · Повторить',
+      aptTitle: 'Tetiva {version} в apt.tetiva.app',
+      aptBody: 'Пакет обновляет система. Выполните в терминале и перезапустите Tetiva:',
+      aptMissingBody: 'Подключите репозиторий Tetiva один раз, дальше обновления придут через apt:',
+      aptLine: '{version} в APT · Как обновить',
+      syncTitle: 'Синк остановлен',
+      syncBody: 'Эта версия не читает часть данных воркспейса. Локально всё работает, синк продолжится после обновления.',
+      syncWaitBody: 'Коллега работает в более новой Tetiva. Синк продолжится, когда эта версия дойдёт до вас.',
+      checkAgain: 'Проверить снова',
+      syncLine: 'Синк ждёт обновления',
+      later: 'Позже',
+      hide: 'Скрыть для этой версии',
+      collapse: 'Свернуть',
+      copy: 'Копировать',
+      copied: 'Скопировано',
     },
   },
 }

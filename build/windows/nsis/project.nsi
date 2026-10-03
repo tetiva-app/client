@@ -33,7 +33,13 @@ Unicode true
 ####
 ## Include the wails tools
 ####
+# Per user, so in-app updates install without UAC.
+!ifndef WAILS_INSTALL_SCOPE
+    !define WAILS_INSTALL_SCOPE "user"
+!endif
 !include "wails_tools.nsh"
+!include "StrFunc.nsh"
+${StrStr}
 
 # The version information for this two must consist of 4 parts
 VIProductVersion "${INFO_PRODUCTVERSION}.0"
@@ -51,6 +57,9 @@ ManifestDPIAware true
 
 !include "MUI.nsh"
 
+Var Updating
+Var FinishText
+
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
@@ -58,11 +67,13 @@ ManifestDPIAware true
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 # SignPath requires the update check to be disclosed during installation.
-!define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva on this computer.$\r$\n$\r$\nTetiva checks for a new version at most once a day by requesting a small file from api.tetiva.app. The request carries only the app version and operating system, nothing about you, and you can turn the check off in Settings, under Updates.$\r$\n$\r$\nClick Next to continue."
+# MUI 1 writes page texts into an InstallOptions INI, so newlines are \r\n, not $\r$\n.
+!define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva for your Windows user.\r\n\r\nTetiva checks for a new version at most once a day by requesting a small file from api.tetiva.app. The request carries only the app version and operating system, nothing about you. New versions download in the background and install when you click Restart to update. Both can be turned off in Settings, under Updates.\r\n\r\nClick Next to continue."
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
+!define MUI_FINISHPAGE_TEXT "$FinishText"
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
@@ -84,26 +95,97 @@ ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+   StrCpy $FinishText "Tetiva has been installed on your computer.\r\n\r\nClick Finish to close Setup."
+   ${GetParameters} $R0
+   ClearErrors
+   ${GetOptions} $R0 "/UPDATE" $R1
+   ${IfNot} ${Errors}
+       StrCpy $Updating 1
+   ${EndIf}
+FunctionEnd
+
+Function WaitForApp
+    ${IfNot} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        Return
+    ${EndIf}
+    ${For} $1 1 120
+        ClearErrors
+        FileOpen $0 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+        ${IfNot} ${Errors}
+            FileClose $0
+            Return
+        ${EndIf}
+        Sleep 500
+    ${Next}
+    SetErrorLevel 2
+    Quit
+FunctionEnd
+
+Function CloseRunningApp
+    ${If} ${Silent}
+        Return
+    ${EndIf}
+    retry:
+    nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq ${PRODUCT_EXECUTABLE}" /NH'
+    Pop $0
+    Pop $1
+    ${StrStr} $2 $1 "${PRODUCT_EXECUTABLE}"
+    ${If} $2 != ""
+        # tasklist also matches another user's Tetiva or another program's client.exe, hence Ignore.
+        MessageBox MB_ABORTRETRYIGNORE "Close Tetiva to continue." IDRETRY retry IDIGNORE done
+        Abort
+    ${EndIf}
+    done:
+FunctionEnd
+
+# The uninstaller relaunches itself from %TEMP%, so ExecShellWait returns before it is done.
+!macro RemoveMachineCopy KEY
+    ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${KEY}" "UninstallString"
+    ReadRegStr $2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${KEY}" "DisplayIcon"
+    ${If} $0 != ""
+        StrCpy $1 $0 1
+        ${If} $1 == '"'
+            StrCpy $0 $0 -1 1
+        ${EndIf}
+        ClearErrors
+        ExecShellWait "open" "$0" "/S"
+        ${IfNot} ${Errors}
+            ${For} $1 1 120
+                ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${KEY}" "UninstallString"
+                ${If} $0 == ""
+                ${AndIfNot} ${FileExists} $2
+                    ${ExitFor}
+                ${EndIf}
+                Sleep 500
+            ${Next}
+        ${EndIf}
+        ${If} $0 != ""
+        ${OrIf} ${FileExists} $2
+            StrCpy $FinishText "Tetiva has been installed. An older copy is still in Program Files; you can remove it in Settings > Apps.\r\n\r\nClick Finish to close Setup."
+        ${EndIf}
+    ${EndIf}
+!macroend
+
+Function MigrateMachineInstall
+    SetRegView 64
+    !insertmacro RemoveMachineCopy "Saveliy YudinTetiva"
+    !insertmacro RemoveMachineCopy "Saveliy LudinTetiva"
+FunctionEnd
+
+Function .onInstSuccess
+    ${If} $Updating == 1
+        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+    ${EndIf}
 FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
 
-    # 0.15.3–1.1.1 installed under "Saveliy Ludin"; that copy would stay behind.
-    SetRegView 64
-    ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy LudinTetiva" "DisplayIcon"
-    ${If} $0 != ""
-        ${GetParent} $0 $1
-        ClearErrors
-        Delete "$1\client.exe"
-        Delete "$1\uninstall.exe"
-        ${If} ${Errors}
-            MessageBox MB_OK|MB_ICONSTOP "Close Tetiva and run the installer again." /SD IDOK
-            Abort
-        ${EndIf}
-        RMDir "$1"
-        RMDir "$PROGRAMFILES64\Saveliy Ludin"
-        DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy LudinTetiva"
+    ${If} $Updating == 1
+        Call WaitForApp
+    ${Else}
+        Call CloseRunningApp
+        Call MigrateMachineInstall
     ${EndIf}
 
     !insertmacro wails.webview2runtime
@@ -113,7 +195,10 @@ Section
     !insertmacro wails.files
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    # An update must not bring back a desktop icon the user deleted.
+    ${If} $Updating != 1
+        CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    ${EndIf}
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
@@ -123,8 +208,6 @@ SectionEnd
 
 Section "uninstall" 
     !insertmacro wails.setShellContext
-
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
     RMDir /r $INSTDIR
 

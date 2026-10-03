@@ -87,16 +87,13 @@ test.describe("What's New & update badge", () => {
     });
   }
 
-  test('badge renders when a newer update is stored', async ({ page }) => {
+  test('badge renders when an update is ready', async ({ page }) => {
     await page.addInitScript(([key, v]) => {
       if (!localStorage.getItem(key)) {
-        localStorage.setItem(key, JSON.stringify({
-          lastSeenWhatsNewVersion: v,
-          availableUpdate: { version: '99.0.0', url: 'https://example.com' },
-        }));
+        localStorage.setItem(key, JSON.stringify({ lastSeenWhatsNewVersion: v }));
       }
     }, [KEY, pkg.version]);
-    await page.goto('/');
+    await page.goto('/?mock=update-ready');
     await expect(page.getByTestId('update-badge')).toBeVisible();
   });
 });

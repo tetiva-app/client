@@ -43,6 +43,15 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+@theme {
+  --animate-update-ring: update-ring 1.1s ease-out 3;
+
+  @keyframes update-ring {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 65%, transparent); }
+    100% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) 0%, transparent); }
+  }
+}
+
 /* ===== Light Theme — "Clean Print" ===== */
 :root {
   --radius: 0.625rem;

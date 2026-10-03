@@ -3,6 +3,7 @@ import { SETTINGS_COPY } from '@/components/settings/copy'
 import { TREE_COPY } from '@/components/sidebar/copy'
 import { PUBLICATION_COPY } from '@/components/publication/copy'
 import { UI_COPY } from '@/components/ui/copy'
+import { RESTART_COPY } from '@/components/restart/copy'
 import { PUBLICATION_ERROR_COPY } from '@/lib/publication-errors'
 import { PARKED_COPY } from '@/lib/sync-notices'
 import { ONBOARDING_COPY } from '@/onboarding/copy'
@@ -22,6 +23,7 @@ const RU: [string, unknown][] = [
   ['tree', TREE_COPY.ru],
   ['publication', PUBLICATION_COPY.ru],
   ['ui', UI_COPY.ru],
+  ['restart', RESTART_COPY.ru],
   ['publicationErrors', PUBLICATION_ERROR_COPY.ru],
   ['parked', PARKED_COPY.ru],
   ['onboarding', ONBOARDING_COPY.ru],

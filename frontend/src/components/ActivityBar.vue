@@ -11,10 +11,11 @@ import SyncConnectModal from '@/components/sync/SyncConnectModal.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useSyncModalUi } from '@/stores/syncModalUi'
 import { usePublicationsStore } from '@/stores/publications'
+import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useCopy, useLocale } from '@/composables/useLocale'
 import { TREE_COPY } from '@/components/sidebar/copy'
-import { isNewerVersion } from '@/lib/semver'
 import { fill, plural } from '@/lib/locale'
+import type { SettingsSectionId } from '@/lib/settings-search'
 
 interface ActivityItem {
   id: string
@@ -29,11 +30,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:activeSection', section: string): void
   (e: 'open-environments'): void
-  (e: 'open-settings'): void
+  (e: 'open-settings', section?: SettingsSectionId): void
 }>()
 
 const settingsStore = useSettingsStore()
 const publications = usePublicationsStore()
+const appUpdate = useAppUpdateStore()
 const locale = useLocale()
 const tree = useCopy(TREE_COPY)
 
@@ -54,13 +56,8 @@ const topItems = computed<ActivityItem[]>(() => {
 
 const syncModalUi = useSyncModalUi()
 
-const updateVersion = computed(() => {
-  const update = settingsStore.availableUpdate
-  return update && isNewerVersion(update.version, __APP_VERSION__) ? update.version : null
-})
-
-const settingsLabel = computed(() => (updateVersion.value
-  ? fill(tree.value.rail.settingsUpdate, { version: updateVersion.value })
+const settingsLabel = computed(() => (appUpdate.offeredVersion
+  ? fill(tree.value.rail.settingsUpdate, { version: appUpdate.offeredVersion })
   : tree.value.rail.settings))
 </script>
 
@@ -106,12 +103,13 @@ const settingsLabel = computed(() => (updateVersion.value
           <button
             class="group flex items-center justify-center w-12 h-12 cursor-pointer"
             :aria-label="settingsLabel"
-            @click="emit('open-settings')"
+            data-testid="activity-settings"
+            @click="emit('open-settings', appUpdate.offeredVersion ? 'updates' : undefined)"
           >
             <span class="relative flex">
               <Settings class="size-5 opacity-60 transition-opacity group-hover:opacity-100" />
               <span
-                v-if="updateVersion"
+                v-if="appUpdate.offeredVersion"
                 class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
                 data-testid="update-badge"
               />

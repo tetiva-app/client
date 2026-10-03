@@ -36,4 +36,12 @@ export class WailsWindowService implements WindowServiceAPI {
   async getSchemaContent(schemaId: string): Promise<Result<SchemaContent>> {
     return unwrap<SchemaContent>(await (await svc()).GetSchemaContent(schemaId))
   }
+
+  async childWindowCount(): Promise<Result<number>> {
+    return unwrap<number>(await (await svc()).ChildWindowCount())
+  }
+
+  async closeChildWindows(): Promise<Result<void>> {
+    return unwrap<void>(await (await svc()).CloseChildWindows())
+  }
 }

@@ -13,6 +13,7 @@ import type { AuthServiceAPI } from './auth-api'
 import type { ExampleServiceAPI } from './example-api'
 import type { PublicationServiceAPI } from './publication-api'
 import type { DeepLinkServiceAPI } from './deeplink-api'
+import type { UpdateServiceAPI } from './update-api'
 
 export type { CollectionServiceAPI }
 export type {
@@ -115,6 +116,8 @@ export type { CreateExampleReq, EditExampleReq, DeleteExampleReq } from './examp
 export type { PublicationServiceAPI }
 
 export type { DeepLinkServiceAPI, DeepLink } from './deeplink-api'
+
+export type { UpdateServiceAPI, UpdateState, UpdatePhase, InstallKind, RestoreTabs } from './update-api'
 
 function detectWailsEnvironment(): boolean {
   if (typeof window === 'undefined') return false
@@ -313,4 +316,13 @@ export const getDeepLinkService = memoize<DeepLinkServiceAPI>(async () => {
   }
   const { MockDeepLinkService } = await import('./mock-deeplink')
   return new MockDeepLinkService()
+})
+
+export const getUpdateService = memoize<UpdateServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsUpdateService } = await import('./wails-update')
+    return new WailsUpdateService()
+  }
+  const { MockUpdateService } = await import('./mock-update')
+  return new MockUpdateService()
 })

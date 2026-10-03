@@ -24,6 +24,10 @@ export const useResponseStore = defineStore('responses', () => {
     setResponse(id, { status: 'idle' })
   }
 
+  function anyLoading(): boolean {
+    return Array.from(responseMap.value.values()).some(s => s.status === 'loading')
+  }
+
   function deleteResponse(id: string) {
     responseMap.value.delete(id)
     responseMap.value = new Map(responseMap.value)
@@ -34,6 +38,7 @@ export const useResponseStore = defineStore('responses', () => {
     getResponseState,
     setResponse,
     cancelRequest,
+    anyLoading,
     deleteResponse,
   }
 })

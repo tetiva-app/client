@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { searchSettings, type SettingsRowIndex } from './settings-search'
-import { SETTINGS_SEARCH_INDEX } from '@/components/settings/copy'
+import { SETTINGS_SEARCH_INDEX, settingsSearchIndex } from '@/components/settings/copy'
 
 const INDEX: SettingsRowIndex[] = [
   { id: 'theme', section: 'interface', text: { en: ['Theme', 'Light, dark'], ru: ['Тема', 'Светлая, тёмная'] } },
@@ -59,5 +59,12 @@ describe('the settings index', () => {
   it('gives every row a unique id', () => {
     const ids = SETTINGS_SEARCH_INDEX.map((r) => r.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('does not lead to the automatic-download row on Linux, where it is not shown', () => {
+    expect(searchSettings('background', settingsSearchIndex('darwin')).get('updates')).toContain('updates-download')
+    expect(searchSettings('фон', settingsSearchIndex('windows')).get('updates')).toContain('updates-download')
+    expect(searchSettings('background', settingsSearchIndex('linux')).size).toBe(0)
+    expect(searchSettings('фон', settingsSearchIndex('linux')).size).toBe(0)
   })
 })

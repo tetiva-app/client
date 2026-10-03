@@ -75,10 +75,11 @@ func main() {
 	var exampleService *wailsadapter.ExampleService
 	var publicationService *wailsadapter.PublicationService
 	var deepLinkService *wailsadapter.DeepLinkService
+	var updateService *wailsadapter.UpdateService
 
 	fxApp := fx.New(
 		appmodule.NewApp(migrations.FS, links, sqlite.DataDir(dataDir)),
-		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService),
+		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService, &updateService),
 		fx.NopLogger,
 	)
 
@@ -114,6 +115,7 @@ func main() {
 			application.NewService(exampleService),
 			application.NewService(publicationService),
 			application.NewService(deepLinkService),
+			application.NewService(updateService),
 		},
 	})
 
@@ -143,6 +145,10 @@ func main() {
 	})
 
 	authService.SetEventEmitter(func(name string, data any) {
+		wailsApp.Event.Emit(name, data)
+	})
+
+	updateService.SetEventEmitter(func(name string, data any) {
 		wailsApp.Event.Emit(name, data)
 	})
 
@@ -188,6 +194,8 @@ func main() {
 			wailsApp.Event.Emit(name, data)
 		})
 	})
+
+	updateService.SetQuit(wailsApp.Quit)
 
 	if err := wailsApp.Run(); err != nil {
 		log.Fatalf("wails run: %v", err)

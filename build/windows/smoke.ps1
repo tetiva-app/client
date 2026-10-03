@@ -3,9 +3,12 @@ param(
   [Parameter(Mandatory)] [ValidateSet('amd64', 'arm64')] [string] $Arch
 )
 $ErrorActionPreference = 'Stop'
-$oldDir = 'C:\Program Files\Saveliy Ludin\Tetiva'
-$newExe = 'C:\Program Files\Saveliy Yudin\Tetiva\client.exe'
-$uninstall = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+$oldDir = 'C:\Program Files\Saveliy Yudin\Tetiva'
+$oldKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy YudinTetiva'
+$newDir = "$env:LOCALAPPDATA\Programs\Tetiva"
+$newExe = "$newDir\client.exe"
+$newKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Saveliy YudinTetiva'
+$installer = ".\Tetiva-$Version-windows-$Arch-installer.exe"
 
 function Invoke-Installer([string] $Path) {
   # WaitForExit, not -Wait: -Wait also waits for a lingering WebView2 updater.
@@ -15,16 +18,15 @@ function Invoke-Installer([string] $Path) {
   if ($p.ExitCode -ne 0) { throw "$Path exited with $($p.ExitCode)" }
 }
 
-Invoke-WebRequest "https://s3.twcstorage.ru/ccquota/releases/Tetiva-1.1.1-windows-$Arch-installer.exe" -OutFile old.exe
+Invoke-WebRequest "https://s3.twcstorage.ru/ccquota/releases/Tetiva-1.2.0-windows-$Arch-installer.exe" -OutFile old.exe
 Invoke-Installer .\old.exe
-if (-not (Test-Path "$oldDir\client.exe")) { throw "1.1.1 did not install into $oldDir" }
-if (-not (Test-Path "$uninstall\Saveliy LudinTetiva")) { throw '1.1.1 wrote no uninstall key' }
+if (-not (Test-Path "$oldDir\client.exe")) { throw "1.2.0 did not install into $oldDir" }
+if (-not (Test-Path $oldKey)) { throw '1.2.0 wrote no uninstall key' }
 
-Invoke-Installer ".\Tetiva-$Version-windows-$Arch-installer.exe"
-if (Test-Path $oldDir) { throw 'the 1.1.1 folder is still there' }
-if (Test-Path 'C:\Program Files\Saveliy Ludin') { throw 'the old publisher folder is still there' }
-if (Test-Path "$uninstall\Saveliy LudinTetiva") { throw 'the 1.1.1 uninstall key is still there' }
-$publisher = (Get-ItemProperty "$uninstall\Saveliy YudinTetiva").Publisher
+Invoke-Installer $installer
+if (Test-Path $oldDir) { throw 'the 1.2.0 folder is still there' }
+if (Test-Path $oldKey) { throw 'the 1.2.0 uninstall key is still there' }
+$publisher = (Get-ItemProperty $newKey).Publisher
 if ($publisher -ne 'Saveliy Yudin') { throw "Publisher '$publisher'" }
 $fileVersion = (Get-Item $newExe).VersionInfo.FileVersionRaw.ToString(3)
 if ($fileVersion -ne $Version) { throw "file version $fileVersion, want $Version" }
@@ -54,3 +56,16 @@ if ($failures) {
   throw ($failures -join '; ')
 }
 Stop-Process -Id $app.Id
+
+$marker = "$env:APPDATA\client.exe\EBWebView\marker"
+Set-Content $marker 'smoke'
+Invoke-Installer "$newDir\uninstall.exe"
+foreach ($i in 1..60) {
+  if (-not (Test-Path $newKey)) { break }
+  Start-Sleep -Seconds 1
+}
+if (Test-Path $newKey) { throw 'the uninstall key is still there after uninstall' }
+if (-not (Test-Path $marker)) { throw 'uninstall removed the WebView2 profile' }
+
+Invoke-Installer $installer
+if (-not (Test-Path $marker)) { throw 'reinstall removed the WebView2 profile' }

@@ -111,7 +111,7 @@ function openLink(url: string | null) {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col" data-testid="publications-panel">
+  <div class="flex min-h-0 flex-1 flex-col" data-testid="publications-panel">
     <div class="flex h-9 shrink-0 items-center gap-0.5 border-b border-border pl-3 pr-1.5">
       <div class="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium" data-testid="publications-panel-title">
         <span class="truncate" :title="copy.title">{{ copy.title }}</span>

@@ -6,9 +6,9 @@
 
 **A fast, local-first desktop client for HTTP, gRPC, GraphQL and WebSocket.**
 
-~30 MB install · no account required · no telemetry · MIT
+~30 MB download · no account required · no telemetry · MIT
 
-[tetiva.app](https://tetiva.app) · [Download for macOS / Windows](https://tetiva.app/download)
+[tetiva.app](https://tetiva.app) · [Download for macOS, Windows and Linux](https://tetiva.app/download)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/screenshot-dark.png">
@@ -21,7 +21,7 @@ Collections, environments and history live in a local SQLite database, so
 everything works fully offline and no account is ever required. The client only
 makes the network requests you ask it to — no analytics, no telemetry, no usage
 reporting. When you want the same collections on several machines or across a
-team, an optional self-hosted sync server keeps them in step with realtime
+team, an optional cloud sync service keeps them in step with realtime
 updates.
 
 It's a Wails 3 app — a Go backend with a Vue 3 frontend, no Electron — which is
@@ -38,15 +38,16 @@ with Postman, Insomnia, Bruno and Yaak at [tetiva.app](https://tetiva.app).
   completion.
 - **WebSocket** — raw RFC 6455 connections with a live, timestamped message log.
 - **Collections** — a drag-and-drop tree; Postman v2.1 import/export, including
-  auth, scripts and file fields.
+  auth and, if you opt in, scripts.
 - **Environments** — `{{variable}}` substitution and secret values, scoped per
   workspace.
 - **History** — every request is recorded and can be replayed as a draft.
 - **Scripting** — pre- and post-request JavaScript in a goja sandbox: no
   filesystem, no network, hard 5-second limit.
 - **Cookies** — a persistent cookie jar per workspace.
-- **Sync** *(optional)* — realtime sync through a self-hosted server, with an
-  offline queue and last-write-wins conflict resolution.
+- **Sync** *(optional)* — realtime cloud sync with an offline queue and
+  last-write-wins conflict resolution. Free for two devices; paid plans add
+  shared team workspaces.
 - **MCP server** — exposes collections and requests to AI clients (Claude
   Desktop, Cursor) over SSE.
 

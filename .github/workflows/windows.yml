@@ -4,14 +4,23 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release:
+        description: Sign with the release certificate (approve both requests in SignPath)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+env:
+  SIGNING_POLICY: ${{ inputs.release && 'release-signing' || 'test-signing' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 150
+    environment: signpath
     permissions:
       contents: read
       id-token: write
@@ -44,7 +53,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nsis
 
-      - run: bash build/release-windows.sh
+      - run: bash build/release-windows.sh exes
 
       - name: Release binary has no test key
         run: |
@@ -53,13 +62,55 @@ jobs:
             exit 1
           fi
 
+      - id: unsigned-exes
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-exes-unsigned
+          path: bin/client-*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: 8701db97-7f65-4507-98dd-14b32bfedd88
+          project-slug: client
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          github-artifact-id: ${{ steps.unsigned-exes.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: bin
+
+      - run: bash build/release-windows.sh installers
+
+      - id: unsigned-installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installers-unsigned
+          path: bin/Tetiva-*-installer.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: 8701db97-7f65-4507-98dd-14b32bfedd88
+          project-slug: client
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          github-artifact-id: ${{ steps.unsigned-installers.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: bin
+
       - uses: actions/attest@v4
         with:
           subject-path: bin/Tetiva-*-installer.exe
 
       - uses: actions/upload-artifact@v7
         with:
-          name: windows-installers
+          name: windows-installers-${{ env.SIGNING_POLICY }}
           path: bin/Tetiva-*-installer.exe
           if-no-files-found: error
 
@@ -112,9 +163,9 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: windows-installers
+          name: windows-installers-${{ env.SIGNING_POLICY }}
 
-      - run: ./build/windows/smoke.ps1 -Version $env:VERSION -Arch ${{ matrix.arch }}
+      - run: ./build/windows/smoke.ps1 -Version $env:VERSION -Arch ${{ matrix.arch }} -SigningPolicy $env:SIGNING_POLICY
 
   update-cycle:
     needs: build

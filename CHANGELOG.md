@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: Properties → Details of `client.exe` show the product name and version; they used to be empty
+
 ## [v1.2.1] — 2026-10-03
 
 ### Added

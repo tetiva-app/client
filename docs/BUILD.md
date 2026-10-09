@@ -196,12 +196,28 @@ Bundle ID: `yudinsv.com.Tetiva`
 `.github/workflows/windows.yml` builds both installers on every push to `main`. It
 cross-compiles on Ubuntu with `build/release-windows.sh`, then on Windows x64 and ARM64 installs
 1.2.0 from S3, installs the new build over it and opens the app; the `update-cycle` job runs a
-full in-app update (see "In-app updates" below). Take the installers with
-`bash build/fetch-ci-artifacts.sh windows`.
+full in-app update (see "In-app updates" below).
 
 Without CI: `bash build/release-windows.sh` (needs `makensis`: `brew install nsis`). It writes
-`bin/Tetiva-X.Y.Z-windows-{amd64,arm64}-installer.exe`. `TAGS` (default `production`) sets the
-Go build tags and `OUT_SUFFIX` is appended to the file names.
+unsigned `bin/Tetiva-X.Y.Z-windows-{amd64,arm64}-installer.exe`. `TAGS` (default `production`)
+sets the Go build tags and `OUT_SUFFIX` is appended to the file names.
+
+### Code signing
+
+SignPath Foundation signs the builds (organization `Tetiva [OSS]`, project `client`). The
+workflow runs `release-windows.sh exes`, sends both `client-<arch>.exe` to SignPath, packs the
+signed ones with `release-windows.sh installers` and sends the two installers. Pushes to `main`
+sign with the self-signed `test-signing` certificate. A release needs a manual run with `release`
+checked (`gh workflow run windows.yml --ref main -f release=true`): it signs with
+`release-signing`, and each of the two requests waits for an approval in SignPath.
+`bash build/fetch-ci-artifacts.sh windows` takes only the installers of such a run.
+
+- The API token is the `SIGNPATH_API_TOKEN` secret of the `signpath` environment, open to `main` only.
+- The artifact configuration is kept in SignPath: a zip with exactly two `.exe`, product name
+  `Tetiva`, product version from the `version` parameter.
+- `build/windows/info.json` must keep the `FileVersion` string: without it SignPath fails with
+  "unexpected product name ''". Wails does not generate it, so `update:build-assets` drops it.
+- The uninstaller that NSIS writes during installation is not signed.
 
 The installer is per user: `%LOCALAPPDATA%\Programs\Tetiva`, uninstall key under HKCU, no UAC
 prompt. `WAILS_INSTALL_SCOPE` defaults to `user` in `project.nsi`, so the release script, the

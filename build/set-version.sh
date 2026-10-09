@@ -13,7 +13,7 @@ perl -pi -e 's/^(\s+version:\s*")[^"]+/${1}$ENV{V}/' build/config.yml
 perl -0777 -pi -e 's{(<key>CFBundle(?:ShortVersionString|Version)</key>\s*<string>)[^<]+}{$1$ENV{V}}g' build/darwin/Info.plist
 perl -pi -e 's/^(version:\s*")[^"]+/${1}$ENV{V}/' build/linux/nfpm/nfpm.yaml
 perl -pi -e 's/(define INFO_PRODUCTVERSION ")[^"]+/${1}$ENV{V}/' build/windows/nsis/wails_tools.nsh
-perl -pi -e 's/("(?:file_version|ProductVersion)":\s*")[^"]+/${1}$ENV{V}/' build/windows/info.json
+perl -pi -e 's/("(?:file_version|FileVersion|ProductVersion)":\s*")[^"]+/${1}$ENV{V}/' build/windows/info.json
 perl -pi -e 's/(<assemblyIdentity type="win32" name="yudinsv.com.Tetiva" version=")[^"]+/${1}$ENV{V}/' build/windows/wails.exe.manifest
 
 if ! grep -qF "## [v$V]" CHANGELOG.md; then

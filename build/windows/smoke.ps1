@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory)] [string] $Version,
-  [Parameter(Mandatory)] [ValidateSet('amd64', 'arm64')] [string] $Arch
+  [Parameter(Mandatory)] [ValidateSet('amd64', 'arm64')] [string] $Arch,
+  [Parameter(Mandatory)] [ValidateSet('test-signing', 'release-signing')] [string] $SigningPolicy
 )
 $ErrorActionPreference = 'Stop'
 $oldDir = 'C:\Program Files\Saveliy Yudin\Tetiva'
@@ -18,6 +19,19 @@ function Invoke-Installer([string] $Path) {
   if ($p.ExitCode -ne 0) { throw "$Path exited with $($p.ExitCode)" }
 }
 
+function Assert-Signed([string] $Path) {
+  $sig = Get-AuthenticodeSignature $Path
+  "$Path`: $($sig.Status), $($sig.SignerCertificate.Subject)"
+  if ($SigningPolicy -eq 'release-signing') {
+    if ($sig.Status -ne 'Valid') { throw "$Path signature is $($sig.Status)" }
+    if ($sig.SignerCertificate.Subject -notmatch 'SignPath Foundation') { throw "$Path is signed by $($sig.SignerCertificate.Subject)" }
+  } elseif (-not $sig.SignerCertificate -or $sig.Status -eq 'HashMismatch') {
+    throw "$Path signature is $($sig.Status)"
+  }
+}
+
+Assert-Signed $installer
+
 Invoke-WebRequest "https://s3.twcstorage.ru/ccquota/releases/Tetiva-1.2.0-windows-$Arch-installer.exe" -OutFile old.exe
 Invoke-Installer .\old.exe
 if (-not (Test-Path "$oldDir\client.exe")) { throw "1.2.0 did not install into $oldDir" }
@@ -30,6 +44,7 @@ $publisher = (Get-ItemProperty $newKey).Publisher
 if ($publisher -ne 'Saveliy Yudin') { throw "Publisher '$publisher'" }
 $fileVersion = (Get-Item $newExe).VersionInfo.FileVersionRaw.ToString(3)
 if ($fileVersion -ne $Version) { throw "file version $fileVersion, want $Version" }
+Assert-Signed $newExe
 
 $app = Start-Process $newExe -PassThru -RedirectStandardError stderr.txt
 # Holding the handle keeps ExitCode readable after the process is gone.

@@ -53,6 +53,8 @@ type HistoryRecord struct {
 	DurationMs      int64               `json:"durationMs"`
 	ErrorMessage    string              `json:"errorMessage,omitempty"`
 	CreatedAt       string              `json:"createdAt"`
+	AuthQueryKeys   []string            `json:"authQueryKeys"`
+	AuthHeaderKeys  []string            `json:"authHeaderKeys"`
 }
 
 func HistoryToRecord(h *entities.History) HistoryRecord {
@@ -84,7 +86,16 @@ func HistoryToRecord(h *entities.History) HistoryRecord {
 		DurationMs:      h.DurationMs,
 		ErrorMessage:    h.ErrorMessage,
 		CreatedAt:       h.CreatedAt.UTC().Format(time.RFC3339),
+		AuthQueryKeys:   nonNilKeys(h.AuthQueryKeys),
+		AuthHeaderKeys:  nonNilKeys(h.AuthHeaderKeys),
 	}
+}
+
+func nonNilKeys(keys []string) []string {
+	if keys == nil {
+		return []string{}
+	}
+	return keys
 }
 
 func HistoryToRecords(items []*entities.History) []HistoryRecord {

@@ -738,6 +738,7 @@ func TestRequestService_Reorder_Error_BadUUID(t *testing.T) {
 func TestRequestService_Execute_Happy(t *testing.T) {
 	id := uuid.New()
 	wsID := uuid.New()
+	historyID := uuid.New()
 	resp := &entities.Response{
 		StatusCode: 200,
 		StatusText: "OK",
@@ -746,6 +747,7 @@ func TestRequestService_Execute_Happy(t *testing.T) {
 		Body:       "ok",
 		Size:       2,
 		Duration:   150 * time.Millisecond,
+		HistoryID:  historyID,
 	}
 	stub := &stubRequestUsecase{
 		executeFn: func(_ context.Context, gotID uuid.UUID, opt request.ExecuteOpt) (*entities.Response, error) {
@@ -766,6 +768,7 @@ func TestRequestService_Execute_Happy(t *testing.T) {
 	assert.Equal(t, 200, res.Data.StatusCode)
 	assert.Equal(t, "OK", res.Data.StatusText)
 	assert.Equal(t, int64(150), res.Data.DurationMs)
+	assert.Equal(t, historyID.String(), res.Data.HistoryID)
 }
 
 func TestRequestService_Execute_Error_BadUUID(t *testing.T) {

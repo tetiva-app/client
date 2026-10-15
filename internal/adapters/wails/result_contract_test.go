@@ -190,12 +190,14 @@ func TestContract_OK_HistoryRecord(t *testing.T) {
 		ResponseSize:    0,
 		DurationMs:      0,
 		CreatedAt:       "2026-01-02T03:04:05Z",
+		AuthQueryKeys:   []string{},
+		AuthHeaderKeys:  []string{},
 	}
 	b, err := json.Marshal(OK(rec))
 	require.NoError(t, err)
 	got := string(b)
 	require.Equal(t,
-		`{"data":{"id":"h-1","workspaceId":"ws-1","protocol":"http","method":"GET","url":"https://api.example.com","requestHeaders":{},"requestBody":"","responseStatus":200,"responseHeaders":{},"responseBody":"","responseSize":0,"durationMs":0,"createdAt":"2026-01-02T03:04:05Z"}}`,
+		`{"data":{"id":"h-1","workspaceId":"ws-1","protocol":"http","method":"GET","url":"https://api.example.com","requestHeaders":{},"requestBody":"","responseStatus":200,"responseHeaders":{},"responseBody":"","responseSize":0,"durationMs":0,"createdAt":"2026-01-02T03:04:05Z","authQueryKeys":[],"authHeaderKeys":[]}}`,
 		got,
 	)
 	assert.NotContains(t, got, `"requestId"`, `"requestId" must be omitted when empty (omitempty)`)

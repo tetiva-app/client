@@ -15,6 +15,7 @@ import ServiceMethodSelect from './ServiceMethodSelect.vue'
 import GRPCResponseViewer from './GRPCResponseViewer.vue'
 import RequestDocs from '../RequestDocs.vue'
 import UnsavedExamplesDot from '../examples/UnsavedExamplesDot.vue'
+import CompareHost from '@/components/compare/CompareHost.vue'
 import HelpLink from '@/components/ui/HelpLink.vue'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { pickPath } from '@/lib/pick-file'
@@ -428,122 +429,128 @@ const tabs = computed(() => [
       <HelpLink slug="grpc" class="ml-auto" />
     </div>
 
-    <ResizablePanelGroup
-      direction="vertical"
-      auto-save-id="grpc-request-response-split"
+    <CompareHost
+      :request-id="request.id"
+      protocol="grpc"
       class="flex-1 mt-3"
     >
-      <ResizablePanel :default-size="40" :min-size="25">
-        <div class="flex flex-col h-full">
-          <div class="flex border-b border-border px-3">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-              :class="activeTab === tab.id
-                ? 'border-b-[3px] border-primary text-foreground'
-                : 'text-muted-foreground hover:text-foreground'"
-              @click="activeTab = tab.id"
-            >
-              {{ tab.label }}
-              <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
-                ({{ tab.badge }})
-              </span>
-              <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(request.id)" />
-            </button>
+      <ResizablePanelGroup
+        direction="vertical"
+        auto-save-id="grpc-request-response-split"
+        class="flex-1"
+      >
+        <ResizablePanel :default-size="40" :min-size="25">
+          <div class="flex flex-col h-full">
+            <div class="flex border-b border-border px-3">
+              <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                :class="activeTab === tab.id
+                  ? 'border-b-[3px] border-primary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'"
+                @click="activeTab = tab.id"
+              >
+                {{ tab.label }}
+                <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
+                  ({{ tab.badge }})
+                </span>
+                <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(request.id)" />
+              </button>
 
-            <div v-if="dirty" class="ml-auto flex items-center pr-3">
-              <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
-            </div>
-          </div>
-
-          <div class="flex-1 min-h-0 overflow-auto">
-            <div v-if="activeTab === 'body'" class="flex flex-col h-full">
-              <div class="flex items-center justify-between px-3 py-2 border-b border-border">
-                <span class="text-xs text-muted-foreground">JSON Request Body</span>
-                <button
-                  class="h-7 px-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
-                  :disabled="!request.grpcService || !request.grpcMethod"
-                  @click="generateExample()"
-                >
-                  <Wand2 class="size-3" />
-                  Generate Example
-                </button>
+              <div v-if="dirty" class="ml-auto flex items-center pr-3">
+                <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
               </div>
-              <div class="flex-1 min-h-0">
-                <CodeEditor
-                  :content="request.body"
-                  language="json"
-                  :resolved-variables="envStore.resolvedVariables"
-                  :secret-keys="secretKeys"
-                  @update:content="(v) => updateField('body', v)"
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-auto">
+              <div v-if="activeTab === 'body'" class="flex flex-col h-full">
+                <div class="flex items-center justify-between px-3 py-2 border-b border-border">
+                  <span class="text-xs text-muted-foreground">JSON Request Body</span>
+                  <button
+                    class="h-7 px-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
+                    :disabled="!request.grpcService || !request.grpcMethod"
+                    @click="generateExample()"
+                  >
+                    <Wand2 class="size-3" />
+                    Generate Example
+                  </button>
+                </div>
+                <div class="flex-1 min-h-0">
+                  <CodeEditor
+                    :content="request.body"
+                    language="json"
+                    :resolved-variables="envStore.resolvedVariables"
+                    :secret-keys="secretKeys"
+                    @update:content="(v) => updateField('body', v)"
+                  />
+                </div>
+              </div>
+
+              <div v-else-if="activeTab === 'metadata'" class="h-full">
+                <KeyValueEditor
+                  :rows="metadataRows"
+                  key-placeholder="Metadata key"
+                  value-placeholder="Value"
+                  @add="(p) => updateMetadata('add', p)"
+                  @remove="(i) => updateMetadata('remove', i)"
+                  @update="(p) => updateMetadata('update', p)"
+                  @toggle="(i) => updateMetadata('toggle', i)"
                 />
               </div>
-            </div>
 
-            <div v-else-if="activeTab === 'metadata'" class="h-full">
-              <KeyValueEditor
-                :rows="metadataRows"
-                key-placeholder="Metadata key"
-                value-placeholder="Value"
-                @add="(p) => updateMetadata('add', p)"
-                @remove="(i) => updateMetadata('remove', i)"
-                @update="(p) => updateMetadata('update', p)"
-                @toggle="(i) => updateMetadata('toggle', i)"
-              />
-            </div>
-
-            <div v-else-if="activeTab === 'schema'" class="h-full">
-              <GRPCSchemaViewer
-                v-if="protoDefinition"
-                :definition="protoDefinition"
-                :source="schema?.source || 'reflection'"
-              />
-              <div v-else class="flex items-center justify-center h-full">
-                <p class="text-sm text-muted-foreground">Select a method to view its proto definition</p>
+              <div v-else-if="activeTab === 'schema'" class="h-full">
+                <GRPCSchemaViewer
+                  v-if="protoDefinition"
+                  :definition="protoDefinition"
+                  :source="schema?.source || 'reflection'"
+                />
+                <div v-else class="flex items-center justify-center h-full">
+                  <p class="text-sm text-muted-foreground">Select a method to view its proto definition</p>
+                </div>
               </div>
+
+              <ScriptEditor
+                v-else-if="activeTab === 'scripts'"
+                :entity-id="request.id"
+                :pre-script="request.preScript"
+                :post-script="request.postScript"
+                :resolved-variables="envStore.resolvedVariables"
+                :secret-keys="secretKeys"
+                @update:pre-script="(v) => updateField('preScript', v)"
+                @update:post-script="(v) => updateField('postScript', v)"
+              />
+
+              <RequestDocs
+                v-if="docsMounted"
+                v-show="activeTab === 'docs'"
+                :description="request.description"
+                @update:description="(v) => updateField('description', v)"
+              />
+
+              <ExamplesPanel
+                v-if="examplesMounted"
+                v-show="activeTab === 'examples'"
+                ref="examplesPanel"
+                :request-id="request.id"
+                protocol="grpc"
+                :is-draft="request.isDraft === true"
+              />
             </div>
-
-            <ScriptEditor
-              v-else-if="activeTab === 'scripts'"
-              :entity-id="request.id"
-              :pre-script="request.preScript"
-              :post-script="request.postScript"
-              :resolved-variables="envStore.resolvedVariables"
-              :secret-keys="secretKeys"
-              @update:pre-script="(v) => updateField('preScript', v)"
-              @update:post-script="(v) => updateField('postScript', v)"
-            />
-
-            <RequestDocs
-              v-if="docsMounted"
-              v-show="activeTab === 'docs'"
-              :description="request.description"
-              @update:description="(v) => updateField('description', v)"
-            />
-
-            <ExamplesPanel
-              v-if="examplesMounted"
-              v-show="activeTab === 'examples'"
-              ref="examplesPanel"
-              :request-id="request.id"
-              protocol="grpc"
-              :is-draft="request.isDraft === true"
-            />
           </div>
-        </div>
-      </ResizablePanel>
+        </ResizablePanel>
 
-      <ResizableHandle with-handle />
+        <ResizableHandle with-handle />
 
-      <ResizablePanel :default-size="60" :min-size="20">
-        <GRPCResponseViewer
-          :state="responseState"
-          :request-id="request.id"
-          :loading="responseState.status === 'loading'"
-          @cancel="store.cancelRequest(request.id)"
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        <ResizablePanel :default-size="60" :min-size="20">
+          <GRPCResponseViewer
+            :state="responseState"
+            :request-id="request.id"
+            :loading="responseState.status === 'loading'"
+            @cancel="store.cancelRequest(request.id)"
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </CompareHost>
   </div>
 </template>

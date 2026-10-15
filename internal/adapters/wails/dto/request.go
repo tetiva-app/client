@@ -3,6 +3,8 @@ package dto
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
@@ -241,6 +243,7 @@ type ExecuteResponseDTO struct {
 	BinaryPath        string              `json:"binaryPath,omitempty"`
 	SuggestedFilename string              `json:"suggestedFilename,omitempty"`
 	ScriptResult      *ScriptResultDTO    `json:"scriptResult,omitempty"`
+	HistoryID         string              `json:"historyId,omitempty"`
 }
 
 func ResponseToExecuteDTO(r *entities.Response) ExecuteResponseDTO {
@@ -262,6 +265,9 @@ func ResponseToExecuteDTO(r *entities.Response) ExecuteResponseDTO {
 		SuggestedFilename: r.SuggestedFilename,
 	}
 	dto.ScriptResult = ScriptResultToDTO(r.ScriptResult)
+	if r.HistoryID != uuid.Nil {
+		dto.HistoryID = r.HistoryID.String()
+	}
 	return dto
 }
 

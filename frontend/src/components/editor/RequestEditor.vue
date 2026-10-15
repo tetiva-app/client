@@ -16,6 +16,7 @@ import ScriptEditor from './ScriptEditor.vue'
 import RequestDocs from './RequestDocs.vue'
 import ResponseViewer from './ResponseViewer.vue'
 import UnsavedExamplesDot from './examples/UnsavedExamplesDot.vue'
+import CompareHost from '@/components/compare/CompareHost.vue'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -355,106 +356,112 @@ function updateField(field: string, value: any) {
         />
       </div>
 
-      <ResizablePanelGroup
-        direction="vertical"
-        auto-save-id="request-response-split"
+      <CompareHost
+        :request-id="requestId"
+        protocol="http"
         class="flex-1 mt-3"
       >
-        <ResizablePanel :default-size="40" :min-size="25">
-          <div class="flex flex-col h-full">
-            <div class="flex border-b border-border px-3">
-              <button
-                v-for="tab in tabs"
-                :key="tab.id"
-                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                :class="activeTab === tab.id
-                  ? 'border-b-[3px] border-primary text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'"
-                @click="activeTab = tab.id"
-              >
-                {{ tab.label }}
-                <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
-                  ({{ tab.badge }})
-                </span>
-                <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(requestId)" />
-              </button>
+        <ResizablePanelGroup
+          direction="vertical"
+          auto-save-id="request-response-split"
+          class="flex-1"
+        >
+          <ResizablePanel :default-size="40" :min-size="25">
+            <div class="flex flex-col h-full">
+              <div class="flex border-b border-border px-3">
+                <button
+                  v-for="tab in tabs"
+                  :key="tab.id"
+                  class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                  :class="activeTab === tab.id
+                    ? 'border-b-[3px] border-primary text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'"
+                  @click="activeTab = tab.id"
+                >
+                  {{ tab.label }}
+                  <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
+                    ({{ tab.badge }})
+                  </span>
+                  <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(requestId)" />
+                </button>
 
-              <div v-if="dirty" class="ml-auto flex items-center pr-3">
-                <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+                <div v-if="dirty" class="ml-auto flex items-center pr-3">
+                  <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+                </div>
+              </div>
+
+              <div class="flex-1 min-h-0 overflow-auto">
+                <ParamsEditor
+                  v-if="activeTab === 'params'"
+                  :url="request.url"
+                  @update:url="(v) => updateField('url', v)"
+                />
+                <AuthEditor
+                  v-else-if="activeTab === 'auth'"
+                  :auth-type="request.authType"
+                  :auth-data="request.authData"
+                  owner-kind="request"
+                  :owner-id="requestId"
+                  :owner-version="request.version"
+                  :protocol="request.protocol"
+                  @update:auth-type="(v) => updateField('authType', v)"
+                  @update:auth-data="(v) => updateField('authData', v)"
+                />
+                <HeadersEditor
+                  v-else-if="activeTab === 'headers'"
+                  :headers="request.headers"
+                  @update:headers="(v) => updateField('headers', v)"
+                />
+                <BodyEditor
+                  v-else-if="activeTab === 'body'"
+                  :request-id="requestId"
+                  :body="request.body"
+                  :body-type="request.bodyType"
+                  :method="request.method"
+                  :resolved-variables="envStore.resolvedVariables"
+                  :secret-keys="secretKeys"
+                  @update:body="(v) => updateField('body', v)"
+                  @update:body-type="(v) => updateField('bodyType', v)"
+                />
+                <ScriptEditor
+                  v-else-if="activeTab === 'scripts'"
+                  :entity-id="requestId"
+                  :pre-script="request.preScript"
+                  :post-script="request.postScript"
+                  :resolved-variables="envStore.resolvedVariables"
+                  :secret-keys="secretKeys"
+                  @update:pre-script="(v) => updateField('preScript', v)"
+                  @update:post-script="(v) => updateField('postScript', v)"
+                />
+                <RequestDocs
+                  v-if="docsMounted"
+                  v-show="activeTab === 'docs'"
+                  :description="request.description"
+                  @update:description="(v) => updateField('description', v)"
+                />
+                <ExamplesPanel
+                  v-if="examplesMounted"
+                  v-show="activeTab === 'examples'"
+                  ref="examplesPanel"
+                  :request-id="requestId"
+                  protocol="http"
+                  :is-draft="request.isDraft === true"
+                />
               </div>
             </div>
+          </ResizablePanel>
 
-            <div class="flex-1 min-h-0 overflow-auto">
-              <ParamsEditor
-                v-if="activeTab === 'params'"
-                :url="request.url"
-                @update:url="(v) => updateField('url', v)"
-              />
-              <AuthEditor
-                v-else-if="activeTab === 'auth'"
-                :auth-type="request.authType"
-                :auth-data="request.authData"
-                owner-kind="request"
-                :owner-id="requestId"
-                :owner-version="request.version"
-                :protocol="request.protocol"
-                @update:auth-type="(v) => updateField('authType', v)"
-                @update:auth-data="(v) => updateField('authData', v)"
-              />
-              <HeadersEditor
-                v-else-if="activeTab === 'headers'"
-                :headers="request.headers"
-                @update:headers="(v) => updateField('headers', v)"
-              />
-              <BodyEditor
-                v-else-if="activeTab === 'body'"
-                :request-id="requestId"
-                :body="request.body"
-                :body-type="request.bodyType"
-                :method="request.method"
-                :resolved-variables="envStore.resolvedVariables"
-                :secret-keys="secretKeys"
-                @update:body="(v) => updateField('body', v)"
-                @update:body-type="(v) => updateField('bodyType', v)"
-              />
-              <ScriptEditor
-                v-else-if="activeTab === 'scripts'"
-                :entity-id="requestId"
-                :pre-script="request.preScript"
-                :post-script="request.postScript"
-                :resolved-variables="envStore.resolvedVariables"
-                :secret-keys="secretKeys"
-                @update:pre-script="(v) => updateField('preScript', v)"
-                @update:post-script="(v) => updateField('postScript', v)"
-              />
-              <RequestDocs
-                v-if="docsMounted"
-                v-show="activeTab === 'docs'"
-                :description="request.description"
-                @update:description="(v) => updateField('description', v)"
-              />
-              <ExamplesPanel
-                v-if="examplesMounted"
-                v-show="activeTab === 'examples'"
-                ref="examplesPanel"
-                :request-id="requestId"
-                protocol="http"
-                :is-draft="request.isDraft === true"
-              />
-            </div>
-          </div>
-        </ResizablePanel>
+          <ResizableHandle with-handle />
 
-        <ResizableHandle with-handle />
-
-        <ResizablePanel :default-size="60" :min-size="20">
-          <ResponseViewer
-            :state="responseState"
-            :request-id="requestId"
-            @cancel="store.cancelRequest(props.requestId)"
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          <ResizablePanel :default-size="60" :min-size="20">
+            <ResponseViewer
+              :state="responseState"
+              :request-id="requestId"
+              @cancel="store.cancelRequest(props.requestId)"
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </CompareHost>
     </div>
   </div>
 </template>

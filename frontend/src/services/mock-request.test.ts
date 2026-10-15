@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { MockRequestService } from './mock-request'
+import { MockHistoryService, appendMockHistory } from './mock-history'
 import type { SnippetRequest } from '@/types/snippet'
+import type { CreateRequestReq } from './request-api'
 
 function editorState(over: Partial<SnippetRequest>): SnippetRequest {
   return {
@@ -74,6 +76,102 @@ describe('MockRequestService.buildSnippetInput', () => {
     expect(res.data.har?.method).toBe('POST')
     expect(res.data.har?.headers).toContainEqual({ name: 'Content-Type', value: 'application/json' })
     expect(JSON.parse(res.data.har?.postData?.text ?? '')).toEqual({ query: '{ me }' })
+  })
+})
+
+const WS = '00000000-0000-4000-a000-000000000001'
+
+async function createRequest(svc: MockRequestService, over: Partial<CreateRequestReq> = {}) {
+  const res = await svc.create({
+    collectionId: 'c1', name: 'Users', description: '', protocol: 'http', method: 'GET',
+    url: 'https://api.example.com/users', body: '', bodyType: 'none', authType: 'none', authData: '{}',
+    preScript: '', postScript: '',
+    headers: [
+      { key: 'Accept', value: 'application/json', enabled: true },
+      { key: 'X-Off', value: '1', enabled: false },
+    ],
+    ...over,
+  })
+  return res.data
+}
+
+async function historyOf(requestId: string) {
+  const res = await new MockHistoryService().list({
+    workspaceId: WS, requestId, protocols: [], statusKinds: [], urlContains: '', limit: 50, offset: 0,
+  })
+  return res.data.items
+}
+
+describe('MockRequestService.execute history', () => {
+  it('records every send newest first and varies the body and duration', async () => {
+    const svc = new MockRequestService()
+    const req = await createRequest(svc)
+
+    const first = await svc.execute({ requestId: req.id, workspaceId: WS })
+    const second = await svc.execute({ requestId: req.id, workspaceId: WS })
+    const records = await historyOf(req.id)
+
+    expect(records).toHaveLength(2)
+    expect(records.map(r => r.id)).toEqual([second.data.historyId, first.data.historyId])
+    expect(JSON.parse(first.data.body).send).toBe(1)
+    expect(JSON.parse(second.data.body).send).toBe(2)
+    expect(first.data.durationMs).toBe(142)
+    expect(second.data.durationMs).toBe(318)
+    expect(records[0]).toMatchObject({
+      requestId: req.id, workspaceId: WS, protocol: 'http', method: 'GET',
+      url: 'https://api.example.com/users', requestHeaders: { Accept: ['application/json'] },
+      responseStatus: 200, responseBody: second.data.body, responseSize: second.data.size, durationMs: 318,
+    })
+  })
+
+  it('records a failed send with its error and no status', async () => {
+    const svc = new MockRequestService()
+    const req = await createRequest(svc, { url: 'https://error.example.com' })
+
+    const res = await svc.execute({ requestId: req.id, workspaceId: WS })
+    const [record] = await historyOf(req.id)
+
+    expect(res.error?.code).toBe('request_error')
+    expect(record.responseStatus).toBe(0)
+    expect(record.errorMessage).toBe(res.error?.message)
+  })
+
+  it('records non-default responses with their history id', async () => {
+    const svc = new MockRequestService()
+    const req = await createRequest(svc, { url: 'https://api.example.com/404' })
+
+    const res = await svc.execute({ requestId: req.id, workspaceId: WS })
+    const [record] = await historyOf(req.id)
+
+    expect(record.id).toBe(res.data.historyId)
+    expect(record.responseStatus).toBe(404)
+  })
+
+  it('records a GraphQL send with its query as the request body', async () => {
+    const svc = new MockRequestService()
+    const req = await createRequest(svc, {
+      protocol: 'graphql', method: 'POST', url: 'https://api.example.com/graphql', graphqlQuery: '{ me { id } }',
+    })
+
+    await svc.execute({ requestId: req.id, workspaceId: WS })
+    const [record] = await historyOf(req.id)
+
+    expect(record).toMatchObject({ protocol: 'graphql', method: 'GRAPHQL', requestBody: '{ me { id } }' })
+  })
+})
+
+describe('appendMockHistory', () => {
+  it('puts the record first', async () => {
+    const requestId = crypto.randomUUID()
+    const base = {
+      requestId, workspaceId: WS, protocol: 'http' as const, method: 'GET', url: 'https://x.test',
+      requestHeaders: {}, requestBody: '', responseStatus: 200, responseHeaders: {}, responseBody: '',
+      responseSize: 0, durationMs: 1, createdAt: new Date().toISOString(),
+    }
+    appendMockHistory({ ...base, id: 'older' })
+    appendMockHistory({ ...base, id: 'newer' })
+
+    expect((await historyOf(requestId)).map(r => r.id)).toEqual(['newer', 'older'])
   })
 })
 

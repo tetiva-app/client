@@ -6,6 +6,8 @@ import PublicationsSidebar from './PublicationsSidebar.vue'
 import SidebarUpdateSlot from './SidebarUpdateSlot.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { useHistoryReplay } from '@/composables/useHistoryReplay'
+import { useHistoryCompare } from '@/composables/useHistoryCompare'
+import type { HistoryRecord } from '@/types/history'
 
 defineProps<{
   activeSection: string
@@ -17,9 +19,14 @@ const emit = defineEmits<{
 }>()
 
 const replayHistory = useHistoryReplay()
+const { compareWithCurrent } = useHistoryCompare()
 
 async function onReplay(historyId: string) {
   if (await replayHistory(historyId)) emit('switch-section', 'collections')
+}
+
+async function onCompare(record: HistoryRecord) {
+  if (await compareWithCurrent(record)) emit('switch-section', 'collections')
 }
 </script>
 
@@ -34,6 +41,7 @@ async function onReplay(historyId: string) {
     <HistorySidebar
       v-else-if="activeSection === 'history'"
       @replay="onReplay"
+      @compare="onCompare"
     />
     <PublicationsSidebar v-else-if="activeSection === 'publications'" />
     <SidebarUpdateSlot />

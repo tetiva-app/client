@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { markRaw, ref, toRaw, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { getHistoryService } from '@/services'
 import type { HistoryRecord, HistoryFilter } from '@/types/history'
@@ -20,10 +20,19 @@ export const useHistoryStore = defineStore('history', () => {
   const filter = ref<HistoryFilter>(defaultFilter())
   const selectedId = ref<string | null>(null)
   const selectedRecord = ref<HistoryRecord | null>(null)
+  const compareSelection = ref<HistoryRecord[]>([])
+  const comparePair = ref<[HistoryRecord, HistoryRecord] | null>(null)
 
   function activeWorkspaceId(): string | null {
     return useWorkspaceStore().activeWorkspace?.id ?? null
   }
+
+  watch(activeWorkspaceId, () => {
+    selectedId.value = null
+    selectedRecord.value = null
+    compareSelection.value = []
+    comparePair.value = null
+  })
 
   async function load(reset = true) {
     const ws = activeWorkspaceId()
@@ -79,6 +88,8 @@ export const useHistoryStore = defineStore('history', () => {
     const beforeTotal = totalCount.value
     items.value = items.value.filter(h => h.id !== historyId)
     totalCount.value = Math.max(0, totalCount.value - 1)
+    compareSelection.value = compareSelection.value.filter(h => h.id !== historyId)
+    if (comparePair.value?.some(h => h.id === historyId)) comparePair.value = null
     if (selectedId.value === historyId) {
       selectedId.value = null
       selectedRecord.value = null
@@ -112,6 +123,8 @@ export const useHistoryStore = defineStore('history', () => {
       totalCount.value = 0
       selectedId.value = null
       selectedRecord.value = null
+      compareSelection.value = []
+      comparePair.value = null
     } catch (err) {
       console.error('Failed to clear history:', err)
     }
@@ -121,6 +134,8 @@ export const useHistoryStore = defineStore('history', () => {
     const ws = activeWorkspaceId()
     if (!ws) return
     selectedId.value = id
+    comparePair.value = null
+    compareSelection.value = []
     try {
       const service = await getHistoryService()
       const res = await service.getById(id, ws)
@@ -132,6 +147,27 @@ export const useHistoryStore = defineStore('history', () => {
     } catch (err) {
       console.error('Failed to load history record:', err)
     }
+  }
+
+  function toggleCompareSelection(record: HistoryRecord) {
+    const rest = compareSelection.value.filter(h => h.id !== record.id)
+    compareSelection.value = rest.length < compareSelection.value.length ? rest : [...rest, record].slice(-2)
+  }
+
+  function clearCompareSelection() {
+    compareSelection.value = []
+  }
+
+  function openComparePair() {
+    if (compareSelection.value.length !== 2) return
+    const position = (r: HistoryRecord) => items.value.findIndex(h => h.id === r.id)
+    const [x, y] = compareSelection.value.map(r => markRaw({ ...toRaw(r) }))
+    const xFirst = Date.parse(x.createdAt) - Date.parse(y.createdAt) || position(y) - position(x)
+    comparePair.value = xFirst <= 0 ? [x, y] : [y, x]
+  }
+
+  function closeComparePair() {
+    comparePair.value = null
   }
 
   async function replay(historyId: string): Promise<RequestEntity | null> {
@@ -167,5 +203,11 @@ export const useHistoryStore = defineStore('history', () => {
     clearAll,
     selectAndLoad,
     replay,
+    compareSelection,
+    comparePair,
+    toggleCompareSelection,
+    clearCompareSelection,
+    openComparePair,
+    closeComparePair,
   }
 })

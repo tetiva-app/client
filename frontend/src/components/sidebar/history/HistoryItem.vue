@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RotateCcw, Trash2, AlertCircle } from 'lucide-vue-next'
+import { RotateCcw, Trash2, AlertCircle, GitCompareArrows } from 'lucide-vue-next'
 import type { HistoryRecord } from '@/types/history'
 import MethodBadge from '@/components/ui/MethodBadge.vue'
 import { fill, formatRelative } from '@/lib/locale'
@@ -8,10 +8,16 @@ import { useCopy, useLocale } from '@/composables/useLocale'
 import { HISTORY_MAX_URL_DISPLAY_LENGTH } from '@/constants/history'
 import { HISTORY_COPY } from './copy'
 
-const props = defineProps<{ record: HistoryRecord; selected: boolean }>()
+const props = defineProps<{
+  record: HistoryRecord
+  selected: boolean
+  canCompare?: boolean
+}>()
 const emit = defineEmits<{
   (e: 'select'): void
+  (e: 'toggle'): void
   (e: 'replay'): void
+  (e: 'compare'): void
   (e: 'delete'): void
 }>()
 
@@ -32,6 +38,11 @@ const statusColor = computed(() => {
   return 'bg-gray-500/10 text-gray-400'
 })
 
+function onClick(event: MouseEvent) {
+  if (event.metaKey || event.ctrlKey) emit('toggle')
+  else emit('select')
+}
+
 const displayURL = computed(() => {
   const url = props.record.url.replace(/^https?:\/\//, '').split('?')[0]
   if (url.length <= HISTORY_MAX_URL_DISPLAY_LENGTH) return url
@@ -43,7 +54,8 @@ const displayURL = computed(() => {
   <div
     class="group flex flex-col gap-1 px-3 py-2 cursor-pointer"
     :class="selected ? 'bg-accent border-l-2 border-primary' : 'hover:bg-accent/50'"
-    @click="emit('select')"
+    data-history-item
+    @click="onClick"
   >
     <div class="flex items-center gap-2 min-w-0">
       <MethodBadge :method="record.method" :protocol="record.protocol" />
@@ -63,6 +75,15 @@ const displayURL = computed(() => {
           @click.stop="emit('replay')"
         >
           <RotateCcw class="size-3.5" />
+        </button>
+        <button
+          v-if="canCompare"
+          type="button"
+          class="p-0.5 hover:bg-accent rounded cursor-pointer"
+          :title="copy.compareWithCurrent"
+          @click.stop="emit('compare')"
+        >
+          <GitCompareArrows class="size-3.5" />
         </button>
         <button
           type="button"

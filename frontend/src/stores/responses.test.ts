@@ -79,4 +79,24 @@ describe('useResponseStore', () => {
       expect(result.error.title).toBe('Failed')
     }
   })
+
+  it('remembers the duration of the previous successful send', () => {
+    const store = useResponseStore()
+    const ok = (durationMs: number) => ({
+      status: 'success' as const,
+      data: { statusCode: 200, statusText: 'OK', url: 'u', headers: {}, body: '', size: 0, durationMs },
+    })
+
+    store.setResponse('req-1', ok(142))
+    expect(store.previousDurationMs('req-1')).toBeUndefined()
+
+    store.setResponse('req-1', { status: 'loading', startedAt: 1 })
+    store.setResponse('req-1', ok(318))
+    expect(store.previousDurationMs('req-1')).toBe(142)
+
+    store.setResponse('req-1', { status: 'error', error: { title: 't', detail: 'd', suggestions: [] } })
+    store.setResponse('req-1', ok(139))
+    expect(store.previousDurationMs('req-1')).toBe(318)
+    expect(store.previousDurationMs('req-2')).toBeUndefined()
+  })
 })

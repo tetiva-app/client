@@ -1,5 +1,6 @@
 import { setActivePinia, createPinia } from 'pinia'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { nextTick } from 'vue'
 import type { HistoryRecord, ListHistoryResponse } from '@/types/history'
 import type { Request as RequestEntity } from '@/types/request'
 
@@ -20,11 +21,11 @@ vi.mock('@/services', () => {
 })
 
 // Stable active workspace id without the real workspace dependency graph.
-vi.mock('@/stores/workspace', () => ({
-  useWorkspaceStore: () => ({
-    activeWorkspace: { id: 'ws-1' },
-  }),
-}))
+vi.mock('@/stores/workspace', async () => {
+  const { reactive } = await import('vue')
+  const workspace = reactive({ activeWorkspace: { id: 'ws-1' } })
+  return { useWorkspaceStore: () => workspace, __workspace: workspace }
+})
 
 const makeRecord = (id: string, overrides: Partial<HistoryRecord> = {}): HistoryRecord => ({
   id,
@@ -48,9 +49,11 @@ const okList = (items: HistoryRecord[], totalCount = items.length) => ({
 })
 
 describe('useHistoryStore', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    const workspace = await import('@/stores/workspace')
+    ;(workspace as any).__workspace.activeWorkspace = { id: 'ws-1' }
   })
 
   it('load() fetches first page and stores items', async () => {
@@ -264,5 +267,136 @@ describe('useHistoryStore', () => {
     const out = await store.replay('a')
     errSpy.mockRestore()
     expect(out).toBeNull()
+  })
+
+  describe('compare selection', () => {
+    async function storeWith(items: HistoryRecord[]) {
+      const services = await import('@/services')
+      const svc = (services as any).__service
+      svc.list.mockResolvedValueOnce(okList(items))
+      const { useHistoryStore } = await import('./history')
+      const store = useHistoryStore()
+      await store.load()
+      return { store, svc }
+    }
+
+    it('keeps two records at most and drops the earliest pick for a third', async () => {
+      const [a, b, c] = [makeRecord('a'), makeRecord('b'), makeRecord('c')]
+      const { store } = await storeWith([a, b, c])
+
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.toggleCompareSelection(c)
+      expect(store.compareSelection.map(r => r.id)).toEqual(['b', 'c'])
+
+      store.toggleCompareSelection(b)
+      expect(store.compareSelection.map(r => r.id)).toEqual(['c'])
+
+      store.clearCompareSelection()
+      expect(store.compareSelection).toEqual([])
+    })
+
+    it('opens the pair older first', async () => {
+      const newer = makeRecord('newer', { createdAt: '2026-10-10T14:09:47Z' })
+      const older = makeRecord('older', { createdAt: '2026-10-09T18:05:22Z' })
+      const { store } = await storeWith([newer, older])
+
+      store.toggleCompareSelection(newer)
+      store.toggleCompareSelection(older)
+      store.openComparePair()
+
+      expect(store.comparePair?.map(r => r.id)).toEqual(['older', 'newer'])
+    })
+
+    it('orders a same-second pair by list order', async () => {
+      const at = '2026-10-10T14:09:47Z'
+      const first = makeRecord('listed-first', { createdAt: at })
+      const second = makeRecord('listed-second', { createdAt: at })
+      const { store } = await storeWith([first, second])
+
+      store.toggleCompareSelection(first)
+      store.toggleCompareSelection(second)
+      store.openComparePair()
+
+      expect(store.comparePair?.map(r => r.id)).toEqual(['listed-second', 'listed-first'])
+    })
+
+    it('needs two records to open a pair', async () => {
+      const a = makeRecord('a')
+      const { store } = await storeWith([a])
+
+      store.toggleCompareSelection(a)
+      store.openComparePair()
+
+      expect(store.comparePair).toBeNull()
+    })
+
+    it('closes the pair and drops the picks on a normal record click, and closes on close', async () => {
+      const [a, b] = [makeRecord('a'), makeRecord('b', { createdAt: '2026-04-25T12:00:00Z' })]
+      const { store, svc } = await storeWith([a, b])
+      svc.getById.mockResolvedValue({ data: a })
+
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.openComparePair()
+      await store.selectAndLoad('a')
+      expect(store.comparePair).toBeNull()
+      expect(store.compareSelection).toEqual([])
+
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.openComparePair()
+      store.closeComparePair()
+      expect(store.comparePair).toBeNull()
+    })
+
+    it('drops deleted records from the selection and closes a pair that shows them', async () => {
+      const [a, b, c] = [makeRecord('a'), makeRecord('b', { createdAt: '2026-04-25T12:00:00Z' }), makeRecord('c')]
+      const { store, svc } = await storeWith([a, b, c])
+      svc.delete.mockResolvedValue({ data: {} })
+
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.openComparePair()
+      await store.deleteOne('c')
+      expect(store.comparePair?.map(r => r.id)).toEqual(['b', 'a'])
+
+      await store.deleteOne('a')
+      expect(store.compareSelection.map(r => r.id)).toEqual(['b'])
+      expect(store.comparePair).toBeNull()
+    })
+
+    it('closes the pair when History is cleared', async () => {
+      const [a, b] = [makeRecord('a'), makeRecord('b', { createdAt: '2026-04-25T12:00:00Z' })]
+      const { store, svc } = await storeWith([a, b])
+      svc.clear.mockResolvedValue({ data: {} })
+
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.openComparePair()
+      await store.clearAll()
+
+      expect(store.compareSelection).toEqual([])
+      expect(store.comparePair).toBeNull()
+    })
+
+    it('forgets the picks, the pair and the viewed record when the workspace changes', async () => {
+      const [a, b] = [makeRecord('a'), makeRecord('b', { createdAt: '2026-04-25T12:00:00Z' })]
+      const { store, svc } = await storeWith([a, b])
+      svc.getById.mockResolvedValue({ data: a })
+      await store.selectAndLoad('a')
+      store.toggleCompareSelection(a)
+      store.toggleCompareSelection(b)
+      store.openComparePair()
+
+      const workspace = await import('@/stores/workspace')
+      ;(workspace as any).__workspace.activeWorkspace = { id: 'ws-2' }
+      await nextTick()
+
+      expect(store.compareSelection).toEqual([])
+      expect(store.comparePair).toBeNull()
+      expect(store.selectedId).toBeNull()
+      expect(store.selectedRecord).toBeNull()
+    })
   })
 })

@@ -6,13 +6,15 @@ import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CookiesTab from './CookiesTab.vue'
 import SaveExampleInline from './examples/SaveExampleInline.vue'
+import CompareButton from '@/components/compare/CompareButton.vue'
+import LatencyDelta from '@/components/compare/LatencyDelta.vue'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
-import type { ResponseState } from '@/stores/responses'
+import { useResponseStore, type ResponseState } from '@/stores/responses'
 import { isMac } from '@/lib/platform'
 
 const CodeViewer = defineAsyncComponent(() => import('./CodeViewer.vue'))
@@ -30,6 +32,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
+
+const responses = useResponseStore()
 
 const elapsedMs = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -255,7 +259,7 @@ async function saveResponseToFile() {
     </div>
 
     <div v-else-if="state.status === 'success'" class="flex flex-col h-full">
-      <div class="flex items-center gap-3 h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs shrink-0">
+      <div class="flex items-center gap-3 h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs whitespace-nowrap shrink-0">
         <span
           class="font-bold tabular-nums px-2 py-0.5 rounded text-xs"
           :style="{ color: statusColor, backgroundColor: statusColor + '18' }"
@@ -263,9 +267,15 @@ async function saveResponseToFile() {
           {{ state.data.statusCode }} {{ state.data.statusText.replace(/^\d+\s*/, '') }}
         </span>
         <span class="text-muted-foreground tabular-nums">{{ state.data.durationMs }}ms</span>
+        <LatencyDelta :a="responses.previousDurationMs(requestId)" :b="state.data.durationMs" />
         <span class="text-muted-foreground tabular-nums">{{ formatSize(state.data.size || state.data.body?.length || 0) }}</span>
-        <SaveExampleInline
+        <CompareButton
           class="ml-auto"
+          :request-id="requestId"
+          protocol="http"
+          :response="state.data"
+        />
+        <SaveExampleInline
           :request-id="requestId"
           protocol="http"
           :response="state.data"

@@ -54,4 +54,9 @@ describe('SETTINGS_COPY', () => {
     expect(SETTINGS_COPY.en.interface.translated).toContain('import, environments, history')
     expect(SETTINGS_COPY.ru.interface.translated).toContain('импорт, окружения, история')
   })
+
+  it('names response compare as translated inside the request editor', () => {
+    expect(SETTINGS_COPY.en.interface.translated).toContain('history, response compare and saving a response as an example, sync')
+    expect(SETTINGS_COPY.ru.interface.translated).toContain('история, сравнение ответов и сохранение ответа в примеры, синхронизация')
+  })
 })

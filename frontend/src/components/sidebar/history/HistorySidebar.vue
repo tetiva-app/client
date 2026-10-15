@@ -9,8 +9,11 @@ import HistoryGroupedList from './HistoryGroupedList.vue'
 import HistoryEmptyState from './HistoryEmptyState.vue'
 import HistoryFooter from './HistoryFooter.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { Button } from '@/components/ui/button'
 import { useCopy, useLocale } from '@/composables/useLocale'
 import { fill, plural } from '@/lib/locale'
+import { isMac } from '@/lib/platform'
+import type { HistoryRecord } from '@/types/history'
 import { HISTORY_COPY } from './copy'
 
 const store = useHistoryStore()
@@ -21,7 +24,15 @@ const locale = useLocale()
 const confirmClear = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 
-defineEmits<{ (e: 'replay', id: string): void }>()
+defineEmits<{
+  (e: 'replay', id: string): void
+  (e: 'compare', record: HistoryRecord): void
+}>()
+
+const modClickHint = computed(() => fill(copy.value.modClickHint, { mod: isMac() ? '⌘' : 'Ctrl' }))
+const selectionText = computed(() => (store.compareSelection.length === 1
+  ? copy.value.pickOneMore
+  : fill(copy.value.selected, { n: store.compareSelection.length })))
 
 const filtersActive = computed(
   () =>
@@ -56,22 +67,25 @@ async function handleConfirmDelete() {
 
 <template>
   <div class="flex flex-col flex-1 min-h-0">
-    <HistoryHeader @clear-all="confirmClear = true" />
+    <HistoryHeader :hint="modClickHint" @clear-all="confirmClear = true" />
     <HistoryToolbar />
 
     <div
       v-if="store.filter.requestId"
-      class="px-3 py-1 flex items-center gap-2 text-xs bg-accent/30"
+      class="px-3 py-1 text-xs bg-accent/30"
     >
-      <span class="text-muted-foreground">{{ copy.filteredByRequest }}</span>
-      <button
-        type="button"
-        class="ml-auto p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        :title="copy.clearFilter"
-        @click="store.setRequestIdFilter(null)"
-      >
-        <X class="size-3" />
-      </button>
+      <div class="flex items-center gap-2">
+        <span class="min-w-0 truncate text-muted-foreground">{{ copy.filteredByRequest }}</span>
+        <button
+          type="button"
+          class="ml-auto shrink-0 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          :title="copy.clearFilter"
+          @click="store.setRequestIdFilter(null)"
+        >
+          <X class="size-3" />
+        </button>
+      </div>
+      <p class="truncate text-muted-foreground/70">{{ modClickHint }}</p>
     </div>
 
     <HistoryEmptyState
@@ -86,10 +100,36 @@ async function handleConfirmDelete() {
     <template v-else>
       <HistoryGroupedList
         @replay="(id) => $emit('replay', id)"
+        @compare="(record) => $emit('compare', record)"
         @delete="(id) => (confirmDeleteId = id)"
       />
       <HistoryFooter />
     </template>
+
+    <div
+      v-if="store.compareSelection.length > 0"
+      class="flex h-12 shrink-0 items-center gap-2 border-t border-border bg-[var(--gc-surface)] px-3 text-[12.5px]"
+    >
+      <span class="min-w-0 truncate" :title="store.compareSelection.length === 1 ? modClickHint : undefined">{{ selectionText }}</span>
+      <button
+        type="button"
+        class="ml-auto shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+        :title="copy.clearSelection"
+        :aria-label="copy.clearSelection"
+        @click="store.clearCompareSelection()"
+      >
+        <X class="size-[15px]" />
+      </button>
+      <Button
+        size="sm"
+        class="h-7 shrink-0"
+        :disabled="store.compareSelection.length !== 2"
+        data-testid="history-compare"
+        @click="store.openComparePair()"
+      >
+        {{ copy.compare }}
+      </Button>
+    </div>
 
     <ConfirmDialog
       :open="confirmClear"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, defineAsyncComponent, watch } from 'vue'
+import { ref, onMounted, onUnmounted, defineAsyncComponent, provide, watch } from 'vue'
 import type { Request } from '@/types/request'
 import { useRequestStore } from '@/stores/tabs'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -36,6 +36,7 @@ import HistoryViewer from '@/components/HistoryViewer.vue'
 import { useHistoryStore } from '@/stores/history'
 import { useToast } from '@/composables/useToast'
 import { useHistoryReplay } from '@/composables/useHistoryReplay'
+import { SHOW_REQUEST_HISTORY } from '@/components/compare/keys'
 import EnvironmentModal from '@/components/EnvironmentModal.vue'
 import CookieManagerModal from '@/components/CookieManagerModal.vue'
 import { useCookieModalUi } from '@/stores/cookieModalUi'
@@ -78,6 +79,9 @@ const ImportLinkDialog = defineAsyncComponent(
 const ImportConfirmDialog = defineAsyncComponent(
   () => import('@/components/import/ImportConfirmDialog.vue'),
 )
+const HistoryCompareView = defineAsyncComponent(
+  () => import('@/components/compare/HistoryCompareView.vue'),
+)
 
 const activeSection = ref('collections')
 const store = useRequestStore()
@@ -110,6 +114,13 @@ const startupReady = new Promise<void>(r => { resolveStartup = r })
 watch(() => settingsStore.publishingEnabled, enabled => {
   if (!enabled && activeSection.value === 'publications') activeSection.value = 'collections'
 })
+
+if (!windowMode) {
+  provide(SHOW_REQUEST_HISTORY, (requestId) => {
+    historyStore.setRequestIdFilter(requestId)
+    activeSection.value = 'history'
+  })
+}
 
 async function onHistoryReplay() {
   const id = historyStore.selectedId
@@ -414,8 +425,9 @@ onUnmounted(() => {
           <div class="flex flex-col h-full">
             <TabBar />
 
+            <HistoryCompareView v-if="activeSection === 'history' && historyStore.comparePair" />
             <HistoryViewer
-              v-if="activeSection === 'history' && historyStore.selectedId"
+              v-else-if="activeSection === 'history' && historyStore.selectedId"
               @replay="onHistoryReplay"
             />
             <KeepAlive v-else-if="store.activeTab">

@@ -200,11 +200,15 @@ function flattenHeaders(headers: Record<string, string[]>) {
   }))
 }
 
-export class MockHistoryService implements HistoryServiceAPI {
-  private items: HistoryRecord[] = [...seed]
+let records: HistoryRecord[] = [...seed]
 
+export function appendMockHistory(record: HistoryRecord): void {
+  records = [record, ...records]
+}
+
+export class MockHistoryService implements HistoryServiceAPI {
   async list(req: ListHistoryRequest): Promise<Result<ListHistoryResponse>> {
-    const filtered = this.items
+    const filtered = records
       .filter((r) => r.workspaceId === req.workspaceId)
       .filter((r) => (req.requestId ? r.requestId === req.requestId : true))
       .filter((r) => (req.protocols.length ? req.protocols.includes(r.protocol) : true))
@@ -212,7 +216,7 @@ export class MockHistoryService implements HistoryServiceAPI {
       .filter((r) => (req.urlContains
         ? r.url.toLowerCase().includes(req.urlContains.toLowerCase())
         : true))
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
 
     const totalCount = filtered.length
     const offset = Math.max(0, req.offset || 0)
@@ -223,7 +227,7 @@ export class MockHistoryService implements HistoryServiceAPI {
   }
 
   async getById(historyId: string, workspaceId: string): Promise<Result<HistoryRecord>> {
-    const rec = this.items.find((r) => r.id === historyId && r.workspaceId === workspaceId)
+    const rec = records.find((r) => r.id === historyId && r.workspaceId === workspaceId)
     if (!rec) {
       return makeError<HistoryRecord>('not_found', `history record not found: ${historyId}`)
     }
@@ -231,19 +235,19 @@ export class MockHistoryService implements HistoryServiceAPI {
   }
 
   async delete(req: DeleteHistoryRequest): Promise<Result<Record<string, never>>> {
-    this.items = this.items.filter(
+    records = records.filter(
       (r) => !(r.id === req.historyId && r.workspaceId === req.workspaceId),
     )
     return { data: {} as Record<string, never> }
   }
 
   async clear(req: ClearHistoryRequest): Promise<Result<Record<string, never>>> {
-    this.items = this.items.filter((r) => r.workspaceId !== req.workspaceId)
+    records = records.filter((r) => r.workspaceId !== req.workspaceId)
     return { data: {} as Record<string, never> }
   }
 
   async replay(req: ReplayHistoryRequest): Promise<Result<RequestEntity>> {
-    const rec = this.items.find((r) => r.id === req.historyId && r.workspaceId === req.workspaceId)
+    const rec = records.find((r) => r.id === req.historyId && r.workspaceId === req.workspaceId)
     if (!rec) {
       return makeError<RequestEntity>('not_found', `history record not found: ${req.historyId}`)
     }

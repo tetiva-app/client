@@ -28,6 +28,7 @@ import {
 import type { SaveExampleSource } from './useSaveExample'
 import { useToast } from './useToast'
 import { MAX_EXAMPLE_BODY_BYTES } from '@/lib/example-limits'
+import { setCurrentLocale } from '@/lib/locale'
 
 async function service(): Promise<MockExampleService> {
   const mod = (await import('@/services')) as unknown as { __service: () => MockExampleService }
@@ -76,7 +77,7 @@ describe('saveExampleBlocker', () => {
 
   it('blocks binary responses', () => {
     const src = source({ response: response({ isBinary: true, body: '' }) })
-    expect(saveExampleBlocker(src)).toBe("Binary responses can't be saved as examples")
+    expect(saveExampleBlocker(src)).toBe('binary')
   })
 
   it('measures the body limit in UTF-8 bytes, not characters', () => {
@@ -86,13 +87,13 @@ describe('saveExampleBlocker', () => {
 
     expect(saveExampleBlocker(source({ response: response({ body: atLimit }) }))).toBeNull()
     expect(saveExampleBlocker(source({ response: response({ body: overLimit }) })))
-      .toBe('Response is too large for an example (max 256 KB)')
+      .toBe('tooLarge')
     expect(saveExampleBlocker(source({ response: response({ body: 'a'.repeat(MAX_EXAMPLE_BODY_BYTES + 1) }) })))
-      .toBe('Response is too large for an example (max 256 KB)')
+      .toBe('tooLarge')
   })
 
   it('blocks draft requests', () => {
-    expect(saveExampleBlocker(source({ isDraft: true }))).toBe('Save the request first to keep examples')
+    expect(saveExampleBlocker(source({ isDraft: true }))).toBe('draft')
   })
 })
 
@@ -154,6 +155,7 @@ describe('useSaveExample', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    setCurrentLocale('en')
   })
 
   it('creates the example and confirms with a toast', async () => {
@@ -186,6 +188,15 @@ describe('useSaveExample', () => {
 
     const listed = await (await service()).list('r1')
     expect(listed.data).toEqual([])
+  })
+
+  it('words the blocker and the toast in Russian', async () => {
+    setCurrentLocale('ru')
+    expect(useSaveExample(() => source({ isDraft: true })).blocker.value)
+      .toBe('Сначала сохраните запрос, чтобы хранить к нему примеры')
+
+    expect(await useSaveExample(() => source()).save('x')).toBe(true)
+    expect(useToast().toasts.value.some(t => t.message === 'Ответ сохранён в примеры')).toBe(true)
   })
 
   it('asks before saving a response that looks like it holds a credential', async () => {

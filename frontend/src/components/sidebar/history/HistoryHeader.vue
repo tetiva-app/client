@@ -7,12 +7,13 @@ import { HISTORY_COPY } from './copy'
 const store = useHistoryStore()
 const copy = useCopy(HISTORY_COPY)
 
+defineProps<{ hint?: string }>()
 defineEmits<{ (e: 'clear-all'): void }>()
 </script>
 
 <template>
   <div class="flex items-center justify-between px-3 py-2 border-b border-border">
-    <div class="text-sm font-medium">{{ copy.title }}</div>
+    <div class="text-sm font-medium" :title="hint">{{ copy.title }}</div>
     <button
       v-if="store.totalCount > 0"
       type="button"

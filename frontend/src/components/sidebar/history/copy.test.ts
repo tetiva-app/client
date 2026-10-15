@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { plural } from '@/lib/locale'
+import { fill, plural } from '@/lib/locale'
 import { HISTORY_GROUP_BUCKETS } from '@/constants/history'
 import { HISTORY_COPY } from './copy'
 
@@ -84,5 +84,10 @@ describe('HISTORY_COPY', () => {
       .toBe('This deletes 1 record in workspace {workspace}. This cannot be undone.')
     expect(plural('en', 3, HISTORY_COPY.en.clearAll.text))
       .toBe('This deletes 3 records in workspace {workspace}. This cannot be undone.')
+  })
+
+  it('names the selection without plural forms', () => {
+    expect(fill(HISTORY_COPY.ru.selected, { n: 2 })).toBe('Выбрано: 2')
+    expect(fill(HISTORY_COPY.en.selected, { n: 2 })).toBe('2 selected')
   })
 })

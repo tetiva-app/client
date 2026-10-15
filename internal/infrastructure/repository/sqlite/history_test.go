@@ -510,3 +510,35 @@ func TestHistoryRepo_AuthKeysRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryRepo_List_SameSecondNewestInsertedFirst(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { _ = db.Close() }()
+	repo := NewHistoryRepo(db)
+	ctx := context.Background()
+	ws := uuid.New()
+	insertWorkspace(t, db, ws)
+
+	ts := time.Now().Truncate(time.Second)
+	var ids []uuid.UUID
+	for range 5 {
+		h := newHistoryRow(ws, "GET", "https://api.example.com/x", 200, "", entities.ProtocolHTTP, ts)
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, h.ID)
+	}
+
+	items, err := repo.List(ctx, history.Filter{WorkspaceID: ws, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != len(ids) {
+		t.Fatalf("got %d, want %d", len(items), len(ids))
+	}
+	for i, item := range items {
+		if want := ids[len(ids)-1-i]; item.ID != want {
+			t.Errorf("items[%d] = %v, want %v", i, item.ID, want)
+		}
+	}
+}

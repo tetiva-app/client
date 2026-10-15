@@ -424,6 +424,9 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		}
 		return nil, fmt.Errorf("%s: failed to save history: %w", funcName, saveErr)
 	}
+	if resp != nil {
+		resp.HistoryID = history.ID
+	}
 
 	if execErr != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, execErr)

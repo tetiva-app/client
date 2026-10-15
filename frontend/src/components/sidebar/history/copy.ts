@@ -17,8 +17,14 @@ export interface HistoryCopy {
   clearFilter: string
   buckets: Record<HistoryGroupBucket, string>
   replayAsDraft: string
+  compareWithCurrent: string
   delete: string
   duration: string
+  modClickHint: string
+  selected: string
+  pickOneMore: string
+  clearSelection: string
+  compare: string
   empty: {
     title: string
     text: string
@@ -53,6 +59,7 @@ export interface HistoryCopy {
   toasts: {
     replayed: string
     replayFailed: string
+    compareFailed: string
   }
 }
 
@@ -78,8 +85,14 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
       Earlier: 'Earlier',
     },
     replayAsDraft: 'Replay (open as draft)',
+    compareWithCurrent: 'Compare with current response',
     delete: 'Delete',
     duration: '{n}ms',
+    modClickHint: '{mod}-click: pick two',
+    selected: '{n} selected',
+    pickOneMore: 'Pick one more',
+    clearSelection: 'Clear selection',
+    compare: 'Compare',
     empty: {
       title: 'No request history yet',
       text: 'Execute a request to see it here.',
@@ -117,6 +130,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     toasts: {
       replayed: 'Opened as draft — edit and Send, or save to a collection.',
       replayFailed: 'Replay failed',
+      compareFailed: "Couldn't open the comparison",
     },
   },
   ru: {
@@ -140,8 +154,14 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
       Earlier: 'Раньше',
     },
     replayAsDraft: 'Повторить (открыть как черновик)',
+    compareWithCurrent: 'Сравнить с текущим ответом',
     delete: 'Удалить',
     duration: '{n}\u00a0мс',
+    modClickHint: '{mod}-клик: две записи',
+    selected: 'Выбрано: {n}',
+    pickOneMore: 'Нужна вторая',
+    clearSelection: 'Снять выделение',
+    compare: 'Сравнить',
     empty: {
       title: 'Истории пока нет',
       text: 'Отправленные запросы появятся здесь.',
@@ -181,6 +201,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     toasts: {
       replayed: 'Открыт черновик\u00a0— отправьте его или сохраните в коллекцию.',
       replayFailed: 'Не удалось повторить запрос',
+      compareFailed: 'Не удалось открыть сравнение',
     },
   },
 }

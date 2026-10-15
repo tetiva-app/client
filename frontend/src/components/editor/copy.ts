@@ -38,6 +38,25 @@ export interface EditorCopy {
   tabs: {
     collection: string
   }
+  saveExample: {
+    button: string
+    buttonHint: string
+    namePlaceholder: string
+    nameHint: string
+    save: string
+    saveHint: string
+    cancel: string
+    cancelHint: string
+    saved: string
+    secretsTitle: string
+    secretsText: string
+    saveAnyway: string
+    blocked: {
+      binary: string
+      tooLarge: string
+      draft: string
+    }
+  }
 }
 
 export const EDITOR_COPY: Record<Locale, EditorCopy> = {
@@ -79,6 +98,25 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     tabs: {
       collection: 'Collection',
     },
+    saveExample: {
+      button: 'Save as example',
+      buttonHint: 'Save this response as an example',
+      namePlaceholder: 'Example name',
+      nameHint: 'Press Enter to save or Escape to cancel',
+      save: 'Save',
+      saveHint: 'Save (Enter)',
+      cancel: 'Cancel',
+      cancelHint: 'Cancel (Esc)',
+      saved: 'Saved as example',
+      secretsTitle: 'This example may contain secrets',
+      secretsText: 'Found: {labels}. Credential headers are masked; the body and other headers are saved as they are.',
+      saveAnyway: 'Save anyway',
+      blocked: {
+        binary: "Binary responses can't be saved as examples",
+        tooLarge: 'Response is too large for an example (max 256 KB)',
+        draft: 'Save the request first to keep examples',
+      },
+    },
   },
   ru: {
     overview: {
@@ -117,6 +155,25 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     },
     tabs: {
       collection: 'Коллекция',
+    },
+    saveExample: {
+      button: 'В примеры',
+      buttonHint: 'Сохранить ответ как пример',
+      namePlaceholder: 'Название примера',
+      nameHint: 'Enter\u00a0— сохранить, Esc\u00a0— отменить',
+      save: 'Сохранить',
+      saveHint: 'Сохранить (Enter)',
+      cancel: 'Отмена',
+      cancelHint: 'Отмена (Esc)',
+      saved: 'Ответ сохранён в примеры',
+      secretsTitle: 'В примере могут быть секреты',
+      secretsText: 'Найдено: {labels}. Заголовки с учётными данными скрыты, тело и остальные заголовки сохранятся как есть.',
+      saveAnyway: 'Всё равно сохранить',
+      blocked: {
+        binary: 'Двоичный ответ нельзя сохранить как пример',
+        tooLarge: 'Ответ слишком большой для примера (не больше 256\u00a0КБ)',
+        draft: 'Сначала сохраните запрос, чтобы хранить к нему примеры',
+      },
     },
   },
 }

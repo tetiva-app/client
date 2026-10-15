@@ -762,6 +762,9 @@ func TestExecute_Success(t *testing.T) {
 	if h.URL != "https://api.example.com/users" {
 		t.Errorf("expected URL %q, got %q", "https://api.example.com/users", h.URL)
 	}
+	if resp.HistoryID != h.ID {
+		t.Errorf("expected HistoryID %s, got %s", h.ID, resp.HistoryID)
+	}
 }
 
 func TestExecute_NetworkError(t *testing.T) {

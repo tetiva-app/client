@@ -7,6 +7,8 @@ import { useToast } from '@/composables/useToast'
 import { getExampleService } from '@/services'
 import { grpcStatusName } from '@/constants/grpc-status'
 import { exampleBodyTooLarge } from '@/lib/example-limits'
+import { useCopy } from '@/composables/useLocale'
+import { EDITOR_COPY } from '@/components/editor/copy'
 
 export interface SaveExampleSource {
   requestId: string
@@ -20,10 +22,12 @@ function reasonPhrase(statusText: string): string {
   return statusText.replace(/^\d+\s*/, '')
 }
 
-export function saveExampleBlocker(src: SaveExampleSource): string | null {
-  if (src.response.isBinary) return "Binary responses can't be saved as examples"
-  if (exampleBodyTooLarge(src.response.body ?? '')) return 'Response is too large for an example (max 256 KB)'
-  if (src.isDraft) return 'Save the request first to keep examples'
+export type SaveExampleBlocker = 'binary' | 'tooLarge' | 'draft'
+
+export function saveExampleBlocker(src: SaveExampleSource): SaveExampleBlocker | null {
+  if (src.response.isBinary) return 'binary'
+  if (exampleBodyTooLarge(src.response.body ?? '')) return 'tooLarge'
+  if (src.isDraft) return 'draft'
   return null
 }
 
@@ -67,6 +71,7 @@ async function suspectedSecrets(input: CreateExampleInput): Promise<string[]> {
 export function useSaveExample(source: () => SaveExampleSource | null) {
   const store = useExamplesStore()
   const toast = useToast()
+  const copy = useCopy(EDITOR_COPY)
   const saving = ref(false)
   const secretsOpen = ref(false)
   const secretLabels = ref<string[]>([])
@@ -74,7 +79,8 @@ export function useSaveExample(source: () => SaveExampleSource | null) {
 
   const blocker = computed(() => {
     const src = source()
-    return src ? saveExampleBlocker(src) : null
+    const code = src ? saveExampleBlocker(src) : null
+    return code ? copy.value.saveExample.blocked[code] : null
   })
 
   const defaultName = computed(() => {
@@ -85,7 +91,7 @@ export function useSaveExample(source: () => SaveExampleSource | null) {
   async function create(input: CreateExampleInput): Promise<boolean> {
     try {
       await store.create(input)
-      toast.success('Saved as example')
+      toast.success(copy.value.saveExample.saved)
       return true
     } catch {
       return false

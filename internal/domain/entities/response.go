@@ -1,6 +1,10 @@
 package entities
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type Response struct {
 	StatusCode        int
@@ -16,6 +20,7 @@ type Response struct {
 	BinaryPath        string
 	SuggestedFilename string
 	Sent              *SentRequest
+	HistoryID         uuid.UUID
 }
 
 type SentRequest struct {

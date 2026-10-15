@@ -92,6 +92,8 @@ func TestHistoryService_List_Happy(t *testing.T) {
 	assert.Equal(t, 1, res.Data.TotalCount)
 	require.Len(t, res.Data.Items, 1)
 	assert.Equal(t, "GET", res.Data.Items[0].Method)
+	assert.Equal(t, []string{}, res.Data.Items[0].AuthQueryKeys)
+	assert.Equal(t, []string{}, res.Data.Items[0].AuthHeaderKeys)
 }
 
 func TestHistoryService_List_Error_BadWorkspaceUUID(t *testing.T) {
@@ -109,6 +111,8 @@ func TestHistoryService_GetByID_Happy(t *testing.T) {
 	id := uuid.New()
 	h := fixtureHistory(ws)
 	h.ID = id
+	h.AuthQueryKeys = []string{"sig"}
+	h.AuthHeaderKeys = []string{"X-Api-Key"}
 	uc := &stubHistoryUsecase{
 		getByIDFn: func(_ context.Context, gotID, gotWS uuid.UUID) (*entities.History, error) {
 			assert.Equal(t, id, gotID)
@@ -123,6 +127,8 @@ func TestHistoryService_GetByID_Happy(t *testing.T) {
 	require.Nil(t, res.Error)
 	assert.Equal(t, id.String(), res.Data.ID)
 	assert.Equal(t, ws.String(), res.Data.WorkspaceID)
+	assert.Equal(t, []string{"sig"}, res.Data.AuthQueryKeys)
+	assert.Equal(t, []string{"X-Api-Key"}, res.Data.AuthHeaderKeys)
 }
 
 func TestHistoryService_GetByID_Error_BadHistoryUUID(t *testing.T) {

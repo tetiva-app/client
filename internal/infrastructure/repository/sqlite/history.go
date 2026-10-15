@@ -124,7 +124,7 @@ func (r *HistoryRepo) List(ctx context.Context, f history.Filter) ([]*entities.H
 		limit = history.DefaultPageSize
 	}
 
-	query := `SELECT ` + historyColumns + ` FROM history ` + where + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	query := `SELECT ` + historyColumns + ` FROM history ` + where + ` ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, f.Offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)

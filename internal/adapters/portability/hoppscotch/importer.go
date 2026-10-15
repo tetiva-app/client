@@ -73,7 +73,7 @@ func (i *Importer) Preview(data []byte, fileName string) (*portability.ImportPre
 		return nil, fmt.Errorf("hoppscotch.Importer.Preview: %w", err)
 	}
 	p := b.tree.Preview(portability.FormatHoppscotch)
-	if len(p.Scripts) > 0 {
+	if slices.ContainsFunc(p.Scripts, func(s portability.ScriptPreview) bool { return usesHoppscotchAPI(s.Text) }) {
 		p.Warnings = append(p.Warnings, scriptsWarning())
 	}
 	return p, nil
@@ -178,7 +178,7 @@ func (b *builder) collection(c hoppCollection, inherited []entities.HeaderItem, 
 	if parentAuth && c.Auth != nil && (c.Auth.AuthType == "none" || c.Auth.AuthActive != nil && !*c.Auth.AuthActive) {
 		b.authOff = append(b.authOff, `"`+name+`"`)
 	}
-	b.scripts = b.scripts || hasScript(c.PreRequestScript, c.TestScript)
+	b.scripts = b.scripts || usesHoppscotchAPI(c.PreRequestScript) || usesHoppscotchAPI(c.TestScript)
 	f := portability.Folder{In: collection.Create{
 		Name: name, Description: description, AuthType: authType, AuthData: authData,
 		PreScript: c.PreRequestScript, PostScript: c.TestScript,
@@ -226,7 +226,7 @@ func (b *builder) request(r hoppRequest, inherited []entities.HeaderItem) portab
 	description, ws := portability.ClampDescription(subject, deref(r.Description))
 	b.tree.Warnings = append(b.tree.Warnings, ws...)
 	authType, authData := b.auth(r.Auth, subject, true)
-	b.scripts = b.scripts || hasScript(r.PreRequestScript, r.TestScript)
+	b.scripts = b.scripts || usesHoppscotchAPI(r.PreRequestScript) || usesHoppscotchAPI(r.TestScript)
 	in := request.Create{
 		Name: name, Description: description, AuthType: authType, AuthData: authData,
 		Headers: mergeHeaders(inherited, headerItems(r.Headers)), PreScript: r.PreRequestScript, PostScript: r.TestScript,
@@ -389,8 +389,11 @@ func vars(s string) string {
 	return variableRef.ReplaceAllString(s, "{{$1}}")
 }
 
-func hasScript(pre, post string) bool {
-	return strings.TrimSpace(pre) != "" || strings.TrimSpace(post) != ""
+// Hoppscotch also runs pm.* scripts since 2025.10, and those need no rewrite.
+var hoppscotchAPI = regexp.MustCompile(`\b(pw|hopp)\.`)
+
+func usesHoppscotchAPI(script string) bool {
+	return hoppscotchAPI.MatchString(script)
 }
 
 func nameOr(name string) string {

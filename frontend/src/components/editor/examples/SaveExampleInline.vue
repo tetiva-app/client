@@ -3,6 +3,9 @@ import { nextTick, ref, useId, watch } from 'vue'
 import { BookmarkPlus } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useSaveExample } from '@/composables/useSaveExample'
+import { useCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { EDITOR_COPY } from '../copy'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { ExecuteResponse } from '@/types/execute'
 import type { ExampleProtocol } from '@/types/example'
@@ -14,6 +17,7 @@ const props = defineProps<{
 }>()
 
 const requestStore = useRequestStore()
+const copy = useCopy(EDITOR_COPY)
 
 const { blocker, defaultName, saving, save, secretsOpen, secretLabels, saveAnyway } = useSaveExample(() => ({
   requestId: props.requestId,
@@ -52,40 +56,40 @@ watch(() => props.response, cancelNaming)
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1">
+  <span class="inline-flex min-w-0 items-center gap-1">
     <template v-if="naming">
       <input
         ref="nameInput"
         v-model="draftName"
-        class="h-6 w-48 rounded border border-input bg-transparent px-2 text-xs"
-        placeholder="Example name"
-        aria-label="Example name"
+        class="h-6 w-48 min-w-0 rounded border border-input bg-transparent px-2 text-xs"
+        :placeholder="copy.saveExample.namePlaceholder"
+        :aria-label="copy.saveExample.namePlaceholder"
         :aria-describedby="hintId"
         maxlength="200"
         :disabled="saving"
         @keydown.enter.prevent="confirmName"
         @keydown.esc.prevent="cancelNaming"
       />
-      <span :id="hintId" class="sr-only">Press Enter to save or Escape to cancel</span>
+      <span :id="hintId" class="sr-only">{{ copy.saveExample.nameHint }}</span>
       <button
         type="button"
         class="h-6 rounded bg-primary px-2 text-xs font-medium text-primary-foreground transition-colors cursor-pointer enabled:hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-        title="Save (Enter)"
+        :title="copy.saveExample.saveHint"
         :disabled="saving"
         @click="confirmName"
       >
-        Save
+        {{ copy.saveExample.save }}
       </button>
       <button
         type="button"
         class="h-6 rounded px-2 text-xs text-muted-foreground transition-colors cursor-pointer hover:bg-accent hover:text-foreground"
-        title="Cancel (Esc)"
+        :title="copy.saveExample.cancelHint"
         @click="cancelNaming"
       >
-        Cancel
+        {{ copy.saveExample.cancel }}
       </button>
     </template>
-    <span v-else :title="blocker ?? 'Save this response as an example'" :class="{ 'cursor-not-allowed': blocker }">
+    <span v-else :title="blocker ?? copy.saveExample.buttonHint" :class="{ 'cursor-not-allowed': blocker }">
       <button
         type="button"
         class="flex h-6 items-center gap-1 rounded px-2 text-xs text-muted-foreground transition-colors cursor-pointer hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -95,15 +99,15 @@ watch(() => props.response, cancelNaming)
         @click="startNaming"
       >
         <BookmarkPlus class="size-3.5" />
-        Save as example
+        {{ copy.saveExample.button }}
       </button>
       <span v-if="blocker" :id="reasonId" class="sr-only">{{ blocker }}</span>
     </span>
     <ConfirmDialog
       v-model:open="secretsOpen"
-      title="This example may contain secrets"
-      :description="`Found: ${secretLabels.join(', ')}. Credential headers are masked; the body and other headers are saved as they are.`"
-      confirm-label="Save anyway"
+      :title="copy.saveExample.secretsTitle"
+      :description="fill(copy.saveExample.secretsText, { labels: secretLabels.join(', ') })"
+      :confirm-label="copy.saveExample.saveAnyway"
       @confirm="confirmSecrets"
     />
   </span>

@@ -185,10 +185,12 @@ const URL_HEADERS: Record<string, (v: string) => string> = {
   refresh: redactRefresh,
 }
 
+export function redactHeaderValue(key: string, value: string): string {
+  if (isSensitiveHeader(key)) return redactValue(value)
+  const redact = URL_HEADERS[key.trim().toLowerCase()]
+  return redact ? redact(value) : value
+}
+
 export function redactHeaders(headers: HeaderItem[]): HeaderItem[] {
-  return headers.map((h) => {
-    if (isSensitiveHeader(h.key)) return { ...h, value: redactValue(h.value) }
-    const redact = URL_HEADERS[h.key.trim().toLowerCase()]
-    return redact ? { ...h, value: redact(h.value) } : { ...h }
-  })
+  return headers.map((h) => ({ ...h, value: redactHeaderValue(h.key, h.value) }))
 }

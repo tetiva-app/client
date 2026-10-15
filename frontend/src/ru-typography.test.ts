@@ -7,6 +7,7 @@ import { RESTART_COPY } from '@/components/restart/copy'
 import { IMPORT_COPY } from '@/components/import/copy'
 import { ENVIRONMENT_COPY } from '@/components/environments/copy'
 import { HISTORY_COPY } from '@/components/sidebar/history/copy'
+import { COMPARE_COPY } from '@/components/compare/copy'
 import { PUBLICATION_ERROR_COPY } from '@/lib/publication-errors'
 import { PARKED_COPY } from '@/lib/sync-notices'
 import { ONBOARDING_COPY } from '@/onboarding/copy'
@@ -30,6 +31,7 @@ const RU: [string, unknown][] = [
   ['import', IMPORT_COPY.ru],
   ['environments', ENVIRONMENT_COPY.ru],
   ['history', HISTORY_COPY.ru],
+  ['compare', COMPARE_COPY.ru],
   ['publicationErrors', PUBLICATION_ERROR_COPY.ru],
   ['parked', PARKED_COPY.ru],
   ['onboarding', ONBOARDING_COPY.ru],

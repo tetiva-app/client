@@ -16,6 +16,7 @@ import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 import GraphQLResponseViewer from './GraphQLResponseViewer.vue'
 import RequestDocs from '../RequestDocs.vue'
 import UnsavedExamplesDot from '../examples/UnsavedExamplesDot.vue'
+import CompareHost from '@/components/compare/CompareHost.vue'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { authBadgeLabel } from '@/constants/auth'
 import { introspectRequest } from '@/lib/graphql-introspect'
@@ -326,118 +327,124 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <ResizablePanelGroup
-      direction="vertical"
-      auto-save-id="graphql-request-response-split"
+    <CompareHost
+      :request-id="request.id"
+      protocol="graphql"
       class="flex-1 mt-3"
     >
-      <ResizablePanel :default-size="45" :min-size="25">
-        <div class="flex flex-col h-full">
-          <div class="flex border-b border-border px-3">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-              :class="activeTab === tab.id
-                ? 'border-b-[3px] border-primary text-foreground'
-                : 'text-muted-foreground hover:text-foreground'"
-              @click="activeTab = tab.id"
-            >
-              {{ tab.label }}
-              <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
-                ({{ tab.badge }})
-              </span>
-              <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(request.id)" />
-            </button>
+      <ResizablePanelGroup
+        direction="vertical"
+        auto-save-id="graphql-request-response-split"
+        class="flex-1"
+      >
+        <ResizablePanel :default-size="45" :min-size="25">
+          <div class="flex flex-col h-full">
+            <div class="flex border-b border-border px-3">
+              <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                :class="activeTab === tab.id
+                  ? 'border-b-[3px] border-primary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'"
+                @click="activeTab = tab.id"
+              >
+                {{ tab.label }}
+                <span v-if="tab.badge" class="ml-1 text-[var(--gc-success)]">
+                  ({{ tab.badge }})
+                </span>
+                <UnsavedExamplesDot v-if="tab.id === 'examples' && examplesStore.hasUnsaved(request.id)" />
+              </button>
 
-            <div v-if="dirty" class="ml-auto flex items-center pr-3">
-              <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+              <div v-if="dirty" class="ml-auto flex items-center pr-3">
+                <span class="size-2 rounded-full bg-primary" title="Unsaved changes" />
+              </div>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-auto">
+              <div v-if="activeTab === 'query'" class="h-full">
+                <GraphQLQueryEditor
+                  :request="request"
+                  :schema="schema"
+                  @update:query="(v) => updateField('graphqlQuery', v)"
+                  @update:variables="(v) => updateField('graphqlVariables', v)"
+                  @show-in-docs="handleShowInDocs"
+                />
+              </div>
+
+              <div v-else-if="activeTab === 'headers'" class="h-full">
+                <KeyValueEditor
+                  :rows="headerRows"
+                  key-placeholder="Header name"
+                  value-placeholder="Value"
+                  @add="(p) => updateHeaders('add', p)"
+                  @remove="(i) => updateHeaders('remove', i)"
+                  @update="(p) => updateHeaders('update', p)"
+                  @toggle="(i) => updateHeaders('toggle', i)"
+                />
+              </div>
+
+              <AuthEditor
+                v-else-if="activeTab === 'auth'"
+                :auth-type="request.authType"
+                :auth-data="request.authData"
+                owner-kind="request"
+                :owner-id="request.id"
+                :owner-version="request.version"
+                :protocol="request.protocol"
+                @update:auth-type="(v) => updateField('authType', v)"
+                @update:auth-data="(v) => updateField('authData', v)"
+              />
+
+              <div v-else-if="activeTab === 'schema'" class="h-full">
+                <GraphQLSchemaViewer
+                  :schema="schema"
+                  :selected-operation="request.graphqlOperation"
+                  :navigate-to-type="navigateToType"
+                />
+              </div>
+
+              <ScriptEditor
+                v-else-if="activeTab === 'scripts'"
+                :entity-id="request.id"
+                :pre-script="request.preScript"
+                :post-script="request.postScript"
+                :resolved-variables="envStore.resolvedVariables"
+                :secret-keys="secretKeys"
+                @update:pre-script="(v) => updateField('preScript', v)"
+                @update:post-script="(v) => updateField('postScript', v)"
+              />
+
+              <RequestDocs
+                v-if="docsMounted"
+                v-show="activeTab === 'docs'"
+                :description="request.description"
+                @update:description="(v) => updateField('description', v)"
+              />
+
+              <ExamplesPanel
+                v-if="examplesMounted"
+                v-show="activeTab === 'examples'"
+                ref="examplesPanel"
+                :request-id="request.id"
+                protocol="graphql"
+                :is-draft="request.isDraft === true"
+              />
             </div>
           </div>
+        </ResizablePanel>
 
-          <div class="flex-1 min-h-0 overflow-auto">
-            <div v-if="activeTab === 'query'" class="h-full">
-              <GraphQLQueryEditor
-                :request="request"
-                :schema="schema"
-                @update:query="(v) => updateField('graphqlQuery', v)"
-                @update:variables="(v) => updateField('graphqlVariables', v)"
-                @show-in-docs="handleShowInDocs"
-              />
-            </div>
+        <ResizableHandle with-handle />
 
-            <div v-else-if="activeTab === 'headers'" class="h-full">
-              <KeyValueEditor
-                :rows="headerRows"
-                key-placeholder="Header name"
-                value-placeholder="Value"
-                @add="(p) => updateHeaders('add', p)"
-                @remove="(i) => updateHeaders('remove', i)"
-                @update="(p) => updateHeaders('update', p)"
-                @toggle="(i) => updateHeaders('toggle', i)"
-              />
-            </div>
-
-            <AuthEditor
-              v-else-if="activeTab === 'auth'"
-              :auth-type="request.authType"
-              :auth-data="request.authData"
-              owner-kind="request"
-              :owner-id="request.id"
-              :owner-version="request.version"
-              :protocol="request.protocol"
-              @update:auth-type="(v) => updateField('authType', v)"
-              @update:auth-data="(v) => updateField('authData', v)"
-            />
-
-            <div v-else-if="activeTab === 'schema'" class="h-full">
-              <GraphQLSchemaViewer
-                :schema="schema"
-                :selected-operation="request.graphqlOperation"
-                :navigate-to-type="navigateToType"
-              />
-            </div>
-
-            <ScriptEditor
-              v-else-if="activeTab === 'scripts'"
-              :entity-id="request.id"
-              :pre-script="request.preScript"
-              :post-script="request.postScript"
-              :resolved-variables="envStore.resolvedVariables"
-              :secret-keys="secretKeys"
-              @update:pre-script="(v) => updateField('preScript', v)"
-              @update:post-script="(v) => updateField('postScript', v)"
-            />
-
-            <RequestDocs
-              v-if="docsMounted"
-              v-show="activeTab === 'docs'"
-              :description="request.description"
-              @update:description="(v) => updateField('description', v)"
-            />
-
-            <ExamplesPanel
-              v-if="examplesMounted"
-              v-show="activeTab === 'examples'"
-              ref="examplesPanel"
-              :request-id="request.id"
-              protocol="graphql"
-              :is-draft="request.isDraft === true"
-            />
-          </div>
-        </div>
-      </ResizablePanel>
-
-      <ResizableHandle with-handle />
-
-      <ResizablePanel :default-size="55" :min-size="20">
-        <GraphQLResponseViewer
-          :state="responseState"
-          :request-id="request.id"
-          :loading="responseState.status === 'loading'"
-          @cancel="store.cancelRequest(request.id)"
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        <ResizablePanel :default-size="55" :min-size="20">
+          <GraphQLResponseViewer
+            :state="responseState"
+            :request-id="request.id"
+            :loading="responseState.status === 'loading'"
+            @cancel="store.cancelRequest(request.id)"
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </CompareHost>
   </div>
 </template>

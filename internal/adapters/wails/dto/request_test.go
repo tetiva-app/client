@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
@@ -81,5 +83,23 @@ func TestResponseToExecuteDTO_NilHeaders(t *testing.T) {
 
 	if dto.Headers == nil {
 		t.Error("expected non-nil headers map")
+	}
+}
+
+func TestResponseToExecuteDTO_HistoryID(t *testing.T) {
+	id := uuid.New()
+
+	dto := ResponseToExecuteDTO(&entities.Response{StatusCode: 200, HistoryID: id})
+
+	if dto.HistoryID != id.String() {
+		t.Errorf("expected HistoryID %s, got %q", id, dto.HistoryID)
+	}
+}
+
+func TestResponseToExecuteDTO_NilHistoryID(t *testing.T) {
+	dto := ResponseToExecuteDTO(&entities.Response{StatusCode: 200})
+
+	if dto.HistoryID != "" {
+		t.Errorf("expected empty HistoryID, got %q", dto.HistoryID)
 	}
 }

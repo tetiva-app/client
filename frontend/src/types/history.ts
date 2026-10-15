@@ -16,6 +16,8 @@ export interface HistoryRecord {
   durationMs: number
   errorMessage?: string
   createdAt: string // RFC3339
+  authQueryKeys?: string[]
+  authHeaderKeys?: string[]
 }
 
 export type StatusKind = '2xx' | '3xx' | '4xx' | '5xx' | 'error'

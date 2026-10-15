@@ -19,16 +19,17 @@ import HistorySidebar from './HistorySidebar.vue'
 import HistoryFilterPopover from './HistoryFilterPopover.vue'
 import { useHistoryStore } from '@/stores/history'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useResponseStore } from '@/stores/responses'
 import { setCurrentLocale } from '@/lib/locale'
 import type { Workspace } from '@/types/workspace'
 
 const DAY = 86_400_000
 
-function record(id: string, ageMs: number): HistoryRecord {
+function record(id: string, ageMs: number, over: Partial<HistoryRecord> = {}): HistoryRecord {
   return {
-    id, workspaceId: 'w1', protocol: 'http', method: 'GET', url: `https://api.example.com/${id}`,
+    id, requestId: 'r1', workspaceId: 'w1', protocol: 'http', method: 'GET', url: `https://api.example.com/${id}`,
     requestHeaders: {}, requestBody: '', responseStatus: 200, responseHeaders: {}, responseBody: '',
-    responseSize: 0, durationMs: 12, createdAt: new Date(Date.now() - ageMs).toISOString(),
+    responseSize: 0, durationMs: 12, createdAt: new Date(Date.now() - ageMs).toISOString(), ...over,
   }
 }
 
@@ -166,5 +167,85 @@ describe('history filters', () => {
     expect(html).toContain('Сбросить фильтры')
     expect(html).toContain('Esc — закрыть')
     for (const kept of ['HTTP', 'gRPC', 'GraphQL', 'WS', '2xx', '5xx']) expect(html).toContain(kept)
+  })
+})
+
+function items(html: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const chunk of html.split(/(?=<div[^>]*data-history-item)/).slice(1)) {
+    const id = /api\.example\.com\/(\w+)/.exec(chunk)?.[1]
+    if (id) out[id] = chunk
+  }
+  return out
+}
+
+function compareButton(html: string): string {
+  return /<button[^>]*data-testid="history-compare"[^>]*>/.exec(html)?.[0] ?? ''
+}
+
+describe('history compare selection', () => {
+  it('shows the selection bar with Compare disabled until two records are picked', async () => {
+    const one = await render(HistorySidebar, h => { withRecords(h); h.compareSelection = [h.items[0]] })
+    const two = await render(HistorySidebar, h => { withRecords(h); h.compareSelection = [h.items[0], h.items[1]] })
+    const none = await render(HistorySidebar, withRecords)
+
+    expect(one).toContain('Pick one more')
+    expect(one).toMatch(/title="(⌘|Ctrl)-click: pick two"/)
+    expect(one).toContain('title="Clear selection"')
+    expect(compareButton(one)).toMatch(/\sdisabled[\s>=]/)
+    expect(two).toContain('2 selected')
+    expect(compareButton(two)).not.toBe('')
+    expect(compareButton(two)).not.toMatch(/\sdisabled[\s>=]/)
+    expect(compareButton(none)).toBe('')
+  })
+
+  it('hints the modifier click on its own line while filtered by request, and on the title always', async () => {
+    const filtered = await render(HistorySidebar, withRecords)
+    const unfiltered = await render(HistorySidebar, h => { withRecords(h); h.filter.requestId = null })
+
+    expect(filtered).toMatch(/>(⌘|Ctrl)-click: pick two</)
+    expect(unfiltered).not.toMatch(/>(⌘|Ctrl)-click: pick two</)
+    expect(unfiltered).toMatch(/title="(⌘|Ctrl)-click: pick two"[^>]*>History</)
+  })
+
+  it('highlights only the picked records while selecting', async () => {
+    const html = await render(HistorySidebar, h => {
+      withRecords(h)
+      h.selectedId = 'a'
+      h.compareSelection = [h.items[1]]
+    })
+    const rows = items(html)
+
+    expect(rows.a).not.toContain('border-l-2')
+    expect(rows.b).toContain('border-l-2')
+  })
+
+  it('offers to compare a record with the current response of its request', async () => {
+    const html = await render(HistorySidebar, h => {
+      withRecords(h)
+      h.items.push(record('d', 0, { protocol: 'websocket' }))
+      useResponseStore().setResponse('r1', {
+        status: 'success',
+        data: { statusCode: 200, statusText: 'OK', url: '', headers: {}, body: '', size: 0, durationMs: 1, historyId: 'a' },
+      })
+    })
+    const rows = items(html)
+    const action = 'title="Compare with current response"'
+
+    expect(rows.a).not.toContain(action)
+    expect(rows.b).toContain(action)
+    expect(rows.d).not.toContain(action)
+  })
+
+  it('speaks Russian', async () => {
+    setCurrentLocale('ru')
+    const one = await render(HistorySidebar, h => { withRecords(h); h.compareSelection = [h.items[0]] })
+    const two = await render(HistorySidebar, h => { withRecords(h); h.compareSelection = [h.items[0], h.items[1]] })
+
+    expect(one).toContain('Нужна вторая')
+    expect(one).toContain('title="Снять выделение"')
+    expect(one).toContain('Сравнить')
+    expect(one).toMatch(/>(⌘|Ctrl)-клик: две записи</)
+    expect(two).toContain('Выбрано: 2')
   })
 })

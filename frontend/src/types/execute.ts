@@ -28,4 +28,5 @@ export interface ExecuteResponse {
   binaryPath?: string
   suggestedFilename?: string
   scriptResult?: ScriptResult
+  historyId?: string
 }

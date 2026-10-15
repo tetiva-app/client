@@ -10,14 +10,28 @@ export type ResponseState =
 
 export const useResponseStore = defineStore('responses', () => {
   const responseMap = ref<Map<string, ResponseState>>(new Map())
+  const previousDurations = ref<Map<string, number>>(new Map())
+  const lastDurations = new Map<string, number>()
 
   function getResponseState(id: string): ResponseState {
     return responseMap.value.get(id) ?? { status: 'idle' }
   }
 
   function setResponse(id: string, state: ResponseState) {
+    if (state.status === 'success') {
+      const last = lastDurations.get(id)
+      if (last !== undefined) {
+        previousDurations.value.set(id, last)
+        previousDurations.value = new Map(previousDurations.value)
+      }
+      lastDurations.set(id, state.data.durationMs)
+    }
     responseMap.value.set(id, state)
     responseMap.value = new Map(responseMap.value)
+  }
+
+  function previousDurationMs(id: string): number | undefined {
+    return previousDurations.value.get(id)
   }
 
   function cancelRequest(id: string) {
@@ -40,5 +54,6 @@ export const useResponseStore = defineStore('responses', () => {
     cancelRequest,
     anyLoading,
     deleteResponse,
+    previousDurationMs,
   }
 })

@@ -1,6 +1,7 @@
 import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
+import type { HistoryRecord } from '@/types/history'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { BuildSnippetReq, HarNameValue, HarPostData, HarRequest, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
@@ -15,9 +16,11 @@ import type {
   PromoteDraftReq,
 } from './request-api'
 import { makeError } from './makeError'
+import { appendMockHistory } from './mock-history'
 
 export class MockRequestService implements RequestServiceAPI {
   private requests = new Map<string, Request>()
+  private sends = new Map<string, number>()
   private runs = new Map<string, () => void>()
 
   async list(collectionId: string): Promise<Result<Request[]>> {
@@ -194,36 +197,13 @@ export class MockRequestService implements RequestServiceAPI {
   }
 
   async execute(execReq: { requestId: string; workspaceId: string; runId?: string }): Promise<Result<ExecuteResponse>> {
-    const { requestId: id, runId } = execReq
+    const { requestId: id, workspaceId, runId } = execReq
     const req = this.requests.get(id)
     if (!req) {
       return makeError<ExecuteResponse>('not_found', `request not found: ${id}`)
     }
 
-    const url = req.url.toLowerCase()
-
-    if (url.includes('binary')) {
-      return {
-        data: {
-          statusCode: 200,
-          statusText: '200 OK',
-          url: req.url,
-          headers: { 'Content-Type': ['image/png'] },
-          body: '',
-          size: 1024,
-          durationMs: 89,
-          isBinary: true,
-          binaryPath: '/tmp/gopher-response-mock',
-          suggestedFilename: 'response.png',
-        },
-      }
-    }
-
-    if (url.includes('error')) {
-      return makeError<ExecuteResponse>('request_error', 'Connection refused: could not connect to host')
-    }
-
-    if (url.includes('slow')) {
+    if (req.url.toLowerCase().includes('slow')) {
       const cancelled = await new Promise<boolean>(resolve => {
         const timer = setTimeout(() => resolve(false), 3000)
         if (runId) this.runs.set(runId, () => { clearTimeout(timer); resolve(true) })
@@ -232,58 +212,16 @@ export class MockRequestService implements RequestServiceAPI {
       if (cancelled) return makeError<ExecuteResponse>('cancelled', 'context canceled')
     }
 
-    if (url.includes('404')) {
-      return {
-        data: {
-          statusCode: 404,
-          statusText: '404 Not Found',
-          url: req.url,
-          headers: { 'Content-Type': ['application/json'] },
-          body: '{"error":"not found"}',
-          size: 21,
-          durationMs: 45,
-        },
-      }
-    }
+    const send = (this.sends.get(id) ?? 0) + 1
+    this.sends.set(id, send)
+    const outcome = await mockResponse(req, send)
+    const historyId = crypto.randomUUID()
+    appendMockHistory(mockHistoryRecord(historyId, workspaceId, req, outcome))
 
-    if (url.includes('500')) {
-      return {
-        data: {
-          statusCode: 500,
-          statusText: '500 Internal Server Error',
-          url: req.url,
-          headers: { 'Content-Type': ['application/json'] },
-          body: '{"error":"internal server error"}',
-          size: 32,
-          durationMs: 120,
-        },
-      }
+    if (typeof outcome === 'string') {
+      return makeError<ExecuteResponse>('request_error', outcome)
     }
-
-    const body = JSON.stringify({
-      users: [
-        { id: 1, name: 'Alice', email: 'alice@example.com' },
-        { id: 2, name: 'Bob', email: 'bob@example.com' },
-      ],
-      total: 2,
-      page: 1,
-    }, null, 2)
-
-    return {
-      data: {
-        statusCode: 200,
-        statusText: '200 OK',
-        url: req.url,
-        headers: {
-          'Content-Type': ['application/json'],
-          'X-Request-Id': [crypto.randomUUID()],
-          'Cache-Control': ['no-cache'],
-        },
-        body,
-        size: body.length,
-        durationMs: 142,
-      },
-    }
+    return { data: { ...outcome, historyId } }
   }
 
   async generateCurl(req: { requestId: string; workspaceId: string }): Promise<Result<GenerateCurlResponse>> {
@@ -484,5 +422,111 @@ function decodeQuery(s: string): string {
     return decodeURIComponent(s.replace(/\+/g, ' '))
   } catch {
     return s
+  }
+}
+
+async function mockResponse(req: Request, send: number): Promise<ExecuteResponse | string> {
+  const url = req.url.toLowerCase()
+
+  if (url.includes('binary')) {
+    return {
+      statusCode: 200,
+      statusText: '200 OK',
+      url: req.url,
+      headers: { 'Content-Type': ['image/png'] },
+      body: '',
+      size: 1024,
+      durationMs: 89,
+      isBinary: true,
+      binaryPath: '/tmp/gopher-response-mock',
+      suggestedFilename: 'response.png',
+    }
+  }
+
+  if (url.includes('error')) {
+    return 'Connection refused: could not connect to host'
+  }
+
+  if (url.includes('404')) {
+    return {
+      statusCode: 404,
+      statusText: '404 Not Found',
+      url: req.url,
+      headers: { 'Content-Type': ['application/json'] },
+      body: '{"error":"not found"}',
+      size: 21,
+      durationMs: 45,
+    }
+  }
+
+  if (url.includes('500')) {
+    return {
+      statusCode: 500,
+      statusText: '500 Internal Server Error',
+      url: req.url,
+      headers: { 'Content-Type': ['application/json'] },
+      body: '{"error":"internal server error"}',
+      size: 32,
+      durationMs: 120,
+    }
+  }
+
+  const body = JSON.stringify({
+    users: [
+      { id: 1, name: 'Alice', email: 'alice@example.com' },
+      { id: 2, name: 'Bob', email: 'bob@example.com' },
+    ],
+    total: 2,
+    page: 1,
+    send,
+  }, null, 2)
+
+  return {
+    statusCode: 200,
+    statusText: '200 OK',
+    url: req.url,
+    headers: {
+      'Content-Type': ['application/json'],
+      'X-Request-Id': [crypto.randomUUID()],
+      'Cache-Control': ['no-cache'],
+    },
+    body,
+    size: body.length,
+    durationMs: 142 + 176 * (send - 1),
+  }
+}
+
+function mockHistoryRecord(id: string, workspaceId: string, req: Request, outcome: ExecuteResponse | string): HistoryRecord {
+  const requestHeaders: Record<string, string[]> = {}
+  for (const h of req.headers) {
+    if (h.enabled && h.key) (requestHeaders[h.key] ??= []).push(h.value)
+  }
+  let method: string = req.method
+  let url = req.url
+  let requestBody = req.body
+  if (req.protocol === 'graphql') {
+    method = req.graphqlOperation || 'GRAPHQL'
+    requestBody = req.graphqlQuery
+  } else if (req.protocol === 'grpc') {
+    method = `${req.grpcService}/${req.grpcMethod}`
+    url = `${req.url}/${req.grpcService}/${req.grpcMethod}`
+  }
+  const base = {
+    id, requestId: req.id, workspaceId, protocol: req.protocol, method, url, requestHeaders, requestBody,
+    createdAt: new Date().toISOString(), authQueryKeys: [], authHeaderKeys: [],
+  }
+  if (typeof outcome === 'string') {
+    return {
+      ...base, responseStatus: 0, responseHeaders: {}, responseBody: '', responseSize: 0, durationMs: 0,
+      errorMessage: outcome,
+    }
+  }
+  return {
+    ...base,
+    responseStatus: outcome.statusCode,
+    responseHeaders: outcome.headers,
+    responseBody: outcome.body,
+    responseSize: outcome.size,
+    durationMs: outcome.durationMs,
   }
 }

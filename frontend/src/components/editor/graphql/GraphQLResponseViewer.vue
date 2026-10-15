@@ -2,8 +2,10 @@
 import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import type { ResponseState } from '@/stores/responses'
+import { useResponseStore, type ResponseState } from '@/stores/responses'
 import SaveExampleInline from '../examples/SaveExampleInline.vue'
+import CompareButton from '@/components/compare/CompareButton.vue'
+import LatencyDelta from '@/components/compare/LatencyDelta.vue'
 
 const CodeViewer = defineAsyncComponent(() => import('../CodeViewer.vue'))
 
@@ -16,6 +18,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
+
+const responses = useResponseStore()
 
 const activeTab = ref<'data' | 'errors' | 'headers' | 'tests'>('data')
 
@@ -157,7 +161,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
     </div>
 
     <div v-else-if="state.status === 'success'" class="flex flex-col h-full">
-      <div class="flex items-center gap-3 h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs shrink-0">
+      <div class="flex items-center gap-3 h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs whitespace-nowrap shrink-0">
         <span
           class="font-bold tabular-nums px-2 py-0.5 rounded text-xs"
           :style="{ color: httpStatusColor, backgroundColor: httpStatusColor + '18' }"
@@ -165,13 +169,19 @@ function handleSearchKeydown(event: KeyboardEvent) {
           {{ state.data.statusCode }}
         </span>
         <span class="text-muted-foreground tabular-nums">{{ state.data.durationMs }}ms</span>
+        <LatencyDelta :a="responses.previousDurationMs(requestId)" :b="state.data.durationMs" />
         <span class="text-muted-foreground tabular-nums">{{ formatSize(state.data.size || state.data.body?.length || 0) }}</span>
         <span v-if="hasErrors" class="flex items-center gap-1 text-[var(--gc-error)]">
           <span class="size-1.5 rounded-full bg-[var(--gc-error)]" />
           GraphQL errors
         </span>
-        <SaveExampleInline
+        <CompareButton
           class="ml-auto"
+          :request-id="requestId"
+          protocol="graphql"
+          :response="state.data"
+        />
+        <SaveExampleInline
           :request-id="requestId"
           protocol="graphql"
           :response="state.data"

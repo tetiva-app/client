@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -423,6 +424,36 @@ func TestPreview(t *testing.T) {
 			portability.Warn(portability.WarnForeignScripts, portability.Subject{}, "app", "Hoppscotch", "api", "pw.* / hopp.*"),
 		},
 	}, p)
+}
+
+func TestPreview_PmScriptsNeedNoRewrite(t *testing.T) {
+	collection := func(script string) []byte {
+		raw, err := json.Marshal(map[string]any{"v": 12, "name": "C", "folders": []any{}, "requests": []any{
+			map[string]any{"name": "Ping", "method": "GET", "endpoint": "https://api.example.com/ping", "params": []any{}, "headers": []any{},
+				"testScript": script},
+		}})
+		require.NoError(t, err)
+		return raw
+	}
+	rewrite := portability.Warn(portability.WarnForeignScripts, portability.Subject{}, "app", "Hoppscotch", "api", "pw.* / hopp.*").Text
+
+	for _, tc := range []struct {
+		script string
+		warns  bool
+	}{
+		{`pm.test("ok", () => pm.response.to.have.status(200));`, false},
+		{`pw.test("ok", () => pw.expect(pw.response.status).toBe(200));`, true},
+		{`hopp.test("ok", () => hopp.expect(hopp.response.statusCode).toBe(200));`, true},
+	} {
+		p, err := (&Importer{}).Preview(collection(tc.script), "")
+		require.NoError(t, err)
+		assert.Len(t, p.Scripts, 1, tc.script)
+		assert.Equal(t, tc.warns, slices.Contains(portability.Texts(p.Warnings), rewrite), tc.script)
+
+		b, err := parse(collection(tc.script), "")
+		require.NoError(t, err)
+		assert.Equal(t, tc.warns, b.scripts, tc.script)
+	}
 }
 
 func TestPreview_RejectsABrokenFile(t *testing.T) {

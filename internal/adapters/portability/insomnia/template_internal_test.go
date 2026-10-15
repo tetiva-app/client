@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/tetiva-app/client/internal/adapters/portability"
 )
 
 func TestTemplates_RewritesVariableReferences(t *testing.T) {
@@ -44,8 +46,8 @@ func TestTemplates_LeavesTagsAndExpressionsAndCountsThem(t *testing.T) {
 	}
 	assert.Equal(t, "{% prompt 'Id', '', '1' %}/{{id}}", tpl.conv(in[4]))
 
-	assert.Equal(t,
-		"6 Insomnia template tags were left as-is (faker, prompt, response, {{ … }} expressions): "+
+	assert.Equal(t, []string{
+		"6 Insomnia template tags were left as-is (faker, prompt, response, {{ … }} expressions): " +
 			"Tetiva does not run them, use variables or scripts instead",
-		tpl.warning())
+	}, portability.Texts(tpl.warning()))
 }

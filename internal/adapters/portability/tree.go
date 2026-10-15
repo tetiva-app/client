@@ -22,7 +22,7 @@ import (
 type Tree struct {
 	Root         Folder
 	Environments []Environment
-	Warnings     []string
+	Warnings     []Warning
 }
 
 type Folder struct {
@@ -64,8 +64,6 @@ type Writer struct {
 	Examples     ExampleCreator
 	Environments EnvironmentCreator
 }
-
-const maxSecretLabels = 5
 
 func (t *Tree) Preview(format string) *ImportPreview {
 	p := &ImportPreview{Format: format, Title: t.Root.In.Name, Scripts: []ScriptPreview{}}
@@ -132,7 +130,7 @@ func appendAuthURLs(urls []string, authType entities.AuthType, data string) []st
 	return urls
 }
 
-func (t *Tree) warnings() []string {
+func (t *Tree) warnings() []Warning {
 	out := slices.Clone(t.Warnings)
 	var suspects []string
 	var walk func(f *Folder)
@@ -143,22 +141,23 @@ func (t *Tree) warnings() []string {
 		for _, r := range f.Requests {
 			for _, ex := range r.Examples {
 				if found := example.SuspectedSecrets(ex.Headers, ex.Body); len(found) > 0 {
-					suspects = append(suspects, fmt.Sprintf("%q / %q (%s)", r.In.Name, ex.Name, strings.Join(found, ", ")))
+					suspects = append(suspects, SecretsLabel(r.In.Name, ex.Name, found))
 				}
 			}
 		}
 	}
 	walk(&t.Root)
-	if len(suspects) > maxSecretLabels {
-		suspects = append(suspects[:maxSecretLabels], fmt.Sprintf("and %d more", len(suspects)-maxSecretLabels))
-	}
 	if len(suspects) > 0 {
-		out = append(out, "examples may contain secrets, check them before sharing: "+strings.Join(suspects, "; "))
+		out = append(out, Warn(WarnExampleSecrets, Subject{}, "examples", List{Items: suspects, Sep: "; "}))
 	}
 	if out == nil {
-		return []string{}
+		return []Warning{}
 	}
 	return out
+}
+
+func SecretsLabel(request, example string, found []string) string {
+	return `"` + request + `" / "` + example + `" (` + strings.Join(found, ", ") + ")"
 }
 
 func (w Writer) Write(ctx context.Context, t *Tree, opt ImportOpt) (*ImportResult, error) {
@@ -225,7 +224,7 @@ func (w Writer) request(ctx context.Context, collectionID uuid.UUID, r Request, 
 			if !errors.As(err, &ve) {
 				return fmt.Errorf("create example %q of %q: %w", ex.Name, in.Name, err)
 			}
-			res.Warnings = append(res.Warnings, fmt.Sprintf("request %q: example %q skipped: %s", in.Name, ex.Name, describe(ve)))
+			res.Warnings = append(res.Warnings, ExampleRejected(Subject{Kind: KindRequest, Name: in.Name}, ex.Name, ve))
 			continue
 		}
 		res.Examples++
@@ -256,7 +255,15 @@ func (w Writer) CreateEnvironment(ctx context.Context, env *Environment, opt Imp
 	return created, nil
 }
 
-func describe(ve *domain.ValidationError) string {
+// The importers check the body size up front, so the payload cap is the one rejection they expect.
+func ExampleRejected(subject Subject, name string, ve *domain.ValidationError) Warning {
+	if _, ok := ve.Fields[example.PayloadField]; ok {
+		return Warn(WarnExamplePayloadTooLarge, subject, "example", name, "kb", domain.MaxExamplePayloadLen/1024)
+	}
+	return Warn(WarnExampleSkipped, subject, "example", name, "reason", Describe(ve))
+}
+
+func Describe(ve *domain.ValidationError) string {
 	msgs := make([]string, 0, len(ve.Fields))
 	for _, msg := range ve.Fields {
 		msgs = append(msgs, msg)

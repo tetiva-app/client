@@ -8,6 +8,7 @@ import type {
   ImportPreviewResult,
   ImportConfirmRequest as ConfirmRequest,
   ImportConfirmResult,
+  ImportWarning,
 } from './portability-api'
 import type { Result } from '@/types/common'
 import { unwrap, type BindingResult } from './unwrap'
@@ -25,6 +26,7 @@ import {
 import type {
   ExportResponse,
   ImportPreview as ImportPreviewDTO,
+  ImportWarning as ImportWarningDTO,
 } from '../../bindings/github.com/tetiva-app/client/internal/adapters/wails/dto'
 
 export class WailsPortabilityService implements PortabilityServiceAPI {
@@ -45,7 +47,7 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
             environmentId: res.data.environmentId,
             environmentNames: res.data.environmentNames ?? [],
             variablesCreated: res.data.variablesCreated,
-            warnings: res.data.warnings ?? [],
+            warnings: toWarnings(res.data.warnings),
           }
         : undefined,
     } as Result<ImportEnvironmentResult>
@@ -73,8 +75,9 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
     return mapData(res, d => ({ previewId: d.previewId, preview: toPreview(d.preview) }))
   }
 
-  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreview>> {
-    return mapData(await PortabilityService.ImportPreview(new ImportPreviewRequest({ content, fileName })), toPreview)
+  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreviewResult>> {
+    const res = await PortabilityService.ImportPreview(new ImportPreviewRequest({ content, fileName }))
+    return mapData(res, d => ({ previewId: d.previewId, preview: toPreview(d.preview) }))
   }
 
   async importConfirm(req: ConfirmRequest): Promise<Result<ImportConfirmResult>> {
@@ -86,7 +89,7 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
       ...d,
       environmentNames: d.environmentNames ?? [],
       activeEnvironment: d.activeEnvironment ?? '',
-      warnings: d.warnings ?? [],
+      warnings: toWarnings(d.warnings),
     }))
   }
 }
@@ -109,8 +112,17 @@ function toPreview(p: ImportPreviewDTO): ImportPreview {
     environmentNames: p.environmentNames ?? [],
     hosts: p.hosts ?? [],
     scripts: (p.scripts ?? []).map(s => ({ path: s.path, phase: s.phase === 'post' ? 'post' : 'pre', text: s.text })),
-    warnings: p.warnings ?? [],
+    warnings: toWarnings(p.warnings),
   }
+}
+
+function toWarnings(ws: ImportWarningDTO[] | null | undefined): ImportWarning[] {
+  return (ws ?? []).map(w => ({
+    code: w.code,
+    subject: { kind: w.subject?.kind ?? '', name: w.subject?.name ?? '' },
+    params: (w.params ?? {}) as Record<string, string>,
+    text: w.text,
+  }))
 }
 
 // Go encodes a nil slice as null.

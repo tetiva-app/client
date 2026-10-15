@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
@@ -178,7 +179,7 @@ func TestPlan_BaseURL(t *testing.T) {
 			if tc.warning == "" {
 				assert.Empty(t, p.warnings)
 			} else {
-				assert.Equal(t, []string{tc.warning}, p.warnings)
+				assert.Equal(t, []string{tc.warning}, portability.Texts(p.warnings))
 			}
 		})
 	}
@@ -353,10 +354,19 @@ func TestPlan_SecuritySchemes(t *testing.T) {
 			if tc.warning == "" {
 				assert.Empty(t, p.warnings)
 			} else {
-				assert.Equal(t, []string{tc.warning}, p.warnings)
+				assert.Equal(t, []string{tc.warning}, portability.Texts(p.warnings))
 			}
 		})
 	}
+}
+
+func TestPlan_UnsupportedAPIKeyLocationIsAParam(t *testing.T) {
+	p := planOf(t, []byte(`{"openapi":"3.0.0","info":{"title":"T"},"servers":[{"url":"https://a.example.com"}],"paths":{},`+
+		`"security":[{"s":[]}],"components":{"securitySchemes":{"s":{"type":"apiKey","in":"cookie","name":"sid"}}}}`))
+
+	require.Len(t, p.warnings, 1)
+	assert.Equal(t, portability.WarnOpenAPISchemeLocationUnsupported, p.warnings[0].Code)
+	assert.Equal(t, map[string]string{"scheme": "s", "type": "apiKey", "in": "cookie"}, p.warnings[0].Params)
 }
 
 func TestPlan_SecretVariables(t *testing.T) {
@@ -423,7 +433,7 @@ func TestPlan_OversizedExampleIsSkipped(t *testing.T) {
 		`"200":{"description":"ok","content":{"text/plain":{"example":"`+big+`"}}}}}}}}`))
 
 	assert.Empty(t, requestByLabel(t, p, "GET /x").examples)
-	assert.Contains(t, p.warnings, `GET /x: example "200 OK" skipped: body is larger than 256 KB`)
+	assert.Contains(t, portability.Texts(p.warnings), `GET /x: example "200 OK" skipped: body is larger than 256 KB`)
 	assert.Zero(t, p.exampleCount)
 }
 
@@ -441,7 +451,7 @@ func TestPlan_Swagger2ExampleSizes(t *testing.T) {
 
 	big := planOf(t, doc(10000))
 	assert.Empty(t, requestByLabel(t, big, "GET /x").examples)
-	assert.Contains(t, big.warnings, `GET /x: example "200 OK" skipped: body is larger than 256 KB`)
+	assert.Contains(t, portability.Texts(big.warnings), `GET /x: example "200 OK" skipped: body is larger than 256 KB`)
 }
 
 func TestPlan_UnquotedNumbersInTextFields(t *testing.T) {
@@ -506,7 +516,7 @@ func TestPlan_SkippedPartsAreReported(t *testing.T) {
 		"GET /nodes/{id}: response links were skipped",
 		"POST /mixed: callbacks were skipped",
 		"webhooks were skipped: newPet",
-	}, p.warnings)
+	}, portability.Texts(p.warnings))
 
 	node := requestByLabel(t, p, "GET /nodes/{id}")
 	assert.Equal(t, "getNode", node.in.Name)
@@ -539,7 +549,7 @@ paths:
 	get := requestByLabel(t, p, "GET /items/{id}")
 	assert.Equal(t, "{{baseUrl}}/items/{{id}}?q=b", get.in.URL)
 	assert.Equal(t, 1, p.requestCount)
-	assert.Contains(t, p.warnings, "TRACE /items/{id} was skipped: TRACE requests are not supported")
+	assert.Contains(t, portability.Texts(p.warnings), "TRACE /items/{id} was skipped: TRACE requests are not supported")
 }
 
 func TestPlan_OwnServersAreReported(t *testing.T) {
@@ -562,7 +572,10 @@ paths:
 	assert.Equal(t, []string{
 		`GET /items: its own server "https://eu.example.com" was ignored, the request uses {{baseUrl}}`,
 		`POST /items: its own server "https://upload.example.com" was ignored, the request uses {{baseUrl}}`,
-	}, p.warnings)
+	}, portability.Texts(p.warnings))
+	assert.Equal(t, portability.WarnOpenAPIOwnServer, p.warnings[1].Code)
+	assert.Equal(t, portability.Subject{Kind: portability.KindOperation, Name: "POST /items"}, p.warnings[1].Subject)
+	assert.Equal(t, map[string]string{"url": "https://upload.example.com"}, p.warnings[1].Params)
 	assert.Equal(t, "{{baseUrl}}/items", requestByLabel(t, p, "POST /items").in.URL)
 }
 
@@ -572,7 +585,7 @@ func TestPlan_LongDescriptionIsTruncated(t *testing.T) {
 
 	assert.LessOrEqual(t, len(p.root.Description), domain.MaxDescriptionLen)
 	assert.True(t, strings.HasSuffix(p.root.Description, "é"))
-	assert.Contains(t, p.warnings, `collection "T": description longer than 16384 bytes was truncated`)
+	assert.Contains(t, portability.Texts(p.warnings), `collection "T": description longer than 16,384 bytes was truncated`)
 }
 
 func TestPlan_SelfReferencingSchemas(t *testing.T) {
@@ -749,7 +762,7 @@ paths:
 	rp := requestByLabel(t, p, "GET /items")
 	assert.Equal(t, "{{baseUrl}}/items?id=1&id=2&tag=a+b,c%2Cd&word=x%20y&pipe=x|y&many=x&many=y"+
 		"&filter[role]=admin&filter[team]=ops&x=1&y=2&sort=by,name&odd=%7B%22a%22%3A1%7D", rp.in.URL)
-	assert.Contains(t, p.warnings, `GET /items: query parameter "odd" uses style pipeDelimited, which was not reproduced`)
+	assert.Contains(t, portability.Texts(p.warnings), `GET /items: query parameter "odd" uses style pipeDelimited, which was not reproduced`)
 }
 
 func TestPlan_Swagger2AuthorizationHeaderParameterIsReported(t *testing.T) {
@@ -766,7 +779,7 @@ func TestPlan_Swagger2AuthorizationHeaderParameterIsReported(t *testing.T) {
 	assert.Equal(t, entities.AuthTypeAPIKey, requestByLabel(t, p, "GET /c").in.AuthType)
 	assert.Equal(t, []string{
 		"the Authorization header parameter of GET /a, POST /b was not imported: set the auth on the collection or the request instead",
-	}, p.warnings)
+	}, portability.Texts(p.warnings))
 }
 
 func TestPlan_OpenAPI3AuthorizationHeaderParameterStaysQuiet(t *testing.T) {
@@ -807,5 +820,5 @@ paths:
 	assert.JSONEq(t, `[{"key":"name","value":"","type":"text","enabled":true}]`, requestByLabel(t, p, "POST /users").in.Body)
 	assert.Equal(t, []string{
 		"1 multipart request has no file field and will be sent as a URL-encoded form, not multipart: POST /users",
-	}, p.warnings)
+	}, portability.Texts(p.warnings))
 }

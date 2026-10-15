@@ -52,7 +52,7 @@ func TestPreview_Petstore(t *testing.T) {
 		{Path: "Petstore / Pets / Add pet", Phase: "pre", Text: "insomnia.environment.set('started', Date.now());"},
 		{Path: "Petstore / Pets / Add pet", Phase: "post", Text: "insomnia.test('created', () => {\n  insomnia.expect(insomnia.response.code).to.eql(201);\n});"},
 	}, preview.Scripts)
-	assert.Contains(t, preview.Warnings, scriptsWarning)
+	assert.Contains(t, portability.Texts(preview.Warnings), scriptsWarning)
 }
 
 func TestPreview_EmptyListsAreNotNil(t *testing.T) {

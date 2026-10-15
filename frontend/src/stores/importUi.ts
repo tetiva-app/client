@@ -6,7 +6,7 @@ export type LinkStep = 'url' | 'password' | 'opening'
 
 export type ImportSource =
   | { kind: 'link'; slug: string; token: string; previewId: string; oneTimeToken: boolean }
-  | { kind: 'file'; content: string; fileName: string; parentId: string | null }
+  | { kind: 'file'; previewId: string; content: string; fileName: string; parentId: string | null }
 
 export const useImportUi = defineStore('importUi', () => {
   const flow = ref(0)

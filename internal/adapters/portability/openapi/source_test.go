@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain"
 )
 
@@ -86,7 +87,7 @@ target: {type: string}
 	assert.Equal(t, []string{
 		`references to "common.yaml" are not supported and were left empty`,
 		`reference "#/missing" points to nothing and was left empty`,
-	}, warnings)
+	}, portability.Texts(warnings))
 	var buf bytes.Buffer
 	require.NoError(t, writeJSON(&buf, src.root, maxDocumentJSON))
 	assert.Equal(t, `{"a":{},"b":{},"c":{},"d":{},"e":{"$ref":"#/target"},"target":{"type":"string"}}`, buf.String())

@@ -2,9 +2,9 @@ package insomnia
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
@@ -17,7 +17,7 @@ var oauth2Grants = map[string]string{
 	"authorization_code": auth.GrantAuthorizationCode,
 }
 
-func (p *plan) auth(label string, a *authBlock, request bool) (entities.AuthType, string) {
+func (p *plan) auth(subject portability.Subject, a *authBlock, request bool) (entities.AuthType, string) {
 	if a == nil || a.Type == "" {
 		if request {
 			return entities.AuthTypeInherit, "{}"
@@ -25,7 +25,7 @@ func (p *plan) auth(label string, a *authBlock, request bool) (entities.AuthType
 		return entities.AuthTypeNone, "{}"
 	}
 	if a.Disabled {
-		p.warn(fmt.Sprintf("%s: %s auth is disabled in Insomnia and was imported as no auth", label, a.Type))
+		p.warn(portability.WarnInsomniaAuthDisabled, subject, "type", a.Type)
 		return entities.AuthTypeNone, "{}"
 	}
 
@@ -48,7 +48,7 @@ func (p *plan) auth(label string, a *authBlock, request bool) (entities.AuthType
 		case "queryParams":
 			addTo = "query"
 		default:
-			p.warn(fmt.Sprintf("%s: an API key sent as a %s is not supported and was imported as no auth", label, a.AddTo))
+			p.warn(portability.WarnInsomniaAPIKeyLocation, subject, "location", a.AddTo)
 			return entities.AuthTypeNone, "{}"
 		}
 		return entities.AuthTypeAPIKey, authJSON(map[string]any{"key": c(a.Key), "value": c(a.Value), "addTo": addTo})
@@ -62,21 +62,21 @@ func (p *plan) auth(label string, a *authBlock, request bool) (entities.AuthType
 		putIfSet(data, "sessionToken", c(a.SessionToken))
 		return entities.AuthTypeAWSSigV4, authJSON(data)
 	case "oauth2":
-		return p.oauth2(label, a)
+		return p.oauth2(subject, a)
 	default:
-		p.warn(fmt.Sprintf("%s: auth type %q is not supported and was imported as no auth", label, a.Type))
+		p.warn(portability.WarnAuthUnsupported, subject, "type", a.Type)
 		return entities.AuthTypeNone, "{}"
 	}
 }
 
-func (p *plan) oauth2(label string, a *authBlock) (entities.AuthType, string) {
+func (p *plan) oauth2(subject portability.Subject, a *authBlock) (entities.AuthType, string) {
 	c := p.tpl.conv
 	data := map[string]any{}
 	if a.GrantType != "" {
 		grant, ok := oauth2Grants[a.GrantType]
 		if !ok {
 			grant = a.GrantType
-			p.warn(fmt.Sprintf("%s: OAuth 2.0 grant %q is not supported; pick one in the Auth tab", label, a.GrantType))
+			p.warn(portability.WarnOAuth2GrantUnsupported, subject, "grant", a.GrantType)
 		}
 		data["grant"] = grant
 	}

@@ -156,12 +156,6 @@ func TestFreeName(t *testing.T) {
 	}
 }
 
-func TestListing(t *testing.T) {
-	assert.Equal(t, "", portability.Listing(nil))
-	assert.Equal(t, "a, b", portability.Listing([]string{"a", "b"}))
-	assert.Equal(t, "a, b, c, d, e and 2 more", portability.Listing([]string{"a", "b", "c", "d", "e", "f", "g"}))
-}
-
 func TestCheckFileSize_LeavesRoomForTheEscapedCallBody(t *testing.T) {
 	require.NoError(t, portability.CheckFileSize(48<<20))
 

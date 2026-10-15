@@ -22,9 +22,6 @@ import (
 const (
 	defaultName = "Hoppscotch import"
 	untitled    = "Untitled"
-
-	scriptsWarning = "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing"
-	headersWarning = "headers set on Hoppscotch collections and folders were copied into their requests"
 )
 
 var variableRef = regexp.MustCompile(`<<([^>]*)>>`)
@@ -77,7 +74,7 @@ func (i *Importer) Preview(data []byte, fileName string) (*portability.ImportPre
 	}
 	p := b.tree.Preview(portability.FormatHoppscotch)
 	if len(p.Scripts) > 0 {
-		p.Warnings = append(p.Warnings, scriptsWarning)
+		p.Warnings = append(p.Warnings, scriptsWarning())
 	}
 	return p, nil
 }
@@ -92,9 +89,13 @@ func (i *Importer) Import(ctx context.Context, data []byte, opt portability.Impo
 		return nil, err
 	}
 	if opt.IncludeScripts && b.scripts {
-		res.Warnings = append(res.Warnings, scriptsWarning)
+		res.Warnings = append(res.Warnings, scriptsWarning())
 	}
 	return res, nil
+}
+
+func scriptsWarning() portability.Warning {
+	return portability.Warn(portability.WarnForeignScripts, portability.Subject{}, "app", "Hoppscotch", "api", "pw.* / hopp.*")
 }
 
 type builder struct {
@@ -127,25 +128,21 @@ func parse(data []byte, fileName string) (*builder, error) {
 			b.environment(f.In.Name)
 		}
 	}
+	none := portability.Subject{}
 	if len(b.conflicts) > 0 {
-		b.warn("variables defined more than once kept their first value: " + strings.Join(b.conflicts, ", "))
+		b.warn(portability.WarnHoppscotchVariableConflicts, none, "keys", strings.Join(b.conflicts, ", "))
 	}
 	if len(b.secrets) > 0 {
-		b.warn(secretsWarning(b.secrets))
+		b.tree.Warnings = append(b.tree.Warnings, secretsWarning(b.secrets))
 	}
 	if b.headers {
-		b.warn(headersWarning)
+		b.warn(portability.WarnHoppscotchHeadersCopied, none)
 	}
 	if len(b.textForms) > 0 {
-		b.warn(portability.URLEncodedForms(b.textForms))
+		b.warn(portability.WarnFormsSentURLEncoded, none, "n", len(b.textForms), "requests", portability.List{Items: b.textForms})
 	}
 	if len(b.authOff) > 0 {
-		where := "folder " + b.authOff[0]
-		if len(b.authOff) > 1 {
-			where = "folders " + portability.Listing(b.authOff)
-		}
-		b.warn("requests in " + where + " will inherit the parent's auth: " +
-			"Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without")
+		b.warn(portability.WarnHoppscotchAuthOff, none, "n", len(b.authOff), "folders", portability.List{Items: b.authOff})
 	}
 	return b, nil
 }
@@ -165,23 +162,21 @@ func asList(data []byte) []byte {
 	return append(append([]byte("["), data...), ']')
 }
 
-func (b *builder) warn(w string) {
-	if w != "" {
-		b.tree.Warnings = append(b.tree.Warnings, w)
-	}
+func (b *builder) warn(code portability.WarningCode, subject portability.Subject, kv ...any) {
+	b.tree.Warnings = append(b.tree.Warnings, portability.Warn(code, subject, kv...))
 }
 
 func (b *builder) collection(c hoppCollection, inherited []entities.HeaderItem, parentAuth bool) portability.Folder {
 	name := nameOr(c.Name)
-	label := fmt.Sprintf("folder %q", name)
-	description, w := portability.ClampDescription(label, deref(c.Description))
-	b.warn(w)
-	authType, authData := b.auth(c.Auth, label, false)
+	subject := portability.Subject{Kind: portability.KindFolder, Name: name}
+	description, ws := portability.ClampDescription(subject, deref(c.Description))
+	b.tree.Warnings = append(b.tree.Warnings, ws...)
+	authType, authData := b.auth(c.Auth, subject, false)
 	if authType == entities.AuthTypeInherit {
 		authType = entities.AuthTypeNone
 	}
 	if parentAuth && c.Auth != nil && (c.Auth.AuthType == "none" || c.Auth.AuthActive != nil && !*c.Auth.AuthActive) {
-		b.authOff = append(b.authOff, fmt.Sprintf("%q", name))
+		b.authOff = append(b.authOff, `"`+name+`"`)
 	}
 	b.scripts = b.scripts || hasScript(c.PreRequestScript, c.TestScript)
 	f := portability.Folder{In: collection.Create{
@@ -227,10 +222,10 @@ func (b *builder) variable(v environment.AddVariable) {
 
 func (b *builder) request(r hoppRequest, inherited []entities.HeaderItem) portability.Request {
 	name := nameOr(r.Name)
-	label := fmt.Sprintf("request %q", name)
-	description, w := portability.ClampDescription(label, deref(r.Description))
-	b.warn(w)
-	authType, authData := b.auth(r.Auth, label, true)
+	subject := portability.Subject{Kind: portability.KindRequest, Name: name}
+	description, ws := portability.ClampDescription(subject, deref(r.Description))
+	b.tree.Warnings = append(b.tree.Warnings, ws...)
+	authType, authData := b.auth(r.Auth, subject, true)
 	b.scripts = b.scripts || hasScript(r.PreRequestScript, r.TestScript)
 	in := request.Create{
 		Name: name, Description: description, AuthType: authType, AuthData: authData,
@@ -281,7 +276,7 @@ func withParams(endpoint string, params []hoppKV) string {
 }
 
 func (b *builder) body(raw json.RawMessage, name string) (bodyType entities.BodyType, body, contentType string) {
-	label := fmt.Sprintf("request %q", name)
+	subject := portability.Subject{Kind: portability.KindRequest, Name: name}
 	var hb hoppBody
 	if json.Unmarshal(raw, &hb) != nil || hb.ContentType == nil {
 		return entities.BodyTypeNone, "", ""
@@ -298,15 +293,15 @@ func (b *builder) body(raw json.RawMessage, name string) (bodyType entities.Body
 		_ = json.Unmarshal(hb.Body, &fields)
 		for _, f := range fields {
 			if f.IsFile {
-				b.warn(fmt.Sprintf("%s: file field %q was imported without its file; pick it again", label, f.Key))
+				b.warn(portability.WarnFileFieldDropped, subject, "field", f.Key)
 			}
 		}
 		if !slices.ContainsFunc(fields, func(f hoppFormField) bool { return f.IsFile }) {
-			b.textForms = append(b.textForms, fmt.Sprintf("%q", name))
+			b.textForms = append(b.textForms, `"`+name+`"`)
 		}
 		return entities.BodyTypeForm, formJSON(nil, fields), ""
 	case ct == "application/octet-stream" || ct == "binary":
-		b.warn(label + ": the file body was imported without its file; pick it again")
+		b.warn(portability.WarnFileBodyDropped, subject)
 		return entities.BodyTypeBinary, "", ""
 	case strings.Contains(ct, "json"):
 		bodyType = entities.BodyTypeJSON

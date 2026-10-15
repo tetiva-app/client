@@ -15,6 +15,7 @@ import { environmentPhrase, importCounts, useImportFlow } from '@/composables/us
 import { useLocale } from '@/composables/useLocale'
 import { fill, plural } from '@/lib/locale'
 import { IMPORT_COPY } from './copy'
+import { importWarningText } from './warnings'
 
 const flow = useImportFlow()
 const ui = flow.ui
@@ -113,7 +114,7 @@ function onOpenChange(open: boolean) {
         <section v-if="preview.warnings.length > 0" class="space-y-1">
           <h3 class="text-xs font-medium text-muted-foreground">{{ fill(text.changed, { n: preview.warnings.length }) }}</h3>
           <ul class="max-h-28 list-disc space-y-0.5 overflow-y-auto pl-4 text-xs text-muted-foreground">
-            <li v-for="(warning, i) in preview.warnings" :key="i">{{ warning }}</li>
+            <li v-for="(warning, i) in preview.warnings" :key="i">{{ importWarningText(warning, locale) }}</li>
           </ul>
         </section>
 

@@ -75,7 +75,7 @@ type ImportPreview struct {
 	EnvironmentNames []string
 	Hosts            []string
 	Scripts          []ScriptPreview
-	Warnings         []string
+	Warnings         []Warning
 }
 
 type ScriptPreview struct {
@@ -91,7 +91,7 @@ type ImportResult struct {
 	Examples          int
 	EnvironmentNames  []string
 	ActiveEnvironment string
-	Warnings          []string
+	Warnings          []Warning
 }
 
 func Select(data []byte, importers ...Importer) (Importer, error) {
@@ -103,27 +103,6 @@ func Select(data []byte, importers ...Importer) (Importer, error) {
 	return nil, &domain.ReasonError{Reason: ReasonUnsupportedFile, Err: &domain.ValidationError{Fields: map[string]string{
 		"content": "not a Tetiva, Postman v2.1, Insomnia or Hoppscotch collection, an OpenAPI / Swagger document or a HAR file",
 	}}}
-}
-
-func Plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
-const maxListed = 5
-
-func Listing(items []string) string {
-	if len(items) > maxListed {
-		return fmt.Sprintf("%s and %d more", strings.Join(items[:maxListed], ", "), len(items)-maxListed)
-	}
-	return strings.Join(items, ", ")
-}
-
-func URLEncodedForms(requests []string) string {
-	return Plural(len(requests), "multipart request has", "multipart requests have") +
-		" no file field and will be sent as a URL-encoded form, not multipart: " + Listing(requests)
 }
 
 func FreeName(name string, taken map[string]bool) string {

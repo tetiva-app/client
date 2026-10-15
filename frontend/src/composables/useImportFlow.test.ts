@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { MockPortabilityService } from '@/services/mock-portability'
 import type { MockDeepLinkService } from '@/services/mock-deeplink'
-import type { ImportPreview } from '@/services'
+import type { ImportPreview, ImportWarning } from '@/services'
 
 vi.mock('@/services', async () => {
   const { MockPortabilityService } = await import('@/services/mock-portability')
@@ -46,6 +46,10 @@ const PUBLIC = 'petstore-api-k3f9x2qa'
 const LOCKED = 'internal-api-pa55word'
 const OTHER = 'billing-api-m2n8b4vc'
 
+function note(text: string): ImportWarning {
+  return { code: 'not_in_the_dictionary', subject: { kind: '', name: '' }, params: {}, text }
+}
+
 function preview(over: Partial<ImportPreview> = {}): ImportPreview {
   return {
     format: 'tetiva', title: 'Petstore API', folders: 1, requests: 3, examples: 1, environmentNames: [],
@@ -86,6 +90,18 @@ async function deeplinks(): Promise<MockDeepLinkService> {
 
 function calls(svc: MockPortabilityService, method: string) {
   return svc.calls.filter(c => c.method === method)
+}
+
+function previewAs(svc: MockPortabilityService, ...overs: Partial<ImportPreview>[]) {
+  const real = svc.importPreview.bind(svc)
+  const spy = vi.spyOn(svc, 'importPreview')
+  for (const over of overs) {
+    spy.mockImplementationOnce(async (content, fileName) => {
+      const res = await real(content, fileName)
+      return res.error ? res : { data: { previewId: res.data.previewId, preview: preview(over) } }
+    })
+  }
+  return spy
 }
 
 function file(content: string): Blob {
@@ -299,8 +315,7 @@ describe('importing from a link', () => {
 describe('importing a file', () => {
   it('names an untitled collection in the toast', async () => {
     clearToasts()
-    const svc = await portability()
-    vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({ data: preview({ format: 'postman', title: '' }) })
+    previewAs(await portability(), { format: 'postman', title: '' })
     const flow = useImportFlow()
     await flow.openFile(file(POSTMAN_FILE), null)
 
@@ -321,9 +336,46 @@ describe('importing a file', () => {
 
     await flow.confirm()
 
+    const [preview] = calls(svc, 'importPreview')
     const [req] = calls(svc, 'importConfirm').map(c => c.args[0] as Record<string, unknown>)
-    expect(req).toMatchObject({ content: POSTMAN_FILE, includeScripts: false, workspaceId: 'w1' })
-    expect(req).not.toHaveProperty('previewId')
+    expect(preview.args[0]).toBe(POSTMAN_FILE)
+    expect(req).toMatchObject({ previewId: expect.any(String), includeScripts: false, workspaceId: 'w1' })
+    expect(req).not.toHaveProperty('content')
+  })
+
+  it('sends the file again when the kept copy expired, once', async () => {
+    clearToasts()
+    const svc = await portability()
+    const flow = useImportFlow()
+    await flow.openFile(new File([POSTMAN_FILE], 'legacy.json'), 'folder-1')
+    svc.expirePreviews()
+
+    await flow.confirm()
+
+    const reqs = calls(svc, 'importConfirm').map(c => c.args[0] as Record<string, unknown>)
+    expect(reqs).toHaveLength(2)
+    expect(reqs[0]).toMatchObject({ previewId: expect.any(String), parentId: 'folder-1' })
+    expect(reqs[1]).toEqual({
+      content: POSTMAN_FILE, fileName: 'legacy.json', includeScripts: false, workspaceId: 'w1', parentId: 'folder-1',
+    })
+    expect(flow.ui.source).toBeNull()
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported “Legacy”: 0 folders · 0 requests · 0 examples'])
+  })
+
+  it('shows why the second try failed and keeps the dialog open', async () => {
+    const svc = await portability()
+    const confirmed = vi.spyOn(svc, 'importConfirm')
+      .mockResolvedValueOnce({ data: undefined as never, error: { code: 'not_found', reason: 'PREVIEW_EXPIRED', message: 'gone' } })
+      .mockResolvedValueOnce({ data: undefined as never, error: { code: 'validation', reason: 'FILE_TOO_LARGE', message: 'too large' } })
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.confirm()
+
+    expect(confirmed).toHaveBeenCalledTimes(2)
+    expect(flow.ui.confirmError).toBe('The file is larger than 48 MiB')
+    expect(flow.ui.importing).toBe(false)
+    expect(flow.ui.source).not.toBeNull()
   })
 
   it('passes the scripts choice once the user opts in', async () => {
@@ -350,9 +402,8 @@ describe('importing a file', () => {
 
   it('names the file and keeps the folder for HAR and Hoppscotch files', async () => {
     const svc = await portability()
-    const previewed = vi.spyOn(svc, 'importPreview')
-    for (const format of ['har', 'hoppscotch'] as const) {
-      previewed.mockResolvedValueOnce({ data: preview({ format, title: 'session' }) })
+    const previewed = previewAs(svc, { format: 'har', title: 'session' }, { format: 'hoppscotch', title: 'session' })
+    for (let i = 0; i < 2; i++) {
       const flow = useImportFlow()
 
       await flow.openFile(new File([POSTMAN_FILE], 'session.har'), 'folder-1')
@@ -361,8 +412,10 @@ describe('importing a file', () => {
     }
 
     expect(previewed.mock.calls.map(c => c[1])).toEqual(['session.har', 'session.har'])
-    for (const c of calls(svc, 'importConfirm')) {
-      expect(c.args[0]).toMatchObject({ fileName: 'session.har', parentId: 'folder-1' })
+    const confirmed = calls(svc, 'importConfirm')
+    expect(confirmed).toHaveLength(2)
+    for (const c of confirmed) {
+      expect(c.args[0]).toMatchObject({ previewId: expect.any(String), parentId: 'folder-1' })
     }
   })
 
@@ -379,7 +432,8 @@ describe('importing a file', () => {
     expect(flow.destination.value.alwaysTopLevel).toBe(false)
     await flow.confirm()
 
-    expect(calls(svc, 'importConfirm')[0].args[0]).toMatchObject({ content: spec, parentId: 'folder-1' })
+    expect(calls(svc, 'importPreview')[0].args[0]).toBe(spec)
+    expect(calls(svc, 'importConfirm')[0].args[0]).toMatchObject({ previewId: expect.any(String), parentId: 'folder-1' })
   })
 
   it('imports a Tetiva file at the top level even from a folder menu', async () => {
@@ -516,7 +570,10 @@ describe('an environment file in Import', () => {
     vi.spyOn(svc, 'importEnvironment').mockResolvedValueOnce({
       data: {
         environmentId: 'env-1', environmentNames: ['Globals'], variablesCreated: 1,
-        warnings: ['Tetiva has no global variables: they were imported as the environment "Globals"'],
+        warnings: [{
+          code: 'postman_globals', subject: { kind: '', name: '' }, params: { name: 'Globals' },
+          text: 'Tetiva has no global variables: they were imported as the environment "Globals"',
+        }],
       },
     })
     const flow = useImportFlow()
@@ -675,7 +732,10 @@ describe('collection variables', () => {
     ]
     const svc = await portability()
     vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({
-      data: preview({ format: 'insomnia', title: 'Users, Orders', environmentNames: ['Users, Orders · Local', 'Users, Orders · Prod'] }),
+      data: {
+        previewId: 'p-insomnia',
+        preview: preview({ format: 'insomnia', title: 'Users, Orders', environmentNames: ['Users, Orders · Local', 'Users, Orders · Prod'] }),
+      },
     })
     vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
       data: {
@@ -753,8 +813,7 @@ describe('in Russian', () => {
   })
 
   it('names an untitled collection in the toast', async () => {
-    const svc = await portability()
-    vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({ data: preview({ format: 'postman', title: '' }) })
+    previewAs(await portability(), { format: 'postman', title: '' })
     const flow = useImportFlow()
     await flow.openFile(file(POSTMAN_FILE), null)
 
@@ -768,7 +827,7 @@ describe('in Russian', () => {
     vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
       data: {
         collectionId: 'c1', folders: 2, requests: 5, examples: 1, environmentNames: [], activeEnvironment: '',
-        warnings: ['one', 'two', 'three', 'four', 'five'],
+        warnings: ['one', 'two', 'three', 'four', 'five'].map(note),
       },
     })
     const flow = useImportFlow()
@@ -788,6 +847,25 @@ describe('in Russian', () => {
 
     expect(toastsOf('info').map(t => t.message)).toEqual(['Сначала завершите текущий импорт'])
   })
+  it('words the importer notes in the toast', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
+      data: {
+        collectionId: 'c1', folders: 0, requests: 1, examples: 0, environmentNames: [], activeEnvironment: '',
+        warnings: [{
+          code: 'auth_unsupported', subject: { kind: 'request', name: 'Login' }, params: { type: 'ntlm' },
+          text: 'request "Login": auth type "ntlm" is not supported and was imported as no auth',
+        }],
+      },
+    })
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.confirm()
+
+    expect(toastsOf('info').map(t => t.message))
+      .toEqual(['запрос «Login»: тип авторизации «ntlm» не поддерживается, авторизация не импортирована'])
+  })
 })
 
 describe('import wording', () => {
@@ -805,8 +883,17 @@ describe('import wording', () => {
   })
 
   it('counts the warnings a toast leaves out in both languages', () => {
-    expect(importWarningsText(['one', 'two', 'three', 'four'], 'en')).toBe('one; two; three (and 1 more)')
-    expect(importWarningsText(['one', 'two', 'three', 'four'], 'ru')).toBe('one; two; three (и ещё 1)')
+    const four = ['one', 'two', 'three', 'four'].map(note)
+    expect(importWarningsText(four, 'en')).toBe('one; two; three (and 1 more)')
+    expect(importWarningsText(four, 'ru')).toBe('one; two; three (и ещё 1)')
+  })
+
+  it('words each warning from its code', () => {
+    const cookies: ImportWarning = { code: 'har_cookies_dropped', subject: { kind: '', name: '' }, params: {}, text: 'stale' }
+    expect(importWarningsText([cookies], 'en'))
+      .toBe('cookie headers were not imported: add the cookies in the cookie manager if the requests need them')
+     expect(importWarningsText([cookies], 'ru'))
+      .toBe('заголовки Cookie не импортированы\u00a0— если запросам нужны cookie, добавьте их в Cookie Manager')
   })
 
   it('names the size limit in Russian', async () => {
@@ -1218,12 +1305,12 @@ describe('destination', () => {
     const previewed = vi.spyOn(svc, 'importPreview')
     const flow = useImportFlow()
 
-    previewed.mockResolvedValueOnce({ data: preview({ format: 'har' }) })
+    previewed.mockResolvedValueOnce({ data: { previewId: 'p-har', preview: preview({ format: 'har' }) } })
     await flow.openFile(file('{}'), 'secured')
     expect(flow.destination.value).toMatchObject({ folderName: 'Secured', inheritedAuth: '' })
 
     flow.cancel()
-    previewed.mockResolvedValueOnce({ data: preview({ format: 'hoppscotch' }) })
+    previewed.mockResolvedValueOnce({ data: { previewId: 'p-hoppscotch', preview: preview({ format: 'hoppscotch' }) } })
     await flow.openFile(file('{}'), 'secured')
     expect(flow.destination.value.inheritedAuth).toBe('Secured')
   })

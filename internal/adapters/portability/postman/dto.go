@@ -103,11 +103,49 @@ type PostmanRequest struct {
 	Description *PostmanDescription `json:"description,omitempty"`
 }
 
+func (r *PostmanRequest) UnmarshalJSON(b []byte) error {
+	const funcName = "postman.PostmanRequest.UnmarshalJSON"
+
+	var raw string
+	if err := json.Unmarshal(b, &raw); err == nil {
+		*r = PostmanRequest{Method: "GET", URL: PostmanURL{Raw: raw}}
+		return nil
+	}
+	type plainRequest PostmanRequest
+	var obj plainRequest
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	*r = PostmanRequest(obj)
+	return nil
+}
+
 type PostmanURL struct {
 	Raw   string      `json:"raw"`
 	Host  []string    `json:"host,omitempty"`
 	Path  []string    `json:"path,omitempty"`
 	Query []PostmanKV `json:"query,omitempty"`
+}
+
+func (u *PostmanURL) UnmarshalJSON(b []byte) error {
+	const funcName = "postman.PostmanURL.UnmarshalJSON"
+
+	if string(b) == "null" {
+		*u = PostmanURL{}
+		return nil
+	}
+	var raw string
+	if err := json.Unmarshal(b, &raw); err == nil {
+		*u = PostmanURL{Raw: raw}
+		return nil
+	}
+	type plainURL PostmanURL
+	var obj plainURL
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	*u = PostmanURL(obj)
+	return nil
 }
 
 // PostmanKV is a key-value pair used for headers, query params, and form data.

@@ -5,6 +5,8 @@ import { useRequestStore, type Tab } from '@/stores/tabs'
 import { useExamplesStore } from '@/stores/examples'
 import { methodColors, METHOD_COLOR_FALLBACK } from '@/lib/http-methods'
 import { isWailsEnvironment } from '@/services'
+import { useCopy } from '@/composables/useLocale'
+import { EDITOR_COPY } from './copy'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,6 +19,7 @@ const store = useRequestStore()
 const examples = useExamplesStore()
 const isWails = isWailsEnvironment()
 const strip = ref<HTMLElement | null>(null)
+const copy = useCopy(EDITOR_COPY)
 
 watch(() => store.activeTabId, id => {
   const bar = strip.value
@@ -80,7 +83,7 @@ function handleMousedown(e: MouseEvent, tabId: string) {
           <template v-else>
             <Folder class="size-3.5 text-muted-foreground shrink-0" />
             <span class="max-w-[120px] truncate" :title="tab.name">{{ tab.name }}</span>
-            <span class="text-[10px] text-muted-foreground/60 shrink-0">Collection</span>
+            <span class="text-[10px] text-muted-foreground/60 shrink-0">{{ copy.tabs.collection }}</span>
           </template>
 
           <span

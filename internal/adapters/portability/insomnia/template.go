@@ -1,10 +1,11 @@
 package insomnia
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/tetiva-app/client/internal/adapters/portability"
 )
 
 var (
@@ -45,9 +46,9 @@ func (t *templates) leave(name string) {
 	t.left[name]++
 }
 
-func (t *templates) warning() string {
+func (t *templates) warning() []portability.Warning {
 	if len(t.left) == 0 {
-		return ""
+		return nil
 	}
 	total := 0
 	names := make([]string, 0, len(t.left))
@@ -56,11 +57,9 @@ func (t *templates) warning() string {
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	if total == 1 {
-		return fmt.Sprintf("1 Insomnia template tag was left as-is (%s): Tetiva does not run it, use a variable or a script instead", names[0])
+	return []portability.Warning{
+		portability.Warn(portability.WarnInsomniaTemplateTags, portability.Subject{}, "n", total, "names", strings.Join(names, ", ")),
 	}
-	return fmt.Sprintf("%d Insomnia template tags were left as-is (%s): Tetiva does not run them, use variables or scripts instead",
-		total, strings.Join(names, ", "))
 }
 
 func variableName(expr string) (string, bool) {

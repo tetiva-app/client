@@ -88,9 +88,11 @@ func sampleTree() *portability.Tree {
 		Environments: []portability.Environment{{Name: "Shop", Vars: []environment.AddVariable{
 			{Key: "host", Value: "https://api.example.com"}, {Key: "secret", Value: "https://hidden.example.com", IsSecret: true},
 		}}},
-		Warnings: []string{"from the mapping"},
+		Warnings: []portability.Warning{fromMapping},
 	}
 }
+
+var fromMapping = portability.Warn(portability.WarnHoppscotchHeadersCopied, portability.Subject{})
 
 func TestTreePreview(t *testing.T) {
 	p := sampleTree().Preview("x")
@@ -103,7 +105,7 @@ func TestTreePreview(t *testing.T) {
 			{Path: "Shop", Phase: "post", Text: "pm.test()"},
 			{Path: "Shop / Orders / List", Phase: "pre", Text: "pm.x()"},
 		},
-		Warnings: []string{"from the mapping"},
+		Warnings: []portability.Warning{fromMapping},
 	}, p)
 }
 
@@ -117,12 +119,26 @@ func TestTreeWrite(t *testing.T) {
 	assert.Equal(t, 2, res.Requests)
 	assert.Equal(t, 1, res.Examples)
 	assert.Equal(t, []string{"Shop (2)"}, res.EnvironmentNames)
-	assert.Equal(t, []string{"from the mapping", `request "Ping": example "bad" skipped: too long`}, res.Warnings)
+	assert.Equal(t, []string{fromMapping.Text, `request "Ping": example "bad" skipped: too long`}, portability.Texts(res.Warnings))
+	assert.Equal(t, portability.Subject{Kind: portability.KindRequest, Name: "Ping"}, res.Warnings[1].Subject)
+	assert.Equal(t, map[string]string{"example": "bad", "reason": "too long"}, res.Warnings[1].Params)
 	assert.Empty(t, m.collections[0].PostScript)
 	assert.Empty(t, m.requests[0].PreScript)
 	assert.Len(t, m.vars, 2)
 	assert.NotNil(t, m.collections[1].ParentID)
 	assert.Nil(t, m.collections[0].ParentID)
+}
+
+func TestTreeWrite_ExampleOverThePayloadLimit(t *testing.T) {
+	m := &memory{exampleErr: &domain.ValidationError{Fields: map[string]string{example.PayloadField: "example is too large (max 480 KB)"}}}
+
+	res, err := writer(m).Write(context.Background(), sampleTree(), portability.ImportOpt{WorkspaceID: uuid.New()})
+	require.NoError(t, err)
+
+	require.Len(t, res.Warnings, 2)
+	assert.Equal(t, portability.WarnExamplePayloadTooLarge, res.Warnings[1].Code)
+	assert.Equal(t, map[string]string{"example": "bad", "kb": "480"}, res.Warnings[1].Params)
+	assert.Equal(t, `request "Ping": example "bad" skipped: with its headers it is larger than 480 KB`, res.Warnings[1].Text)
 }
 
 func TestTree_OneEnvironmentPerCollection(t *testing.T) {
@@ -166,10 +182,12 @@ func TestTreeWarnings_NameExamplesThatLookSecret(t *testing.T) {
 	warnings := tr.Preview("x").Warnings
 
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], `examples may contain secrets, check them before sharing: "R0" / "200" (`)
-	assert.Contains(t, warnings[0], `"R4" / "200"`)
-	assert.NotContains(t, warnings[0], `"R5"`)
-	assert.Contains(t, warnings[0], "; and 2 more")
+	assert.Equal(t, portability.WarnExampleSecrets, warnings[0].Code)
+	assert.Equal(t, "2", warnings[0].Params["examplesMore"])
+	assert.Contains(t, warnings[0].Text, `examples may contain secrets, check them before sharing: "R0" / "200" (`)
+	assert.Contains(t, warnings[0].Text, `"R4" / "200"`)
+	assert.NotContains(t, warnings[0].Text, `"R5"`)
+	assert.Regexp(t, `"R4" / "200" \([^;]*\) and 2 more$`, warnings[0].Text)
 }
 
 func TestFileTitle(t *testing.T) {

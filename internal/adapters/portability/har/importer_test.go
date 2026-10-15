@@ -107,7 +107,7 @@ func TestBuild_HeadersLoseConnectionNoiseAndCookies(t *testing.T) {
 	}, cart.Headers)
 	add := tr.Root.Folders[0].Requests[1].In
 	assert.Equal(t, []entities.HeaderItem{{Key: "Content-Type", Value: "application/json", Enabled: true}}, add.Headers)
-	assert.Contains(t, tr.Warnings, "cookie headers were not imported: add the cookies in the cookie manager if the requests need them")
+	assert.Contains(t, portability.Texts(tr.Warnings), "cookie headers were not imported: add the cookies in the cookie manager if the requests need them")
 }
 
 func TestBuild_Bodies(t *testing.T) {
@@ -171,7 +171,7 @@ func TestBuild_FilePartsAskToBePickedAgain(t *testing.T) {
 
 	tr := treeOf(t, harOf(t, entry), "")
 
-	assert.Equal(t, []string{"2 file fields were imported without the file; pick it again in the request body"}, tr.Warnings)
+	assert.Equal(t, []string{"2 file fields were imported without the file; pick it again in the request body"}, portability.Texts(tr.Warnings))
 }
 
 func TestBuild_MultipartWithoutFilesIsReported(t *testing.T) {
@@ -189,7 +189,7 @@ func TestBuild_MultipartWithoutFilesIsReported(t *testing.T) {
 	assert.Equal(t, []string{
 		"1 file field was imported without the file; pick it again in the request body",
 		"1 multipart request has no file field and will be sent as a URL-encoded form, not multipart: POST /users",
-	}, tr.Warnings)
+	}, portability.Texts(tr.Warnings))
 }
 
 func TestBuild_ResponseBecomesAnExample(t *testing.T) {
@@ -212,7 +212,7 @@ func TestBuild_ResponseBecomesAnExample(t *testing.T) {
 	logo := tr.Root.Folders[1].Requests[0].Examples[0]
 	assert.Empty(t, logo.Body)
 	assert.Equal(t, "image/png", logo.ContentType)
-	assert.Contains(t, tr.Warnings, "1 response body was left out of the examples: only JSON, XML and plain-text bodies up to 256 KB are kept")
+	assert.Contains(t, portability.Texts(tr.Warnings), "1 response body was left out of the examples: only JSON, XML and plain-text bodies up to 256 KB are kept")
 }
 
 func TestBuild_ExamplesKeepOnlyAPIBodiesAndFailedRequestsHaveNone(t *testing.T) {
@@ -240,7 +240,7 @@ func TestBuild_ExamplesKeepOnlyAPIBodiesAndFailedRequestsHaveNone(t *testing.T) 
 	}
 	assert.Equal(t, []int{0, 256 * 1024, 10, 10, 0, 0}, bodies)
 	assert.Empty(t, tr.Root.Requests[6].Examples)
-	assert.Contains(t, tr.Warnings, "3 response bodies were left out of the examples: only JSON, XML and plain-text bodies up to 256 KB are kept")
+	assert.Contains(t, portability.Texts(tr.Warnings), "3 response bodies were left out of the examples: only JSON, XML and plain-text bodies up to 256 KB are kept")
 }
 
 func TestBuild_SkipsWhatIsNotHTTP(t *testing.T) {
@@ -260,7 +260,7 @@ func TestBuild_SkipsWhatIsNotHTTP(t *testing.T) {
 		"1 blob: entry skipped: only HTTP requests are imported",
 		"2 chrome-extension: entries skipped: only HTTP requests are imported",
 		"1 data: entry skipped: only HTTP requests are imported",
-	}, tr.Warnings)
+	}, portability.Texts(tr.Warnings))
 }
 
 func TestBuild_SkipsPageAssets(t *testing.T) {
@@ -289,7 +289,10 @@ func TestBuild_SkipsPageAssets(t *testing.T) {
 		names = append(names, r.In.Name)
 	}
 	assert.Equal(t, []string{"GET /a", "GET /b", "GET /", "GET /c", "GET /d"}, names)
-	assert.Equal(t, []string{"7 page asset entries skipped: images, scripts, stylesheets, fonts and media are not imported"}, tr.Warnings)
+	assert.Equal(t, []string{"7 page asset entries skipped: images, scripts, stylesheets, fonts and media are not imported"}, portability.Texts(tr.Warnings))
+	assert.Equal(t, portability.WarnHARAssetsSkipped, tr.Warnings[0].Code)
+	assert.Equal(t, portability.Subject{}, tr.Warnings[0].Subject)
+	assert.Equal(t, map[string]string{"n": "7"}, tr.Warnings[0].Params)
 }
 
 func TestBuild_ReportsCredentialsKeptFromTheCapture(t *testing.T) {
@@ -308,10 +311,10 @@ func TestBuild_ReportsCredentialsKeptFromTheCapture(t *testing.T) {
 	), "")
 
 	assert.Equal(t, "Bearer abc", tr.Root.Requests[0].In.Headers[0].Value)
-	assert.Contains(t, tr.Warnings,
+	assert.Contains(t, portability.Texts(tr.Warnings),
 		"3 requests keep credentials from the capture in their headers or query parameters as plain values: move them to secret variables before sharing")
 	one := treeOf(t, readFixture(t, "two-hosts.har"), "")
-	assert.Contains(t, one.Warnings,
+	assert.Contains(t, portability.Texts(one.Warnings),
 		"1 request keeps credentials from the capture in its headers or query parameters as plain values: move them to secret variables before sharing")
 }
 

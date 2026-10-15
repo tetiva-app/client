@@ -25,7 +25,7 @@ type ImportEnvResult struct {
 	EnvironmentID    uuid.UUID
 	EnvironmentName  string
 	VariablesCreated int
-	Warnings         []string
+	Warnings         []portability.Warning
 }
 
 type EnvironmentCreator interface {
@@ -94,11 +94,10 @@ func ImportEnvironment(
 
 	result := &ImportEnvResult{EnvironmentID: env.ID, EnvironmentName: env.Name, VariablesCreated: len(vars)}
 	if globals {
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tetiva has no global variables: they were imported as the environment %q", env.Name))
+		result.Warnings = append(result.Warnings, portability.Warn(portability.WarnPostmanGlobals, portability.Subject{}, "name", env.Name))
 	}
 	if unnamed > 0 {
-		result.Warnings = append(result.Warnings, unnamedVariablesWarning(unnamed))
+		result.Warnings = append(result.Warnings, portability.Warn(portability.WarnVariablesUnnamed, portability.Subject{}, "n", unnamed))
 	}
 	return result, nil
 }
@@ -134,13 +133,6 @@ func createEnvironment(
 		}
 	}
 	return env, nil
-}
-
-func unnamedVariablesWarning(n int) string {
-	if n == 1 {
-		return "a variable without a name was skipped"
-	}
-	return fmt.Sprintf("%d variables without a name were skipped", n)
 }
 
 func IsEnvironment(data []byte) bool {

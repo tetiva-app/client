@@ -518,3 +518,10 @@ func apiKeyAddTo(f auth.Fields) string {
 	}
 	return f.Str("in")
 }
+
+func itemLabel(kind, name string) string {
+	if name == "" {
+		return kind
+	}
+	return fmt.Sprintf("%s %q", kind, name)
+}

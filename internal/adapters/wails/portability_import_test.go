@@ -218,7 +218,7 @@ func TestPreviewCache_FifthEntryEvictsTheOldest(t *testing.T) {
 	c := newPreviewCache()
 	var ids []string
 	for i := range 5 {
-		id, err := c.put([]byte{byte(i)})
+		id, err := c.put([]byte{byte(i)}, "f.json")
 		require.NoError(t, err)
 		ids = append(ids, id)
 	}
@@ -226,13 +226,111 @@ func TestPreviewCache_FifthEntryEvictsTheOldest(t *testing.T) {
 	_, ok := c.get(ids[0])
 	assert.False(t, ok)
 	for i, id := range ids[1:] {
-		data, ok := c.get(id)
+		e, ok := c.get(id)
 		require.True(t, ok)
-		assert.Equal(t, []byte{byte(i + 1)}, data)
+		assert.Equal(t, []byte{byte(i + 1)}, e.data)
+		assert.Equal(t, "f.json", e.fileName)
 	}
+}
 
-	_, err := c.put(make([]byte, 8<<20+1))
+func TestPreviewCache_TotalBudgetEvictsTheOldest(t *testing.T) {
+	c := newPreviewCache()
+	c.maxBytes, c.maxTotal = 10, 16
+	first, err := c.put(make([]byte, 8), "")
+	require.NoError(t, err)
+	second, err := c.put(make([]byte, 8), "")
+	require.NoError(t, err)
+
+	third, err := c.put(make([]byte, 1), "")
+	require.NoError(t, err)
+
+	_, ok := c.get(first)
+	assert.False(t, ok)
+	for _, id := range []string{second, third} {
+		_, ok := c.get(id)
+		assert.True(t, ok)
+	}
+	_, err = c.put(make([]byte, 11), "")
 	require.Error(t, err)
+	_, ok = c.get(second)
+	assert.True(t, ok)
+}
+
+func TestPreviewCache_DropsAnUnconfirmedPreviewWhenItExpires(t *testing.T) {
+	c := newPreviewCache()
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	var expire func()
+	var delay time.Duration
+	c.afterFunc = func(d time.Duration, f func()) { delay, expire = d, f }
+
+	_, err := c.put(make([]byte, 8), "big.har")
+	require.NoError(t, err)
+	require.NotNil(t, expire)
+	assert.Equal(t, previewTTL, delay)
+
+	now = now.Add(previewTTL)
+	expire()
+
+	assert.Empty(t, c.entries)
+}
+
+func TestPreviewCache_HoldsAFileAtTheImportLimit(t *testing.T) {
+	c := newPreviewCache()
+
+	_, err := c.put(make([]byte, portability.MaxFileBytes), "")
+	require.NoError(t, err)
+	_, err = c.put(make([]byte, portability.MaxFileBytes+1), "")
+	require.Error(t, err)
+}
+
+func TestImportPreview_ConfirmByPreviewIDTakesTheFileOnce(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+
+	previewed := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: threeRequestPostman})
+	require.Nil(t, previewed.Error)
+	assert.NotEmpty(t, previewed.Data.PreviewID)
+	assert.Equal(t, 3, previewed.Data.Preview.Requests)
+
+	confirmed := f.svc.ImportConfirm(dto.ImportConfirmRequest{PreviewID: previewed.Data.PreviewID, WorkspaceID: importWorkspace})
+	require.Nil(t, confirmed.Error)
+	assert.Equal(t, 3, confirmed.Data.Requests)
+	assert.Equal(t, 3, f.count(t, "requests"))
+
+	again := f.svc.ImportConfirm(dto.ImportConfirmRequest{PreviewID: previewed.Data.PreviewID, WorkspaceID: importWorkspace})
+	requireReason(t, again, ErrCodeNotFound, portability.ReasonPreviewExpired)
+	assert.Equal(t, 3, f.count(t, "requests"))
+}
+
+func TestImportPreview_ConfirmByPreviewIDNamesAHARAfterThePreviewedFile(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	parent := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: threeRequestPostman, WorkspaceID: importWorkspace})
+	require.Nil(t, parent.Error)
+
+	previewed := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: twoEntryHAR, FileName: "session.har"})
+	require.Nil(t, previewed.Error)
+	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{
+		PreviewID: previewed.Data.PreviewID, WorkspaceID: importWorkspace, ParentID: &parent.Data.CollectionID,
+	})
+
+	require.Nil(t, res.Error)
+	var name string
+	var parentID sql.NullString
+	require.NoError(t, f.db.QueryRow(`SELECT name, parent_id FROM collections WHERE id = ?`, res.Data.CollectionID).Scan(&name, &parentID))
+	assert.Equal(t, "session", name)
+	assert.Equal(t, parent.Data.CollectionID, parentID.String)
+}
+
+func TestImportPreview_ConfirmsALargeFileByPreviewID(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	big := threeRequestPostman + strings.Repeat(" ", 12<<20)
+
+	previewed := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: big})
+	require.Nil(t, previewed.Error)
+	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{PreviewID: previewed.Data.PreviewID, WorkspaceID: importWorkspace})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, 3, res.Data.Requests)
 }
 
 func TestImportConfirm_RollsBackEveryFormat(t *testing.T) {
@@ -289,7 +387,9 @@ func TestImportEnvironment_ThroughTheService(t *testing.T) {
 	assert.Equal(t, []string{"Dev"}, first.Data.EnvironmentNames)
 	assert.Equal(t, []string{"Dev (2)"}, second.Data.EnvironmentNames)
 	assert.Equal(t, 2, first.Data.VariablesCreated)
-	assert.Equal(t, []string{"a variable without a name was skipped"}, first.Data.Warnings)
+	assert.Equal(t, []string{"a variable without a name was skipped"}, warningTexts(first.Data.Warnings))
+	assert.Equal(t, "variables_unnamed", first.Data.Warnings[0].Code)
+	assert.Equal(t, map[string]string{"n": "1"}, first.Data.Warnings[0].Params)
 	var enabled []bool
 	rows, err := f.db.Query(`SELECT enabled FROM variables WHERE environment_id = ? ORDER BY rowid`, first.Data.EnvironmentID)
 	require.NoError(t, err)
@@ -407,29 +507,29 @@ func TestImportPreview_DetectsTheFormat(t *testing.T) {
 
 	postmanPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: threeRequestPostman})
 	require.Nil(t, postmanPreview.Error)
-	assert.Equal(t, "postman", postmanPreview.Data.Format)
-	assert.Equal(t, []string{"a.example.com", "b.example.com", "c.example.com"}, postmanPreview.Data.Hosts)
-	assert.NotNil(t, postmanPreview.Data.Scripts)
-	assert.NotNil(t, postmanPreview.Data.Warnings)
+	assert.Equal(t, "postman", postmanPreview.Data.Preview.Format)
+	assert.Equal(t, []string{"a.example.com", "b.example.com", "c.example.com"}, postmanPreview.Data.Preview.Hosts)
+	assert.NotNil(t, postmanPreview.Data.Preview.Scripts)
+	assert.NotNil(t, postmanPreview.Data.Preview.Warnings)
 
 	snapPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: string(allProtocolsSnapshot(t))})
 	require.Nil(t, snapPreview.Error)
-	assert.Equal(t, "tetiva", snapPreview.Data.Format)
-	assert.Equal(t, []string{"prod"}, snapPreview.Data.EnvironmentNames)
+	assert.Equal(t, "tetiva", snapPreview.Data.Preview.Format)
+	assert.Equal(t, []string{"prod"}, snapPreview.Data.Preview.EnvironmentNames)
 
 	harPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: twoEntryHAR, FileName: "session.har"})
 	require.Nil(t, harPreview.Error)
-	assert.Equal(t, "har", harPreview.Data.Format)
-	assert.Equal(t, "session", harPreview.Data.Title)
-	assert.Equal(t, 2, harPreview.Data.Folders)
+	assert.Equal(t, "har", harPreview.Data.Preview.Format)
+	assert.Equal(t, "session", harPreview.Data.Preview.Title)
+	assert.Equal(t, 2, harPreview.Data.Preview.Folders)
 
 	hoppPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: hoppscotchCollection, FileName: "ignored.json"})
 	require.Nil(t, hoppPreview.Error)
-	assert.Equal(t, "hoppscotch", hoppPreview.Data.Format)
-	assert.Equal(t, "H", hoppPreview.Data.Title)
-	assert.Equal(t, []string{"H"}, hoppPreview.Data.EnvironmentNames)
-	assert.Equal(t, []string{"h.example.com"}, hoppPreview.Data.Hosts)
-	assert.Len(t, hoppPreview.Data.Scripts, 1)
+	assert.Equal(t, "hoppscotch", hoppPreview.Data.Preview.Format)
+	assert.Equal(t, "H", hoppPreview.Data.Preview.Title)
+	assert.Equal(t, []string{"H"}, hoppPreview.Data.Preview.EnvironmentNames)
+	assert.Equal(t, []string{"h.example.com"}, hoppPreview.Data.Preview.Hosts)
+	assert.Len(t, hoppPreview.Data.Preview.Scripts, 1)
 
 	junk := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: `{"hello":"world"}`})
 	requireReason(t, junk, ErrCodeValidation, portability.ReasonUnsupportedFile)
@@ -454,9 +554,9 @@ func TestImportOpenAPI_PreviewThenConfirmIntoAFolder(t *testing.T) {
 
 	preview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: openAPIYAML})
 	require.Nil(t, preview.Error)
-	assert.Equal(t, "openapi", preview.Data.Format)
-	assert.Equal(t, "Shop", preview.Data.Title)
-	assert.Equal(t, []string{"shop.example.com"}, preview.Data.Hosts)
+	assert.Equal(t, "openapi", preview.Data.Preview.Format)
+	assert.Equal(t, "Shop", preview.Data.Preview.Title)
+	assert.Equal(t, []string{"shop.example.com"}, preview.Data.Preview.Hosts)
 
 	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: openAPIYAML, WorkspaceID: importWorkspace, ParentID: &parent.Data.CollectionID})
 	require.Nil(t, res.Error)
@@ -634,8 +734,8 @@ func TestImportConfirm_HoppscotchScriptsFollowTheFlag(t *testing.T) {
 	var scripts int
 	require.NoError(t, f.db.QueryRow(`SELECT COUNT(*) FROM requests WHERE pre_script != ''`).Scan(&scripts))
 	assert.Equal(t, 1, scripts)
-	assert.Contains(t, with.Data.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
-	assert.NotContains(t, without.Data.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+	assert.Contains(t, warningTexts(with.Data.Warnings), "Hoppscotch scripts use the pw.* / hopp.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+	assert.NotContains(t, warningTexts(without.Data.Warnings), "Hoppscotch scripts use the pw.* / hopp.* API, which Tetiva does not run: rewrite them to pm.* after importing")
 }
 
 func TestImportEnvironment_TakesHoppscotchEnvironments(t *testing.T) {
@@ -654,7 +754,7 @@ func TestImportEnvironment_TakesHoppscotchEnvironments(t *testing.T) {
 	require.Nil(t, one.Error)
 	assert.Equal(t, []string{"Dev"}, one.Data.EnvironmentNames)
 	assert.Equal(t, 2, one.Data.VariablesCreated)
-	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, one.Data.Warnings)
+	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, warningTexts(one.Data.Warnings))
 	var value string
 	var secret bool
 	require.NoError(t, f.db.QueryRow(`SELECT value, is_secret FROM variables WHERE environment_id = ? AND key = 'host'`, one.Data.EnvironmentID).Scan(&value, &secret))
@@ -669,7 +769,7 @@ func TestImportEnvironment_TakesHoppscotchEnvironments(t *testing.T) {
 	twice := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: "[" + single + "," + single + "]", WorkspaceID: importWorkspace})
 	require.Nil(t, twice.Error)
 	assert.Equal(t, []string{"Dev (2)", "Dev (3)"}, twice.Data.EnvironmentNames)
-	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, twice.Data.Warnings)
+	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, warningTexts(twice.Data.Warnings))
 }
 
 func TestImportEnvironment_RefusesCollectionsOfEveryFormat(t *testing.T) {
@@ -693,4 +793,12 @@ func TestImport_RefusesFilesOverTheSizeLimit(t *testing.T) {
 	requireReason(t, f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: big, WorkspaceID: importWorkspace}), ErrCodeValidation, portability.ReasonFileTooLarge)
 	assert.Zero(t, f.count(t, "requests"))
 	assert.Nil(t, f.svc.ImportPreview(dto.ImportPreviewRequest{Content: threeRequestPostman + strings.Repeat(" ", portability.MaxFileBytes-len(threeRequestPostman))}).Error)
+}
+
+func warningTexts(ws []dto.ImportWarning) []string {
+	out := make([]string, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, w.Text)
+	}
+	return out
 }

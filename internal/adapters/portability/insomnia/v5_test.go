@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
@@ -102,7 +103,7 @@ func TestImportV5_Warnings(t *testing.T) {
 		`1 Insomnia template tag was left as-is (prompt): Tetiva does not run it, use a variable or a script instead`,
 		`1 Socket.IO request was skipped: Tetiva does not support Socket.IO`,
 		`1 unit test was not imported`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImportV4YAML(t *testing.T) {

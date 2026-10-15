@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
@@ -41,7 +42,7 @@ func TestImportCollection_FromSnapshotConverter(t *testing.T) {
 		`request "Загрузить фото": file field "file" was imported without its file; pick it again`,
 		`request "Replace avatar": the file body was imported without its file; pick it again`,
 		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes",
-	}, result.Warnings)
+	}, portability.Texts(result.Warnings))
 	assert.Equal(t, 4, result.FoldersCreated)
 	assert.Equal(t, 10, result.RequestsCreated)
 

@@ -119,7 +119,7 @@ func TestImportCollection_UnreadableVariablesNeverFailTheImport(t *testing.T) {
 			res := importWithEnvironments(t, collectionWithVariables(tc.variable), envUC)
 
 			assert.Equal(t, 1, res.RequestsCreated)
-			assert.Equal(t, []string{"collection variables could not be read and were skipped"}, res.Warnings)
+			assert.Equal(t, []string{"collection variables could not be read and were skipped"}, portability.Texts(res.Warnings))
 			var keys []string
 			for _, v := range envUC.createdVars {
 				keys = append(keys, v.Key)
@@ -149,13 +149,13 @@ func TestImportCollection_UnnamedVariablesAreSkipped(t *testing.T) {
 	one := &stubEnvironmentUC{}
 	res := importWithEnvironments(t, collectionWithVariables(`[{"key":"","value":"1"}]`), one)
 	assert.Nil(t, one.createdEnv)
-	assert.Equal(t, []string{"a variable without a name was skipped"}, res.Warnings)
+	assert.Equal(t, []string{"a variable without a name was skipped"}, portability.Texts(res.Warnings))
 
 	many := &stubEnvironmentUC{}
 	res = importWithEnvironments(t, collectionWithVariables(`[{"key":" ","value":"1"},{"value":"2"},{"key":"a","value":"3"}]`), many)
 	require.Len(t, many.createdVars, 1)
 	assert.Equal(t, "a", many.createdVars[0].Key)
-	assert.Equal(t, []string{"2 variables without a name were skipped"}, res.Warnings)
+	assert.Equal(t, []string{"2 variables without a name were skipped"}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_EnvironmentName(t *testing.T) {

@@ -16,8 +16,6 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
-const scriptsWarning = "Insomnia scripts use the insomnia.* API, which Tetiva does not run: rewrite them to pm.* after importing"
-
 type plan struct {
 	includeScripts bool
 	tpl            templates
@@ -28,7 +26,7 @@ type plan struct {
 	requests int
 	urls     []string
 	scripts  []portability.ScriptPreview
-	warnings []string
+	warnings []portability.Warning
 
 	pathVars         []environment.AddVariable
 	pathConflicts    []string
@@ -65,7 +63,7 @@ func newPlan(ex *export, includeScripts bool) *plan {
 		name := orUntitled(ws.name)
 		root := &folderPlan{in: collection.Create{
 			Name:        name,
-			Description: p.description(itemLabel("collection", name), ws.description),
+			Description: p.description(portability.Subject{Kind: portability.KindCollection, Name: name}, ws.description),
 			AuthType:    entities.AuthTypeNone,
 			AuthData:    "{}",
 		}}
@@ -73,11 +71,8 @@ func newPlan(ex *export, includeScripts bool) *plan {
 		p.roots = append(p.roots, root)
 		p.environments(ws, name)
 		if len(p.pathConflicts) > 0 {
-			subject := "path parameter " + p.pathConflicts[0] + " differs"
-			if len(p.pathConflicts) > 1 {
-				subject = "path parameters " + strings.Join(p.pathConflicts, ", ") + " differ"
-			}
-			p.warn(subject + " between requests: the environment keeps the first value")
+			p.warn(portability.WarnInsomniaPathParamsDiffer, portability.Subject{},
+				"n", len(p.pathConflicts), "names", strings.Join(p.pathConflicts, ", "))
 		}
 	}
 	p.finish(ex)
@@ -85,56 +80,50 @@ func newPlan(ex *export, includeScripts bool) *plan {
 }
 
 func (p *plan) finish(ex *export) {
+	none := portability.Subject{}
 	if len(p.roots) > 1 {
 		names := make([]string, 0, len(p.roots))
 		for _, r := range p.roots {
-			names = append(names, fmt.Sprintf("%q", r.in.Name))
+			names = append(names, `"`+r.in.Name+`"`)
 		}
-		p.warn(fmt.Sprintf("the file has %d workspaces, each was imported as its own collection: %s", len(p.roots), strings.Join(names, ", ")))
+		p.warn(portability.WarnInsomniaWorkspaces, none, "n", len(p.roots), "names", strings.Join(names, ", "))
 	}
 	if p.disabledParams > 0 {
-		p.warn(portability.Plural(p.disabledParams, "disabled query parameter was", "disabled query parameters were") +
-			" dropped: Tetiva keeps query parameters in the URL")
+		p.warn(portability.WarnInsomniaDisabledParams, none, "n", p.disabledParams)
 	}
 	if p.disabledMetadata > 0 {
-		p.warn(portability.Plural(p.disabledMetadata, "disabled gRPC metadata item was", "disabled gRPC metadata items were") + " dropped")
+		p.warn(portability.WarnInsomniaDisabledMetadata, none, "n", p.disabledMetadata)
 	}
 	if len(p.textForms) > 0 {
-		p.warn(portability.URLEncodedForms(p.textForms))
+		p.warn(portability.WarnFormsSentURLEncoded, none, "n", len(p.textForms), "requests", portability.List{Items: p.textForms})
 	}
 	if p.grpc > 0 {
-		p.warn("gRPC requests were imported without their proto files: pick a .proto file or use server reflection")
+		p.warn(portability.WarnInsomniaGRPCNoProto, none)
 	}
 	if p.vaultSecrets > 0 {
-		p.warn(portability.Plural(p.vaultSecrets,
-			"vault secret was imported as an empty secret variable: fill in its value",
-			"vault secrets were imported as empty secret variables: fill in their values"))
+		p.warn(portability.WarnInsomniaVaultSecrets, none, "n", p.vaultSecrets)
 	}
-	if w := p.tpl.warning(); w != "" {
-		p.warn(w)
-	}
+	p.warnings = append(p.warnings, p.tpl.warning()...)
 	if p.scriptsImported {
-		p.warn(scriptsWarning)
+		p.warn(portability.WarnForeignScripts, none, "app", "Insomnia", "api", "insomnia.*")
 	}
 	for _, skipped := range []struct {
-		n         int
-		one, many string
+		n    int
+		code portability.WarningCode
 	}{
-		{ex.socketIOs,
-			"Socket.IO request was skipped: Tetiva does not support Socket.IO",
-			"Socket.IO requests were skipped: Tetiva does not support Socket.IO"},
-		{ex.unitTests, "unit test was not imported", "unit tests were not imported"},
-		{ex.cookies, "cookie from the cookie jar was not imported", "cookies from the cookie jar were not imported"},
-		{ex.specs, "API spec document was not imported", "API spec documents were not imported"},
+		{ex.socketIOs, portability.WarnInsomniaSocketIOSkipped},
+		{ex.unitTests, portability.WarnInsomniaUnitTestsSkipped},
+		{ex.cookies, portability.WarnInsomniaCookiesSkipped},
+		{ex.specs, portability.WarnInsomniaSpecsSkipped},
 	} {
 		if skipped.n > 0 {
-			p.warn(portability.Plural(skipped.n, skipped.one, skipped.many))
+			p.warn(skipped.code, none, "n", skipped.n)
 		}
 	}
 }
 
-func (p *plan) warn(msg string) {
-	p.warnings = append(p.warnings, msg)
+func (p *plan) warn(code portability.WarningCode, subject portability.Subject, kv ...any) {
+	p.warnings = append(p.warnings, portability.Warn(code, subject, kv...))
 }
 
 func (p *plan) items(parent *folderPlan, path string, items []*resource) {
@@ -149,16 +138,16 @@ func (p *plan) items(parent *folderPlan, path string, items []*resource) {
 
 func (p *plan) folder(r *resource, parentPath string) *folderPlan {
 	name := orUntitled(r.Name)
-	label := itemLabel("folder", name)
+	subject := portability.Subject{Kind: portability.KindFolder, Name: name}
 	path := parentPath + " / " + name
-	f := &folderPlan{in: collection.Create{Name: name, Description: p.description(label, r.Description)}}
-	f.in.AuthType, f.in.AuthData = p.auth(label, r.Authentication, false)
+	f := &folderPlan{in: collection.Create{Name: name, Description: p.description(subject, r.Description)}}
+	f.in.AuthType, f.in.AuthData = p.auth(subject, r.Authentication, false)
 	f.in.PreScript, f.in.PostScript = p.scriptsOf(path, r)
 	if len(r.Headers) > 0 {
-		p.warn(fmt.Sprintf("%s: folder headers were not imported", label))
+		p.warn(portability.WarnInsomniaFolderHeaders, subject)
 	}
 	if len(r.Environment) > 0 {
-		p.warn(fmt.Sprintf("%s: folder environment variables were not imported", label))
+		p.warn(portability.WarnInsomniaFolderEnvironment, subject)
 	}
 	p.folders++
 	p.items(f, path, r.Children)
@@ -167,9 +156,9 @@ func (p *plan) folder(r *resource, parentPath string) *folderPlan {
 
 func (p *plan) request(r *resource, parentPath string) request.Create {
 	name := orUntitled(r.Name)
-	label := itemLabel("request", name)
+	subject := portability.Subject{Kind: portability.KindRequest, Name: name}
 	c := p.tpl.conv
-	in := request.Create{Name: name, Description: p.description(label, r.Description), BodyType: entities.BodyTypeNone}
+	in := request.Create{Name: name, Description: p.description(subject, r.Description), BodyType: entities.BodyTypeNone}
 
 	switch r.Type {
 	case typeGRPC:
@@ -182,20 +171,20 @@ func (p *plan) request(r *resource, parentPath string) request.Create {
 	case typeWebSocket:
 		in.Protocol, in.Method, in.URL = entities.ProtocolWebSocket, entities.MethodGET, p.url(r)
 		in.Headers = p.headers(r.Headers)
-		in.AuthType, in.AuthData = p.auth(label, r.Authentication, true)
+		in.AuthType, in.AuthData = p.auth(subject, r.Authentication, true)
 		in.BodyType, in.Body = entities.BodyTypeRaw, p.wsSettings(r)
 	default:
 		in.Protocol, in.URL = entities.ProtocolHTTP, p.url(r)
 		in.Method = entities.HTTPMethod(strings.ToUpper(r.Method))
 		if !in.Method.IsValid() {
 			if r.Method != "" {
-				p.warn(fmt.Sprintf("%s: method %s is not supported and was imported as GET", label, r.Method))
+				p.warn(portability.WarnInsomniaMethodUnsupported, subject, "method", r.Method)
 			}
 			in.Method = entities.MethodGET
 		}
 		in.Headers = p.headers(r.Headers)
-		in.AuthType, in.AuthData = p.auth(label, r.Authentication, true)
-		p.body(&in, label, r.Body)
+		in.AuthType, in.AuthData = p.auth(subject, r.Authentication, true)
+		p.body(&in, subject, r.Body)
 	}
 	in.PreScript, in.PostScript = p.scriptsOf(parentPath+" / "+name, r)
 	p.urls = append(p.urls, in.URL)
@@ -264,12 +253,12 @@ func (p *plan) metadata(md []pair) map[string][]string {
 	return out
 }
 
-func (p *plan) body(in *request.Create, label string, b body) {
+func (p *plan) body(in *request.Create, subject portability.Subject, b body) {
 	c := p.tpl.conv
 	mime := mediaType(b.MimeType)
 	switch {
 	case mime == "application/graphql":
-		p.graphQL(in, label, b.Text)
+		p.graphQL(in, subject, b.Text)
 	case mime == "application/x-www-form-urlencoded" || mime == "multipart/form-data":
 		in.Headers = slices.DeleteFunc(in.Headers, func(h entities.HeaderItem) bool {
 			return strings.EqualFold(strings.TrimSpace(h.Key), "Content-Type") && mediaType(h.Value) == mime
@@ -280,18 +269,18 @@ func (p *plan) body(in *request.Create, label string, b body) {
 			field := formField{Key: c(f.Name), Value: c(f.Value), Type: "text", Enabled: !f.Disabled}
 			if f.Type == "file" {
 				field.Type, field.Value, files = "file", "", true
-				p.warn(fmt.Sprintf("%s: file field %q was imported without its file; pick it again", label, f.Name))
+				p.warn(portability.WarnFileFieldDropped, subject, "field", f.Name)
 			}
 			fields = append(fields, field)
 		}
 		if mime == "multipart/form-data" && !files {
-			p.textForms = append(p.textForms, fmt.Sprintf("%q", in.Name))
+			p.textForms = append(p.textForms, `"`+in.Name+`"`)
 		}
 		raw, _ := json.Marshal(fields)
 		in.BodyType, in.Body = entities.BodyTypeForm, string(raw)
 	case mime == "application/octet-stream" || b.FileName != "":
 		if b.FileName != "" {
-			p.warn(fmt.Sprintf("%s: the file body was imported without its file; pick it again", label))
+			p.warn(portability.WarnFileBodyDropped, subject)
 		}
 		in.BodyType = entities.BodyTypeBinary
 	case mime == "" && b.Text == "":
@@ -304,7 +293,7 @@ func (p *plan) body(in *request.Create, label string, b body) {
 	}
 }
 
-func (p *plan) graphQL(in *request.Create, label, text string) {
+func (p *plan) graphQL(in *request.Create, subject portability.Subject, text string) {
 	in.Protocol, in.Method, in.BodyType = entities.ProtocolGraphQL, entities.MethodPOST, entities.BodyTypeNone
 	var gql struct {
 		Query         string          `json:"query"`
@@ -312,7 +301,7 @@ func (p *plan) graphQL(in *request.Create, label, text string) {
 		OperationName string          `json:"operationName"`
 	}
 	if err := json.Unmarshal([]byte(text), &gql); err != nil {
-		p.warn(fmt.Sprintf("%s: the GraphQL body is not JSON and was imported as the query", label))
+		p.warn(portability.WarnInsomniaGraphQLNotJSON, subject)
 		in.GraphQLQuery = p.tpl.conv(text)
 		return
 	}
@@ -428,11 +417,9 @@ func merge(base, over []environment.AddVariable) []environment.AddVariable {
 	return out
 }
 
-func (p *plan) description(label, s string) string {
-	text, warning := portability.ClampDescription(label, s)
-	if warning != "" {
-		p.warn(warning)
-	}
+func (p *plan) description(subject portability.Subject, s string) string {
+	text, warnings := portability.ClampDescription(subject, s)
+	p.warnings = append(p.warnings, warnings...)
 	return text
 }
 
@@ -454,8 +441,4 @@ func orUntitled(name string) string {
 		return "Untitled"
 	}
 	return name
-}
-
-func itemLabel(kind, name string) string {
-	return fmt.Sprintf("%s %q", kind, name)
 }

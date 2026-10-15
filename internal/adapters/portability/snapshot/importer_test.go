@@ -159,7 +159,10 @@ func TestImport_AllProtocols(t *testing.T) {
 	assert.Equal(t, []string{
 		`request "Загрузить фото": file field "file" was imported without its file; pick it again`,
 		`request "Replace avatar": the file body was imported without its file; pick it again`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
+	assert.Equal(t, portability.WarnFileFieldDropped, res.Warnings[0].Code)
+	assert.Equal(t, portability.Subject{Kind: portability.KindRequest, Name: "Загрузить фото"}, res.Warnings[0].Subject)
+	assert.Equal(t, map[string]string{"field": "file"}, res.Warnings[0].Params)
 
 	tr := e.tree(t)
 	root := tr.cols["Petstore API — демо"]
@@ -340,7 +343,7 @@ func TestImport_FolderAuthPassThroughAndRequestAuthAsIs(t *testing.T) {
 	assert.Equal(t, []string{
 		`folder "Unknown": auth type "hawk" is not supported and was imported as no auth`,
 		`request "Req unknown": auth type "ntlm" is not supported and was imported as no auth`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImport_MaliciousSnapshot(t *testing.T) {
@@ -445,7 +448,7 @@ func TestImport_Normalisation(t *testing.T) {
 	assert.Equal(t, p.Examples, res.Examples)
 	assert.Equal(t, []string{
 		`request "` + strings.Repeat("н", 40) + `…": name longer than 200 characters was truncated`,
-		`request "` + strings.Repeat("н", 200) + `": description longer than 16384 bytes was truncated`,
+		`request "` + strings.Repeat("н", 200) + `": description longer than 16,384 bytes was truncated`,
 		`an unnamed request in "Imported" was imported as "Untitled"`,
 		`request "Odd": method "FETCH" is not supported, imported as GET`,
 		`request "Odd": body type "yaml" is not supported, imported without a body`,
@@ -454,7 +457,8 @@ func TestImport_Normalisation(t *testing.T) {
 		`request "Examples": example "Huge" skipped: body is larger than 256 KB`,
 		`request "Examples": example "Odd status": status 1200 is outside 0–999, imported as 0`,
 		`an unnamed example in "Imported / Examples" was imported as "Untitled"`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
+	assert.Equal(t, map[string]string{"kind": "request", "parent": "Imported", "name": "Untitled"}, res.Warnings[2].Params)
 
 	tr := e.tree(t)
 	long := tr.reqs[strings.Repeat("н", 200)]

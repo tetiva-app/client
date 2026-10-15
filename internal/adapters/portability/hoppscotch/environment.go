@@ -30,7 +30,7 @@ type EnvironmentResult struct {
 	ID        uuid.UUID
 	Names     []string
 	Variables int
-	Warnings  []string
+	Warnings  []portability.Warning
 }
 
 func IsEnvironment(data []byte) bool {
@@ -103,6 +103,6 @@ func ImportEnvironments(ctx context.Context, data []byte, envs portability.Envir
 	return res, nil
 }
 
-func secretsWarning(keys []string) string {
-	return "Hoppscotch exports secrets without their values: fill in " + strings.Join(keys, ", ")
+func secretsWarning(keys []string) portability.Warning {
+	return portability.Warn(portability.WarnHoppscotchSecretsEmpty, portability.Subject{}, "keys", strings.Join(keys, ", "))
 }

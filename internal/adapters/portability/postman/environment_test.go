@@ -100,7 +100,7 @@ func TestImportEnvironment_SkipsVariablesWithoutAName(t *testing.T) {
 	res, err := importEnv(t, one, `{"name":"Dev","values":[{"key":"","value":"x"},{"key":"kept","value":"y"}]}`)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.VariablesCreated)
-	assert.Equal(t, []string{"a variable without a name was skipped"}, res.Warnings)
+	assert.Equal(t, []string{"a variable without a name was skipped"}, portability.Texts(res.Warnings))
 	require.Len(t, one.createdVars, 1)
 	assert.Equal(t, "kept", one.createdVars[0].Key)
 
@@ -108,7 +108,7 @@ func TestImportEnvironment_SkipsVariablesWithoutAName(t *testing.T) {
 	res, err = importEnv(t, many, `{"name":"Dev","values":[{"key":"  "},{"value":"x"},{"key":"\t"}]}`)
 	require.NoError(t, err)
 	assert.Zero(t, res.VariablesCreated)
-	assert.Equal(t, []string{"3 variables without a name were skipped"}, res.Warnings)
+	assert.Equal(t, []string{"3 variables without a name were skipped"}, portability.Texts(res.Warnings))
 	assert.Empty(t, many.createdVars)
 	assert.NotNil(t, many.createdEnv)
 }
@@ -128,7 +128,7 @@ func TestImportEnvironment_Globals(t *testing.T) {
 	res, err := importEnv(t, unnamed, `{"name":"","values":[{"key":"k","value":"v"}],"_postman_variable_scope":"globals"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "Globals (2)", res.EnvironmentName)
-	assert.Equal(t, []string{`Tetiva has no global variables: they were imported as the environment "Globals (2)"`}, res.Warnings)
+	assert.Equal(t, []string{`Tetiva has no global variables: they were imported as the environment "Globals (2)"`}, portability.Texts(res.Warnings))
 
 	named := &stubEnvironmentUC{}
 	res, err = importEnv(t, named, `{"name":"My Workspace Globals","values":[{"key":""}],"_postman_variable_scope":"globals"}`)
@@ -137,7 +137,7 @@ func TestImportEnvironment_Globals(t *testing.T) {
 	assert.Equal(t, []string{
 		`Tetiva has no global variables: they were imported as the environment "My Workspace Globals"`,
 		"a variable without a name was skipped",
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImportEnvironment_CollectionFileIsRefused(t *testing.T) {

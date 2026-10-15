@@ -1,0 +1,1538 @@
+[
+  {
+    "code": "auth_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "type": "v-type"
+    },
+    "text": "auth type \"v-type\" is not supported and was imported as no auth"
+  },
+  {
+    "code": "description_truncated",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "max": "v-max"
+    },
+    "text": "description longer than v-max bytes was truncated"
+  },
+  {
+    "code": "example_payload_too_large",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "example": "v-example",
+      "kb": "v-kb"
+    },
+    "text": "example \"v-example\" skipped: with its headers it is larger than v-kb KB"
+  },
+  {
+    "code": "example_secrets",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "examples": "v-examples"
+    },
+    "text": "examples may contain secrets, check them before sharing: v-examples"
+  },
+  {
+    "code": "example_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "example": "v-example",
+      "reason": "v-reason"
+    },
+    "text": "example \"v-example\" skipped: v-reason"
+  },
+  {
+    "code": "example_too_large",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "example": "v-example",
+      "kb": "v-kb"
+    },
+    "text": "example \"v-example\" skipped: body is larger than v-kb KB"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_field_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "field": "v-field"
+    },
+    "text": "file field \"v-field\" was imported without its file; pick it again"
+  },
+  {
+    "code": "foreign_scripts",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "api": "v-api",
+      "app": "v-app"
+    },
+    "text": "v-app scripts use the v-api API, which Tetiva does not run: rewrite them to pm.* after importing"
+  },
+  {
+    "code": "forms_sent_urlencoded",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "requests": "v-requests"
+    },
+    "text": "1 multipart request has no file field and will be sent as a URL-encoded form, not multipart: v-requests"
+  },
+  {
+    "code": "forms_sent_urlencoded",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "requests": "v-requests"
+    },
+    "text": "2 multipart requests have no file field and will be sent as a URL-encoded form, not multipart: v-requests"
+  },
+  {
+    "code": "forms_sent_urlencoded",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "requests": "v-requests"
+    },
+    "text": "1,234 multipart requests have no file field and will be sent as a URL-encoded form, not multipart: v-requests"
+  },
+  {
+    "code": "har_assets_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 page asset entry skipped: images, scripts, stylesheets, fonts and media are not imported"
+  },
+  {
+    "code": "har_assets_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 page asset entries skipped: images, scripts, stylesheets, fonts and media are not imported"
+  },
+  {
+    "code": "har_assets_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 page asset entries skipped: images, scripts, stylesheets, fonts and media are not imported"
+  },
+  {
+    "code": "har_bodies_left_out",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "kb": "v-kb",
+      "n": "1"
+    },
+    "text": "1 response body was left out of the examples: only JSON, XML and plain-text bodies up to v-kb KB are kept"
+  },
+  {
+    "code": "har_bodies_left_out",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "kb": "v-kb",
+      "n": "2"
+    },
+    "text": "2 response bodies were left out of the examples: only JSON, XML and plain-text bodies up to v-kb KB are kept"
+  },
+  {
+    "code": "har_bodies_left_out",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "kb": "v-kb",
+      "n": "1234"
+    },
+    "text": "1,234 response bodies were left out of the examples: only JSON, XML and plain-text bodies up to v-kb KB are kept"
+  },
+  {
+    "code": "har_cookies_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "cookie headers were not imported: add the cookies in the cookie manager if the requests need them"
+  },
+  {
+    "code": "har_credentials_plain",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 request keeps credentials from the capture in its headers or query parameters as plain values: move them to secret variables before sharing"
+  },
+  {
+    "code": "har_credentials_plain",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 requests keep credentials from the capture in their headers or query parameters as plain values: move them to secret variables before sharing"
+  },
+  {
+    "code": "har_credentials_plain",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 requests keep credentials from the capture in their headers or query parameters as plain values: move them to secret variables before sharing"
+  },
+  {
+    "code": "har_entries_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "scheme": "v-scheme"
+    },
+    "text": "1 v-scheme entry skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "har_entries_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "scheme": "v-scheme"
+    },
+    "text": "2 v-scheme entries skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "har_entries_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "scheme": "v-scheme"
+    },
+    "text": "1,234 v-scheme entries skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "har_files_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 file field was imported without the file; pick it again in the request body"
+  },
+  {
+    "code": "har_files_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 file fields were imported without the file; pick it again in the request body"
+  },
+  {
+    "code": "har_files_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 file fields were imported without the file; pick it again in the request body"
+  },
+  {
+    "code": "har_unreadable_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 unreadable URL entry skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "har_unreadable_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 unreadable URL entries skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "har_unreadable_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 unreadable URL entries skipped: only HTTP requests are imported"
+  },
+  {
+    "code": "hoppscotch_auth_off",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "folders": "v-folders",
+      "n": "1"
+    },
+    "text": "requests in folder v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+  },
+  {
+    "code": "hoppscotch_auth_off",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "folders": "v-folders",
+      "n": "2"
+    },
+    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+  },
+  {
+    "code": "hoppscotch_auth_off",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "folders": "v-folders",
+      "n": "1234"
+    },
+    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+  },
+  {
+    "code": "hoppscotch_headers_copied",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "headers set on Hoppscotch collections and folders were copied into their requests"
+  },
+  {
+    "code": "hoppscotch_secrets_empty",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "keys": "v-keys"
+    },
+    "text": "Hoppscotch exports secrets without their values: fill in v-keys"
+  },
+  {
+    "code": "hoppscotch_variable_conflicts",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "keys": "v-keys"
+    },
+    "text": "variables defined more than once kept their first value: v-keys"
+  },
+  {
+    "code": "insomnia_apikey_location",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "location": "v-location"
+    },
+    "text": "an API key sent as a v-location is not supported and was imported as no auth"
+  },
+  {
+    "code": "insomnia_auth_disabled",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "type": "v-type"
+    },
+    "text": "v-type auth is disabled in Insomnia and was imported as no auth"
+  },
+  {
+    "code": "insomnia_cookies_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 cookie from the cookie jar was not imported"
+  },
+  {
+    "code": "insomnia_cookies_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 cookies from the cookie jar were not imported"
+  },
+  {
+    "code": "insomnia_cookies_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 cookies from the cookie jar were not imported"
+  },
+  {
+    "code": "insomnia_disabled_metadata",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 disabled gRPC metadata item was dropped"
+  },
+  {
+    "code": "insomnia_disabled_metadata",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 disabled gRPC metadata items were dropped"
+  },
+  {
+    "code": "insomnia_disabled_metadata",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 disabled gRPC metadata items were dropped"
+  },
+  {
+    "code": "insomnia_disabled_params",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 disabled query parameter was dropped: Tetiva keeps query parameters in the URL"
+  },
+  {
+    "code": "insomnia_disabled_params",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 disabled query parameters were dropped: Tetiva keeps query parameters in the URL"
+  },
+  {
+    "code": "insomnia_disabled_params",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 disabled query parameters were dropped: Tetiva keeps query parameters in the URL"
+  },
+  {
+    "code": "insomnia_folder_environment",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "folder environment variables were not imported"
+  },
+  {
+    "code": "insomnia_folder_headers",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "folder headers were not imported"
+  },
+  {
+    "code": "insomnia_graphql_not_json",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "the GraphQL body is not JSON and was imported as the query"
+  },
+  {
+    "code": "insomnia_grpc_no_proto",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "gRPC requests were imported without their proto files: pick a .proto file or use server reflection"
+  },
+  {
+    "code": "insomnia_method_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "method": "v-method"
+    },
+    "text": "method v-method is not supported and was imported as GET"
+  },
+  {
+    "code": "insomnia_path_params_differ",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "names": "v-names"
+    },
+    "text": "path parameter v-names differs between requests: the environment keeps the first value"
+  },
+  {
+    "code": "insomnia_path_params_differ",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "names": "v-names"
+    },
+    "text": "path parameters v-names differ between requests: the environment keeps the first value"
+  },
+  {
+    "code": "insomnia_path_params_differ",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "names": "v-names"
+    },
+    "text": "path parameters v-names differ between requests: the environment keeps the first value"
+  },
+  {
+    "code": "insomnia_socketio_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 Socket.IO request was skipped: Tetiva does not support Socket.IO"
+  },
+  {
+    "code": "insomnia_socketio_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 Socket.IO requests were skipped: Tetiva does not support Socket.IO"
+  },
+  {
+    "code": "insomnia_socketio_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 Socket.IO requests were skipped: Tetiva does not support Socket.IO"
+  },
+  {
+    "code": "insomnia_specs_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 API spec document was not imported"
+  },
+  {
+    "code": "insomnia_specs_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 API spec documents were not imported"
+  },
+  {
+    "code": "insomnia_specs_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 API spec documents were not imported"
+  },
+  {
+    "code": "insomnia_template_tags",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "names": "v-names"
+    },
+    "text": "1 Insomnia template tag was left as-is (v-names): Tetiva does not run it, use a variable or a script instead"
+  },
+  {
+    "code": "insomnia_template_tags",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "names": "v-names"
+    },
+    "text": "2 Insomnia template tags were left as-is (v-names): Tetiva does not run them, use variables or scripts instead"
+  },
+  {
+    "code": "insomnia_template_tags",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "names": "v-names"
+    },
+    "text": "1,234 Insomnia template tags were left as-is (v-names): Tetiva does not run them, use variables or scripts instead"
+  },
+  {
+    "code": "insomnia_unit_tests_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 unit test was not imported"
+  },
+  {
+    "code": "insomnia_unit_tests_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 unit tests were not imported"
+  },
+  {
+    "code": "insomnia_unit_tests_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 unit tests were not imported"
+  },
+  {
+    "code": "insomnia_vault_secrets",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 vault secret was imported as an empty secret variable: fill in its value"
+  },
+  {
+    "code": "insomnia_vault_secrets",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 vault secrets were imported as empty secret variables: fill in their values"
+  },
+  {
+    "code": "insomnia_vault_secrets",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 vault secrets were imported as empty secret variables: fill in their values"
+  },
+  {
+    "code": "insomnia_workspaces",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "names": "v-names"
+    },
+    "text": "the file has 1 workspaces, each was imported as its own collection: v-names"
+  },
+  {
+    "code": "insomnia_workspaces",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "names": "v-names"
+    },
+    "text": "the file has 2 workspaces, each was imported as its own collection: v-names"
+  },
+  {
+    "code": "insomnia_workspaces",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "names": "v-names"
+    },
+    "text": "the file has 1,234 workspaces, each was imported as its own collection: v-names"
+  },
+  {
+    "code": "jwt_field_dropped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "field": "v-field"
+    },
+    "text": "the JWT v-field is not a JSON object and was dropped"
+  },
+  {
+    "code": "name_truncated",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "max": "v-max"
+    },
+    "text": "name longer than v-max characters was truncated"
+  },
+  {
+    "code": "oauth2_grant_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "grant": "v-grant"
+    },
+    "text": "OAuth 2.0 grant \"v-grant\" is not supported; pick one in the Auth tab"
+  },
+  {
+    "code": "openapi_auth_header_param",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "operations": "v-operations"
+    },
+    "text": "the Authorization header parameter of v-operations was not imported: set the auth on the collection or the request instead"
+  },
+  {
+    "code": "openapi_broken_ref",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "ref": "v-ref"
+    },
+    "text": "reference \"v-ref\" points to nothing and was left empty"
+  },
+  {
+    "code": "openapi_callbacks_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "callbacks were skipped"
+  },
+  {
+    "code": "openapi_external_ref",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "target": "v-target"
+    },
+    "text": "references to \"v-target\" are not supported and were left empty"
+  },
+  {
+    "code": "openapi_implicit_flow",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "scheme": "v-scheme"
+    },
+    "text": "security scheme \"v-scheme\": the OAuth 2.0 implicit flow is not supported, imported as authorization code without a token URL"
+  },
+  {
+    "code": "openapi_links_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "response links were skipped"
+  },
+  {
+    "code": "openapi_no_server",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "the document names no server: set baseUrl in the environment"
+  },
+  {
+    "code": "openapi_own_server",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "url": "v-url"
+    },
+    "text": "its own server \"v-url\" was ignored, the request uses {{baseUrl}}"
+  },
+  {
+    "code": "openapi_query_style",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "param": "v-param",
+      "style": "v-style"
+    },
+    "text": "query parameter \"v-param\" uses style v-style, which was not reproduced"
+  },
+  {
+    "code": "openapi_relative_server",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "url": "v-url"
+    },
+    "text": "the server URL \"v-url\" is relative: set baseUrl in the environment to the full address"
+  },
+  {
+    "code": "openapi_scheme_location_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "in": "v-in",
+      "scheme": "v-scheme",
+      "type": "v-type"
+    },
+    "text": "security scheme \"v-scheme\" (v-type in v-in) is not supported: requests that use it were imported without auth"
+  },
+  {
+    "code": "openapi_scheme_undefined",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "scheme": "v-scheme"
+    },
+    "text": "security scheme \"v-scheme\" is not defined: requests that use it were imported without auth"
+  },
+  {
+    "code": "openapi_scheme_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "scheme": "v-scheme",
+      "type": "v-type"
+    },
+    "text": "security scheme \"v-scheme\" (v-type) is not supported: requests that use it were imported without auth"
+  },
+  {
+    "code": "openapi_schemes_together",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "scheme": "v-scheme",
+      "schemes": "v-schemes"
+    },
+    "text": "security schemes v-schemes are required together: only \"v-scheme\" was imported"
+  },
+  {
+    "code": "openapi_trace_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "path": "v-path"
+    },
+    "text": "TRACE v-path was skipped: TRACE requests are not supported"
+  },
+  {
+    "code": "openapi_webhooks_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "names": "v-names"
+    },
+    "text": "webhooks were skipped: v-names"
+  },
+  {
+    "code": "postman_description_type",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "type": "v-type"
+    },
+    "text": "description is v-type, imported as plain text"
+  },
+  {
+    "code": "postman_descriptions_differ",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "item and request descriptions differ, request level kept"
+  },
+  {
+    "code": "postman_disabled_script",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "event": "v-event"
+    },
+    "text": "disabled v-event script was not imported"
+  },
+  {
+    "code": "postman_example_name_truncated",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "v-index",
+      "max": "v-max"
+    },
+    "text": "example v-index: name longer than v-max characters was truncated"
+  },
+  {
+    "code": "postman_example_not_object",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "got": "v-got",
+      "index": "v-index"
+    },
+    "text": "example v-index skipped: it is v-got, not an object"
+  },
+  {
+    "code": "postman_example_payload_too_large",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "v-index",
+      "kb": "v-kb"
+    },
+    "text": "example v-index skipped: with its headers it is larger than v-kb KB"
+  },
+  {
+    "code": "postman_example_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "v-index",
+      "reason": "v-reason"
+    },
+    "text": "example v-index skipped: v-reason"
+  },
+  {
+    "code": "postman_example_status",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "v-index",
+      "status": "v-status"
+    },
+    "text": "example v-index: status code v-status is out of range, imported as 0"
+  },
+  {
+    "code": "postman_example_too_large",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "v-index",
+      "kb": "v-kb"
+    },
+    "text": "example v-index skipped: body is larger than v-kb KB"
+  },
+  {
+    "code": "postman_example_wrong_type",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "field": "v-field",
+      "got": "v-got",
+      "index": "v-index",
+      "want": "v-want"
+    },
+    "text": "example v-index skipped: field \"v-field\" must be of type v-want, got v-got"
+  },
+  {
+    "code": "postman_globals",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "name": "v-name"
+    },
+    "text": "Tetiva has no global variables: they were imported as the environment \"v-name\""
+  },
+  {
+    "code": "postman_item_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "an unnamed item with neither a request nor children was skipped"
+  },
+  {
+    "code": "postman_nested_items_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "items nested under a request were skipped"
+  },
+  {
+    "code": "postman_oauth2_token_only",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "the OAuth 2.0 block has an access token but no token URL; imported as a bearer token"
+  },
+  {
+    "code": "postman_scripts",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes"
+  },
+  {
+    "code": "postman_unnamed_folder",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1",
+      "name": "v-name"
+    },
+    "text": "an unnamed folder with 1 item(s) was imported as \"v-name\" rather than failing the import"
+  },
+  {
+    "code": "postman_unnamed_folder",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2",
+      "name": "v-name"
+    },
+    "text": "an unnamed folder with 2 item(s) was imported as \"v-name\" rather than failing the import"
+  },
+  {
+    "code": "postman_unnamed_folder",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234",
+      "name": "v-name"
+    },
+    "text": "an unnamed folder with 1,234 item(s) was imported as \"v-name\" rather than failing the import"
+  },
+  {
+    "code": "postman_variables_unreadable",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {},
+    "text": "collection variables could not be read and were skipped"
+  },
+  {
+    "code": "snapshot_body_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "type": "v-type"
+    },
+    "text": "body type \"v-type\" is not supported, imported without a body"
+  },
+  {
+    "code": "snapshot_example_status",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "example": "v-example",
+      "status": "v-status"
+    },
+    "text": "example \"v-example\": status v-status is outside 0–999, imported as 0"
+  },
+  {
+    "code": "snapshot_method_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "method": "v-method"
+    },
+    "text": "method \"v-method\" is not supported, imported as GET"
+  },
+  {
+    "code": "snapshot_part_missing",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "part": "v-part"
+    },
+    "text": "the v-part part is missing, the request was skipped"
+  },
+  {
+    "code": "snapshot_protocol_unsupported",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "protocol": "v-protocol"
+    },
+    "text": "protocol \"v-protocol\" is not supported, the request was skipped"
+  },
+  {
+    "code": "snapshot_ws_examples_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "1 example(s) skipped: WebSocket requests have no examples"
+  },
+  {
+    "code": "snapshot_ws_examples_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 example(s) skipped: WebSocket requests have no examples"
+  },
+  {
+    "code": "snapshot_ws_examples_skipped",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 example(s) skipped: WebSocket requests have no examples"
+  },
+  {
+    "code": "snapshot_ws_message_format",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "format": "v-format",
+      "message": "v-message"
+    },
+    "text": "message \"v-message\" has an unknown format \"v-format\" and was skipped"
+  },
+  {
+    "code": "unnamed_renamed",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "kind": "folder",
+      "name": "v-name"
+    },
+    "text": "an unnamed folder was imported as \"v-name\""
+  },
+  {
+    "code": "unnamed_renamed_in",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "kind": "folder",
+      "name": "v-name",
+      "parent": "v-parent"
+    },
+    "text": "an unnamed folder in \"v-parent\" was imported as \"v-name\""
+  },
+  {
+    "code": "variables_unnamed",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1"
+    },
+    "text": "a variable without a name was skipped"
+  },
+  {
+    "code": "variables_unnamed",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "2"
+    },
+    "text": "2 variables without a name were skipped"
+  },
+  {
+    "code": "variables_unnamed",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "1234"
+    },
+    "text": "1,234 variables without a name were skipped"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "collection",
+      "name": "v-name"
+    },
+    "params": {},
+    "text": "collection \"v-name\": the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "collection",
+      "name": ""
+    },
+    "params": {},
+    "text": "collection: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "folder",
+      "name": "v-name"
+    },
+    "params": {},
+    "text": "folder \"v-name\": the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "folder",
+      "name": ""
+    },
+    "params": {},
+    "text": "folder: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "request",
+      "name": "v-name"
+    },
+    "params": {},
+    "text": "request \"v-name\": the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "request",
+      "name": ""
+    },
+    "params": {},
+    "text": "request: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "environment",
+      "name": "v-name"
+    },
+    "params": {},
+    "text": "environment \"v-name\": the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "environment",
+      "name": ""
+    },
+    "params": {},
+    "text": "environment: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "example",
+      "name": "v-name"
+    },
+    "params": {},
+    "text": "example \"v-name\": the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "example",
+      "name": ""
+    },
+    "params": {},
+    "text": "example: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "file_body_dropped",
+    "subject": {
+      "kind": "operation",
+      "name": "POST /v-path"
+    },
+    "params": {},
+    "text": "POST /v-path: the file body was imported without its file; pick it again"
+  },
+  {
+    "code": "forms_sent_urlencoded",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "n": "7",
+      "requests": "v-1, v-2, v-3, v-4, v-5",
+      "requestsMore": "2"
+    },
+    "text": "7 multipart requests have no file field and will be sent as a URL-encoded form, not multipart: v-1, v-2, v-3, v-4, v-5 and 2 more"
+  },
+  {
+    "code": "description_truncated",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "max": "16384"
+    },
+    "text": "description longer than 16,384 bytes was truncated"
+  },
+  {
+    "code": "postman_example_too_large",
+    "subject": {
+      "kind": "",
+      "name": ""
+    },
+    "params": {
+      "index": "1200",
+      "kb": "1024"
+    },
+    "text": "example 1200 skipped: body is larger than 1,024 KB"
+  }
+]

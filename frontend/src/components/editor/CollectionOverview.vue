@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
 import { FileText, Folder, Package } from 'lucide-vue-next'
+import { plural } from '@/lib/locale'
+import { useCopy, useLocale } from '@/composables/useLocale'
 import MarkdownDescription from './MarkdownDescription.vue'
+import { EDITOR_COPY } from './copy'
 
 const props = defineProps<{
   collectionId: string
@@ -16,6 +19,8 @@ const emit = defineEmits<{
 
 const collectionStore = useCollectionStore()
 const tabStore = useRequestStore()
+const locale = useLocale()
+const copy = useCopy(EDITOR_COPY)
 
 const collection = computed(() =>
   collectionStore.collectionsMap.get(props.collectionId)
@@ -40,11 +45,11 @@ const isEmpty = computed(() => folderCount.value === 0 && requestCount.value ===
     <div v-if="!isEmpty" class="flex items-center gap-4">
       <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
         <FileText class="size-3.5 shrink-0" />
-        <span>{{ requestCount }} request{{ requestCount !== 1 ? 's' : '' }}</span>
+        <span>{{ plural(locale, requestCount, copy.overview.requests) }}</span>
       </div>
       <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Folder class="size-3.5 shrink-0" />
-        <span>{{ folderCount }} folder{{ folderCount !== 1 ? 's' : '' }}</span>
+        <span>{{ plural(locale, folderCount, copy.overview.folders) }}</span>
       </div>
     </div>
 
@@ -52,15 +57,15 @@ const isEmpty = computed(() => folderCount.value === 0 && requestCount.value ===
       <div class="rounded-lg bg-muted/20 p-4 mb-4 border border-border/50">
         <Package class="size-7 text-muted-foreground/60" />
       </div>
-      <p class="text-sm font-medium text-muted-foreground">Empty collection</p>
+      <p class="text-sm font-medium text-muted-foreground">{{ copy.overview.empty }}</p>
       <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[240px]">
-        Add requests or folders from the sidebar context menu
+        {{ copy.overview.emptyHint }}
       </p>
     </div>
 
     <MarkdownDescription
       :description="description"
-      placeholder="Add a description for this collection (supports Markdown)..."
+      :placeholder="copy.overview.placeholder"
       min-height="120px"
       @update:description="emit('update:description', $event)"
     />

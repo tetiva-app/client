@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -436,7 +437,7 @@ func TestImportCollection_RequestLevelDescription(t *testing.T) {
 	assert.Equal(t, "# Docs API\nCollection level.", collUC.created[0].Description)
 	assert.Equal(t, "Folder documentation.", collUC.created[1].Description)
 
-	warnings := strings.Join(res.Warnings, "\n")
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
 	assert.Contains(t, warnings, `"Status": item and request descriptions differ, request level kept`)
 	assert.Contains(t, warnings, `"Cleared": item and request descriptions differ, request level kept`)
 }
@@ -458,7 +459,7 @@ func TestImportCollection_NestedUnderRequestAndUnnamedItem(t *testing.T) {
 	assert.Equal(t, []string{"Reports", "Ping"}, names, "the request itself is still imported")
 	assert.Len(t, collUC.created, 1, "an unnamed empty item must not become a nameless folder")
 
-	warnings := strings.Join(res.Warnings, "\n")
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
 	assert.Contains(t, warnings, `request "Reports": items nested under a request were skipped`)
 	assert.Contains(t, warnings, "an unnamed item with neither a request nor children was skipped")
 }
@@ -482,7 +483,7 @@ func TestImportCollection_NamelessFolders(t *testing.T) {
 	require.Len(t, reqUC.created, 1, "the children of a nameless folder are still imported")
 	assert.Equal(t, "Ping", reqUC.created[0].Name)
 
-	warnings := strings.Join(res.Warnings, "\n")
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
 	assert.Contains(t, warnings, "an unnamed item with neither a request nor children was skipped")
 	assert.Contains(t, warnings, `an unnamed folder with 1 item(s) was imported as "Untitled folder"`)
 }
@@ -505,7 +506,7 @@ func TestImportCollection_EmptyFolderAndDescriptionTypes(t *testing.T) {
 	require.Len(t, reqUC.created, 1)
 	assert.Equal(t, "<b>x</b>", reqUC.created[0].Description, "content is kept verbatim")
 
-	warnings := strings.Join(res.Warnings, "\n")
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
 	assert.Contains(t, warnings, `collection "Legacy API": description is text/html, imported as plain text`)
 	assert.Contains(t, warnings, `folder "Chapter": description is text/html, imported as plain text`)
 	assert.Contains(t, warnings, `request "Html": description is text/html, imported as plain text`)
@@ -688,8 +689,8 @@ func TestImportCollection_TruncatesOversizedDescription(t *testing.T) {
 	input := created
 	assert.NoError(t, input.Validate())
 
-	warnings := strings.Join(res.Warnings, "\n")
-	assert.Contains(t, warnings, `request "Ping": description longer than 16384 bytes was truncated`)
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
+	assert.Contains(t, warnings, `request "Ping": description longer than 16,384 bytes was truncated`)
 }
 
 func TestImportCollection_ScriptsAndBodies(t *testing.T) {
@@ -739,7 +740,7 @@ func TestImportCollection_ScriptsAndBodies(t *testing.T) {
 		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
 		`request "Put blob": the file body was imported without its file; pick it again`,
 		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes",
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_ScriptsAreOptIn(t *testing.T) {
@@ -763,7 +764,7 @@ func TestImportCollection_ScriptsAreOptIn(t *testing.T) {
 	assert.Equal(t, []string{
 		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
 		`request "Put blob": the file body was imported without its file; pick it again`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_NoScriptsNoScriptWarning(t *testing.T) {
@@ -784,4 +785,36 @@ func TestImportCollection_NoScriptsNoScriptWarning(t *testing.T) {
 	}, &stubCollectionUC{}, &stubRequestUC{}, &stubExampleUC{}, &stubEnvironmentUC{})
 	require.NoError(t, err)
 	assert.Empty(t, res.Warnings)
+}
+
+func TestImportCollection_StringURL(t *testing.T) {
+	data, err := os.ReadFile("testdata/string-url.postman_collection.json")
+	require.NoError(t, err)
+
+	res, reqUC, exUC := importWithExamples(t, data)
+
+	require.Len(t, reqUC.created, 3)
+	assert.Equal(t, "https://api.example.com/users?page=2", reqUC.created[0].URL)
+	assert.Equal(t, "https://api.example.com/users/1", reqUC.created[1].URL)
+	assert.Equal(t, "https://api.example.com/health?full=1", reqUC.created[2].URL)
+	assert.Equal(t, entities.MethodGET, reqUC.created[2].Method)
+	require.Len(t, exUC.created, 1)
+	assert.Equal(t, "Page 2", exUC.created[0].Name)
+	assert.Equal(t, 1, res.ExamplesCreated)
+	assert.Empty(t, res.Warnings)
+}
+
+func TestImporter_PreviewStringURL(t *testing.T) {
+	data, err := os.ReadFile("testdata/string-url.postman_collection.json")
+	require.NoError(t, err)
+	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
+
+	p, err := imp.Preview(data, "string-url.postman_collection.json")
+	require.NoError(t, err)
+
+	assert.Equal(t, "String URLs", p.Title)
+	assert.Equal(t, 3, p.Requests)
+	assert.Equal(t, 1, p.Examples)
+	assert.Equal(t, []string{"api.example.com"}, p.Hosts)
+	assert.Empty(t, p.Warnings)
 }

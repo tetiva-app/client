@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -35,7 +34,7 @@ type plan struct {
 	urls                        []string
 	publicVars                  map[string]string
 	scripts                     []portability.ScriptPreview
-	warnings                    []string
+	warnings                    []portability.Warning
 }
 
 type folderPlan struct {
@@ -50,7 +49,7 @@ type itemPlan struct {
 
 type requestPlan struct {
 	in       request.Create
-	label    string
+	subject  portability.Subject
 	examples []example.Create
 }
 
@@ -62,19 +61,19 @@ type envPlan struct {
 func newPlan(s *publication.Snapshot, includeScripts bool) *plan {
 	p := &plan{includeScripts: includeScripts, publicVars: map[string]string{}}
 	root := s.Collection
-	name := p.name("collection", "", root.Name)
-	label := itemLabel("collection", name)
-	p.root.in = collection.Create{Name: name, Description: p.description(label, root.Description)}
-	p.root.in.AuthType, p.root.in.AuthData = p.folderAuth(label, root.Auth)
+	name := p.name(portability.KindCollection, "", root.Name)
+	subject := portability.Subject{Kind: portability.KindCollection, Name: name}
+	p.root.in = collection.Create{Name: name, Description: p.description(subject, root.Description)}
+	p.root.in.AuthType, p.root.in.AuthData = p.folderAuth(subject, root.Auth)
 	p.root.in.PreScript, p.root.in.PostScript = p.scriptsOf(name, root.Scripts)
 	p.grpcMetadata = headerItems(root.GRPCMetadata)
 	p.root.items = p.items(name, root.Items)
 
 	if env := s.Environment; env != nil {
-		ep := &envPlan{name: p.name("environment", "", env.Name)}
+		ep := &envPlan{name: p.name(portability.KindEnvironment, "", env.Name)}
 		for _, v := range env.Variables {
 			if strings.TrimSpace(v.Key) == "" {
-				p.warn(fmt.Sprintf("environment %q: a variable without a name was skipped", ep.name))
+				p.warn(portability.WarnVariablesUnnamed, portability.Subject{Kind: portability.KindEnvironment, Name: ep.name}, "n", 1)
 				continue
 			}
 			value := v.Value
@@ -90,40 +89,34 @@ func newPlan(s *publication.Snapshot, includeScripts bool) *plan {
 	return p
 }
 
-func (p *plan) warn(msg string) {
-	p.warnings = append(p.warnings, msg)
-}
-
-func itemLabel(kind, name string) string {
-	return fmt.Sprintf("%s %q", kind, name)
+func (p *plan) warn(code portability.WarningCode, subject portability.Subject, kv ...any) {
+	p.warnings = append(p.warnings, portability.Warn(code, subject, kv...))
 }
 
 func (p *plan) name(kind, parentPath, raw string) string {
 	switch {
 	case strings.TrimSpace(raw) == "":
 		if parentPath == "" {
-			p.warn(fmt.Sprintf("an unnamed %s was imported as %q", kind, untitled))
+			p.warn(portability.WarnUnnamedRenamed, portability.Subject{}, "kind", kind, "name", untitled)
 		} else {
-			p.warn(fmt.Sprintf("an unnamed %s in %q was imported as %q", kind, parentPath, untitled))
+			p.warn(portability.WarnUnnamedRenamedIn, portability.Subject{}, "kind", kind, "parent", parentPath, "name", untitled)
 		}
 		return untitled
 	case utf8.RuneCountInString(raw) > maxNameRunes:
-		p.warn(fmt.Sprintf("%s %q: name longer than %d characters was truncated", kind, string([]rune(raw)[:40])+"…", maxNameRunes))
+		p.warn(portability.WarnNameTruncated, portability.Subject{Kind: kind, Name: string([]rune(raw)[:40]) + "…"}, "max", maxNameRunes)
 		return string([]rune(raw)[:maxNameRunes])
 	}
 	return raw
 }
 
-func (p *plan) description(label, s string) string {
-	text, warning := portability.ClampDescription(label, s)
-	if warning != "" {
-		p.warn(warning)
-	}
+func (p *plan) description(subject portability.Subject, s string) string {
+	text, warnings := portability.ClampDescription(subject, s)
+	p.warnings = append(p.warnings, warnings...)
 	return text
 }
 
 // On a collection none already passes auth through, so null and inherit map to none.
-func (p *plan) folderAuth(label string, a *publication.Auth) (entities.AuthType, string) {
+func (p *plan) folderAuth(subject portability.Subject, a *publication.Auth) (entities.AuthType, string) {
 	if a == nil {
 		return entities.AuthTypeNone, "{}"
 	}
@@ -132,14 +125,14 @@ func (p *plan) folderAuth(label string, a *publication.Auth) (entities.AuthType,
 	case t == entities.AuthTypeInherit || t == entities.AuthTypeNone:
 		return entities.AuthTypeNone, "{}"
 	case !t.IsValid():
-		p.warn(fmt.Sprintf("%s: auth type %q is not supported and was imported as no auth", label, a.Type))
+		p.warn(portability.WarnAuthUnsupported, subject, "type", a.Type)
 		return entities.AuthTypeNone, "{}"
 	default:
 		return t, authData(a.Fields)
 	}
 }
 
-func (p *plan) requestAuth(label string, a *publication.Auth) (entities.AuthType, string) {
+func (p *plan) requestAuth(subject portability.Subject, a *publication.Auth) (entities.AuthType, string) {
 	if a == nil {
 		return entities.AuthTypeInherit, "{}"
 	}
@@ -148,7 +141,7 @@ func (p *plan) requestAuth(label string, a *publication.Auth) (entities.AuthType
 	case t == entities.AuthTypeInherit || t == entities.AuthTypeNone:
 		return t, "{}"
 	case !t.IsValid():
-		p.warn(fmt.Sprintf("%s: auth type %q is not supported and was imported as no auth", label, a.Type))
+		p.warn(portability.WarnAuthUnsupported, subject, "type", a.Type)
 		return entities.AuthTypeNone, "{}"
 	default:
 		return t, authData(a.Fields)
@@ -196,11 +189,11 @@ func (p *plan) items(path string, items []publication.Item) []itemPlan {
 		switch {
 		case it.Folder != nil:
 			f := it.Folder
-			name := p.name("folder", path, f.Name)
-			label := itemLabel("folder", name)
+			name := p.name(portability.KindFolder, path, f.Name)
+			subject := portability.Subject{Kind: portability.KindFolder, Name: name}
 			childPath := path + " / " + name
-			fp := &folderPlan{in: collection.Create{Name: name, Description: p.description(label, f.Description)}}
-			fp.in.AuthType, fp.in.AuthData = p.folderAuth(label, f.Auth)
+			fp := &folderPlan{in: collection.Create{Name: name, Description: p.description(subject, f.Description)}}
+			fp.in.AuthType, fp.in.AuthData = p.folderAuth(subject, f.Auth)
 			fp.in.PreScript, fp.in.PostScript = p.scriptsOf(childPath, f.Scripts)
 			fp.items = p.items(childPath, f.Items)
 			p.folders++
@@ -216,38 +209,38 @@ func (p *plan) items(path string, items []publication.Item) []itemPlan {
 }
 
 func (p *plan) request(parentPath string, r *publication.Request) *requestPlan {
-	name := p.name("request", parentPath, r.Name)
-	label := itemLabel("request", name)
+	name := p.name(portability.KindRequest, parentPath, r.Name)
+	subject := portability.Subject{Kind: portability.KindRequest, Name: name}
 	in := request.Create{
-		Name: name, Description: p.description(label, r.Description), Protocol: r.Protocol, BodyType: entities.BodyTypeNone,
+		Name: name, Description: p.description(subject, r.Description), Protocol: r.Protocol, BodyType: entities.BodyTypeNone,
 	}
-	skip := func(format string, args ...any) *requestPlan {
-		p.warn(fmt.Sprintf("%s: "+format+", the request was skipped", append([]any{label}, args...)...))
+	skip := func(code portability.WarningCode, kv ...any) *requestPlan {
+		p.warn(code, subject, kv...)
 		return nil
 	}
 
 	switch r.Protocol {
 	case entities.ProtocolHTTP:
 		if r.HTTP == nil {
-			return skip("the http part is missing")
+			return skip(portability.WarnSnapshotPartMissing, "part", "http")
 		}
 		in.Method = entities.HTTPMethod(r.HTTP.Method)
 		if !in.Method.IsValid() {
-			p.warn(fmt.Sprintf("%s: method %q is not supported, imported as GET", label, r.HTTP.Method))
+			p.warn(portability.WarnSnapshotMethodUnsupported, subject, "method", r.HTTP.Method)
 			in.Method = entities.MethodGET
 		}
 		in.URL, in.Headers = r.HTTP.URL, headerItems(r.HTTP.Headers)
-		in.BodyType, in.Body = p.body(label, r.HTTP.Body)
+		in.BodyType, in.Body = p.body(subject, r.HTTP.Body)
 	case entities.ProtocolGraphQL:
 		if r.GraphQL == nil {
-			return skip("the graphql part is missing")
+			return skip(portability.WarnSnapshotPartMissing, "part", "graphql")
 		}
 		g := r.GraphQL
 		in.Method, in.URL, in.Headers = entities.MethodPOST, g.URL, headerItems(g.Headers)
 		in.GraphQLQuery, in.GraphQLVariables, in.GraphQLOperation = g.Query, g.Variables, g.OperationName
 	case entities.ProtocolGRPC:
 		if r.GRPC == nil {
-			return skip("the grpc part is missing")
+			return skip(portability.WarnSnapshotPartMissing, "part", "grpc")
 		}
 		g := r.GRPC
 		in.Method, in.URL, in.GRPCService, in.GRPCMethod = entities.MethodPOST, g.Target, g.Service, g.Method
@@ -255,19 +248,19 @@ func (p *plan) request(parentPath string, r *publication.Request) *requestPlan {
 		in.GRPCMetadata = requestMetadata(g.Metadata, p.grpcMetadata)
 	case entities.ProtocolWebSocket:
 		if r.WebSocket == nil {
-			return skip("the websocket part is missing")
+			return skip(portability.WarnSnapshotPartMissing, "part", "websocket")
 		}
 		in.Method, in.URL, in.Headers = entities.MethodGET, r.WebSocket.URL, headerItems(r.WebSocket.Headers)
-		in.BodyType, in.Body = entities.BodyTypeRaw, p.wsSettings(label, r.WebSocket)
+		in.BodyType, in.Body = entities.BodyTypeRaw, p.wsSettings(subject, r.WebSocket)
 	default:
-		return skip("protocol %q is not supported", r.Protocol)
+		return skip(portability.WarnSnapshotProtocolUnsupported, "protocol", string(r.Protocol))
 	}
 
-	in.AuthType, in.AuthData = p.requestAuth(label, r.Auth)
+	in.AuthType, in.AuthData = p.requestAuth(subject, r.Auth)
 	p.urls = append(p.urls, in.URL)
 	path := parentPath + " / " + name
 	in.PreScript, in.PostScript = p.scriptsOf(path, r.Scripts)
-	return &requestPlan{in: in, label: label, examples: p.examplesOf(label, path, r.Protocol, r.Examples)}
+	return &requestPlan{in: in, subject: subject, examples: p.examplesOf(subject, path, r.Protocol, r.Examples)}
 }
 
 type formField struct {
@@ -278,7 +271,7 @@ type formField struct {
 }
 
 // body never keeps a file path: a foreign path must not pick what we upload.
-func (p *plan) body(label string, b publication.Body) (entities.BodyType, string) {
+func (p *plan) body(subject portability.Subject, b publication.Body) (entities.BodyType, string) {
 	switch t := entities.BodyType(b.Type); t {
 	case entities.BodyTypeNone, "":
 		return entities.BodyTypeNone, ""
@@ -290,7 +283,7 @@ func (p *plan) body(label string, b publication.Body) (entities.BodyType, string
 			field := formField{Key: f.Key, Value: f.Value, Type: "text", Enabled: f.Enabled}
 			if f.Type == "file" {
 				if f.Value != "" {
-					p.warn(fmt.Sprintf("%s: file field %q was imported without its file; pick it again", label, f.Key))
+					p.warn(portability.WarnFileFieldDropped, subject, "field", f.Key)
 				}
 				field.Type, field.Value = "file", ""
 			}
@@ -303,11 +296,11 @@ func (p *plan) body(label string, b publication.Body) (entities.BodyType, string
 		return entities.BodyTypeForm, string(raw)
 	case entities.BodyTypeBinary:
 		if b.FileName != "" {
-			p.warn(fmt.Sprintf("%s: the file body was imported without its file; pick it again", label))
+			p.warn(portability.WarnFileBodyDropped, subject)
 		}
 		return entities.BodyTypeBinary, ""
 	default:
-		p.warn(fmt.Sprintf("%s: body type %q is not supported, imported without a body", label, b.Type))
+		p.warn(portability.WarnSnapshotBodyUnsupported, subject, "type", b.Type)
 		return entities.BodyTypeNone, ""
 	}
 }
@@ -326,14 +319,14 @@ type wsMessage struct {
 	Data   string `json:"data"`
 }
 
-func (p *plan) wsSettings(label string, ws *publication.WSPart) string {
+func (p *plan) wsSettings(subject portability.Subject, ws *publication.WSPart) string {
 	doc := wsSettings{Version: 1, Subprotocols: append([]string{}, ws.Subprotocols...), Messages: []wsMessage{}}
 	for _, m := range ws.Messages {
 		switch m.Format {
 		case "json", "text", "binary":
 			doc.Messages = append(doc.Messages, wsMessage{ID: uuid.NewString(), Name: m.Name, Format: m.Format, Data: m.Data})
 		default:
-			p.warn(fmt.Sprintf("%s: message %q has an unknown format %q and was skipped", label, m.Name, m.Format))
+			p.warn(portability.WarnSnapshotWSMessageFormat, subject, "message", m.Name, "format", m.Format)
 		}
 	}
 	raw, err := json.Marshal(doc)
@@ -343,24 +336,24 @@ func (p *plan) wsSettings(label string, ws *publication.WSPart) string {
 	return string(raw)
 }
 
-func (p *plan) examplesOf(label, path string, protocol entities.Protocol, list []publication.Example) []example.Create {
+func (p *plan) examplesOf(subject portability.Subject, path string, protocol entities.Protocol, list []publication.Example) []example.Create {
 	if len(list) == 0 {
 		return nil
 	}
 	if protocol == entities.ProtocolWebSocket {
-		p.warn(fmt.Sprintf("%s: %d example(s) skipped: WebSocket requests have no examples", label, len(list)))
+		p.warn(portability.WarnSnapshotWSExamplesSkipped, subject, "n", len(list))
 		return nil
 	}
 	var out []example.Create
 	for _, e := range list {
-		name := p.name("example", path, e.Name)
+		name := p.name(portability.KindExample, path, e.Name)
 		if len(e.Body) > domain.MaxExampleBodyLen {
-			p.warn(fmt.Sprintf("%s: example %q skipped: body is larger than %d KB", label, name, domain.MaxExampleBodyLen/1024))
+			p.warn(portability.WarnExampleTooLarge, subject, "example", name, "kb", domain.MaxExampleBodyLen/1024)
 			continue
 		}
 		status := e.Status
 		if status < 0 || status > 999 {
-			p.warn(fmt.Sprintf("%s: example %q: status %d is outside 0–999, imported as 0", label, name, status))
+			p.warn(portability.WarnSnapshotExampleStatus, subject, "example", name, "status", status)
 			status = 0
 		}
 		out = append(out, example.Create{

@@ -126,7 +126,8 @@ func TestBuild_CollectionHeadersReachTheirRequests(t *testing.T) {
 		{Key: "X-Admin", Value: "true", Enabled: true},
 		{Key: "X-Client", Value: "admin-console", Enabled: true},
 	}, root.Folders[0].Requests[0].In.Headers)
-	assert.Contains(t, b.tree.Warnings, headersWarning)
+	assert.Contains(t, portability.Texts(b.tree.Warnings),
+		"headers set on Hoppscotch collections and folders were copied into their requests")
 }
 
 func TestBuild_Bodies(t *testing.T) {
@@ -267,7 +268,7 @@ func TestBuild_UnsupportedAuthWarns(t *testing.T) {
 		`request "Hawk": auth type "hawk" is not supported and was imported as no auth`,
 		`request "Implicit": OAuth 2.0 grant "IMPLICIT" is not supported; pick one in the Auth tab`,
 		`request "Bad JWT": the JWT payload is not a JSON object and was dropped`,
-	}, b.tree.Warnings)
+	}, portability.Texts(b.tree.Warnings))
 }
 
 func TestBuild_VariablesBecomeOneEnvironment(t *testing.T) {
@@ -298,7 +299,7 @@ func TestBuild_VariableConflictsKeepTheFirstValue(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []environment.AddVariable{{Key: "id", Value: "1"}}, b.tree.Environments[0].Vars)
-	assert.Equal(t, []string{"variables defined more than once kept their first value: id"}, b.tree.Warnings)
+	assert.Equal(t, []string{"variables defined more than once kept their first value: id"}, portability.Texts(b.tree.Warnings))
 }
 
 func TestBuild_ExportAllGivesEachCollectionItsOwnEnvironment(t *testing.T) {
@@ -319,7 +320,7 @@ func TestBuild_ExportAllGivesEachCollectionItsOwnEnvironment(t *testing.T) {
 		{Name: "A", Vars: []environment.AddVariable{{Key: "baseUrl", Value: "https://a"}}},
 		{Name: "B", Vars: []environment.AddVariable{{Key: "baseUrl", Value: "https://b"}}},
 	}, b.tree.Environments)
-	assert.Equal(t, []string{"variables defined more than once kept their first value: baseUrl"}, b.tree.Warnings)
+	assert.Equal(t, []string{"variables defined more than once kept their first value: baseUrl"}, portability.Texts(b.tree.Warnings))
 }
 
 func TestBuild_NestedVariableReferences(t *testing.T) {
@@ -415,9 +416,11 @@ func TestPreview(t *testing.T) {
 			{Path: "Petstore / Admin / Delete pet", Phase: "post", Text: "pw.test(\"deleted\", () => {\n  pw.expect(pw.response.status).toBe(204);\n});"},
 			{Path: "Petstore / List pets", Phase: "pre", Text: `pw.env.set("limit", "10");`},
 		},
-		Warnings: []string{
-			`request "Upload photo": file field "photo" was imported without its file; pick it again`,
-			"Hoppscotch exports secrets without their values: fill in token, clientSecret", headersWarning, scriptsWarning,
+		Warnings: []portability.Warning{
+			portability.Warn(portability.WarnFileFieldDropped, portability.Subject{Kind: portability.KindRequest, Name: "Upload photo"}, "field", "photo"),
+			portability.Warn(portability.WarnHoppscotchSecretsEmpty, portability.Subject{}, "keys", "token, clientSecret"),
+			portability.Warn(portability.WarnHoppscotchHeadersCopied, portability.Subject{}),
+			portability.Warn(portability.WarnForeignScripts, portability.Subject{}, "app", "Hoppscotch", "api", "pw.* / hopp.*"),
 		},
 	}, p)
 }
@@ -452,7 +455,7 @@ func TestIsEnvironment(t *testing.T) {
 }
 
 func TestBuild_SecretsComeWithoutValues(t *testing.T) {
-	assert.Contains(t, petstore(t).tree.Warnings, "Hoppscotch exports secrets without their values: fill in token, clientSecret")
+	assert.Contains(t, portability.Texts(petstore(t).tree.Warnings), "Hoppscotch exports secrets without their values: fill in token, clientSecret")
 }
 
 func TestBuild_QueryParametersAreEncoded(t *testing.T) {
@@ -490,7 +493,7 @@ func TestBuild_MultipartWithoutFilesIsReported(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, b.tree.Root.Requests[0].In.Headers)
-	assert.Contains(t, b.tree.Warnings,
+	assert.Contains(t, portability.Texts(b.tree.Warnings),
 		`1 multipart request has no file field and will be sent as a URL-encoded form, not multipart: "Sign up"`)
 }
 
@@ -507,7 +510,7 @@ func TestBuild_FoldersThatTurnAuthOffAreReported(t *testing.T) {
 	require.NoError(t, err)
 	b, err := parse(withAuth, "")
 	require.NoError(t, err)
-	assert.Contains(t, b.tree.Warnings, `requests in folders "Public", "Health", "Status" will inherit the parent's auth: `+
+	assert.Contains(t, portability.Texts(b.tree.Warnings), `requests in folders "Public", "Health", "Status" will inherit the parent's auth: `+
 		`Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without`)
 
 	withoutAuth, err := json.Marshal(folder("API", none, folder("Public", none)))

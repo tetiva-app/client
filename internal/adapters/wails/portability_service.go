@@ -103,7 +103,7 @@ func (s *PortabilityService) ImportCollection(req dto.ImportCollectionRequest) R
 	return OK(dto.ImportCollectionResponse{
 		FoldersCreated:  result.Folders + 1,
 		RequestsCreated: result.Requests,
-		Warnings:        result.Warnings,
+		Warnings:        dto.ImportWarningsFrom(result.Warnings),
 	})
 }
 
@@ -143,18 +143,18 @@ func (s *PortabilityService) LinkFetch(req dto.LinkFetchRequest) Result[dto.Impo
 	if err != nil {
 		return Err[dto.ImportPreviewResult](fmt.Errorf("%s: %w", funcName, err))
 	}
-	id, err := s.previews.put(data)
+	id, err := s.previews.put(data, "")
 	if err != nil {
 		return Err[dto.ImportPreviewResult](fmt.Errorf("%s: %w", funcName, err))
 	}
 	return OK(dto.ImportPreviewResult{PreviewID: id, Preview: dto.ImportPreviewFrom(preview)})
 }
 
-func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[dto.ImportPreview] {
+func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[dto.ImportPreviewResult] {
 	const funcName = "PortabilityService.ImportPreview"
 
 	if err := portability.CheckFileSize(len(req.Content)); err != nil {
-		return Err[dto.ImportPreview](err)
+		return Err[dto.ImportPreviewResult](err)
 	}
 	data := []byte(req.Content)
 	envFormat := ""
@@ -165,20 +165,24 @@ func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[
 		envFormat = "Hoppscotch"
 	}
 	if envFormat != "" {
-		return Err[dto.ImportPreview](&domain.ReasonError{
+		return Err[dto.ImportPreviewResult](&domain.ReasonError{
 			Reason: portability.ReasonEnvironmentFile,
 			Err:    &domain.ValidationError{Fields: map[string]string{"content": "a " + envFormat + " environment, not a collection"}},
 		})
 	}
 	imp, err := portability.Select(data, s.importers...)
 	if err != nil {
-		return Err[dto.ImportPreview](err)
+		return Err[dto.ImportPreviewResult](err)
 	}
 	preview, err := imp.Preview(data, req.FileName)
 	if err != nil {
-		return Err[dto.ImportPreview](fmt.Errorf("%s: %w", funcName, err))
+		return Err[dto.ImportPreviewResult](fmt.Errorf("%s: %w", funcName, err))
 	}
-	return OK(dto.ImportPreviewFrom(preview))
+	id, err := s.previews.put(data, req.FileName)
+	if err != nil {
+		return Err[dto.ImportPreviewResult](fmt.Errorf("%s: %w", funcName, err))
+	}
+	return OK(dto.ImportPreviewResult{PreviewID: id, Preview: dto.ImportPreviewFrom(preview)})
 }
 
 // ImportConfirm imports a previewed link or a file in one transaction.
@@ -207,7 +211,7 @@ func (s *PortabilityService) ImportConfirm(req dto.ImportConfirmRequest) Result[
 				Err:    &domain.NotFoundError{Entity: "import preview", ID: req.PreviewID},
 			})
 		}
-		data = cached
+		data, opt.FileName = cached.data, cached.fileName
 	}
 
 	result, err := s.importData(context.Background(), data, opt)

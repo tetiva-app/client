@@ -181,9 +181,9 @@ func scriptPreviews(pc PostmanCollection) []portability.ScriptPreview {
 	return out
 }
 
-func nonNil(s []string) []string {
+func nonNil[T any](s []T) []T {
 	if s == nil {
-		return []string{}
+		return []T{}
 	}
 	return s
 }

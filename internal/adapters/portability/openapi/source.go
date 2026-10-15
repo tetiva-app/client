@@ -157,13 +157,13 @@ func (s *source) follow(ref, pointer string) string {
 	return pointer
 }
 
-func (s *source) stubBrokenRefs() []string {
-	var warnings []string
+func (s *source) stubBrokenRefs() []portability.Warning {
+	var warnings []portability.Warning
 	warned := map[string]bool{}
-	warn := func(key, msg string) {
+	warn := func(key string, code portability.WarningCode, param string) {
 		if !warned[key] {
 			warned[key] = true
-			warnings = append(warnings, msg)
+			warnings = append(warnings, portability.Warn(code, portability.Subject{}, param, key))
 		}
 	}
 	var walk func(n *yaml.Node)
@@ -173,11 +173,11 @@ func (s *source) stubBrokenRefs() []string {
 				target, _, _ := strings.Cut(ref, "#")
 				switch {
 				case target != "":
-					warn(target, fmt.Sprintf("references to %q are not supported and were left empty", target))
+					warn(target, portability.WarnOpenAPIExternalRef, "target")
 					n.Content = nil
 					return
 				case s.at(s.refPointer(ref)) == nil:
-					warn(ref, fmt.Sprintf("reference %q points to nothing and was left empty", ref))
+					warn(ref, portability.WarnOpenAPIBrokenRef, "ref")
 					n.Content = nil
 					return
 				}

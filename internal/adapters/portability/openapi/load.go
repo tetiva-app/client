@@ -10,13 +10,14 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"gopkg.in/yaml.v3"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain"
 )
 
 type spec struct {
 	doc      *openapi3.T
 	src      *source
-	warnings []string
+	warnings []portability.Warning
 }
 
 func detect(data []byte) bool {

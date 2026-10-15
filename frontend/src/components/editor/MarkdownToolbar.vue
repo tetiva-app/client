@@ -13,6 +13,8 @@ import { TABLE_COMMANDS } from '@/lib/markdown-table-editor'
 import type { TableCommand } from '@/lib/markdown-table-editor'
 import TableSizePicker from './TableSizePicker.vue'
 import { isMac } from '@/lib/platform'
+import { useCopy } from '@/composables/useLocale'
+import { EDITOR_COPY, type EditorCopy } from './copy'
 
 const props = withDefaults(defineProps<{
   inTable?: boolean
@@ -28,29 +30,31 @@ const emit = defineEmits<{
 }>()
 
 const mod = isMac() ? '⌘' : 'Ctrl+'
+const copy = useCopy(EDITOR_COPY)
+
+type ButtonAction = MarkdownAction & keyof EditorCopy['toolbar']
 
 interface ToolbarButton {
-  action: MarkdownAction
+  action: ButtonAction
   icon: Component
-  label: string
   hint?: string
 }
 
 const groups: ToolbarButton[][] = [
   [
-    { action: 'bold', icon: Bold, label: 'Bold', hint: `${mod}B` },
-    { action: 'italic', icon: Italic, label: 'Italic', hint: `${mod}I` },
-    { action: 'code', icon: Code, label: 'Inline code' },
-    { action: 'link', icon: Link2, label: 'Link', hint: `${mod}K` },
+    { action: 'bold', icon: Bold, hint: `${mod}B` },
+    { action: 'italic', icon: Italic, hint: `${mod}I` },
+    { action: 'code', icon: Code },
+    { action: 'link', icon: Link2, hint: `${mod}K` },
   ],
   [
-    { action: 'heading', icon: Heading, label: 'Heading' },
-    { action: 'bulletList', icon: List, label: 'Bullet list' },
-    { action: 'numberedList', icon: ListOrdered, label: 'Numbered list' },
-    { action: 'quote', icon: TextQuote, label: 'Quote' },
+    { action: 'heading', icon: Heading },
+    { action: 'bulletList', icon: List },
+    { action: 'numberedList', icon: ListOrdered },
+    { action: 'quote', icon: TextQuote },
   ],
   [
-    { action: 'codeBlock', icon: SquareCode, label: 'Code block' },
+    { action: 'codeBlock', icon: SquareCode },
   ],
 ]
 
@@ -102,8 +106,8 @@ defineExpose({
         class="size-7"
         :class="buttonClass"
         :disabled="isActionDisabled(button.action)"
-        :title="button.hint ? `${button.label} (${button.hint})` : button.label"
-        :aria-label="button.label"
+        :title="button.hint ? `${copy.toolbar[button.action]} (${button.hint})` : copy.toolbar[button.action]"
+        :aria-label="copy.toolbar[button.action]"
         @mousedown.prevent
         @click="emit('action', button.action)"
       >
@@ -115,7 +119,7 @@ defineExpose({
          covering the row the command is about to change. -->
     <div class="ml-auto flex items-center gap-1">
       <span class="hidden text-[10px] text-muted-foreground/60 sm:inline">
-        Type / for commands
+        {{ copy.toolbar.typeSlash }}
       </span>
 
       <Popover v-if="!inTable" v-model:open="pickerOpen">
@@ -124,8 +128,8 @@ defineExpose({
             type="button"
             class="size-7"
             :class="buttonClass"
-            title="Insert table"
-            aria-label="Insert table"
+            :title="copy.toolbar.insertTable"
+            :aria-label="copy.toolbar.insertTable"
             @mousedown.prevent
           >
             <Table class="size-3.5" />
@@ -147,8 +151,8 @@ defineExpose({
             type="button"
             class="h-7 gap-0.5 px-1"
             :class="buttonClass"
-            title="Table actions"
-            aria-label="Table actions"
+            :title="copy.toolbar.tableActions"
+            :aria-label="copy.toolbar.tableActions"
             @mousedown.prevent
           >
             <Table class="size-3.5" />

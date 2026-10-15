@@ -17,6 +17,9 @@ import (
 
 const maxNameLen = 200
 
+// PayloadField keys the error for an example over the synced payload cap.
+const PayloadField = "example"
+
 type Create struct {
 	RequestID   uuid.UUID
 	Name        string
@@ -144,7 +147,7 @@ func validatePayload(name, statusText string, headers []entities.HeaderItem, bod
 	}
 	if len(body)+len(headersJSON)+len(name)+len(statusText)+len(contentType) > domain.MaxExamplePayloadLen {
 		return &domain.ValidationError{Fields: map[string]string{
-			"example": fmt.Sprintf("example is too large (max %d KB)", domain.MaxExamplePayloadLen/1024),
+			PayloadField: fmt.Sprintf("example is too large (max %d KB)", domain.MaxExamplePayloadLen/1024),
 		}}
 	}
 	return nil

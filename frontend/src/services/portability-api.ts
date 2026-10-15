@@ -1,10 +1,18 @@
 import type { Result } from '@/types/common'
 
+// text is the backend's English wording, shown when the UI does not know the code.
+export interface ImportWarning {
+  code: string
+  subject: { kind: string; name: string }
+  params: Record<string, string>
+  text: string
+}
+
 export interface ImportEnvironmentResult {
   environmentId: string
   environmentNames: string[]
   variablesCreated: number
-  warnings: string[]
+  warnings: ImportWarning[]
 }
 
 // path is the saved file (desktop) or '' for a browser blob download;
@@ -40,7 +48,7 @@ export interface ImportPreview {
   environmentNames: string[]
   hosts: string[]
   scripts: ImportScript[]
-  warnings: string[]
+  warnings: ImportWarning[]
 }
 
 export interface ImportPreviewResult {
@@ -48,7 +56,7 @@ export interface ImportPreviewResult {
   preview: ImportPreview
 }
 
-// Exactly one of previewId (link) and content (file); a Tetiva file ignores parentId.
+// Exactly one of previewId and content (resent when a file preview expired); a Tetiva file ignores parentId.
 export interface ImportConfirmRequest {
   previewId?: string
   content?: string
@@ -65,7 +73,7 @@ export interface ImportConfirmResult {
   examples: number
   environmentNames: string[]
   activeEnvironment: string
-  warnings: string[]
+  warnings: ImportWarning[]
 }
 
 export interface PortabilityServiceAPI {
@@ -75,6 +83,6 @@ export interface PortabilityServiceAPI {
   linkMeta(slug: string): Promise<Result<LinkMeta>>
   linkUnlock(slug: string, password: string): Promise<Result<{ token: string }>>
   linkFetch(slug: string, token: string): Promise<Result<ImportPreviewResult>>
-  importPreview(content: string, fileName?: string): Promise<Result<ImportPreview>>
+  importPreview(content: string, fileName?: string): Promise<Result<ImportPreviewResult>>
   importConfirm(req: ImportConfirmRequest): Promise<Result<ImportConfirmResult>>
 }

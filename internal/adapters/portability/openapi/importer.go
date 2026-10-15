@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -140,7 +138,7 @@ func (w *writer) request(ctx context.Context, collectionID uuid.UUID, rp *reques
 			if !errors.As(err, &ve) {
 				return fmt.Errorf("create example %q of %s: %w", ex.Name, rp.label, err)
 			}
-			w.res.Warnings = append(w.res.Warnings, fmt.Sprintf("%s: example %q skipped: %s", rp.label, ex.Name, describe(ve)))
+			w.res.Warnings = append(w.res.Warnings, portability.ExampleRejected(operation(rp.label), ex.Name, ve))
 			continue
 		}
 		w.res.Examples++
@@ -176,18 +174,9 @@ func (w *writer) environment(ctx context.Context, name string, vars []environmen
 	return nil
 }
 
-func describe(ve *domain.ValidationError) string {
-	msgs := make([]string, 0, len(ve.Fields))
-	for _, msg := range ve.Fields {
-		msgs = append(msgs, msg)
-	}
-	slices.Sort(msgs)
-	return strings.Join(msgs, "; ")
-}
-
-func nonNil(s []string) []string {
+func nonNil[T any](s []T) []T {
 	if s == nil {
-		return []string{}
+		return []T{}
 	}
 	return s
 }

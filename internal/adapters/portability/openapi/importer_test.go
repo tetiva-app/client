@@ -132,44 +132,48 @@ func TestDetect(t *testing.T) {
 
 func TestPreview(t *testing.T) {
 	cases := map[string]struct {
-		file string
-		want portability.ImportPreview
+		file     string
+		want     portability.ImportPreview
+		warnings []string
 	}{
 		"openapi 3.0": {
 			file: "petstore-3.0.yaml",
 			want: portability.ImportPreview{
 				Format: "openapi", Title: "Petstore", Folders: 3, Requests: 8, Examples: 7, EnvironmentNames: []string{"Petstore"},
-				Hosts: []string{"api.petstore.example.com"}, Scripts: []portability.ScriptPreview{}, Warnings: []string{},
+				Hosts: []string{"api.petstore.example.com"}, Scripts: []portability.ScriptPreview{},
 			},
+			warnings: []string{},
 		},
 		"swagger 2.0": {
 			file: "petstore-2.0.json",
 			want: portability.ImportPreview{
 				Format: "openapi", Title: "Swagger Petstore", Folders: 1, Requests: 3, Examples: 2, EnvironmentNames: []string{"Swagger Petstore"},
-				Hosts: []string{"petstore.swagger.io"}, Scripts: []portability.ScriptPreview{}, Warnings: []string{},
+				Hosts: []string{"petstore.swagger.io"}, Scripts: []portability.ScriptPreview{},
 			},
+			warnings: []string{},
 		},
 		"json escapes yaml rejects": {
 			file: "escaped-3.0.json",
 			want: portability.ImportPreview{
 				Format: "openapi", Title: "Emoji \U0001F680 API", Folders: 1, Requests: 1, Examples: 1, EnvironmentNames: []string{"Emoji \U0001F680 API"},
-				Hosts: []string{"api.example.com"}, Scripts: []portability.ScriptPreview{}, Warnings: []string{},
+				Hosts: []string{"api.example.com"}, Scripts: []portability.ScriptPreview{},
 			},
+			warnings: []string{},
 		},
 		"openapi 3.1": {
 			file: "features-3.1.yaml",
 			want: portability.ImportPreview{
 				Format: "openapi", Title: "Features", Folders: 0, Requests: 2, Examples: 1, EnvironmentNames: []string{"Features"},
 				Hosts: []string{}, Scripts: []portability.ScriptPreview{},
-				Warnings: []string{
-					`references to "other.yaml" are not supported and were left empty`,
-					`reference "#/components/schemas/Missing" points to nothing and was left empty`,
-					"the document names no server: set baseUrl in the environment",
-					`security scheme "oidc" (openIdConnect) is not supported: requests that use it were imported without auth`,
-					"GET /nodes/{id}: response links were skipped",
-					"POST /mixed: callbacks were skipped",
-					"webhooks were skipped: newPet",
-				},
+			},
+			warnings: []string{
+				`references to "other.yaml" are not supported and were left empty`,
+				`reference "#/components/schemas/Missing" points to nothing and was left empty`,
+				"the document names no server: set baseUrl in the environment",
+				`security scheme "oidc" (openIdConnect) is not supported: requests that use it were imported without auth`,
+				"GET /nodes/{id}: response links were skipped",
+				"POST /mixed: callbacks were skipped",
+				"webhooks were skipped: newPet",
 			},
 		},
 	}
@@ -180,7 +184,11 @@ func TestPreview(t *testing.T) {
 			got, err := rec.importer().Preview(readFile(t, "testdata", tc.file), "")
 			require.NoError(t, err)
 
-			assert.Equal(t, &tc.want, got)
+			assert.NotNil(t, got.Warnings)
+			assert.Equal(t, tc.warnings, portability.Texts(got.Warnings))
+			want := tc.want
+			want.Warnings = got.Warnings
+			assert.Equal(t, &want, got)
 			assert.Empty(t, rec.collections)
 			assert.Empty(t, rec.requests)
 		})
@@ -209,7 +217,7 @@ func TestImport_WritesThePlan(t *testing.T) {
 	assert.Equal(t, []string{"Petstore (2)"}, res.EnvironmentNames)
 	assert.Equal(t, "Petstore (2)", res.ActiveEnvironment)
 	assert.Len(t, rec.activated, 1)
-	assert.Equal(t, []string{`GET /pets/{petId}: example "404 Not Found" skipped: too large`}, res.Warnings)
+	assert.Equal(t, []string{`GET /pets/{petId}: example "404 Not Found" skipped: too large`}, portability.Texts(res.Warnings))
 
 	require.Len(t, rec.collections, 4)
 	assert.Equal(t, &parent, rec.collections[0].ParentID)

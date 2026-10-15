@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -85,13 +87,20 @@ func TestImportCollection_Examples(t *testing.T) {
 	assert.Equal(t, entities.ProtocolGraphQL, gql[0].Protocol)
 	assert.Equal(t, "application/json; charset=utf-8", gql[0].ContentType)
 
-	warnings := strings.Join(res.Warnings, "\n")
-	assert.Contains(t, warnings, `request "Get user": example 2 skipped: "code" must be a whole number, got string`)
+	warnings := strings.Join(portability.Texts(res.Warnings), "\n")
+	assert.Contains(t, warnings, `request "Get user": example 2 skipped: field "code" must be of type integer, got string`)
 	assert.Contains(t, warnings, `request "Odd examples": example 2: status code 1500 is out of range, imported as 0`)
 	assert.Contains(t, warnings, `request "Odd examples": example 3: status code -1 is out of range, imported as 0`)
-	assert.Contains(t, warnings, `request "Odd examples": example 4 skipped: not an object (got string)`)
-	assert.Contains(t, warnings, `request "Odd examples": example 5 skipped: "code" must be a whole number, got number 99999999999999999999999`)
+	assert.Contains(t, warnings, `request "Odd examples": example 4 skipped: it is string, not an object`)
+	assert.Contains(t, warnings, `request "Odd examples": example 5 skipped: field "code" must be of type integer, got number 99999999999999999999999`)
 	assert.Len(t, res.Warnings, 5)
+	i := slices.IndexFunc(res.Warnings, func(w portability.Warning) bool { return w.Code == portability.WarnPostmanExampleStatus })
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, portability.Subject{Kind: portability.KindRequest, Name: "Odd examples"}, res.Warnings[i].Subject)
+	assert.Equal(t, map[string]string{"index": "2", "status": "1500"}, res.Warnings[i].Params)
+	i = slices.IndexFunc(res.Warnings, func(w portability.Warning) bool { return w.Code == portability.WarnPostmanExampleWrongType })
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, map[string]string{"index": "2", "field": "code", "want": "integer", "got": "string"}, res.Warnings[i].Params)
 }
 
 func singleRequestCollection(t *testing.T, responses ...any) []byte {
@@ -121,7 +130,7 @@ func TestImportCollection_ExampleBodyLimitCountsBytes(t *testing.T) {
 
 	require.Len(t, exUC.created, 1)
 	assert.Equal(t, "At limit", exUC.created[0].Name)
-	assert.Equal(t, []string{`request "Ping": example 2 skipped: body is larger than 256 KB`}, res.Warnings)
+	assert.Equal(t, []string{`request "Ping": example 2 skipped: body is larger than 256 KB`}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_WarnsAboutExamplesThatMayHoldSecrets(t *testing.T) {
@@ -138,9 +147,9 @@ func TestImportCollection_WarnsAboutExamplesThatMayHoldSecrets(t *testing.T) {
 
 	require.Len(t, exUC.created, 4, "a suspected secret warns, it does not block")
 	assert.Equal(t, []string{
-		`examples may contain secrets, check them before sharing: request "Ping" / "Login" (OAuth token); ` +
-			`request "Ping" / "Keyed" (AWS access key)`,
-	}, res.Warnings)
+		`examples may contain secrets, check them before sharing: "Ping" / "Login" (OAuth token); ` +
+			`"Ping" / "Keyed" (AWS access key)`,
+	}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_ExampleNameTruncatedToLimit(t *testing.T) {
@@ -153,14 +162,14 @@ func TestImportCollection_ExampleNameTruncatedToLimit(t *testing.T) {
 	require.Len(t, exUC.created, 1)
 	assert.Equal(t, 200, utf8.RuneCountInString(exUC.created[0].Name))
 	assert.True(t, utf8.ValidString(exUC.created[0].Name))
-	assert.Equal(t, []string{`request "Ping": example 1: name longer than 200 characters was truncated`}, res.Warnings)
+	assert.Equal(t, []string{`request "Ping": example 1: name longer than 200 characters was truncated`}, portability.Texts(res.Warnings))
 }
 
 func TestImportCollection_ExampleErrorNeverAbortsImport(t *testing.T) {
 	exUC := &stubExampleUC{failOn: func(in example.Create) error {
 		switch in.Name {
 		case "Huge":
-			return &domain.ValidationError{Fields: map[string]string{"example": "example is too large (max 480 KB)"}}
+			return &domain.ValidationError{Fields: map[string]string{example.PayloadField: "example is too large (max 480 KB)"}}
 		case "Storage":
 			return errors.New("disk I/O error")
 		}
@@ -178,9 +187,9 @@ func TestImportCollection_ExampleErrorNeverAbortsImport(t *testing.T) {
 	require.Len(t, exUC.created, 1)
 	assert.Equal(t, "Kept", exUC.created[0].Name)
 	assert.Equal(t, []string{
-		`request "Ping": example 1 skipped: example is too large (max 480 KB)`,
+		`request "Ping": example 1 skipped: with its headers it is larger than 480 KB`,
 		`request "Ping": example 3 skipped: disk I/O error`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }
 
 func exportedResponses(t *testing.T, item postman.PostmanItem) []postman.PostmanResponse {
@@ -392,7 +401,7 @@ func TestImportCollection_ExampleHeaderShapes(t *testing.T) {
 	}, exUC.created[1].Headers)
 	assert.Equal(t, "text/plain", exUC.created[1].ContentType)
 	assert.Equal(t, []string{
-		`request "Ping": example 3 skipped: "header" must be a list, got number`,
-		`request "Ping": example 4 skipped: "header" must be a list, got bool`,
-	}, res.Warnings)
+		`request "Ping": example 3 skipped: field "header" must be of type array, got number`,
+		`request "Ping": example 4 skipped: field "header" must be of type array, got bool`,
+	}, portability.Texts(res.Warnings))
 }

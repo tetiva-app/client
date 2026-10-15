@@ -21,7 +21,10 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
-const defaultName = "HAR import"
+const (
+	defaultName   = "HAR import"
+	unreadableURL = "unreadable URL"
+)
 
 // A copied "accept-encoding: br" brings back bodies the client does not decode.
 var droppedHeaders = map[string]bool{
@@ -117,32 +120,33 @@ func build(entries []entry, name string) *portability.Tree {
 		t.Root.Folders = hosts
 	}
 
+	warn := func(code portability.WarningCode, kv ...any) {
+		t.Warnings = append(t.Warnings, portability.Warn(code, portability.Subject{}, kv...))
+	}
 	if assets > 0 {
-		t.Warnings = append(t.Warnings, portability.Plural(assets, "page asset entry", "page asset entries")+
-			" skipped: images, scripts, stylesheets, fonts and media are not imported")
+		warn(portability.WarnHARAssetsSkipped, "n", assets)
 	}
 	for _, kind := range slices.Sorted(maps.Keys(skipped)) {
-		t.Warnings = append(t.Warnings, fmt.Sprintf("%s skipped: only HTTP requests are imported", portability.Plural(skipped[kind], kind+" entry", kind+" entries")))
+		if kind == unreadableURL {
+			warn(portability.WarnHARUnreadableSkipped, "n", skipped[kind])
+		} else {
+			warn(portability.WarnHAREntriesSkipped, "n", skipped[kind], "scheme", kind)
+		}
 	}
 	if n.cookies {
-		t.Warnings = append(t.Warnings, "cookie headers were not imported: add the cookies in the cookie manager if the requests need them")
+		warn(portability.WarnHARCookiesDropped)
 	}
 	if n.credentials > 0 {
-		t.Warnings = append(t.Warnings, portability.Plural(n.credentials,
-			"request keeps credentials from the capture in its headers or query parameters",
-			"requests keep credentials from the capture in their headers or query parameters")+
-			" as plain values: move them to secret variables before sharing")
+		warn(portability.WarnHARCredentialsPlain, "n", n.credentials)
 	}
 	if n.files > 0 {
-		t.Warnings = append(t.Warnings, fmt.Sprintf("%s imported without the file; pick it again in the request body",
-			portability.Plural(n.files, "file field was", "file fields were")))
+		warn(portability.WarnHARFilesDropped, "n", n.files)
 	}
 	if len(n.textForms) > 0 {
-		t.Warnings = append(t.Warnings, portability.URLEncodedForms(n.textForms))
+		warn(portability.WarnFormsSentURLEncoded, "n", len(n.textForms), "requests", portability.List{Items: n.textForms})
 	}
 	if n.bodiesLeft > 0 {
-		t.Warnings = append(t.Warnings, fmt.Sprintf("%s left out of the examples: only JSON, XML and plain-text bodies up to %d KB are kept",
-			portability.Plural(n.bodiesLeft, "response body was", "response bodies were"), domain.MaxExampleBodyLen/1024))
+		warn(portability.WarnHARBodiesLeftOut, "n", n.bodiesLeft, "kb", domain.MaxExampleBodyLen/1024)
 	}
 	return t
 }
@@ -154,7 +158,7 @@ func skipKind(e entry, u *url.URL) string {
 	if u != nil && u.Scheme != "" {
 		return u.Scheme + ":"
 	}
-	return "unreadable URL"
+	return unreadableURL
 }
 
 type notes struct {

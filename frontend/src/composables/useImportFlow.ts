@@ -1,6 +1,6 @@
 import { computed, watch } from 'vue'
 import type { ResultError } from '@/types/common'
-import type { DeepLink, ImportConfirmRequest, ImportConfirmResult, ImportEnvironmentResult, ImportPreview } from '@/services'
+import type { DeepLink, ImportConfirmResult, ImportEnvironmentResult, ImportPreview, ImportWarning } from '@/services'
 import { getDeepLinkService, getPortabilityService } from '@/services'
 import { guarded } from '@/lib/service-call'
 import { contentSaved } from '@/lib/content-saved'
@@ -16,6 +16,7 @@ import { useRequestStore } from '@/stores/tabs'
 import { useToast } from '@/composables/useToast'
 import { currentLocale, fill, plural, type Locale } from '@/lib/locale'
 import { IMPORT_COPY, type ImportErrorReason } from '@/components/import/copy'
+import { importWarningText } from '@/components/import/warnings'
 
 export const MAX_IMPORT_FILE_BYTES = 48 * 1024 * 1024
 export const MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -99,9 +100,10 @@ export function importedEnvironmentText(
   })
 }
 
-export function importWarningsText(warnings: string[] | undefined, locale: Locale = currentLocale.value): string {
+export function importWarningsText(warnings: ImportWarning[] | undefined, locale: Locale = currentLocale.value): string {
   const more = IMPORT_COPY[locale].results.moreWarnings
-  return warningsToastMessage(warnings, { more: rest => plural(locale, rest, more) })
+  const texts = (warnings ?? []).map(w => importWarningText(w, locale))
+  return warningsToastMessage(texts, { more: rest => plural(locale, rest, more) })
 }
 
 export function useImportFlow() {
@@ -277,7 +279,7 @@ export function useImportFlow() {
       finish()
       return
     }
-    showPreview({ kind: 'file', content, fileName, parentId }, res.data)
+    showPreview({ kind: 'file', previewId: res.data.previewId, content, fileName, parentId }, res.data.preview)
   }
 
   async function importEnvironmentFile(flow: number, content: string, wsId: string) {
@@ -332,20 +334,21 @@ export function useImportFlow() {
       ui.confirmError = copy().errors.noWorkspace
       return
     }
-    const req: ImportConfirmRequest = src.kind === 'link'
-      ? { previewId: src.previewId, includeScripts: ui.includeScripts, workspaceId: wsId }
-      : {
-          content: src.content,
-          fileName: src.fileName,
-          includeScripts: ui.includeScripts,
-          workspaceId: wsId,
-          ...(preview.format !== 'tetiva' && src.parentId ? { parentId: src.parentId } : {}),
-        }
+    const opts = {
+      includeScripts: ui.includeScripts,
+      workspaceId: wsId,
+      ...(src.kind === 'file' && preview.format !== 'tetiva' && src.parentId ? { parentId: src.parentId } : {}),
+    }
     ui.importing = true
     ui.confirmError = ''
     ui.notice = ''
-    const res = await guarded((await getPortabilityService()).importConfirm(req))
+    const svc = await getPortabilityService()
+    let res = await guarded(svc.importConfirm({ previewId: src.previewId, ...opts }))
     if (!current(flow)) return
+    if (res.error?.reason === 'PREVIEW_EXPIRED' && src.kind === 'file') {
+      res = await guarded(svc.importConfirm({ content: src.content, fileName: src.fileName, ...opts }))
+      if (!current(flow)) return
+    }
     ui.importing = false
     if (res.error) {
       if (res.error.reason === 'PREVIEW_EXPIRED' && src.kind === 'link') {

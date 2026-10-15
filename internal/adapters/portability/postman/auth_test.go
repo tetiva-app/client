@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
@@ -109,8 +110,8 @@ func TestImportCollection_AuthSchemesFixture(t *testing.T) {
 	assert.Equal(t, map[string]any{"token": "ya29.a0AfB_pasted"}, authData(t, pasted.AuthData))
 
 	require.Len(t, result.Warnings, 2)
-	assert.Contains(t, result.Warnings, `request "Legacy service": auth type "ntlm" is not supported and was imported as no auth`)
-	assert.Contains(t, result.Warnings,
+	assert.Contains(t, portability.Texts(result.Warnings), `request "Legacy service": auth type "ntlm" is not supported and was imported as no auth`)
+	assert.Contains(t, portability.Texts(result.Warnings),
 		`request "Pasted token": the OAuth 2.0 block has an access token but no token URL; imported as a bearer token`)
 }
 
@@ -144,7 +145,7 @@ func TestImportCollection_UnsupportedGrantWarning(t *testing.T) {
 	assert.Equal(t, entities.AuthTypeOAuth2, reqUC.created[0].AuthType)
 	assert.Equal(t, "implicit", authData(t, reqUC.created[0].AuthData)["grant"])
 	require.Len(t, result.Warnings, 1)
-	assert.Contains(t, result.Warnings[0], `OAuth 2.0 grant "implicit" is not supported`)
+	assert.Contains(t, result.Warnings[0].Text, `OAuth 2.0 grant "implicit" is not supported`)
 }
 
 func TestImportCollection_JWTPayloadNotAnObject(t *testing.T) {
@@ -175,7 +176,7 @@ func TestImportCollection_JWTPayloadNotAnObject(t *testing.T) {
 	require.Len(t, reqUC.created, 1)
 	assert.NotContains(t, authData(t, reqUC.created[0].AuthData), "claims")
 	require.Len(t, result.Warnings, 1)
-	assert.Contains(t, result.Warnings[0], "the JWT payload is not a JSON object")
+	assert.Contains(t, result.Warnings[0].Text, "the JWT payload is not a JSON object")
 }
 
 func TestAuthRoundTrip(t *testing.T) {

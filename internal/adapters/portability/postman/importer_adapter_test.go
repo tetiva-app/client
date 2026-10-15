@@ -124,7 +124,7 @@ func TestImporter_PreviewWritesNothing(t *testing.T) {
 		{Path: "Shop / Orders", Phase: "post", Text: "pm.test('ok', () => {})"},
 		{Path: "Shop / Upload", Phase: "pre", Text: "console.log('up')"},
 	}, p.Scripts)
-	assert.Equal(t, []string{`request "Upload": file field "file" was imported without its file; pick it again`}, p.Warnings)
+	assert.Equal(t, []string{`request "Upload": file field "file" was imported without its file; pick it again`}, portability.Texts(p.Warnings))
 }
 
 func TestImporter_PreviewResolvesCollectionVariables(t *testing.T) {

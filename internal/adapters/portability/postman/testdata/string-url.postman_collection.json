@@ -1,0 +1,47 @@
+{
+	"info": {
+		"name": "String URLs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "List users",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "https://api.example.com/users?page=2"
+			},
+			"response": [
+				{
+					"name": "Page 2",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": "https://api.example.com/users?page=2"
+					},
+					"status": "OK",
+					"code": 200,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"body": "[]"
+				}
+			]
+		},
+		{
+			"name": "Get user",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api.example.com/users/1",
+					"protocol": "https",
+					"host": ["api", "example", "com"],
+					"path": ["users", "1"]
+				}
+			}
+		},
+		{
+			"name": "Health",
+			"request": "https://api.example.com/health?full=1"
+		}
+	]
+}

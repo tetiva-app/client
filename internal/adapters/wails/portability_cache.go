@@ -7,56 +7,76 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/tetiva-app/client/internal/adapters/portability"
 )
 
-const (
-	previewTTL        = 10 * time.Minute
-	previewMaxEntries = 4
-	previewMaxBytes   = 8 << 20
-)
+const previewTTL = 10 * time.Minute
 
 // A download counts as an import and burns a one-time token, so it must not repeat.
 type previewCache struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	entries []previewEntry
+	mu         sync.Mutex
+	now        func() time.Time
+	afterFunc  func(time.Duration, func())
+	maxEntries int
+	maxBytes   int
+	maxTotal   int
+	entries    []previewEntry
 }
 
 type previewEntry struct {
-	id      string
-	data    []byte
-	expires time.Time
+	id       string
+	data     []byte
+	fileName string
+	expires  time.Time
 }
 
 func newPreviewCache() *previewCache {
-	return &previewCache{now: time.Now}
+	return &previewCache{
+		now:        time.Now,
+		afterFunc:  func(d time.Duration, f func()) { time.AfterFunc(d, f) },
+		maxEntries: 4,
+		maxBytes:   portability.MaxFileBytes,
+		maxTotal:   64 << 20,
+	}
 }
 
-func (c *previewCache) put(data []byte) (string, error) {
-	if len(data) > previewMaxBytes {
-		return "", fmt.Errorf("previewCache.put: %d bytes is over the %d byte limit", len(data), previewMaxBytes)
+func (c *previewCache) put(data []byte, fileName string) (string, error) {
+	if len(data) > c.maxBytes {
+		return "", fmt.Errorf("previewCache.put: %d bytes is over the %d byte limit", len(data), c.maxBytes)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.prune()
-	if len(c.entries) >= previewMaxEntries {
-		c.entries = slices.Delete(c.entries, 0, len(c.entries)-previewMaxEntries+1)
+	total := 0
+	for _, e := range c.entries {
+		total += len(e.data)
+	}
+	for len(c.entries) > 0 && (len(c.entries) >= c.maxEntries || total+len(data) > c.maxTotal) {
+		total -= len(c.entries[0].data)
+		c.entries = slices.Delete(c.entries, 0, 1)
 	}
 	id := uuid.NewString()
-	c.entries = append(c.entries, previewEntry{id: id, data: data, expires: c.now().Add(previewTTL)})
+	c.entries = append(c.entries, previewEntry{id: id, data: data, fileName: fileName, expires: c.now().Add(previewTTL)})
+	// A cancelled preview is never read again, so only a timer frees its bytes.
+	c.afterFunc(previewTTL, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.prune()
+	})
 	return id, nil
 }
 
-func (c *previewCache) get(id string) ([]byte, bool) {
+func (c *previewCache) get(id string) (previewEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.prune()
 	for _, e := range c.entries {
 		if e.id == id {
-			return e.data, true
+			return e, true
 		}
 	}
-	return nil, false
+	return previewEntry{}, false
 }
 
 func (c *previewCache) remove(id string) {

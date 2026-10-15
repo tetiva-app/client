@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -177,9 +175,9 @@ func (w *writer) request(ctx context.Context, collectionID uuid.UUID, rp *reques
 		if _, err := w.examples.Create(ctx, ex, example.CreateOpt{UserID: w.opt.UserID}); err != nil {
 			var ve *domain.ValidationError
 			if !errors.As(err, &ve) {
-				return fmt.Errorf("create example %q of %s: %w", ex.Name, rp.label, err)
+				return fmt.Errorf("create example %q of %s: %w", ex.Name, rp.subject, err)
 			}
-			w.res.Warnings = append(w.res.Warnings, fmt.Sprintf("%s: example %q skipped: %s", rp.label, ex.Name, describe(ve)))
+			w.res.Warnings = append(w.res.Warnings, portability.ExampleRejected(rp.subject, ex.Name, ve))
 			continue
 		}
 		w.res.Examples++
@@ -209,13 +207,4 @@ func (w *writer) environment(ctx context.Context, ep *envPlan) error {
 		}
 	}
 	return nil
-}
-
-func describe(ve *domain.ValidationError) string {
-	msgs := make([]string, 0, len(ve.Fields))
-	for _, msg := range ve.Fields {
-		msgs = append(msgs, msg)
-	}
-	slices.Sort(msgs)
-	return strings.Join(msgs, "; ")
 }

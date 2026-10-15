@@ -54,6 +54,7 @@ export type {
   ImportPreviewResult,
   ImportConfirmRequest,
   ImportConfirmResult,
+  ImportWarning,
 } from './portability-api'
 
 export type { WorkspaceServiceAPI }

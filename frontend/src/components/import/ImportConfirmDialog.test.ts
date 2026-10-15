@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
-import type { ImportPreview } from '@/services'
+import type { ImportPreview, ImportWarning } from '@/services'
 import { setCurrentLocale } from '@/lib/locale'
 
 vi.mock('@/services', () => ({ isWailsEnvironment: () => false }))
@@ -35,6 +35,10 @@ const PREVIEW: ImportPreview = {
   hosts: ['api.example.com'], scripts: [], warnings: [],
 }
 
+const DROPPED: ImportWarning = {
+  code: 'file_body_dropped', subject: { kind: 'request', name: 'a' }, params: {}, text: 'request "a": dropped',
+}
+
 interface RenderOpts {
   preview?: Partial<ImportPreview>
   remote?: string | null
@@ -54,7 +58,7 @@ async function render(folderAuth: string, opts: RenderOpts = {}): Promise<string
     id: 'folder-1', name: 'Refunds', parentId: null, workspaceId: 'w1', authType: folderAuth, authData: '{}',
   } as never)
   const ui = useImportUi()
-  ui.source = { kind: 'file', content: '{}', fileName: 'legacy.json', parentId: 'folder-1' }
+  ui.source = { kind: 'file', previewId: 'p-1', content: '{}', fileName: 'legacy.json', parentId: 'folder-1' }
   ui.preview = { ...PREVIEW, ...opts.preview }
   const app = createSSRApp(ImportConfirmDialog)
   app.use(pinia)
@@ -148,7 +152,7 @@ describe('import confirmation wording', () => {
   const scripts = (n: number) => Array.from({ length: n }, (_, i) => ({ path: `Request ${i}`, phase: 'pre' as const, text: '' }))
 
   it('keeps the English header, destination, scripts and buttons', async () => {
-    const html = await render('none', { preview: { scripts: scripts(1), warnings: ['request "a": dropped'] } })
+    const html = await render('none', { preview: { scripts: scripts(1), warnings: [DROPPED] } })
 
     expect(html).toContain('Import “Legacy”')
     expect(html).toContain('Destination')
@@ -158,6 +162,15 @@ describe('import confirmation wording', () => {
     expect(html).toContain('This collection contains 1 script')
     expect(html).toContain('Import scripts')
     expect(html).toContain('Cancel')
+  })
+
+  it('words the notes from their codes and shows an unknown one as sent', async () => {
+    const unknown: ImportWarning = { code: 'brand_new', subject: { kind: '', name: '' }, params: {}, text: 'something new' }
+    const html = await render('none', { preview: { warnings: [DROPPED, unknown] } })
+
+    expect(html).toContain('request &quot;a&quot;: the file body was imported without its file; pick it again')
+    expect(html).toContain('something new')
+    expect(html).not.toContain('dropped')
   })
 
   describe('in Russian', () => {
@@ -221,13 +234,13 @@ describe('import confirmation wording', () => {
       expect(await render('none', { remote: 'r1' })).toContain('Коллекция станет доступна всем в пространстве «Team».')
     })
 
-    it('counts the scripts and leaves the backend warnings as they come', async () => {
-      const html = await render('none', { preview: { scripts: scripts(5), warnings: ['request "a": dropped'] } })
+    it('counts the scripts and the notes', async () => {
+      const html = await render('none', { preview: { scripts: scripts(5), warnings: [DROPPED] } })
 
       expect(html).toContain('В коллекции 5 скриптов')
       expect(html).toContain('Импортировать скрипты')
       expect(html).toContain('Изменено при импорте · 1')
-      expect(html).toContain('request &quot;a&quot;: dropped')
+      expect(html).toContain('запрос «a»: файл из тела запроса (Binary) не импортирован\u00a0— выберите его заново')
     })
   })
 })

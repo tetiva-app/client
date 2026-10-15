@@ -8,6 +8,7 @@ import type {
   ImportConfirmRequest,
   ImportConfirmResult,
   ImportScript,
+  ImportWarning,
 } from './portability-api'
 import type { EnvironmentServiceAPI } from './environment-api'
 import type { Environment } from '@/types/environment'
@@ -31,14 +32,16 @@ function triggerBrowserDownload(content: string, suggestedName: string) {
 
 const SUPPORTED_POSTMAN_AUTH = new Set(['noauth', 'basic', 'bearer', 'apikey', 'oauth2', 'jwt', 'digest', 'awsv4'])
 
-// Browser mode has no Go importer; this repeats only the unsupported-scheme
-// warning, worded like the real one, so the confirmation can be exercised.
-function mockAuthWarnings(data: any): string[] {
-  const warnings: string[] = []
+// Browser mode has no Go importer, so only the unsupported-auth warning is mocked.
+function mockAuthWarnings(data: any): ImportWarning[] {
+  const warnings: ImportWarning[] = []
   const report = (kind: string, name: string | undefined, type: string | undefined) => {
     if (!type || SUPPORTED_POSTMAN_AUTH.has(type)) return
     const label = name ? `${kind} "${name}"` : kind
-    warnings.push(`${label}: auth type "${type}" is not supported and was imported as no auth`)
+    warnings.push({
+      code: 'auth_unsupported', subject: { kind, name: name ?? '' }, params: { type },
+      text: `${label}: auth type "${type}" is not supported and was imported as no auth`,
+    })
   }
   report('collection', data.info?.name, data.auth?.type)
   const walk = (list: any[]) => {
@@ -184,8 +187,11 @@ function openAPIPreview(data: any): ImportPreview {
   }
 }
 
-function unnamedWarning(n: number): string {
-  return n === 1 ? 'a variable without a name was skipped' : `${n} variables without a name were skipped`
+function unnamedWarning(n: number): ImportWarning {
+  return {
+    code: 'variables_unnamed', subject: { kind: '', name: '' }, params: { n: String(n) },
+    text: n === 1 ? 'a variable without a name was skipped' : `${n} variables without a name were skipped`,
+  }
 }
 
 function failure<T>(error: ResultError): Result<T> {
@@ -263,7 +269,7 @@ export class MockPortabilityService implements PortabilityServiceAPI {
   readonly calls: MockCall[] = []
   lastImportedId = ''
   private links = new Map<string, MockLink>(Object.entries(DEMO_LINKS))
-  private previews = new Map<string, ImportPreview>()
+  private previews = new Map<string, { preview: ImportPreview; content: string }>()
 
   constructor(private readonly hooks: MockPortabilityHooks = {}) {}
 
@@ -309,9 +315,12 @@ export class MockPortabilityService implements PortabilityServiceAPI {
       .map((v: any) => ({ key: v.key, value: variableValue(v.value), isSecret: v.type === 'secret', enabled: v.enabled !== false }))
     const env = await this.addEnvironment({ workspaceId, name, variables })
     if (env.error) return failure(env.error)
-    const warnings: string[] = []
+    const warnings: ImportWarning[] = []
     if (globals) {
-      warnings.push(`Tetiva has no global variables: they were imported as the environment ${JSON.stringify(env.data.name)}`)
+      warnings.push({
+        code: 'postman_globals', subject: { kind: '', name: '' }, params: { name: env.data.name },
+        text: `Tetiva has no global variables: they were imported as the environment "${env.data.name}"`,
+      })
     }
     if (values.length > variables.length) warnings.push(unnamedWarning(values.length - variables.length))
     return {
@@ -355,34 +364,42 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     if (link.password && !token) {
       return failure({ code: 'validation', reason: 'PASSWORD_REQUIRED', message: 'validation failed', fields: { password: 'required' } })
     }
-    const previewId = crypto.randomUUID()
-    this.previews.set(previewId, link.preview)
-    return { data: { previewId, preview: structuredClone(link.preview) } }
+    return { data: this.keep(link.preview, '') }
   }
 
-  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreview>> {
+  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreviewResult>> {
     this.calls.push({ method: 'importPreview', args: [content, fileName] })
-    return this.previewContent(content)
+    const res = this.previewContent(content)
+    if (res.error) return failure(res.error)
+    return { data: this.keep(res.data, content) }
+  }
+
+  private keep(preview: ImportPreview, content: string): ImportPreviewResult {
+    const previewId = crypto.randomUUID()
+    this.previews.set(previewId, { preview, content })
+    return { previewId, preview: structuredClone(preview) }
   }
 
   async importConfirm(req: ImportConfirmRequest): Promise<Result<ImportConfirmResult>> {
     this.calls.push({ method: 'importConfirm', args: [{ ...req }] })
     let preview: ImportPreview
+    let content = req.content ?? ''
     if (req.previewId) {
       const kept = this.previews.get(req.previewId)
       if (!kept) {
         return failure({ code: 'not_found', reason: 'PREVIEW_EXPIRED', message: `import preview ${req.previewId} not found` })
       }
       this.previews.delete(req.previewId)
-      preview = kept
+      preview = kept.preview
+      content = kept.content
     } else {
-      const res = this.previewContent(req.content ?? '')
+      const res = this.previewContent(content)
       if (res.error) return failure(res.error)
       preview = res.data
     }
     let environmentNames = preview.environmentNames
     if (preview.format === 'postman' && environmentNames.length > 0) {
-      const variables = collectionVariables(JSON.parse(req.content ?? ''))
+      const variables = collectionVariables(JSON.parse(content))
       const env = await this.addEnvironment({ workspaceId: req.workspaceId, name: environmentNames[0], variables })
       if (env.error) return failure(env.error)
       environmentNames = [env.data.name]
@@ -391,7 +408,7 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     return {
       data: {
         collectionId: this.lastImportedId, folders: preview.folders, requests: preview.requests,
-        examples: preview.examples, environmentNames, activeEnvironment: '', warnings: [...preview.warnings],
+        examples: preview.examples, environmentNames, activeEnvironment: '', warnings: structuredClone(preview.warnings),
       },
     }
   }

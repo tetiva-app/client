@@ -2,12 +2,12 @@ package openapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
@@ -31,7 +31,7 @@ func (b *builder) security(reqs openapi3.SecurityRequirements) authChoice {
 		}
 		slices.Sort(names)
 		if len(names) > 1 {
-			b.warn(fmt.Sprintf("security schemes %s are required together: only %q was imported", strings.Join(names, " + "), names[0]))
+			b.warn(portability.WarnOpenAPISchemesTogether, portability.Subject{}, "schemes", strings.Join(names, " + "), "scheme", names[0])
 		}
 		return b.scheme(names[0], req[names[0]])
 	}
@@ -44,7 +44,7 @@ func (b *builder) scheme(name string, scopes []string) authChoice {
 		ref = c.SecuritySchemes[name]
 	}
 	if ref == nil || ref.Value == nil {
-		b.warn(fmt.Sprintf("security scheme %q is not defined: requests that use it were imported without auth", name))
+		b.warn(portability.WarnOpenAPISchemeUndefined, portability.Subject{}, "scheme", name)
 		return noAuth
 	}
 	s := ref.Value
@@ -86,9 +86,10 @@ func (b *builder) scheme(name string, scopes []string) authChoice {
 		kind += " " + s.Scheme
 	}
 	if s.In != "" {
-		kind += " in " + s.In
+		b.warn(portability.WarnOpenAPISchemeLocationUnsupported, portability.Subject{}, "scheme", name, "type", kind, "in", s.In)
+	} else {
+		b.warn(portability.WarnOpenAPISchemeUnsupported, portability.Subject{}, "scheme", name, "type", kind)
 	}
-	b.warn(fmt.Sprintf("security scheme %q (%s) is not supported: requests that use it were imported without auth", name, kind))
 	return noAuth
 }
 
@@ -112,7 +113,7 @@ func (b *builder) oauth2(name string, flows *openapi3.OAuthFlows) (map[string]an
 	case flows.Implicit != nil:
 		data["grant"] = auth.GrantAuthorizationCode
 		data["authUrl"] = b.endpoint(flows.Implicit.AuthorizationURL)
-		b.warn(fmt.Sprintf("security scheme %q: the OAuth 2.0 implicit flow is not supported, imported as authorization code without a token URL", name))
+		b.warn(portability.WarnOpenAPIImplicitFlow, portability.Subject{}, "scheme", name)
 	default:
 		return nil, false
 	}

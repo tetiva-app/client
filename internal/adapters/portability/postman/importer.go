@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -27,11 +26,6 @@ import (
 
 const maxExampleNameLen = 200
 
-const scriptsWarning = "scripts were imported: only part of the pm.* API is available " +
-	"(pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes"
-
-const unreadableVariablesWarning = "collection variables could not be read and were skipped"
-
 type ImportOpts struct {
 	WorkspaceID    uuid.UUID
 	UserID         string
@@ -47,7 +41,7 @@ type ImportResult struct {
 	ExamplesCreated int
 	EnvironmentID   uuid.UUID
 	EnvironmentName string
-	Warnings        []string
+	Warnings        []portability.Warning
 	scriptsImported bool
 	suspectExamples []string
 }
@@ -87,13 +81,13 @@ func ImportCollection(
 
 	result := &ImportResult{}
 
-	rootLabel := itemLabel("collection", pc.Info.Name)
-	rootAuthType, rootAuthData, warnings := mapAuth(pc.Auth, rootLabel)
+	rootSubject := portability.Subject{Kind: portability.KindCollection, Name: pc.Info.Name}
+	rootAuthType, rootAuthData, warnings := mapAuth(pc.Auth, rootSubject)
 	result.Warnings = append(result.Warnings, warnings...)
-	appendWarning(result, warnDescriptionType(rootLabel, pc.Info.Description))
-	rootDescription, rootDescWarning := portability.ClampDescription(rootLabel, pc.Info.Description.Text())
-	appendWarning(result, rootDescWarning)
-	rootScripts := collectScripts(pc.Event, rootLabel, opts.IncludeScripts, result)
+	result.Warnings = append(result.Warnings, warnDescriptionType(rootSubject, pc.Info.Description)...)
+	rootDescription, rootDescWarnings := portability.ClampDescription(rootSubject, pc.Info.Description.Text())
+	result.Warnings = append(result.Warnings, rootDescWarnings...)
+	rootScripts := collectScripts(pc.Event, rootSubject, opts.IncludeScripts, result)
 
 	rootColl, err := collUC.Create(ctx, collection.Create{
 		Name:        pc.Info.Name,
@@ -131,23 +125,23 @@ func ImportCollection(
 	}
 	result.Warnings = append(result.Warnings, varWarnings...)
 	if result.scriptsImported {
-		appendWarning(result, scriptsWarning)
+		result.warn(portability.WarnPostmanScripts, portability.Subject{})
 	}
 	if len(result.suspectExamples) > 0 {
-		appendWarning(result, "examples may contain secrets, check them before sharing: "+
-			strings.Join(result.suspectExamples, "; "))
+		result.warn(portability.WarnExampleSecrets, portability.Subject{},
+			"examples", portability.List{Items: result.suspectExamples, Sep: "; "})
 	}
 
 	return result, nil
 }
 
-func collectionVariables(raw json.RawMessage) ([]environment.AddVariable, []string) {
+func collectionVariables(raw json.RawMessage) ([]environment.AddVariable, []portability.Warning) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, []string{unreadableVariablesWarning}
+		return nil, []portability.Warning{portability.Warn(portability.WarnPostmanVariablesUnreadable, portability.Subject{})}
 	}
 
 	var (
@@ -186,12 +180,12 @@ func collectionVariables(raw json.RawMessage) ([]environment.AddVariable, []stri
 		})
 	}
 
-	var warnings []string
+	var warnings []portability.Warning
 	if unreadable {
-		warnings = append(warnings, unreadableVariablesWarning)
+		warnings = append(warnings, portability.Warn(portability.WarnPostmanVariablesUnreadable, portability.Subject{}))
 	}
 	if unnamed > 0 {
-		warnings = append(warnings, unnamedVariablesWarning(unnamed))
+		warnings = append(warnings, portability.Warn(portability.WarnVariablesUnnamed, portability.Subject{}, "n", unnamed))
 	}
 	return vars, warnings
 }
@@ -227,23 +221,23 @@ func importItems(
 		nameless := strings.TrimSpace(item.Name) == ""
 
 		if item.Request == nil && nameless && len(children) == 0 {
-			appendWarning(result, "an unnamed item with neither a request nor children was skipped")
+			result.warn(portability.WarnPostmanItemSkipped, portability.Subject{})
 			continue
 		}
 		if item.IsFolder() {
 			folderName := item.Name
 			if nameless {
 				folderName = untitledFolder
-				appendWarning(result, fmt.Sprintf("an unnamed folder with %d item(s) was imported as %q rather than failing the import",
-					len(children), untitledFolder))
+				result.warn(portability.WarnPostmanUnnamedFolder, portability.Subject{},
+					"n", len(children), "name", untitledFolder)
 			}
-			folderLabel := itemLabel("folder", folderName)
-			folderAuthType, folderAuthData, warnings := mapAuth(item.Auth, folderLabel)
+			folderSubject := portability.Subject{Kind: portability.KindFolder, Name: folderName}
+			folderAuthType, folderAuthData, warnings := mapAuth(item.Auth, folderSubject)
 			result.Warnings = append(result.Warnings, warnings...)
-			appendWarning(result, warnDescriptionType(folderLabel, item.Description))
-			folderDescription, folderDescWarning := portability.ClampDescription(folderLabel, item.Description.Text())
-			appendWarning(result, folderDescWarning)
-			folderScripts := collectScripts(item.Event, folderLabel, opts.IncludeScripts, result)
+			result.Warnings = append(result.Warnings, warnDescriptionType(folderSubject, item.Description)...)
+			folderDescription, folderDescWarnings := portability.ClampDescription(folderSubject, item.Description.Text())
+			result.Warnings = append(result.Warnings, folderDescWarnings...)
+			folderScripts := collectScripts(item.Event, folderSubject, opts.IncludeScripts, result)
 			subColl, err := collUC.Create(ctx, collection.Create{
 				Name:        folderName,
 				Description: folderDescription,
@@ -265,9 +259,9 @@ func importItems(
 				return err
 			}
 		} else {
-			requestLabel := itemLabel("request", item.Name)
+			requestSubject := portability.Subject{Kind: portability.KindRequest, Name: item.Name}
 			if len(children) > 0 {
-				appendWarning(result, fmt.Sprintf("%s: items nested under a request were skipped", requestLabel))
+				result.warn(portability.WarnPostmanNestedItemsSkipped, requestSubject)
 			}
 			input, warnings := mapPostmanRequest(item, parentCollectionID, opts.IncludeScripts, result)
 			result.Warnings = append(result.Warnings, warnings...)
@@ -280,11 +274,15 @@ func importItems(
 			}
 			result.RequestsCreated++
 
-			importExamples(ctx, item.Response, created.ID, input.Protocol, requestLabel, opts.UserID, exUC, result)
+			importExamples(ctx, item.Response, created.ID, input.Protocol, requestSubject, opts.UserID, exUC, result)
 		}
 	}
 
 	return nil
+}
+
+func (r *ImportResult) warn(code portability.WarningCode, subject portability.Subject, kv ...any) {
+	r.Warnings = append(r.Warnings, portability.Warn(code, subject, kv...))
 }
 
 func derefItems(p *[]PostmanItem) []PostmanItem {
@@ -294,50 +292,45 @@ func derefItems(p *[]PostmanItem) []PostmanItem {
 	return *p
 }
 
-func appendWarning(result *ImportResult, warning string) {
-	if warning != "" {
-		result.Warnings = append(result.Warnings, warning)
-	}
-}
-
-func warnDescriptionType(label string, d *PostmanDescription) string {
+func warnDescriptionType(subject portability.Subject, d *PostmanDescription) []portability.Warning {
 	if d == nil || d.Type == "" || d.Type == "text/markdown" || d.Type == "text/plain" {
-		return ""
+		return nil
 	}
-	return fmt.Sprintf("%s: description is %s, imported as plain text", label, d.Type)
+	return []portability.Warning{portability.Warn(portability.WarnPostmanDescriptionType, subject, "type", d.Type)}
 }
 
 // Picks by presence: an empty request-level description is a clear, not a fallback.
-func requestDescription(item PostmanItem, label string) (string, []string) {
+func requestDescription(item PostmanItem, subject portability.Subject) (string, []portability.Warning) {
 	var (
-		warnings []string
+		warnings []portability.Warning
 		reqDesc  *PostmanDescription
 	)
 	if item.Request != nil {
 		reqDesc = item.Request.Description
 	}
 	for _, d := range []*PostmanDescription{item.Description, reqDesc} {
-		if w := warnDescriptionType(label, d); w != "" && !slices.Contains(warnings, w) {
-			warnings = append(warnings, w)
+		for _, w := range warnDescriptionType(subject, d) {
+			if !slices.ContainsFunc(warnings, func(seen portability.Warning) bool { return seen.Text == w.Text }) {
+				warnings = append(warnings, w)
+			}
 		}
 	}
 
 	itemText, reqText := item.Description.Text(), reqDesc.Text()
 	if item.Description != nil && reqDesc != nil && itemText != reqText {
-		warnings = append(warnings, fmt.Sprintf("%s: item and request descriptions differ, request level kept", label))
+		warnings = append(warnings, portability.Warn(portability.WarnPostmanDescriptionsDiffer, subject))
 	}
 	text := itemText
 	if reqDesc != nil {
 		text = reqText
 	}
-	text, clampWarning := portability.ClampDescription(label, text)
-	if clampWarning != "" {
-		warnings = append(warnings, clampWarning)
-	}
-	return text, warnings
+	text, clampWarnings := portability.ClampDescription(subject, text)
+	return text, append(warnings, clampWarnings...)
 }
 
-func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID, includeScripts bool, result *ImportResult) (request.Create, []string) {
+func mapPostmanRequest(
+	item PostmanItem, collectionID uuid.UUID, includeScripts bool, result *ImportResult,
+) (request.Create, []portability.Warning) {
 	req := item.Request
 
 	method := entities.HTTPMethod(strings.ToUpper(req.Method))
@@ -346,11 +339,11 @@ func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID, includeScripts 
 	}
 
 	headers := mapHeaders(req.Header)
-	label := itemLabel("request", item.Name)
-	authType, authData, warnings := mapRequestAuth(req.Auth, label)
-	description, descWarnings := requestDescription(item, label)
+	subject := portability.Subject{Kind: portability.KindRequest, Name: item.Name}
+	authType, authData, warnings := mapRequestAuth(req.Auth, subject)
+	description, descWarnings := requestDescription(item, subject)
 	warnings = append(warnings, descWarnings...)
-	scripts := collectScripts(item.Event, label, includeScripts, result)
+	scripts := collectScripts(item.Event, subject, includeScripts, result)
 
 	// Detect GraphQL body mode — store data in GraphQL fields, not Body.
 	if req.Body != nil && req.Body.Mode == "graphql" && req.Body.Graphql != nil {
@@ -372,7 +365,7 @@ func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID, includeScripts 
 		}, warnings
 	}
 
-	bodyType, body, bodyWarnings := mapBody(req.Body, label)
+	bodyType, body, bodyWarnings := mapBody(req.Body, subject)
 	warnings = append(warnings, bodyWarnings...)
 
 	return request.Create{
@@ -410,7 +403,7 @@ func mapHeaders(headers []PostmanKV) []entities.HeaderItem {
 }
 
 // File paths are never imported: a foreign path must not pick what we upload.
-func mapBody(body *PostmanBody, label string) (entities.BodyType, string, []string) {
+func mapBody(body *PostmanBody, subject portability.Subject) (entities.BodyType, string, []portability.Warning) {
 	if body == nil || body.Mode == "" {
 		return entities.BodyTypeNone, "", nil
 	}
@@ -431,14 +424,12 @@ func mapBody(body *PostmanBody, label string) (entities.BodyType, string, []stri
 			return entities.BodyTypeRaw, body.Raw, nil
 		}
 	case "formdata":
-		fields, warnings := mapFormData(body.FormData, label)
+		fields, warnings := mapFormData(body.FormData, subject)
 		return entities.BodyTypeForm, fields, warnings
 	case "urlencoded":
 		return entities.BodyTypeForm, mapURLEncoded(body.URLEncoded), nil
 	case "file":
-		return entities.BodyTypeBinary, "", []string{
-			fmt.Sprintf("%s: the file body was imported without its file; pick it again", label),
-		}
+		return entities.BodyTypeBinary, "", []portability.Warning{portability.Warn(portability.WarnFileBodyDropped, subject)}
 	case "graphql":
 		// GraphQL data is handled separately in mapPostmanRequest; body fields unused.
 		return entities.BodyTypeNone, "", nil
@@ -447,8 +438,8 @@ func mapBody(body *PostmanBody, label string) (entities.BodyType, string, []stri
 	}
 }
 
-func mapFormData(formData []PostmanKV, label string) (string, []string) {
-	var warnings []string
+func mapFormData(formData []PostmanKV, subject portability.Subject) (string, []portability.Warning) {
+	var warnings []portability.Warning
 	fields := make([]map[string]any, 0, len(formData))
 	for _, fd := range formData {
 		fieldType := fd.Type
@@ -458,7 +449,7 @@ func mapFormData(formData []PostmanKV, label string) (string, []string) {
 		value := fd.Value
 		if fieldType == "file" {
 			value = ""
-			warnings = append(warnings, fmt.Sprintf("%s: file field %q was imported without its file; pick it again", label, fd.Key))
+			warnings = append(warnings, portability.Warn(portability.WarnFileFieldDropped, subject, "field", fd.Key))
 		}
 		fields = append(fields, formField(fd.Key, value, fieldType, !fd.Disabled))
 	}
@@ -487,7 +478,7 @@ func formFieldsJSON(fields []map[string]any) string {
 
 type itemScripts struct{ pre, post string }
 
-func collectScripts(events []PostmanEvent, label string, include bool, result *ImportResult) itemScripts {
+func collectScripts(events []PostmanEvent, subject portability.Subject, include bool, result *ImportResult) itemScripts {
 	if !include {
 		return itemScripts{}
 	}
@@ -501,7 +492,7 @@ func collectScripts(events []PostmanEvent, label string, include bool, result *I
 			continue
 		}
 		if ev.Disabled {
-			appendWarning(result, fmt.Sprintf("%s: disabled %s script was not imported", label, ev.Listen))
+			result.warn(portability.WarnPostmanDisabledScript, subject, "event", ev.Listen)
 			continue
 		}
 		if ev.Listen == "prerequest" {
@@ -514,25 +505,17 @@ func collectScripts(events []PostmanEvent, label string, include bool, result *I
 	return itemScripts{pre: strings.Join(pre, "\n"), post: strings.Join(post, "\n")}
 }
 
-// itemLabel names an item in an import warning.
-func itemLabel(kind, name string) string {
-	if name == "" {
-		return kind
-	}
-	return fmt.Sprintf("%s %q", kind, name)
-}
-
 // In Postman a missing auth block inherits; noauth is an explicit none.
-func mapRequestAuth(a *PostmanAuth, label string) (entities.AuthType, string, []string) {
+func mapRequestAuth(a *PostmanAuth, subject portability.Subject) (entities.AuthType, string, []portability.Warning) {
 	if a == nil {
 		return entities.AuthTypeInherit, "{}", nil
 	}
-	return mapAuth(a, label)
+	return mapAuth(a, subject)
 }
 
 // mapAuth translates a Postman auth block; unsupported schemes degrade to none
 // and are reported so the import can tell the user what it dropped.
-func mapAuth(a *PostmanAuth, label string) (entities.AuthType, string, []string) {
+func mapAuth(a *PostmanAuth, subject portability.Subject) (entities.AuthType, string, []portability.Warning) {
 	if a == nil || a.Type == "" || a.Type == "noauth" {
 		return entities.AuthTypeNone, "{}", nil
 	}
@@ -559,9 +542,9 @@ func mapAuth(a *PostmanAuth, label string) (entities.AuthType, string, []string)
 			"addTo": addTo,
 		}), nil
 	case "oauth2":
-		return mapOAuth2Auth(a.OAuth2, label)
+		return mapOAuth2Auth(a.OAuth2, subject)
 	case "jwt":
-		return mapJWTAuth(a.JWT, label)
+		return mapJWTAuth(a.JWT, subject)
 	case "digest":
 		return entities.AuthTypeDigest, authDataJSON(map[string]any{
 			"username": findAuthKV(a.Digest, "username"),
@@ -577,9 +560,7 @@ func mapAuth(a *PostmanAuth, label string) (entities.AuthType, string, []string)
 		putIfSet(data, "sessionToken", findAuthKV(a.AWSV4, "sessionToken"))
 		return entities.AuthTypeAWSSigV4, authDataJSON(data), nil
 	default:
-		return entities.AuthTypeNone, "{}", []string{
-			fmt.Sprintf("%s: auth type %q is not supported and was imported as no auth", label, a.Type),
-		}
+		return entities.AuthTypeNone, "{}", []portability.Warning{portability.Warn(portability.WarnAuthUnsupported, subject, "type", a.Type)}
 	}
 }
 
@@ -594,18 +575,18 @@ var postmanOAuth2Grants = map[string]string{
 	"device_code":                  auth.GrantDeviceCode,
 }
 
-func mapOAuth2Auth(kvs []PostmanAuthKV, label string) (entities.AuthType, string, []string) {
+func mapOAuth2Auth(kvs []PostmanAuthKV, subject portability.Subject) (entities.AuthType, string, []portability.Warning) {
 	tokenURL := findAuthKV(kvs, "accessTokenUrl")
 	// A block with only a pasted token cannot acquire anything; it is a bearer token.
 	if tokenURL == "" {
 		if token := findAuthKV(kvs, "accessToken"); token != "" {
-			return entities.AuthTypeBearer, authDataJSON(map[string]any{"token": token}), []string{
-				fmt.Sprintf("%s: the OAuth 2.0 block has an access token but no token URL; imported as a bearer token", label),
+			return entities.AuthTypeBearer, authDataJSON(map[string]any{"token": token}), []portability.Warning{
+				portability.Warn(portability.WarnPostmanOAuth2TokenOnly, subject),
 			}
 		}
 	}
 
-	var warnings []string
+	var warnings []portability.Warning
 	data := map[string]any{}
 	putIfSet(data, "tokenUrl", tokenURL)
 	putIfSet(data, "authUrl", findAuthKV(kvs, "authUrl"))
@@ -621,7 +602,7 @@ func mapOAuth2Auth(kvs []PostmanAuthKV, label string) (entities.AuthType, string
 		grant, ok := postmanOAuth2Grants[raw]
 		if !ok {
 			grant = raw
-			warnings = append(warnings, fmt.Sprintf("%s: OAuth 2.0 grant %q is not supported; pick one in the Auth tab", label, raw))
+			warnings = append(warnings, portability.Warn(portability.WarnOAuth2GrantUnsupported, subject, "grant", raw))
 		}
 		data["grant"] = grant
 	}
@@ -642,8 +623,8 @@ func mapOAuth2Auth(kvs []PostmanAuthKV, label string) (entities.AuthType, string
 	return entities.AuthTypeOAuth2, authDataJSON(data), warnings
 }
 
-func mapJWTAuth(kvs []PostmanAuthKV, label string) (entities.AuthType, string, []string) {
-	var warnings []string
+func mapJWTAuth(kvs []PostmanAuthKV, subject portability.Subject) (entities.AuthType, string, []portability.Warning) {
+	var warnings []portability.Warning
 	data := map[string]any{}
 	putIfSet(data, "alg", findAuthKV(kvs, "algorithm"))
 	putIfSet(data, "secret", findAuthKV(kvs, "secret"))
@@ -661,7 +642,7 @@ func mapJWTAuth(kvs []PostmanAuthKV, label string) (entities.AuthType, string, [
 		obj, ok := jsonObjectField(findAuthKV(kvs, field.postman))
 		switch {
 		case !ok:
-			warnings = append(warnings, fmt.Sprintf("%s: the JWT %s is not a JSON object and was dropped", label, field.postman))
+			warnings = append(warnings, portability.Warn(portability.WarnJWTFieldDropped, subject, "field", field.postman))
 		case len(obj) > 0:
 			data[field.ours] = obj
 		}
@@ -723,37 +704,38 @@ func importExamples(
 	responses []json.RawMessage,
 	requestID uuid.UUID,
 	protocol entities.Protocol,
-	label, userID string,
+	subject portability.Subject,
+	userID string,
 	exUC ExampleCreator,
 	result *ImportResult,
 ) {
 	for i, raw := range responses {
-		n := i + 1
-		skip := func(reason string) {
-			appendWarning(result, fmt.Sprintf("%s: example %d skipped: %s", label, n, reason))
+		warn := func(code portability.WarningCode, kv ...any) {
+			result.warn(code, subject, append([]any{"index", i + 1}, kv...)...)
 		}
 
 		resp, err := decodeResponse(raw)
 		if err != nil {
-			skip(err.Error())
+			note := decodeNote(err)
+			warn(note.code, note.kv...)
 			continue
 		}
 		in, notes := mapPostmanResponse(resp, requestID, protocol)
 		for _, note := range notes {
-			appendWarning(result, fmt.Sprintf("%s: example %d: %s", label, n, note))
+			warn(note.code, note.kv...)
 		}
 		if len(in.Body) > domain.MaxExampleBodyLen {
-			skip(fmt.Sprintf("body is larger than %d KB", domain.MaxExampleBodyLen/1024))
+			warn(portability.WarnPostmanExampleTooLarge, "kb", domain.MaxExampleBodyLen/1024)
 			continue
 		}
 		if _, err := exUC.Create(ctx, in, example.CreateOpt{UserID: userID}); err != nil {
-			skip(describeError(err))
+			note := rejectionNote(err)
+			warn(note.code, note.kv...)
 			continue
 		}
 		result.ExamplesCreated++
 		if found := example.SuspectedSecrets(in.Headers, in.Body); len(found) > 0 {
-			result.suspectExamples = append(result.suspectExamples,
-				fmt.Sprintf("%s / %q (%s)", label, in.Name, strings.Join(found, ", ")))
+			result.suspectExamples = append(result.suspectExamples, portability.SecretsLabel(subject.Name, in.Name, found))
 		}
 	}
 }
@@ -765,40 +747,56 @@ func decodeResponse(raw json.RawMessage) (PostmanResponse, error) {
 		OriginalRequest json.RawMessage `json:"originalRequest"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return PostmanResponse{}, errors.New(describeDecodeError(err))
+		return PostmanResponse{}, err
 	}
 	return in.PostmanResponse, nil
 }
 
-func describeDecodeError(err error) string {
+func decodeNote(err error) exampleNote {
 	var te *json.UnmarshalTypeError
 	if !errors.As(err, &te) {
-		return err.Error()
+		return exampleNote{portability.WarnPostmanExampleSkipped, []any{"reason", err.Error()}}
 	}
 	field := strings.TrimPrefix(te.Field, "PostmanResponse.")
 	if field == "" {
-		return fmt.Sprintf("not an object (got %s)", te.Value)
+		return exampleNote{portability.WarnPostmanExampleNotObject, []any{"got", te.Value}}
 	}
 	var want string
 	switch te.Type.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		want = "a whole number"
+		want = "integer"
 	case reflect.String:
-		want = "a string"
+		want = "string"
 	case reflect.Slice:
-		want = "a list"
+		want = "array"
 	default:
-		want = "an object"
+		want = "object"
 	}
-	return fmt.Sprintf("%q must be %s, got %s", field, want, te.Value)
+	return exampleNote{portability.WarnPostmanExampleWrongType, []any{"field", field, "want", want, "got", te.Value}}
 }
 
-func mapPostmanResponse(resp PostmanResponse, requestID uuid.UUID, protocol entities.Protocol) (example.Create, []string) {
-	var notes []string
+func rejectionNote(err error) exampleNote {
+	var ve *domain.ValidationError
+	if !errors.As(err, &ve) || len(ve.Fields) == 0 {
+		return exampleNote{portability.WarnPostmanExampleSkipped, []any{"reason", err.Error()}}
+	}
+	if _, ok := ve.Fields[example.PayloadField]; ok {
+		return exampleNote{portability.WarnPostmanExamplePayloadTooLarge, []any{"kb", domain.MaxExamplePayloadLen / 1024}}
+	}
+	return exampleNote{portability.WarnPostmanExampleSkipped, []any{"reason", portability.Describe(ve)}}
+}
+
+type exampleNote struct {
+	code portability.WarningCode
+	kv   []any
+}
+
+func mapPostmanResponse(resp PostmanResponse, requestID uuid.UUID, protocol entities.Protocol) (example.Create, []exampleNote) {
+	var notes []exampleNote
 
 	code := resp.Code
 	if code < 0 || code > 999 {
-		notes = append(notes, fmt.Sprintf("status code %d is out of range, imported as 0", code))
+		notes = append(notes, exampleNote{portability.WarnPostmanExampleStatus, []any{"status", code}})
 		code = 0
 	}
 
@@ -808,7 +806,7 @@ func mapPostmanResponse(resp PostmanResponse, requestID uuid.UUID, protocol enti
 	}
 	if utf8.RuneCountInString(name) > maxExampleNameLen {
 		name = string([]rune(name)[:maxExampleNameLen])
-		notes = append(notes, fmt.Sprintf("name longer than %d characters was truncated", maxExampleNameLen))
+		notes = append(notes, exampleNote{portability.WarnPostmanExampleNameTruncated, []any{"max", maxExampleNameLen}})
 	}
 
 	headers := mapHeaders(resp.Header)
@@ -861,18 +859,4 @@ func defaultExampleName(code int, status string) string {
 		return "Example"
 	}
 	return strings.Join(parts, " ")
-}
-
-// describeError lists the fields: ValidationError.Error() is only "validation failed".
-func describeError(err error) string {
-	var ve *domain.ValidationError
-	if !errors.As(err, &ve) || len(ve.Fields) == 0 {
-		return err.Error()
-	}
-	msgs := make([]string, 0, len(ve.Fields))
-	for _, msg := range ve.Fields {
-		msgs = append(msgs, msg)
-	}
-	sort.Strings(msgs)
-	return strings.Join(msgs, "; ")
 }

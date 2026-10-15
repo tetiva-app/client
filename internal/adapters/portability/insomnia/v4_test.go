@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
@@ -245,7 +246,7 @@ func TestImportV4_ScriptsOnlyWhenIncluded(t *testing.T) {
 	assert.Empty(t, add.PostScript)
 	pets, _ := without.collection(t, "Pets")
 	assert.Empty(t, pets.PreScript)
-	assert.NotContains(t, res.Warnings, scriptsWarning)
+	assert.NotContains(t, portability.Texts(res.Warnings), scriptsWarning)
 
 	with := newStore()
 	res = importFile(t, with, fixture(t, "petstore.insomnia.json"), true)
@@ -254,7 +255,7 @@ func TestImportV4_ScriptsOnlyWhenIncluded(t *testing.T) {
 	assert.Equal(t, "insomnia.test('created', () => {\n  insomnia.expect(insomnia.response.code).to.eql(201);\n});", add.PostScript)
 	pets, _ = with.collection(t, "Pets")
 	assert.Equal(t, "insomnia.request.addHeader({ key: 'X-Folder', value: 'pets' });", pets.PreScript)
-	assert.Contains(t, res.Warnings, scriptsWarning)
+	assert.Contains(t, portability.Texts(res.Warnings), scriptsWarning)
 }
 
 func TestImportV4_Warnings(t *testing.T) {
@@ -272,7 +273,11 @@ func TestImportV4_Warnings(t *testing.T) {
 		`2 Insomnia template tags were left as-is (faker, response): Tetiva does not run them, use variables or scripts instead`,
 		`1 unit test was not imported`,
 		`1 cookie from the cookie jar was not imported`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
+	assert.Equal(t, portability.WarnFileFieldDropped, res.Warnings[1].Code)
+	assert.Equal(t, portability.Subject{Kind: portability.KindRequest, Name: "Upload photo"}, res.Warnings[1].Subject)
+	assert.Equal(t, map[string]string{"field": "photo"}, res.Warnings[1].Params)
+	assert.Equal(t, map[string]string{"n": "2", "names": "faker, response"}, res.Warnings[7].Params)
 }
 
 const scriptsWarning = "Insomnia scripts use the insomnia.* API, which Tetiva does not run: rewrite them to pm.* after importing"
@@ -321,5 +326,5 @@ func TestImportV4_MultipartWithoutFilesIsReported(t *testing.T) {
 
 	assert.Equal(t, []string{
 		`2 multipart requests have no file field and will be sent as a URL-encoded form, not multipart: "Sign up", "Profile"`,
-	}, res.Warnings)
+	}, portability.Texts(res.Warnings))
 }

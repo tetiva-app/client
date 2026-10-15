@@ -2,14 +2,14 @@ package hoppscotch
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 )
 
-func (b *builder) auth(a *hoppAuth, label string, isRequest bool) (entities.AuthType, string) {
+func (b *builder) auth(a *hoppAuth, subject portability.Subject, isRequest bool) (entities.AuthType, string) {
 	if a == nil {
 		if isRequest {
 			return entities.AuthTypeInherit, "{}"
@@ -39,16 +39,16 @@ func (b *builder) auth(a *hoppAuth, label string, isRequest bool) (entities.Auth
 			"service": a.ServiceName, "sessionToken": a.ServiceToken,
 		})
 	case "oauth-2":
-		return entities.AuthTypeOAuth2, b.oauth2(a, label)
+		return entities.AuthTypeOAuth2, b.oauth2(a, subject)
 	case "jwt":
-		return entities.AuthTypeJWT, b.jwt(a, label)
+		return entities.AuthTypeJWT, b.jwt(a, subject)
 	default:
-		b.warn(fmt.Sprintf("%s: auth type %q is not supported and was imported as no auth", label, a.AuthType))
+		b.warn(portability.WarnAuthUnsupported, subject, "type", a.AuthType)
 		return entities.AuthTypeNone, "{}"
 	}
 }
 
-func (b *builder) oauth2(a *hoppAuth, label string) string {
+func (b *builder) oauth2(a *hoppAuth, subject portability.Subject) string {
 	data := map[string]any{"addTo": addTo(a.AddTo)}
 	g := a.GrantTypeInfo
 	if g == nil {
@@ -66,7 +66,7 @@ func (b *builder) oauth2(a *hoppAuth, label string) string {
 		data["username"], data["password"] = g.Username, g.Password
 	default:
 		data["grant"], data["authUrl"] = strings.ToLower(g.GrantType), g.AuthEndpoint
-		b.warn(fmt.Sprintf("%s: OAuth 2.0 grant %q is not supported; pick one in the Auth tab", label, g.GrantType))
+		b.warn(portability.WarnOAuth2GrantUnsupported, subject, "grant", g.GrantType)
 	}
 	switch g.ClientAuthentication {
 	case "AS_BASIC_AUTH_HEADERS":
@@ -77,7 +77,7 @@ func (b *builder) oauth2(a *hoppAuth, label string) string {
 	return authData(data)
 }
 
-func (b *builder) jwt(a *hoppAuth, label string) string {
+func (b *builder) jwt(a *hoppAuth, subject portability.Subject) string {
 	data := map[string]any{
 		"alg": a.Algorithm, "secret": a.Secret, "privateKey": a.PrivateKey,
 		"headerPrefix": strings.TrimSpace(a.HeaderPrefix), "queryParam": a.ParamName, "addTo": addTo(a.AddTo),
@@ -91,7 +91,7 @@ func (b *builder) jwt(a *hoppAuth, label string) string {
 		}
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(field.text), &obj); err != nil || obj == nil {
-			b.warn(fmt.Sprintf("%s: the JWT %s is not a JSON object and was dropped", label, field.name))
+			b.warn(portability.WarnJWTFieldDropped, subject, "field", field.name)
 			continue
 		}
 		if len(obj) > 0 {

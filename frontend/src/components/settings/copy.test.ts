@@ -43,6 +43,13 @@ describe('SETTINGS_COPY', () => {
     }
   })
 
+  it('names the request Docs tab as the translated part of the request editor', () => {
+    expect(SETTINGS_COPY.en.interface.translated).toContain('a request’s Docs tab')
+    expect(SETTINGS_COPY.en.interface.translated).toContain('The rest of the request editor stays in English.')
+    expect(SETTINGS_COPY.ru.interface.translated).toContain('описание запроса на вкладке Docs')
+    expect(SETTINGS_COPY.ru.interface.translated).toContain('Остальной редактор запросов\u00a0— на английском.')
+  })
+
   it('names import, environments and history among the translated parts', () => {
     expect(SETTINGS_COPY.en.interface.translated).toContain('import, environments, history')
     expect(SETTINGS_COPY.ru.interface.translated).toContain('импорт, окружения, история')

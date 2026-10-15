@@ -50,7 +50,7 @@ type plan struct {
 	baseURL  string
 	vars     []environment.AddVariable
 	urls     []string
-	warnings []string
+	warnings []portability.Warning
 
 	requestCount, exampleCount int
 }
@@ -80,7 +80,7 @@ type builder struct {
 func newPlan(s *spec) *plan {
 	b := &builder{spec: s, p: &plan{}, warned: map[string]bool{}, vars: map[string]int{}, paramKeys: paramKeys(s.doc.Paths)}
 	for _, w := range s.warnings {
-		b.warn(w)
+		b.add(w)
 	}
 	b.p.root = b.collection()
 	b.p.envName = b.p.root.Name
@@ -89,15 +89,15 @@ func newPlan(s *spec) *plan {
 	b.global = b.security(s.doc.Security)
 	b.p.root.AuthType, b.p.root.AuthData = b.global.typ, b.global.data
 	b.operations()
+	none := portability.Subject{}
 	if len(b.textForms) > 0 {
-		b.warn(portability.URLEncodedForms(b.textForms))
+		b.warn(portability.WarnFormsSentURLEncoded, none, "n", len(b.textForms), "requests", portability.List{Items: b.textForms})
 	}
 	if len(b.authHeaders) > 0 {
-		b.warn(fmt.Sprintf("the Authorization header parameter of %s was not imported: set the auth on the collection or the request instead",
-			portability.Listing(b.authHeaders)))
+		b.warn(portability.WarnOpenAPIAuthHeaderParam, none, "operations", portability.List{Items: b.authHeaders})
 	}
 	if len(s.doc.Webhooks) > 0 {
-		b.warn("webhooks were skipped: " + strings.Join(orderedKeys(s.doc.Webhooks, s.src.at("#/webhooks")), ", "))
+		b.warn(portability.WarnOpenAPIWebhooksSkipped, none, "names", strings.Join(orderedKeys(s.doc.Webhooks, s.src.at("#/webhooks")), ", "))
 	}
 	return b.p
 }
@@ -122,11 +122,19 @@ func paramKeys(paths *openapi3.Paths) map[string]string {
 	return keys
 }
 
-func (b *builder) warn(msg string) {
-	if !b.warned[msg] {
-		b.warned[msg] = true
-		b.p.warnings = append(b.p.warnings, msg)
+func (b *builder) warn(code portability.WarningCode, subject portability.Subject, kv ...any) {
+	b.add(portability.Warn(code, subject, kv...))
+}
+
+func (b *builder) add(w portability.Warning) {
+	if !b.warned[w.Text] {
+		b.warned[w.Text] = true
+		b.p.warnings = append(b.p.warnings, w)
 	}
+}
+
+func operation(label string) portability.Subject {
+	return portability.Subject{Kind: portability.KindOperation, Name: label}
 }
 
 func (b *builder) addVar(key, value string, secret bool) {
@@ -163,14 +171,14 @@ func (b *builder) collection() collection.Create {
 	if v := strings.TrimSpace(info.Version); v != "" {
 		parts = append(parts, "Version: "+v)
 	}
-	in.Description = b.clamp(fmt.Sprintf("collection %q", in.Name), strings.Join(parts, "\n\n"))
+	in.Description = b.clamp(portability.Subject{Kind: portability.KindCollection, Name: in.Name}, strings.Join(parts, "\n\n"))
 	return in
 }
 
-func (b *builder) clamp(label, s string) string {
-	text, warning := portability.ClampDescription(label, s)
-	if warning != "" {
-		b.warn(warning)
+func (b *builder) clamp(subject portability.Subject, s string) string {
+	text, warnings := portability.ClampDescription(subject, s)
+	for _, w := range warnings {
+		b.add(w)
 	}
 	return text
 }
@@ -178,11 +186,11 @@ func (b *builder) clamp(label, s string) string {
 func (b *builder) baseURL() string {
 	raw := b.serverURL()
 	if raw == "" {
-		b.warn("the document names no server: set baseUrl in the environment")
+		b.warn(portability.WarnOpenAPINoServer, portability.Subject{})
 		return ""
 	}
 	if !strings.Contains(raw, "://") {
-		b.warn(fmt.Sprintf("the server URL %q is relative: set baseUrl in the environment to the full address", raw))
+		b.warn(portability.WarnOpenAPIRelativeServer, portability.Subject{}, "url", raw)
 	}
 	return strings.TrimRight(raw, "/")
 }
@@ -216,7 +224,7 @@ func (b *builder) ownServer(label string, item *openapi3.PathItem, op *openapi3.
 		return
 	}
 	if u := strings.TrimRight(resolveServer(servers[0]), "/"); u != b.p.baseURL {
-		b.warn(fmt.Sprintf("%s: its own server %q was ignored, the request uses {{baseUrl}}", label, u))
+		b.warn(portability.WarnOpenAPIOwnServer, operation(label), "url", u)
 	}
 }
 
@@ -226,7 +234,9 @@ func (b *builder) operations() {
 	folder := func(name, description string) *folderPlan {
 		f, ok := folders[name]
 		if !ok {
-			f = &folderPlan{in: collection.Create{Name: name, Description: b.clamp(fmt.Sprintf("folder %q", name), description)}}
+			f = &folderPlan{in: collection.Create{
+				Name: name, Description: b.clamp(portability.Subject{Kind: portability.KindFolder, Name: name}, description),
+			}}
 			folders[name] = f
 			order = append(order, name)
 		}
@@ -247,7 +257,7 @@ func (b *builder) operations() {
 			continue
 		}
 		if item.Trace != nil {
-			b.warn(fmt.Sprintf("TRACE %s was skipped: TRACE requests are not supported", path))
+			b.warn(portability.WarnOpenAPITraceSkipped, portability.Subject{}, "path", path)
 		}
 		for _, method := range methods {
 			op := item.GetOperation(method)
@@ -277,7 +287,7 @@ func (b *builder) request(path, method string, item *openapi3.PathItem, op *open
 
 	in := request.Create{
 		Name:        requestName(op, label),
-		Description: b.clamp(label, description(op, params)),
+		Description: b.clamp(operation(label), description(op, params)),
 		Protocol:    entities.ProtocolHTTP,
 		Method:      entities.HTTPMethod(method),
 		URL:         b.url(label, path, params),
@@ -300,7 +310,7 @@ func (b *builder) request(path, method string, item *openapi3.PathItem, op *open
 	}
 	b.ownServer(label, item, op)
 	if len(op.Callbacks) > 0 {
-		b.warn(label + ": callbacks were skipped")
+		b.warn(portability.WarnOpenAPICallbacksSkipped, operation(label))
 	}
 
 	b.p.urls = append(b.p.urls, in.URL)
@@ -365,7 +375,7 @@ func (b *builder) url(label, path string, params []*openapi3.Parameter) string {
 		}
 		pairs, exact := queryPairs(p, v)
 		if !exact {
-			b.warn(fmt.Sprintf("%s: query parameter %q uses style %s, which was not reproduced", label, p.Name, p.Style))
+			b.warn(portability.WarnOpenAPIQueryStyle, operation(label), "param", p.Name, "style", p.Style)
 		}
 		query = append(query, pairs...)
 	}
@@ -792,7 +802,7 @@ func (b *builder) examples(op *openapi3.Operation, opPtr, label string) []exampl
 				exName = string([]rune(exName)[:maxExampleNameLen])
 			}
 			if len(nb.body) > domain.MaxExampleBodyLen {
-				b.warn(fmt.Sprintf("%s: example %q skipped: body is larger than %d KB", label, exName, domain.MaxExampleBodyLen/1024))
+				b.warn(portability.WarnExampleTooLarge, operation(label), "example", exName, "kb", domain.MaxExampleBodyLen/1024)
 				continue
 			}
 			out = append(out, example.Create{
@@ -808,7 +818,7 @@ func (b *builder) examples(op *openapi3.Operation, opPtr, label string) []exampl
 		}
 	}
 	if links {
-		b.warn(label + ": response links were skipped")
+		b.warn(portability.WarnOpenAPILinksSkipped, operation(label))
 	}
 	return out
 }

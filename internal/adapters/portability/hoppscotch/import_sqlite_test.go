@@ -99,7 +99,7 @@ func TestImport_IntoSQLite(t *testing.T) {
 	assert.Equal(t, 6, res.Requests)
 	assert.Equal(t, 1, res.Examples)
 	assert.Equal(t, []string{"Petstore"}, res.EnvironmentNames)
-	assert.NotContains(t, res.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+	assert.NotContains(t, portability.Texts(res.Warnings), "Hoppscotch scripts use the pw.* / hopp.* API, which Tetiva does not run: rewrite them to pm.* after importing")
 
 	root, err := s.cols.GetByID(ctx, res.CollectionID)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestImport_ScriptsOnlyWhenAskedAndIntoAFolder(t *testing.T) {
 	assert.Equal(t, parent.ID, *root.ParentID)
 	assert.Contains(t, root.PostScript, "pw.test")
 	assert.Equal(t, `pw.env.set("limit", "10");`, s.requests(t)["List pets"].PreScript)
-	assert.Contains(t, res.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+	assert.Contains(t, portability.Texts(res.Warnings), "Hoppscotch scripts use the pw.* / hopp.* API, which Tetiva does not run: rewrite them to pm.* after importing")
 
 	again, err := s.imp.Import(ctx, petstore(t), portability.ImportOpt{WorkspaceID: workspaceID, UserID: "local_user"})
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestImportEnvironments_IntoSQLite(t *testing.T) {
 
 	assert.Equal(t, []string{"Petstore dev", "Petstore prod"}, res.Names)
 	assert.Equal(t, 5, res.Variables)
-	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, res.Warnings)
+	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, portability.Texts(res.Warnings))
 	vars, err := s.envs.ListVariables(ctx, res.ID)
 	require.NoError(t, err)
 	byKey := map[string]string{}

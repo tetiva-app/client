@@ -8,6 +8,7 @@ vi.mock('../../bindings/github.com/tetiva-app/client/internal/adapters/wails', (
     LinkFetch: vi.fn(),
     ImportPreview: vi.fn(),
     ImportConfirm: vi.fn(),
+    ImportEnvironment: vi.fn(),
   },
 }))
 
@@ -38,6 +39,7 @@ const importPreview = vi.mocked(PortabilityService.ImportPreview)
 const importConfirm = vi.mocked(PortabilityService.ImportConfirm)
 const exportCollection = vi.mocked(PortabilityService.ExportCollection)
 const exportEnvironment = vi.mocked(PortabilityService.ExportEnvironment)
+const importEnvironment = vi.mocked(PortabilityService.ImportEnvironment)
 
 describe('WailsPortabilityService export warnings', () => {
   beforeEach(() => {
@@ -100,7 +102,7 @@ describe('WailsPortabilityService import', () => {
       hosts: null, scripts: null, warnings: null,
     }
     linkFetch.mockResolvedValue({ data: { previewId: 'p-1', preview }, error: null } as any)
-    importPreview.mockResolvedValue({ data: preview, error: null } as any)
+    importPreview.mockResolvedValue({ data: { previewId: 'p-2', preview }, error: null } as any)
     const svc = new WailsPortabilityService()
 
     const fetched = await svc.linkFetch('petstore-api-k3f9x2qa', 'tok')
@@ -109,7 +111,8 @@ describe('WailsPortabilityService import', () => {
     expect(linkFetch).toHaveBeenCalledWith(expect.objectContaining({ slug: 'petstore-api-k3f9x2qa', token: 'tok' }))
     expect(fetched.error).toBeUndefined()
     expect(fetched.data.previewId).toBe('p-1')
-    for (const p of [fetched.data.preview, previewed.data]) {
+    expect(previewed.data.previewId).toBe('p-2')
+    for (const p of [fetched.data.preview, previewed.data.preview]) {
       expect(p).toMatchObject({ environmentNames: [], hosts: [], scripts: [], warnings: [] })
     }
   })
@@ -118,19 +121,17 @@ describe('WailsPortabilityService import', () => {
     const preview = {
       format: 'har', title: 'session', folders: 0, requests: 1, examples: 0, environmentNames: [], hosts: [], scripts: [], warnings: [],
     }
-    importPreview.mockResolvedValueOnce({ data: preview } as any)
-    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'hoppscotch' } } as any)
-    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'insomnia' } } as any)
-    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'openapi' } } as any)
-    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'bruno' } } as any)
+    for (const format of ['har', 'hoppscotch', 'insomnia', 'openapi', 'bruno']) {
+      importPreview.mockResolvedValueOnce({ data: { previewId: 'p-1', preview: { ...preview, format } } } as any)
+    }
     const svc = new WailsPortabilityService()
 
     const formats = [
-      (await svc.importPreview('{}', 'session.har')).data.format,
-      (await svc.importPreview('{}')).data.format,
-      (await svc.importPreview('{}')).data.format,
-      (await svc.importPreview('{}')).data.format,
-      (await svc.importPreview('{}')).data.format,
+      (await svc.importPreview('{}', 'session.har')).data.preview.format,
+      (await svc.importPreview('{}')).data.preview.format,
+      (await svc.importPreview('{}')).data.preview.format,
+      (await svc.importPreview('{}')).data.preview.format,
+      (await svc.importPreview('{}')).data.preview.format,
     ]
 
     expect(importPreview).toHaveBeenNthCalledWith(1, expect.objectContaining({ content: '{}', fileName: 'session.har' }))
@@ -150,5 +151,31 @@ describe('WailsPortabilityService import', () => {
     expect(importConfirm).toHaveBeenNthCalledWith(2, expect.objectContaining({ content: '{}', includeScripts: true, parentId: 'f-1' }))
     expect(res.data.warnings).toEqual([])
     expect(res.data.environmentNames).toEqual([])
+  })
+
+  it('reads import warnings without trusting Go to send their lists and maps', async () => {
+    const sent = [
+      { code: 'file_field_dropped', subject: { kind: 'request', name: 'Upload' }, params: { field: 'photo' }, text: 'a' },
+      { code: 'openapi_no_server', subject: null, params: null, text: 'b' },
+    ]
+    const read = [
+      { code: 'file_field_dropped', subject: { kind: 'request', name: 'Upload' }, params: { field: 'photo' }, text: 'a' },
+      { code: 'openapi_no_server', subject: { kind: '', name: '' }, params: {}, text: 'b' },
+    ]
+    const preview = {
+      format: 'openapi', title: 'T', folders: 0, requests: 0, examples: 0, environmentNames: [], hosts: [], scripts: [], warnings: sent,
+    }
+    importPreview.mockResolvedValue({ data: { previewId: 'p-1', preview } } as any)
+    importConfirm.mockResolvedValue({
+      data: { collectionId: 'c-1', folders: 0, requests: 0, examples: 0, environmentNames: [], warnings: sent },
+    } as any)
+    importEnvironment.mockResolvedValue({
+      data: { environmentId: 'e-1', environmentNames: ['Dev'], variablesCreated: 0, warnings: sent },
+    } as any)
+    const svc = new WailsPortabilityService()
+
+    expect((await svc.importPreview('{}')).data.preview.warnings).toEqual(read)
+    expect((await svc.importConfirm({ previewId: 'p-1', includeScripts: false, workspaceId: 'ws-1' })).data.warnings).toEqual(read)
+    expect((await svc.importEnvironment('{}', 'ws-1')).data?.warnings).toEqual(read)
   })
 })

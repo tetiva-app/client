@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
@@ -76,7 +77,7 @@ func TestImportCollection_ExamplesThroughRealUsecases(t *testing.T) {
 		WorkspaceID: defaultWorkspaceID, UserID: "local_user",
 	}, collUC, reqUC, exUC, &stubEnvironmentUC{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{`request "Login": example 2 skipped: example is too large (max 480 KB)`}, res.Warnings)
+	assert.Equal(t, []string{`request "Login": example 2 skipped: with its headers it is larger than 480 KB`}, portability.Texts(res.Warnings))
 
 	var requestID uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT id FROM requests WHERE name = 'Login'`).Scan(&requestID))

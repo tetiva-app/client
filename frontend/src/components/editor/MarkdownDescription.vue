@@ -2,8 +2,11 @@
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { Eye, Pencil } from 'lucide-vue-next'
 import { descriptionBytes, isDescriptionEmpty, MAX_DESCRIPTION_BYTES } from '@/lib/description'
+import { fill, formatNumber, plural } from '@/lib/locale'
+import { useCopy, useLocale } from '@/composables/useLocale'
 import { renderMarkdown } from '@/lib/markdown'
 import { openExternal } from '@/lib/open-external'
+import { EDITOR_COPY } from './copy'
 
 // CodeMirror + the Markdown grammar are heavy; the Docs tab only mounts on demand.
 const MarkdownEditor = defineAsyncComponent(() => import('./MarkdownEditor.vue'))
@@ -26,10 +29,13 @@ const isEmpty = computed(() => isDescriptionEmpty(props.description))
 const bytes = computed(() => descriptionBytes(props.description))
 const overLimit = computed(() => bytes.value > MAX_DESCRIPTION_BYTES)
 const renderedMarkdown = computed(() => renderMarkdown(props.description))
-const counter = computed(() =>
-  `${bytes.value.toLocaleString()} / ${MAX_DESCRIPTION_BYTES.toLocaleString()} bytes`
-  + (overLimit.value ? ' — over the limit, saves only when shortened' : ''),
-)
+const locale = useLocale()
+const copy = useCopy(EDITOR_COPY)
+const counter = computed(() => {
+  const text = copy.value.description
+  const used = fill(plural(locale.value, MAX_DESCRIPTION_BYTES, text.counter), { used: formatNumber(locale.value, bytes.value) })
+  return overLimit.value ? fill(text.overLimit, { counter: used }) : used
+})
 
 function showPreview() {
   editorRef.value?.normalizeTables()
@@ -63,26 +69,26 @@ function handlePreviewClick(event: MouseEvent) {
 <template>
   <div>
     <div class="mb-1.5 flex h-6 items-center justify-between">
-      <label class="block text-xs text-muted-foreground">Description</label>
+      <label class="block text-xs text-muted-foreground">{{ copy.description.label }}</label>
       <button
         v-if="editing"
         type="button"
-        aria-label="Preview description"
+        :aria-label="copy.description.previewLabel"
         class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         @click="showPreview"
       >
         <Eye class="size-3" />
-        Preview
+        {{ copy.description.preview }}
       </button>
       <button
         v-else-if="!isEmpty"
         type="button"
-        aria-label="Edit description"
+        :aria-label="copy.description.editLabel"
         class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         @click="startEditing"
       >
         <Pencil class="size-3" />
-        Edit
+        {{ copy.description.edit }}
       </button>
     </div>
 
@@ -125,7 +131,7 @@ function handlePreviewClick(event: MouseEvent) {
       @click="startEditing"
     >
       <Pencil class="size-3.5" />
-      Add description
+      {{ copy.description.add }}
     </button>
   </div>
 </template>

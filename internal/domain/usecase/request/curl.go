@@ -42,7 +42,7 @@ func (u *usecase) BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt)
 		return CurlResult{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	prep, scriptResult, err := u.prepareHTTP(ctx, req, vars, resolvedAuth, prepareOpt{TokenFromCacheOnly: true})
+	prep, scriptResult, err := u.prepareHTTP(ctx, req, vars, resolvedAuth, prepareOpt{TokenFromCacheOnly: true, SkipFileRead: true})
 	if err != nil {
 		return CurlResult{ScriptResult: scriptResult}, fmt.Errorf("%s: %w", funcName, err)
 	}
@@ -93,9 +93,7 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 
 	switch prep.BodyType {
 	case entities.BodyTypeForm:
-		// Multipart only when prepareHTTP produced one (files involved);
-		// urlencoded forms use --data-raw so the explicit Content-Type header is honored.
-		if prep.BodyReader != nil {
+		if hasFileField(prep.FormFields) {
 			for _, f := range prep.FormFields {
 				if !f.Enabled || f.Key == "" {
 					continue
@@ -108,6 +106,7 @@ func buildCurlText(prep preparedHTTP, cookies []*http.Cookie) string {
 				}
 			}
 		} else if prep.Body != "" {
+			// urlencoded forms use --data-raw so the explicit Content-Type header is honored.
 			parts = append(parts, "--data-raw "+shellQuote(prep.Body))
 		}
 	case entities.BodyTypeBinary:

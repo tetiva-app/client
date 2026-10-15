@@ -162,6 +162,30 @@ func TestBuildCurl_FormMultipartWithFile(t *testing.T) {
 	}
 }
 
+func TestBuildCurl_MultipartDoesNotOpenFormFiles(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.png")
+	id := uuid.New()
+	body, _ := json.Marshal([]map[string]any{
+		{"key": "avatar", "value": missing, "type": "file", "enabled": true},
+	})
+	uc := ucWithRequest(t, &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodPOST,
+		URL:  "https://api.example.com/upload",
+		Body: string(body), BodyType: entities.BodyTypeForm, AuthType: entities.AuthTypeNone,
+	})
+
+	res, err := uc.BuildCurl(context.Background(), id, request.BuildCurlOpt{WorkspaceID: testWorkspaceID})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !strings.Contains(res.Command, "-F 'avatar=@"+missing+"'") {
+		t.Errorf("expected file field as -F with @path: %s", res.Command)
+	}
+	if !strings.Contains(res.Command, "-H 'Content-Type: multipart/form-data'") || strings.Contains(res.Command, "boundary=") {
+		t.Errorf("curl must pick the boundary itself: %s", res.Command)
+	}
+}
+
 func TestBuildCurl_RawBodyStartingWithAtIsNotAFile(t *testing.T) {
 	id := uuid.New()
 	uc := ucWithRequest(t, &entities.Request{

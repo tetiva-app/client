@@ -87,7 +87,8 @@ export interface RequestServiceAPI {
   delete(req: DeleteRequestReq): Promise<Result<boolean>>
   deleteDraft(id: string): Promise<Result<Record<string, never>>>
   reorder(req: ReorderRequestReq): Promise<Result<boolean>>
-  execute(req: { requestId: string; workspaceId: string }): Promise<Result<ExecuteResponse>>
+  execute(req: { requestId: string; workspaceId: string; runId?: string }): Promise<Result<ExecuteResponse>>
+  cancelExecute(runId: string): Promise<Result<Record<string, never>>>
   generateCurl(req: { requestId: string; workspaceId: string }): Promise<Result<GenerateCurlResponse>>
   parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>>
   buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>>

@@ -1,15 +1,13 @@
 package request
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/url"
-	"path/filepath"
+	"os"
 	"strings"
 	"time"
 
@@ -125,12 +123,7 @@ func parseFormFields(body string) ([]formField, error) {
 	return fields, nil
 }
 
-// FormHasFiles returns true if any enabled field has type "file".
-func FormHasFiles(body string) bool {
-	fields, err := parseFormFields(body)
-	if err != nil {
-		return false
-	}
+func hasFileField(fields []formField) bool {
 	for _, f := range fields {
 		if f.Enabled && f.Type == "file" && f.Key != "" {
 			return true
@@ -152,63 +145,6 @@ func encodeFormBody(body string) (string, error) {
 		}
 	}
 	return values.Encode(), nil
-}
-
-// encodeMultipartFormBody returns the Content-Type (with boundary) and a reader for the body.
-func encodeMultipartFormBody(body string) (string, io.Reader, error) {
-	fields, err := parseFormFields(body)
-	if err != nil {
-		return "", nil, err
-	}
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	for _, f := range fields {
-		if !f.Enabled || f.Key == "" {
-			continue
-		}
-
-		if f.Type == "file" && f.Value != "" {
-			// Security: reject path traversal
-			if strings.Contains(f.Value, "..") {
-				return "", nil, fmt.Errorf("form file path traversal is not allowed: %s", f.Key)
-			}
-			cleanPath := filepath.Clean(f.Value)
-			if !filepath.IsAbs(cleanPath) {
-				return "", nil, fmt.Errorf("form file path must be absolute: %s", f.Key)
-			}
-
-			file, openErr := openBodyFile(cleanPath)
-			if openErr != nil {
-				return "", nil, fmt.Errorf("form file %q: %w", f.Key, openErr)
-			}
-
-			part, partErr := writer.CreateFormFile(f.Key, filepath.Base(cleanPath))
-			if partErr != nil {
-				_ = file.Close()
-				return "", nil, fmt.Errorf("failed to create form file part %q: %w", f.Key, partErr)
-			}
-
-			if _, copyErr := io.Copy(part, file); copyErr != nil {
-				_ = file.Close()
-				return "", nil, fmt.Errorf("failed to copy file %q: %w", f.Key, copyErr)
-			}
-			if closeErr := file.Close(); closeErr != nil {
-				return "", nil, fmt.Errorf("failed to close form file %q: %w", f.Key, closeErr)
-			}
-		} else {
-			if writeErr := writer.WriteField(f.Key, f.Value); writeErr != nil {
-				return "", nil, fmt.Errorf("failed to write field %q: %w", f.Key, writeErr)
-			}
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		return "", nil, fmt.Errorf("failed to close multipart writer: %w", err)
-	}
-
-	return writer.FormDataContentType(), &buf, nil
 }
 
 func autoContentType(bodyType entities.BodyType) string {
@@ -329,8 +265,12 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			Auth:          prep.Auth,
 			AuthQueryKeys: prep.AuthQueryKeys,
 		}
-		if prep.BodyReader != nil {
-			execReq.BodyReader = prep.BodyReader
+		if mp := prep.Multipart; mp != nil {
+			body := mp.open()
+			defer func() { _ = body.Close() }()
+			execReq.BodyReader = body
+			execReq.BodyLength = mp.size
+			execReq.GetBody = func() (io.ReadCloser, error) { return mp.open(), nil }
 		}
 		if prep.BinaryPath != "" {
 			file, openErr := openBodyFile(prep.BinaryPath)
@@ -338,7 +278,13 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 				return nil, fmt.Errorf("%s: %w", funcName, openErr)
 			}
 			defer func() { _ = file.Close() }()
+			info, statErr := file.Stat()
+			if statErr != nil {
+				return nil, fmt.Errorf("%s: %w", funcName, statErr)
+			}
 			execReq.BodyReader = file
+			execReq.BodyLength = info.Size()
+			execReq.GetBody = func() (io.ReadCloser, error) { return openBodyFile(prep.BinaryPath) }
 		}
 		resp, execErr = u.requester.Execute(ctx, execReq)
 		historyHeaders = prep.Headers
@@ -348,6 +294,12 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		if req.BodyType == entities.BodyTypeBinary {
 			historyBody = "[binary: " + prep.BinaryPath + "]"
 		}
+	}
+
+	// gRPC reports a cancel as a Canceled response rather than an error, so ctx decides.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		removeBinaryBody(resp)
+		return nil, fmt.Errorf("%s: %w", funcName, ctxErr)
 	}
 
 	postScript, postResolveErr := u.scriptResolver.ResolvePostScript(ctx, req)
@@ -395,6 +347,13 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		}
 	}
 
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		removeBinaryBody(resp)
+		return nil, fmt.Errorf("%s: %w", funcName, ctxErr)
+	}
+	// A cancel from here on lets the run commit whole instead of half.
+	commitCtx := context.WithoutCancel(ctx)
+
 	if resp != nil && scriptResult != nil {
 		resp.ScriptResult = scriptResult
 	}
@@ -409,7 +368,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	}
 
 	if u.varPersister != nil && scriptResult != nil && len(vars) > 0 {
-		if persistErr := u.varPersister.PersistVariableChanges(ctx, opt.WorkspaceID, opt.UserID, vars); persistErr != nil {
+		if persistErr := u.varPersister.PersistVariableChanges(commitCtx, opt.WorkspaceID, opt.UserID, vars); persistErr != nil {
 			scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
 				Phase: "variable-persist", Message: persistErr.Error(),
 			})
@@ -459,7 +418,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		history.ErrorMessage = execErr.Error()
 	}
 
-	if saveErr := u.historyRepo.Create(ctx, history); saveErr != nil {
+	if saveErr := u.historyRepo.Create(commitCtx, history); saveErr != nil {
 		if execErr != nil {
 			return nil, fmt.Errorf("%s: %w (history save also failed: %v)", funcName, execErr, saveErr)
 		}
@@ -471,6 +430,12 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	}
 
 	return resp, nil
+}
+
+func removeBinaryBody(resp *entities.Response) {
+	if resp != nil && resp.BinaryPath != "" {
+		_ = os.Remove(resp.BinaryPath)
+	}
 }
 
 func mapsEqual(a, b map[string]string) bool {

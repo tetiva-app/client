@@ -222,7 +222,9 @@ type HTTPExecuteRequest struct {
 	Headers       map[string][]string
 	Body          string
 	BodyReader    io.Reader
-	WorkspaceID   uuid.UUID // required for per-workspace cookie jar
+	BodyLength    int64                         // of a streamed BodyReader; 0 means unknown
+	GetBody       func() (io.ReadCloser, error) // a fresh BodyReader for redirects and connection retries
+	WorkspaceID   uuid.UUID                     // required for per-workspace cookie jar
 	Auth          *RequestAuth
 	AuthQueryKeys []string
 }

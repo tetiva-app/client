@@ -64,6 +64,8 @@ type SyncQueueRepository interface {
 	EnqueueUnsyncedWorkspace(ctx context.Context, workspaceID string) (int, error)
 	// Entries held back from the push: 'parked' and 'deferred'.
 	ListHeld(ctx context.Context, workspaceID, entityType string) ([]*SyncEntry, error)
+	// 'failed', 'parked' and 'deferred' entries of every type, ordered by id.
+	ListStalled(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error)
 	DropOlderPending(ctx context.Context, entries []*SyncEntry) error
 	// Moves the seeded Default environment the server never had to a new id; "" if none.
 	ReissueSeededEnvironment(ctx context.Context, workspaceID string) (string, error)
@@ -602,6 +604,24 @@ func (r *SyncQueueRepo) ListHeld(ctx context.Context, workspaceID, entityType st
 		ORDER BY id ASC`
 
 	rows, err := DBTXFromContext(ctx, r.db).QueryContext(ctx, query, workspaceID, entityType)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	return scanSyncEntries(funcName, rows)
+}
+
+func (r *SyncQueueRepo) ListStalled(ctx context.Context, workspaceID string, limit int) ([]*SyncEntry, error) {
+	const funcName = "SyncQueueRepo.ListStalled"
+
+	query := `SELECT id, workspace_id, entity_type, entity_id, action, operation_id, status, retry_count, defer_count, next_retry_at, created_at
+		FROM sync_queue
+		WHERE workspace_id = ? AND status IN ('failed', 'parked', 'deferred')
+		ORDER BY id ASC
+		LIMIT ?`
+
+	rows, err := r.db.QueryContext(ctx, query, workspaceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}

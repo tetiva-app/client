@@ -70,8 +70,8 @@ func TestPrepareHTTP_BasicGET(t *testing.T) {
 	if prep.Body != "" {
 		t.Errorf("body: got %q, want empty", prep.Body)
 	}
-	if prep.BodyReader != nil {
-		t.Errorf("BodyReader: got non-nil")
+	if prep.Multipart != nil {
+		t.Errorf("Multipart: got non-nil")
 	}
 }
 
@@ -490,8 +490,8 @@ func TestPrepareHTTP_SnippetOptions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("prepareHTTP: %v", err)
 		}
-		if prep.BodyReader != nil {
-			t.Error("BodyReader: got non-nil, want nil")
+		if prep.Multipart != nil {
+			t.Error("Multipart: got non-nil, want nil")
 		}
 		if got := prep.Headers["Content-Type"]; len(got) != 1 || got[0] != "multipart/form-data" {
 			t.Errorf("Content-Type: got %v, want [multipart/form-data]", got)
@@ -593,4 +593,32 @@ func TestPrepareHTTP_SnippetOptions(t *testing.T) {
 			t.Errorf("token provider calls: got %d, want 1", provider.calls)
 		}
 	})
+}
+
+func TestHasFileField(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected bool
+	}{
+		{"empty", "", false},
+		{"empty array", "[]", false},
+		{"text only", `[{"key":"name","value":"test","type":"text","enabled":true}]`, false},
+		{"file field", `[{"key":"avatar","value":"/tmp/photo.jpg","type":"file","enabled":true}]`, true},
+		{"disabled file", `[{"key":"avatar","value":"/tmp/photo.jpg","type":"file","enabled":false}]`, false},
+		{"file without a key", `[{"key":"","value":"/tmp/photo.jpg","type":"file","enabled":true}]`, false},
+		{"mixed", `[{"key":"name","value":"test","type":"text","enabled":true},{"key":"doc","value":"/tmp/doc.pdf","type":"file","enabled":true}]`, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields, err := parseFormFields(tt.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hasFileField(fields); got != tt.expected {
+				t.Errorf("hasFileField(%q) = %v, want %v", tt.body, got, tt.expected)
+			}
+		})
+	}
 }

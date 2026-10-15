@@ -83,6 +83,10 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, req.AuthQueryKeys))
 	}
+	// A spooled body is already replayable and sized.
+	if httpReq.GetBody == nil && req.GetBody != nil {
+		httpReq.GetBody, httpReq.ContentLength = req.GetBody, req.BodyLength
+	}
 
 	for key, values := range req.Headers {
 		for _, v := range values {

@@ -24,6 +24,7 @@ import {
   MoveRequestRequest as BindingMoveRequestRequest,
   PromoteDraftRequest as BindingPromoteDraftRequest,
   ExecuteRequestRequest as BindingExecuteRequestRequest,
+  CancelExecuteRequest as BindingCancelExecuteRequest,
   GenerateCurlRequest as BindingGenerateCurlRequest,
   ParseCurlRequest as BindingParseCurlRequest,
   BuildSnippetRequest as BindingBuildSnippetRequest,
@@ -118,11 +119,18 @@ export class WailsRequestService implements RequestServiceAPI {
     })) as unknown as BindingResult<boolean>)
   }
 
-  async execute(req: { requestId: string; workspaceId: string }): Promise<Result<ExecuteResponse>> {
+  async execute(req: { requestId: string; workspaceId: string; runId?: string }): Promise<Result<ExecuteResponse>> {
     return unwrap<ExecuteResponse>(await RequestService.Execute(new BindingExecuteRequestRequest({
       requestId: req.requestId,
       workspaceId: req.workspaceId,
+      runId: req.runId ?? '',
     })) as unknown as BindingResult<ExecuteResponse>)
+  }
+
+  async cancelExecute(runId: string): Promise<Result<Record<string, never>>> {
+    return unwrap<Record<string, never>>(
+      await RequestService.CancelExecute(new BindingCancelExecuteRequest({ runId })) as unknown as BindingResult<Record<string, never>>,
+    )
   }
 
   async generateCurl(req: { requestId: string; workspaceId: string }): Promise<Result<GenerateCurlResponse>> {

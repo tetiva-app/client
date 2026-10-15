@@ -346,7 +346,7 @@ function updateField(field: string, value: any) {
           @update:method="(v) => updateField('method', v)"
           @update:url="(v) => updateField('url', v)"
           @send="store.executeRequest(props.requestId)"
-          @cancel="responseStore.cancelRequest(props.requestId)"
+          @cancel="store.cancelRequest(props.requestId)"
           @manage-environments="$emit('manage-environments')"
           @copy="copyAs"
           @generate="generateCode"
@@ -451,7 +451,7 @@ function updateField(field: string, value: any) {
           <ResponseViewer
             :state="responseState"
             :request-id="requestId"
-            @cancel="responseStore.cancelRequest(props.requestId)"
+            @cancel="store.cancelRequest(props.requestId)"
           />
         </ResizablePanel>
       </ResizablePanelGroup>

@@ -36,6 +36,7 @@ const (
 	// ErrCodeServerUnreachable lets the connect modal offer Retry instead of
 	// falling back to the in-app form.
 	ErrCodeServerUnreachable = "server_unreachable"
+	ErrCodeCancelled         = "cancelled"
 	ErrCodeInternal          = "internal"
 )
 
@@ -98,6 +99,11 @@ func resultError(err error) *ResultError {
 	case status.Code(err) == codes.ResourceExhausted:
 		return &ResultError{
 			Code:    ErrCodeRateLimited,
+			Message: err.Error(),
+		}
+	case errors.Is(err, context.Canceled):
+		return &ResultError{
+			Code:    ErrCodeCancelled,
 			Message: err.Error(),
 		}
 	default:

@@ -76,3 +76,19 @@ describe('MockRequestService.buildSnippetInput', () => {
     expect(JSON.parse(res.data.har?.postData?.text ?? '')).toEqual({ query: '{ me }' })
   })
 })
+
+describe('MockRequestService.cancelExecute', () => {
+  it('ends a slow run with a cancelled result', async () => {
+    const svc = new MockRequestService()
+    const { data: req } = await svc.create({
+      collectionId: 'c1', name: 'Slow', description: '', protocol: 'http', method: 'GET',
+      url: 'https://slow.example.com', headers: [], body: '', bodyType: 'none', authType: 'none',
+      authData: '{}', preScript: '', postScript: '',
+    })
+
+    const run = svc.execute({ requestId: req.id, workspaceId: 'w', runId: 'run-1' })
+    await svc.cancelExecute('run-1')
+
+    expect((await run).error?.code).toBe('cancelled')
+  })
+})

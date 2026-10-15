@@ -3,7 +3,6 @@ package request
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -18,11 +17,11 @@ type preparedHTTP struct {
 	URL        string
 	Headers    map[string][]string
 	BodyType   entities.BodyType
-	Body       string      // for JSON/XML/RAW/urlencoded form (wire-ready)
-	RawBody    string      // body after var substitution but BEFORE encoding (for history/UI)
-	BodyReader io.Reader   // for multipart with files (Execute path)
-	FormFields []formField // for multipart, when curl needs -F flags
-	BinaryPath string      // absolute path for BodyTypeBinary; as typed under SkipFileRead
+	Body       string         // for JSON/XML/RAW/urlencoded form (wire-ready)
+	RawBody    string         // body after var substitution but BEFORE encoding (for history/UI)
+	Multipart  *multipartBody // for multipart with files (Execute path)
+	FormFields []formField    // for multipart, when curl needs -F flags
+	BinaryPath string         // absolute path for BodyTypeBinary; as typed under SkipFileRead
 	Vars       map[string]string
 
 	// Auth is set for the schemes the requester applies itself (digest, aws_sigv4).
@@ -139,19 +138,19 @@ func (u *usecase) prepareHTTP(
 		if parseErr != nil {
 			return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, parseErr)
 		}
-		hasFiles := FormHasFiles(body)
+		hasFiles := hasFileField(fields)
 		switch {
 		case hasFiles && opt.SkipFileRead:
 			prep.FormFields = fields
 			prep.Headers["Content-Type"] = []string{"multipart/form-data"}
 		case hasFiles:
-			ct, reader, encErr := encodeMultipartFormBody(body)
+			mp, encErr := newMultipartBody(fields)
 			if encErr != nil {
 				return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, encErr)
 			}
-			prep.BodyReader = reader
+			prep.Multipart = mp
 			prep.FormFields = fields
-			prep.Headers["Content-Type"] = []string{ct}
+			prep.Headers["Content-Type"] = []string{mp.contentType()}
 		default:
 			encoded, encErr := encodeFormBody(body)
 			if encErr != nil {

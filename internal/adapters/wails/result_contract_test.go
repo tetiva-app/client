@@ -4,6 +4,7 @@ package wails
 // depends on (exact field names + omitempty); any change must be intentional.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -160,6 +161,12 @@ func TestContract_Err_StatusWithoutErrorInfoHasNoReason(t *testing.T) {
 	b, err := json.Marshal(Err[string](status.Error(codes.ResourceExhausted, "slow down")))
 	require.NoError(t, err)
 	require.Equal(t, `{"data":"","error":{"code":"rate_limited","message":"rpc error: code = ResourceExhausted desc = slow down"}}`, string(b))
+}
+
+func TestContract_Err_Cancelled(t *testing.T) {
+	b, err := json.Marshal(Err[string](fmt.Errorf("request.Execute: request failed: %w", context.Canceled)))
+	require.NoError(t, err)
+	require.Equal(t, `{"data":"","error":{"code":"cancelled","message":"request.Execute: request failed: context canceled"}}`, string(b))
 }
 
 func TestContract_Err_Internal_PlainError(t *testing.T) {

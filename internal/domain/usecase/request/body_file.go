@@ -14,6 +14,19 @@ var errNetworkBodyFile = errors.New("body files on network shares or URLs are no
 func openBodyFile(path string) (*os.File, error) {
 	const funcName = "request.openBodyFile"
 
+	if _, err := statBodyFile(path); err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return f, nil
+}
+
+func statBodyFile(path string) (os.FileInfo, error) {
+	const funcName = "request.statBodyFile"
+
 	if localpath.IsRemote(path) {
 		return nil, fmt.Errorf("%s: %w", funcName, errNetworkBodyFile)
 	}
@@ -24,9 +37,5 @@ func openBodyFile(path string) (*os.File, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s: %q is not a regular file", funcName, path)
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", funcName, err)
-	}
-	return f, nil
+	return info, nil
 }

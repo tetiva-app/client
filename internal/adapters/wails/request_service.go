@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -20,10 +21,13 @@ import (
 // RequestService exposes Request operations to the Wails frontend.
 type RequestService struct {
 	uc request.Usecase
+
+	mu   sync.Mutex
+	runs map[string]context.CancelFunc
 }
 
 func NewRequestService(uc request.Usecase) *RequestService {
-	return &RequestService{uc: uc}
+	return &RequestService{uc: uc, runs: make(map[string]context.CancelFunc)}
 }
 
 func (s *RequestService) Create(req dto.CreateRequestRequest) Result[dto.RequestResponse] {
@@ -288,8 +292,9 @@ func (s *RequestService) SaveResponseToFile(tempPath string, destPath string) Re
 	return OK(destPath)
 }
 
-func (s *RequestService) Execute(req dto.ExecuteRequestRequest) Result[dto.ExecuteResponseDTO] {
-	ctx := context.Background()
+func (s *RequestService) Execute(ctx context.Context, req dto.ExecuteRequestRequest) Result[dto.ExecuteResponseDTO] {
+	ctx, done := s.startRun(ctx, req.RunID)
+	defer done()
 
 	requestID, err := uuid.Parse(req.RequestID)
 	if err != nil {
@@ -316,6 +321,32 @@ func (s *RequestService) Execute(req dto.ExecuteRequestRequest) Result[dto.Execu
 	}
 
 	return OK(dto.ResponseToExecuteDTO(resp))
+}
+
+func (s *RequestService) CancelExecute(req dto.CancelExecuteRequest) Result[Empty] {
+	s.mu.Lock()
+	cancel := s.runs[req.RunID]
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return OK(Empty{})
+}
+
+func (s *RequestService) startRun(parent context.Context, runID string) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
+	if runID == "" {
+		return ctx, cancel
+	}
+	s.mu.Lock()
+	s.runs[runID] = cancel
+	s.mu.Unlock()
+	return ctx, func() {
+		s.mu.Lock()
+		delete(s.runs, runID)
+		s.mu.Unlock()
+		cancel()
+	}
 }
 
 // Pre-script runs in dry-run mode (no var persistence, no history).

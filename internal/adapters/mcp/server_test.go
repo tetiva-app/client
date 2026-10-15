@@ -572,6 +572,55 @@ func TestServer_SyncQueueList_Empty(t *testing.T) {
 	assert.Equal(t, float64(0), queue["count"])
 }
 
+func TestServer_SyncQueueList_ShowsStalledEntries(t *testing.T) {
+	srv := setupTestServer(t)
+	ctx := context.Background()
+	retryAt := time.Now().Add(5 * time.Minute).UTC().Truncate(time.Second)
+
+	enqueue := func(entityType string) int64 {
+		require.NoError(t, srv.syncQueue.Enqueue(ctx, sqlite.SyncEntry{
+			WorkspaceID: defaultWorkspaceID,
+			EntityType:  entityType,
+			EntityID:    uuid.NewString(),
+			Action:      "update",
+			OperationID: uuid.NewString(),
+			Status:      "pending",
+			CreatedAt:   time.Now(),
+		}))
+		pending, err := srv.syncQueue.ListPending(ctx, defaultWorkspaceID, 100)
+		require.NoError(t, err)
+		return pending[len(pending)-1].ID
+	}
+	require.NoError(t, srv.syncQueue.MarkFailed(ctx, enqueue("collection"), retryAt))
+	require.NoError(t, srv.syncQueue.MarkParked(ctx, enqueue("request")))
+	require.NoError(t, srv.syncQueue.MarkDeferred(ctx, enqueue("response_example"), retryAt, true))
+	enqueue("environment")
+
+	var queue struct {
+		Count   int              `json:"count"`
+		Entries []map[string]any `json:"entries"`
+		Stalled []map[string]any `json:"stalled"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(callTool(t, srv, "sync_queue_list", map[string]any{})), &queue))
+
+	assert.Equal(t, 1, queue.Count)
+	require.Len(t, queue.Entries, 1)
+	assert.Equal(t, "environment", queue.Entries[0]["entity_type"])
+
+	require.Len(t, queue.Stalled, 3)
+	for i, want := range []struct{ entityType, status, retry string }{
+		{"collection", "failed", retryAt.Format(time.RFC3339)},
+		{"request", "parked", ""},
+		{"response_example", "deferred", retryAt.Format(time.RFC3339)},
+	} {
+		got := queue.Stalled[i]
+		assert.Equal(t, want.entityType, got["entity_type"])
+		assert.Equal(t, want.status, got["status"])
+		assert.Equal(t, want.retry, got["next_retry_at"])
+		assert.NotEmpty(t, got["reason"])
+	}
+}
+
 func TestServer_SSE_Starts(t *testing.T) {
 	srv := setupTestServer(t)
 	base := startHTTPServer(t, srv)

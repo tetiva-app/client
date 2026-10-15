@@ -1616,30 +1616,6 @@ func TestExecute_DisabledHeadersNotSent(t *testing.T) {
 	}
 }
 
-func TestFormHasFiles(t *testing.T) {
-	tests := []struct {
-		name     string
-		body     string
-		expected bool
-	}{
-		{"empty", "", false},
-		{"empty array", "[]", false},
-		{"text only", `[{"key":"name","value":"test","type":"text","enabled":true}]`, false},
-		{"file field", `[{"key":"avatar","value":"/tmp/photo.jpg","type":"file","enabled":true}]`, true},
-		{"disabled file", `[{"key":"avatar","value":"/tmp/photo.jpg","type":"file","enabled":false}]`, false},
-		{"mixed", `[{"key":"name","value":"test","type":"text","enabled":true},{"key":"doc","value":"/tmp/doc.pdf","type":"file","enabled":true}]`, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := request.FormHasFiles(tt.body)
-			if got != tt.expected {
-				t.Errorf("formHasFiles(%q) = %v, want %v", tt.body, got, tt.expected)
-			}
-		})
-	}
-}
-
 // History must record the raw JSON form body (post-substitution, pre-encoding),
 // not the url-encoded wire payload.
 func TestExecute_HistoryRecordsRawFormBody(t *testing.T) {

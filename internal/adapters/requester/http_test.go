@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -382,5 +383,43 @@ func TestHTTPRequester_Redirects(t *testing.T) {
 				t.Fatalf("expected %d, got %d", tc.wantStatus, resp.StatusCode)
 			}
 		})
+	}
+}
+
+func TestHTTPRequester_StreamedBodyIsSentAgainOn307(t *testing.T) {
+	type hop struct {
+		body   string
+		length int64
+	}
+	var hops []hop
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		hops = append(hops, hop{body: string(body), length: r.ContentLength})
+		if r.URL.Path == "/upload" {
+			http.Redirect(w, r, "/stored", http.StatusTemporaryRedirect)
+		}
+	}))
+	defer server.Close()
+
+	open := func() (io.ReadCloser, error) {
+		return io.NopCloser(struct{ io.Reader }{strings.NewReader("payload")}), nil
+	}
+	first, _ := open()
+	resp, err := NewHTTPRequester(nil).Execute(context.Background(), request.HTTPExecuteRequest{
+		Method:     entities.MethodPOST,
+		URL:        server.URL + "/upload",
+		BodyReader: first,
+		BodyLength: int64(len("payload")),
+		GetBody:    open,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	want := []hop{{body: "payload", length: 7}, {body: "payload", length: 7}}
+	if !slices.Equal(hops, want) {
+		t.Errorf("hops = %+v, want %+v", hops, want)
 	}
 }

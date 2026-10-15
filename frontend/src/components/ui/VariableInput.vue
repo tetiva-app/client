@@ -13,6 +13,7 @@ import {
 } from '@/lib/codemirror-variables'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { isCurlCommand } from '@/lib/curl-paste'
+import { externalReplace, isExternal } from '@/lib/cm-external'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -100,7 +101,7 @@ function createExtensions() {
     variableHighlightTheme,
     cmPlaceholder(props.placeholder),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
+      if (update.docChanged && !update.transactions.some(isExternal)) {
         emit('update:modelValue', update.state.doc.toString())
       }
     }),
@@ -214,11 +215,8 @@ onBeforeUnmount(() => {
 
 watch(() => props.modelValue, (newVal) => {
   if (!view) return
-  const current = view.state.doc.toString()
-  if (newVal === current) return
-  view.dispatch({
-    changes: { from: 0, to: current.length, insert: newVal },
-  })
+  const spec = externalReplace(view.state, newVal)
+  if (spec) view.dispatch(spec)
 })
 
 watch(() => props.resolvedVariables, () => {

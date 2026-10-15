@@ -95,6 +95,11 @@ type MoveRequestRequest struct {
 type ExecuteRequestRequest struct {
 	RequestID   string `json:"requestId"`
 	WorkspaceID string `json:"workspaceId"`
+	RunID       string `json:"runId"`
+}
+
+type CancelExecuteRequest struct {
+	RunID string `json:"runId"`
 }
 
 type RequestResponse struct {

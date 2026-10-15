@@ -20,6 +20,7 @@
 - MCP `get_request` returns headers as `{key, value, enabled}`, the shape `create_request` and `update_request` take; `update_request` still accepts `{Key, Value, Enabled}`
 - MCP leaves a credential header readable when its value is only `{{variable}}` references, also behind an auth scheme: `Bearer {{token}}` or `{{a}}{{b}}`. A value with any literal text in it is still masked whole
 - The Claude preset in Settings → AI agents (MCP) is labelled Claude Code, the `.mcp.json` entry it copies, and carries the token in an `Authorization: Bearer` header instead of `?token=` in the URL, as Cursor's does
+- MCP `sync_queue_list` also lists the entries sync holds back, under `stalled`: each with its status (`failed`, `parked` or `deferred`), why it waits and when it is retried. It used to show only pending entries while `sync_status` counted them all
 - App windows open on the background of the app's theme, white in light and near-black in dark, instead of flashing navy before the page paints; with System they follow the OS theme, and on Linux, where the OS theme can't be read, the one the app last showed
 - Import File… and Manage Environments refuse a file over 48 MiB before reading it, whatever its format; a Tetiva collection file keeps its 8 MiB limit
 - Import File… hands the file to the app once: confirming the preview imports the copy the preview already read instead of sending the whole file again, so a large file imports sooner
@@ -27,6 +28,7 @@
 - Inside `pm.test` a failed assertion reads like Postman's, just its message (`AssertionError: expected 200 to equal 201`), while any other error, a `TypeError` say, still names the line it broke on
 - `pm.response.status` is the reason phrase, `"OK"`, as in Postman, and the status name on gRPC; it used to repeat `pm.response.code`, which stays the number
 - Russian covers importing, environments, history and the collection overview too, and the hint in Settings → Interface lists them: Import from Link with its password step, the import preview, its errors and the import toasts, the importers' notes on what changed on import included, in the preview and in the toast after an import; Manage Environments, the environment picker and the toasts when an environment change fails or its variables fail to load or change; the History panel, its filters and the record view; a collection's Overview tab with its request and folder counts and the description editor with its formatting toolbar, shared with a request's Docs tab, and the Collection mark on a collection's editor tab
+- A form with a file streams the file from disk as it sends instead of reading it whole into memory first, so a large upload no longer needs its size in RAM, except with Digest or AWS Signature auth, which still read the body whole to sign it
 
 ### Fixed
 
@@ -39,6 +41,8 @@
 - A nested collection without auth says its requests use the parent collection's auth, if it has one, instead of "sent without auth headers"
 - An environment row in Manage Environments no longer nests its set-active button inside another button, which screen readers announced as two overlapping controls
 - Loading a schema resolves the active environment's `{{variables}}` the way sending does: gRPC reflection on an address like `{{grpcUrl}}`, over TLS when it holds `grpcs://…`, and GraphQL introspection of `{{baseUrl}}/graphql` with its headers, the example and definition lookups included
+- Cancel on an HTTP, GraphQL or gRPC request stops the call itself instead of only the wait for it: the request is aborted, so the server sees the client go away, the post-response script does not run, and the cancelled run leaves nothing in History and keeps no variables its pre-request script changed
+- Copy as cURL of a form with a file leaves the multipart boundary to curl: the copied command carried a second, stale boundary in `Content-Type`, and the server could not read the form. It no longer reads the files either, so a path that is missing on this computer, such as a teammate's synced one, still copies
 - Loading gRPC services by reflection no longer sits on "Connecting..." forever: each service loads over its own connection within 10 seconds and the whole list within 30, a service that does not answer is skipped with a note next to the buttons, and picking a method fetches only its own service
 - A script that throws an object with an endless `toString` stops at the 5-second limit instead of hanging the send, and one whose `toString` throws reports a script error
 - On macOS a detached request window and the schema viewer reopen at the size they were closed at, instead of growing by the title bar's height and shrinking by a pixel each time
@@ -51,6 +55,8 @@
 - MCP tools give `created_at` and `updated_at` in UTC; they used to carry local time marked with a `Z`, off by the timezone offset
 - GraphQL schema files and gRPC .proto files are read only from regular local files up to 32 MiB. A path to a network share (`\\server\share\…`) or a URL is refused with a hint to copy the file to this computer, so a synced request no longer makes Windows sign in to someone else's share when it opens, and a pipe or device path no longer hangs the editor. Form-data file fields and a binary body follow the same rules without the size limit, so Send no longer signs in to a share either, and a pipe or `/dev/zero` no longer hangs it or sends an endless body
 - Cancelling a file picker (Import .proto, a form file field, a binary body) just closes it instead of asking for a path in a text box
+- The GraphQL query and variables editors show every change that reaches an open request from outside them; every second one in a row used to stay out of the editor, and typing there then wrote the old text back
+- A binary body goes out with its `Content-Length` instead of chunked, so an S3 presigned PUT URL and other endpoints that refuse chunked uploads accept it, and a 307 or 308 redirect sends the file again instead of coming back as the response
 
 ## [v1.2.1] — 2026-10-03
 

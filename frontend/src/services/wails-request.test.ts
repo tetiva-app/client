@@ -15,7 +15,7 @@ vi.mock('../../bindings/github.com/tetiva-app/client/internal/adapters/wails/dto
   }
   const names = [
     'CreateRequestRequest', 'EditRequestRequest', 'DeleteRequestRequest', 'DeleteDraftRequest',
-    'ReorderRequestRequest', 'MoveRequestRequest', 'PromoteDraftRequest', 'ExecuteRequestRequest',
+    'ReorderRequestRequest', 'MoveRequestRequest', 'PromoteDraftRequest', 'ExecuteRequestRequest', 'CancelExecuteRequest',
     'GenerateCurlRequest', 'ParseCurlRequest', 'BuildSnippetRequest', 'SnippetRequestDTO',
     'GRPCConnectRequest', 'GRPCGenerateExampleRequest', 'GRPCGetProtoDefinitionRequest',
     'GraphQLIntrospectRequest', 'GraphQLGenerateExampleRequest', 'GraphQLGetTypeDefinitionRequest',

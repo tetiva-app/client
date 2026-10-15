@@ -10,10 +10,12 @@ const moveMock = vi.fn()
 const exampleEditMock = vi.fn()
 const detachMock = vi.fn()
 const executeMock = vi.fn()
+const cancelExecuteMock = vi.fn()
 
 vi.mock('@/services', () => ({
   getRequestService: () => Promise.resolve({
     edit: editMock, list: listMock, getById: getByIdMock, delete: deleteMock, move: moveMock, execute: executeMock,
+    cancelExecute: cancelExecuteMock,
   }),
   getExampleService: () => Promise.resolve({ edit: exampleEditMock }),
   getWebSocketService: () => Promise.resolve({
@@ -29,6 +31,7 @@ import { useResponseStore } from './responses'
 import { useWorkspaceStore } from './workspace'
 import type { Example } from '@/types/example'
 import type { ExecuteResponse } from '@/types/execute'
+import type { Result } from '@/types/common'
 import type { Workspace } from '@/types/workspace'
 import { MAX_DESCRIPTION_BYTES } from '@/lib/description'
 import { useToast } from '@/composables/useToast'
@@ -485,8 +488,42 @@ describe('executeRequest', () => {
 
     beforeEach(() => {
       executeMock.mockReset()
+      cancelExecuteMock.mockReset()
+      cancelExecuteMock.mockResolvedValue({ data: {} })
       useWorkspaceStore().workspaces = [{ id: 'ws-1', isActive: true } as Workspace]
       useRequestStore().loadRequest(makeRequest())
+    })
+
+    it('stops the call in Go by the run id it was started with', async () => {
+      const call = deferred<Result<ExecuteResponse>>()
+      executeMock.mockReturnValueOnce(call.promise)
+      const run = useRequestStore().executeRequest('r1')
+      await vi.waitFor(() => expect(executeMock).toHaveBeenCalledTimes(1))
+
+      useRequestStore().cancelRequest('r1')
+      call.resolve({ data: null as unknown as ExecuteResponse, error: { code: 'cancelled', message: 'context canceled' } })
+      await run
+
+      const { runId } = executeMock.mock.calls[0][0]
+      expect(runId).toEqual(expect.any(String))
+      await vi.waitFor(() => expect(cancelExecuteMock).toHaveBeenCalledWith(runId))
+      expect(useResponseStore().getResponseState('r1')).toEqual({ status: 'idle' })
+    })
+
+    it('gives every run its own id', async () => {
+      executeMock.mockResolvedValue({ data: response('ok') })
+      await useRequestStore().executeRequest('r1')
+      await useRequestStore().executeRequest('r1')
+
+      const [first, second] = executeMock.mock.calls.map(c => c[0].runId)
+      expect(first).not.toBe(second)
+    })
+
+    it('treats a cancelled result as a cancel, not an error', async () => {
+      executeMock.mockResolvedValueOnce({ data: null, error: { code: 'cancelled', message: 'context canceled' } })
+      await useRequestStore().executeRequest('r1')
+
+      expect(useResponseStore().getResponseState('r1')).toEqual({ status: 'idle' })
     })
 
     it('drops a result that arrives after Cancel', async () => {

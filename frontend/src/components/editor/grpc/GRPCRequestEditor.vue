@@ -328,7 +328,7 @@ const tabs = computed(() => [
         :loading="responseState.status === 'loading'"
         @update:host="(v) => updateField('url', v)"
         @invoke="store.executeRequest(request.id)"
-        @cancel="responseStore.cancelRequest(request.id)"
+        @cancel="store.cancelRequest(request.id)"
         @connect="connectToServer"
         @copy="copyAs"
         @generate="generateCode"
@@ -541,7 +541,7 @@ const tabs = computed(() => [
           :state="responseState"
           :request-id="request.id"
           :loading="responseState.status === 'loading'"
-          @cancel="responseStore.cancelRequest(request.id)"
+          @cancel="store.cancelRequest(request.id)"
         />
       </ResizablePanel>
     </ResizablePanelGroup>

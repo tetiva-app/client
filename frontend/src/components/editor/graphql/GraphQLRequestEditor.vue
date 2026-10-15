@@ -250,7 +250,7 @@ onUnmounted(() => {
         :loading="responseState.status === 'loading'"
         @update:url="(v) => updateField('url', v)"
         @execute="store.executeRequest(request.id)"
-        @cancel="responseStore.cancelRequest(request.id)"
+        @cancel="store.cancelRequest(request.id)"
         @copy="copyAs"
         @generate="generateCode"
       />
@@ -435,7 +435,7 @@ onUnmounted(() => {
           :state="responseState"
           :request-id="request.id"
           :loading="responseState.status === 'loading'"
-          @cancel="responseStore.cancelRequest(request.id)"
+          @cancel="store.cancelRequest(request.id)"
         />
       </ResizablePanel>
     </ResizablePanelGroup>

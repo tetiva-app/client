@@ -620,8 +620,7 @@ export const useRequestStore = defineStore('requests', () => {
     }
   }
 
-  // Cancel only resets the UI; the call keeps running and its late answer is dropped by token.
-  const runTokens = new Map<string, number>()
+  const runTokens = new Map<string, string>()
 
   async function executeRequest(id: string) {
     const req = requestsMap.value.get(id)
@@ -633,7 +632,7 @@ export const useRequestStore = defineStore('requests', () => {
 
     if (!(await flushForHandoff(id))) return
 
-    const token = (runTokens.get(id) ?? 0) + 1
+    const token = crypto.randomUUID()
     runTokens.set(id, token)
     const superseded = () => runTokens.get(id) !== token || responses.getResponseState(id).status !== 'loading'
     responses.setResponse(id, { status: 'loading', startedAt: Date.now() })
@@ -642,12 +641,14 @@ export const useRequestStore = defineStore('requests', () => {
       const service = await getRequestService()
       const wsId = useWorkspaceStore().activeWorkspace?.id
       if (!wsId) return
-      const result = await service.execute({ requestId: id, workspaceId: wsId })
+      const result = await service.execute({ requestId: id, workspaceId: wsId, runId: token })
 
       // Check if request still exists (may have been deleted during execution)
       if (!requestsMap.value.has(id) || superseded()) return
 
-      if (result.error) {
+      if (result.error?.code === 'cancelled') {
+        responses.cancelRequest(id)
+      } else if (result.error) {
         responses.setResponse(id, {
           status: 'error',
           error: {
@@ -670,6 +671,13 @@ export const useRequestStore = defineStore('requests', () => {
         },
       })
     }
+  }
+
+  function cancelRequest(id: string) {
+    const runId = runTokens.get(id)
+    runTokens.delete(id)
+    useResponseStore().cancelRequest(id)
+    if (runId) getRequestService().then(s => s.cancelExecute(runId)).catch(() => {})
   }
 
   function getSuggestions(message: string): string[] {
@@ -833,6 +841,7 @@ export const useRequestStore = defineStore('requests', () => {
     detachTab,
     syncTabMeta,
     executeRequest,
+    cancelRequest,
     registerCollectionEditor,
     unregisterCollectionEditor,
     syncCollectionTabName,

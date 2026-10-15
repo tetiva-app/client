@@ -3,6 +3,8 @@ package wails
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/adapters/requester"
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -754,7 +757,7 @@ func TestRequestService_Execute_Happy(t *testing.T) {
 	}
 	svc := NewRequestService(stub)
 
-	res := svc.Execute(dto.ExecuteRequestRequest{
+	res := svc.Execute(t.Context(), dto.ExecuteRequestRequest{
 		RequestID:   id.String(),
 		WorkspaceID: wsID.String(),
 	})
@@ -768,7 +771,7 @@ func TestRequestService_Execute_Happy(t *testing.T) {
 func TestRequestService_Execute_Error_BadUUID(t *testing.T) {
 	svc := NewRequestService(&stubRequestUsecase{})
 
-	res := svc.Execute(dto.ExecuteRequestRequest{
+	res := svc.Execute(t.Context(), dto.ExecuteRequestRequest{
 		RequestID:   "not-a-uuid",
 		WorkspaceID: uuid.New().String(),
 	})
@@ -776,6 +779,68 @@ func TestRequestService_Execute_Error_BadUUID(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeValidation, res.Error.Code)
 	assert.Contains(t, res.Error.Fields, "requestId")
+}
+
+func TestRequestService_Execute_CancelDisconnectsTheServer(t *testing.T) {
+	tests := []struct {
+		name   string
+		cancel func(svc *RequestService, runID string, endCall context.CancelFunc)
+	}{
+		{"CancelExecute", func(svc *RequestService, runID string, _ context.CancelFunc) {
+			require.Nil(t, svc.CancelExecute(dto.CancelExecuteRequest{RunID: runID}).Error)
+		}},
+		{"Wails call context ends", func(_ *RequestService, _ string, endCall context.CancelFunc) {
+			endCall()
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arrived := make(chan struct{})
+			disconnected := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				close(arrived)
+				select {
+				case <-r.Context().Done():
+					close(disconnected)
+				case <-time.After(10 * time.Second):
+				}
+			}))
+			defer srv.Close()
+
+			httpRequester := requester.NewHTTPRequester(nil)
+			svc := NewRequestService(&stubRequestUsecase{
+				executeFn: func(ctx context.Context, _ uuid.UUID, _ request.ExecuteOpt) (*entities.Response, error) {
+					return httpRequester.Execute(ctx, request.HTTPExecuteRequest{Method: entities.MethodGET, URL: srv.URL})
+				},
+			})
+			runID := uuid.NewString()
+			callCtx, endCall := context.WithCancel(context.Background())
+			defer endCall()
+
+			done := make(chan Result[dto.ExecuteResponseDTO], 1)
+			go func() {
+				done <- svc.Execute(callCtx, dto.ExecuteRequestRequest{RequestID: uuid.NewString(), WorkspaceID: uuid.NewString(), RunID: runID})
+			}()
+			select {
+			case <-arrived:
+			case <-time.After(5 * time.Second):
+				t.Fatal("request never reached the server")
+			}
+
+			tt.cancel(svc, runID, endCall)
+
+			select {
+			case <-disconnected:
+			case <-time.After(2 * time.Second):
+				t.Fatal("server did not see the client disconnect")
+			}
+			res := <-done
+			require.NotNil(t, res.Error)
+			assert.Equal(t, ErrCodeCancelled, res.Error.Code)
+			assert.Empty(t, svc.runs)
+			assert.Nil(t, svc.CancelExecute(dto.CancelExecuteRequest{RunID: runID}).Error)
+		})
+	}
 }
 
 func TestRequestService_GRPCListServices_Happy(t *testing.T) {

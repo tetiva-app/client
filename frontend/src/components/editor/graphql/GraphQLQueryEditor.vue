@@ -14,6 +14,7 @@ import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import type { Request } from '@/types/request'
 import type { GraphQLSchema as AppGraphQLSchema } from '@/types/graphql'
 import { buildGqlJsSchema } from '@/lib/graphql-schema-builder'
+import { externalReplace, isExternal } from '@/lib/cm-external'
 
 const props = defineProps<{
   request: Request
@@ -34,8 +35,6 @@ const variablesOpen = ref(true)
 
 let queryView: EditorView | null = null
 let variablesView: EditorView | null = null
-let ignoreQueryUpdate = false
-let ignoreVarsUpdate = false
 
 const settings = useSettingsStore()
 const queryWrapCompartment = new Compartment()
@@ -140,10 +139,8 @@ function createQueryEditor() {
         }),
         baseTheme,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            const val = update.state.doc.toString()
-            ignoreQueryUpdate = true
-            emit('update:query', val)
+          if (update.docChanged && !update.transactions.some(isExternal)) {
+            emit('update:query', update.state.doc.toString())
           }
         }),
       ],
@@ -168,10 +165,8 @@ function createVariablesEditor() {
         varsHighlightCompartment.of(activeHighlight()),
         baseTheme,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            const val = update.state.doc.toString()
-            ignoreVarsUpdate = true
-            emit('update:variables', val)
+          if (update.docChanged && !update.transactions.some(isExternal)) {
+            emit('update:variables', update.state.doc.toString())
           }
         }),
       ],
@@ -181,21 +176,15 @@ function createVariablesEditor() {
 }
 
 watch(() => props.request.graphqlQuery, (val) => {
-  if (ignoreQueryUpdate) { ignoreQueryUpdate = false; return }
   if (!queryView) return
-  const current = queryView.state.doc.toString()
-  if (current !== val) {
-    queryView.dispatch({ changes: { from: 0, to: queryView.state.doc.length, insert: val || '' } })
-  }
+  const spec = externalReplace(queryView.state, val || '')
+  if (spec) queryView.dispatch(spec)
 })
 
 watch(() => props.request.graphqlVariables, (val) => {
-  if (ignoreVarsUpdate) { ignoreVarsUpdate = false; return }
   if (!variablesView) return
-  const current = variablesView.state.doc.toString()
-  if (current !== val) {
-    variablesView.dispatch({ changes: { from: 0, to: variablesView.state.doc.length, insert: val || '' } })
-  }
+  const spec = externalReplace(variablesView.state, val || '')
+  if (spec) variablesView.dispatch(spec)
 })
 
 watch(variablesOpen, (open) => {

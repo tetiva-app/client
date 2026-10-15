@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
 func (s *Server) registerSyncTools() {
@@ -41,12 +43,12 @@ func (s *Server) registerSyncTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("sync_queue_list",
-			mcplib.WithDescription("List pending entries in the sync outbox queue"),
+			mcplib.WithDescription("List the sync outbox queue: pending entries in push order, plus stalled ones (failed, parked, deferred) with the reason they wait"),
 			mcplib.WithString("workspace_id",
 				mcplib.Description("Local workspace UUID (defaults to default workspace)"),
 			),
 			mcplib.WithNumber("limit",
-				mcplib.Description("Max entries to return (default 50)"),
+				mcplib.Description("Max entries per list (default 50)"),
 			),
 		),
 		s.handleSyncQueueList,
@@ -54,7 +56,7 @@ func (s *Server) registerSyncTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("sync_queue_clear",
-			mcplib.WithDescription("Clear all pending entries from the sync outbox queue for a workspace"),
+			mcplib.WithDescription("Clear every entry of the sync outbox queue for a workspace, pending and stalled"),
 			mcplib.WithString("workspace_id",
 				mcplib.Description("Local workspace UUID (defaults to default workspace)"),
 			),
@@ -164,27 +166,54 @@ func (s *Server) handleSyncQueueList(ctx context.Context, req mcplib.CallToolReq
 	if err != nil {
 		return errResult(err), nil
 	}
+	stalledEntries, err := s.syncQueue.ListStalled(ctx, wsID, limit)
+	if err != nil {
+		return errResult(err), nil
+	}
 
 	items := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
-		items = append(items, map[string]any{
-			"id":          e.ID,
-			"entity_type": e.EntityType,
-			"entity_id":   e.EntityID,
-			"action":      e.Action,
-			"status":      e.Status,
-			"retry_count": e.RetryCount,
-			"created_at":  formatTimestamp(e.CreatedAt),
-		})
+		items = append(items, serializeSyncEntry(e))
+	}
+
+	stalled := make([]map[string]any, 0, len(stalledEntries))
+	for _, e := range stalledEntries {
+		item := serializeSyncEntry(e)
+		item["reason"] = stalledReasons[e.Status]
+		item["defer_count"] = e.DeferCount
+		item["next_retry_at"] = ""
+		if e.NextRetryAt != nil {
+			item["next_retry_at"] = formatTimestamp(*e.NextRetryAt)
+		}
+		stalled = append(stalled, item)
 	}
 
 	result := map[string]any{
 		"workspace_id": wsID,
 		"count":        len(items),
 		"entries":      items,
+		"stalled":      stalled,
 	}
 
 	return jsonResult(result)
+}
+
+var stalledReasons = map[string]string{
+	"failed":   "rejected by the server (plan limit or app update required), retried at next_retry_at",
+	"parked":   "too large for the server, sent again after the next edit",
+	"deferred": "waits for its request to reach the server, retried at next_retry_at",
+}
+
+func serializeSyncEntry(e *sqlite.SyncEntry) map[string]any {
+	return map[string]any{
+		"id":          e.ID,
+		"entity_type": e.EntityType,
+		"entity_id":   e.EntityID,
+		"action":      e.Action,
+		"status":      e.Status,
+		"retry_count": e.RetryCount,
+		"created_at":  formatTimestamp(e.CreatedAt),
+	}
 }
 
 func (s *Server) handleSyncQueueClear(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {

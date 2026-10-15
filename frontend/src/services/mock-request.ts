@@ -18,6 +18,7 @@ import { makeError } from './makeError'
 
 export class MockRequestService implements RequestServiceAPI {
   private requests = new Map<string, Request>()
+  private runs = new Map<string, () => void>()
 
   async list(collectionId: string): Promise<Result<Request[]>> {
     const items = Array.from(this.requests.values())
@@ -182,13 +183,18 @@ export class MockRequestService implements RequestServiceAPI {
     return { data: promoted }
   }
 
+  async cancelExecute(runId: string): Promise<Result<Record<string, never>>> {
+    this.runs.get(runId)?.()
+    return { data: {} }
+  }
+
   async saveResponseToFile(_tempPath: string, _destPath: string): Promise<Result<string>> {
     // In browser mode, we can't save files — just return success
     return { data: '/mock/saved/response.bin' }
   }
 
-  async execute(execReq: { requestId: string; workspaceId: string }): Promise<Result<ExecuteResponse>> {
-    const { requestId: id } = execReq
+  async execute(execReq: { requestId: string; workspaceId: string; runId?: string }): Promise<Result<ExecuteResponse>> {
+    const { requestId: id, runId } = execReq
     const req = this.requests.get(id)
     if (!req) {
       return makeError<ExecuteResponse>('not_found', `request not found: ${id}`)
@@ -218,7 +224,12 @@ export class MockRequestService implements RequestServiceAPI {
     }
 
     if (url.includes('slow')) {
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      const cancelled = await new Promise<boolean>(resolve => {
+        const timer = setTimeout(() => resolve(false), 3000)
+        if (runId) this.runs.set(runId, () => { clearTimeout(timer); resolve(true) })
+      })
+      if (runId) this.runs.delete(runId)
+      if (cancelled) return makeError<ExecuteResponse>('cancelled', 'context canceled')
     }
 
     if (url.includes('404')) {

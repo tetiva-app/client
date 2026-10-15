@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1166,6 +1167,50 @@ func TestSyncQueueRepo_ListHeld(t *testing.T) {
 	want := map[string]string{deferred: "deferred", tooLarge: "parked"}
 	if len(got) != len(want) || got[deferred] != want[deferred] || got[tooLarge] != want[tooLarge] {
 		t.Errorf("ListHeld() = %v, want %v (quota row %s and the request are not held examples)", got, want, quota)
+	}
+}
+
+func TestSyncQueueRepo_ListStalled(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncQueueRepo(db)
+	ctx := context.Background()
+
+	wsID := uuid.New().String()
+	quota := parkQuota(t, repo, wsID, "collection")
+	deferred := uuid.New().String()
+	deferEntry(t, repo, wsID, "response_example", deferred, time.Now().Add(time.Hour))
+	tooLarge := uuid.New().String()
+	if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "request", tooLarge, "update")); err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	list, _ := repo.ListPending(ctx, wsID, 10)
+	if err := repo.MarkParked(ctx, list[0].ID); err != nil {
+		t.Fatalf("MarkParked failed: %v", err)
+	}
+	if err := repo.Enqueue(ctx, newTestSyncEntry(wsID, "request", uuid.New().String(), "update")); err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	parkQuota(t, repo, uuid.New().String(), "collection")
+
+	stalled, err := repo.ListStalled(ctx, wsID, 10)
+	if err != nil {
+		t.Fatalf("ListStalled failed: %v", err)
+	}
+	got := make([]string, 0, len(stalled))
+	for _, e := range stalled {
+		got = append(got, e.EntityID+":"+e.Status)
+	}
+	want := []string{quota + ":failed", deferred + ":deferred", tooLarge + ":parked"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ListStalled() = %v, want %v", got, want)
+	}
+
+	limited, err := repo.ListStalled(ctx, wsID, 2)
+	if err != nil {
+		t.Fatalf("ListStalled with limit failed: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Errorf("ListStalled(limit 2) returned %d entries", len(limited))
 	}
 }
 

@@ -11,5 +11,5 @@ RUN node_arch=$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && curl -fsSL "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-${node_arch}.tar.xz" \
       | tar -C /usr/local --strip-components=1 -xJ
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
-RUN CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+RUN CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.28
 WORKDIR /src/client

@@ -1,7 +1,7 @@
 import type { Dialogs } from '@wailsio/runtime'
 import { isWailsEnvironment } from '@/services'
 
-// Wails beta.16 has no error codes, only these texts from the Windows dialog and the server build.
+// Wails beta.28 has no error codes, only these texts from the Windows dialog and the server build.
 const CANCELLED = 'cancelled by user'
 const NO_NATIVE_DIALOGS = 'file dialogs not available in server mode'
 

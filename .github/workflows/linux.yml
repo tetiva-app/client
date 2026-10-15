@@ -58,7 +58,7 @@ jobs:
 
       - name: Install wails3
         # CGO off: the CLI pulls in a GTK4 probe that does not build without GTK4 headers.
-        run: CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+        run: CGO_ENABLED=0 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.28
 
       - run: bash build/release-linux.sh
 

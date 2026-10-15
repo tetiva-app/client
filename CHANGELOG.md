@@ -16,6 +16,7 @@
 
 ### Changed
 
+- The app platform moved to Wails v3 beta.28 (from beta.16): on Windows a crashed WebView2 renderer is recovered instead of leaving a blank window, a malformed asset request no longer takes the app down and aborted requests are cancelled; a memory leak on macOS and Linux is gone; the server build stops cleanly on Ctrl+C and SIGTERM
 - MCP `get_request` returns headers as `{key, value, enabled}`, the shape `create_request` and `update_request` take; `update_request` still accepts `{Key, Value, Enabled}`
 - MCP leaves a credential header readable when its value is only `{{variable}}` references, also behind an auth scheme: `Bearer {{token}}` or `{{a}}{{b}}`. A value with any literal text in it is still masked whole
 - The Claude preset in Settings → AI agents (MCP) is labelled Claude Code, the `.mcp.json` entry it copies, and carries the token in an `Authorization: Bearer` header instead of `?token=` in the URL, as Cursor's does

@@ -589,7 +589,7 @@ func TestPrefsFromWindow(t *testing.T) {
 	}
 }
 
-// macFrame is what Wails beta.16 reports on macOS: a content area of (w-1)x(h-1) under a 32 pt title bar.
+// macFrame is what Wails beta.28 reports on macOS: a content area of (w-1)x(h-1) under a 32 pt title bar.
 func macFrame(opts application.WebviewWindowOptions) (int, int) {
 	return opts.Width - 1, opts.Height - 1 + 32
 }

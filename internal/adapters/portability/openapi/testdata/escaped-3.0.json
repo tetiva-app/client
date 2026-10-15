@@ -1,0 +1,27 @@
+{
+	"openapi": "3.0.1",
+	"info": {
+		"title": "Emoji 🚀 API",
+		"version": "1.0"
+	},
+	"servers": [{"url": "https:\/\/api.example.com\/v1"}],
+	"paths": {
+		"\/users\/{id}": {
+			"get": {
+				"tags": ["users"],
+				"summary": "Launch 🚀",
+				"parameters": [
+					{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "example": 7}},
+					{"name": "fields", "in": "query", "required": true, "schema": {"type": "string"}},
+					{"name": "page", "in": "query", "schema": {"type": "integer"}}
+				],
+				"responses": {
+					"200": {
+						"description": "ok",
+						"content": {"application\/json": {"example": {"name": "Jörg", "url": "https:\/\/x.io"}}}
+					}
+				}
+			}
+		}
+	}
+}

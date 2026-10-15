@@ -16,14 +16,14 @@ export interface DropdownPlacement {
 export interface DropdownOptions {
   gap?: number
   maxHeight?: number
+  contentHeight?: number
 }
 
 const DEFAULT_GAP = 4
-const DEFAULT_MAX_HEIGHT = 240
+const DEFAULT_MAX_HEIGHT = 320
 
 // A menu anchored inside the request editor is clipped by that pane, so it is
-// placed in viewport coordinates instead: above the anchor when the room below
-// is the smaller half, and always capped so the list scrolls on its own.
+// placed in viewport coordinates instead.
 export function dropdownPlacement(
   anchor: AnchorRect,
   viewportHeight: number,
@@ -31,13 +31,14 @@ export function dropdownPlacement(
 ): DropdownPlacement {
   const gap = options.gap ?? DEFAULT_GAP
   const max = options.maxHeight ?? DEFAULT_MAX_HEIGHT
+  const wanted = Math.min(max, options.contentHeight ?? max)
 
   const below = viewportHeight - anchor.bottom - gap
   const above = anchor.top - gap
   // Flipping on the smaller half also picks the larger side when neither can
   // hold the whole list; the height then follows that side, because a flipped
   // menu grows upward from its bottom edge and would run past the viewport.
-  const flip = below < Math.min(max, above)
+  const flip = below < Math.min(wanted, above)
   const room = Math.max(Math.floor(flip ? above : below), 0)
 
   const placement: DropdownPlacement = {

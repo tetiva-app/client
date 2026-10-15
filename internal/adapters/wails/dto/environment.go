@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/tetiva-app/client/internal/domain/entities"
+import (
+	"time"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
+)
 
 type CreateEnvironmentRequest struct {
 	Name        string `json:"name"`
@@ -43,8 +47,8 @@ func EnvironmentToResponse(e *entities.Environment) EnvironmentResponse {
 		Name:      e.Name,
 		IsActive:  e.IsActive,
 		Version:   e.Version,
-		CreatedAt: e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: e.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: e.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -99,8 +103,8 @@ func VariableToResponse(v *entities.Variable) VariableResponse {
 		Enabled:       v.Enabled,
 		SortOrder:     v.SortOrder,
 		Version:       v.Version,
-		CreatedAt:     v.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:     v.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:     v.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     v.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

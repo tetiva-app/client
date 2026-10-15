@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/secrets"
 )
 
 type CreateDraftFromHistoryOpt struct {
@@ -28,34 +30,6 @@ var ErrNoCollectionForDraft = &domain.ValidationError{
 
 // draftURLLabelLimit caps the URL substring used in the draft name (tab label).
 const draftURLLabelLimit = 60
-
-// draftStrippedHeaders never reach a replay draft: a draft can be promoted into
-// a normal request and then syncs, so a computed credential must not ride along.
-var draftStrippedHeaders = map[string]bool{
-	"authorization":       true,
-	"proxy-authorization": true,
-	"cookie":              true,
-}
-
-// draftStrippedQueryParams carry credentials by convention; the keys auth actually injected come
-// from the history row, since the source request may be gone or reconfigured since the send.
-var draftStrippedQueryParams = map[string]bool{
-	"access_token":         true,
-	"refresh_token":        true,
-	"id_token":             true,
-	"token":                true,
-	"api_key":              true,
-	"apikey":               true,
-	"client_secret":        true,
-	"code":                 true,
-	"code_verifier":        true,
-	"assertion":            true,
-	"signature":            true,
-	"sig":                  true,
-	"x-amz-signature":      true,
-	"x-amz-credential":     true,
-	"x-amz-security-token": true,
-}
 
 // CreateDraftFromHistory builds a temporary request (is_draft=1): history carries no scripts, auth or
 // header flags, so those are dropped or restored as enabled and computed credentials are stripped.
@@ -90,7 +64,7 @@ func (u *usecase) CreateDraftFromHistory(ctx context.Context, opt CreateDraftFro
 		Protocol:     h.Protocol,
 		Method:       entities.HTTPMethod(h.Method),
 		URL:          draftURL,
-		Headers:      headerItemsFromMap(stripDraftHeaders(h.RequestHeaders)),
+		Headers:      headerItemsFromMap(stripDraftHeaders(h.RequestHeaders, h.AuthHeaderKeys)),
 		Body:         h.RequestBody,
 		// History does not record the original BodyType — fall back to "raw"
 		// so the body is sent verbatim if the user replays without editing.
@@ -153,13 +127,13 @@ func (u *usecase) firstCollectionFor(ctx context.Context, workspaceID uuid.UUID)
 }
 
 // stripDraftHeaders drops the headers that carry credentials.
-func stripDraftHeaders(headers map[string][]string) map[string][]string {
+func stripDraftHeaders(headers map[string][]string, authKeys []string) map[string][]string {
 	if len(headers) == 0 {
 		return headers
 	}
 	out := make(map[string][]string, len(headers))
 	for k, v := range headers {
-		if draftStrippedHeaders[strings.ToLower(k)] {
+		if secrets.IsSensitiveHeader(k) || slices.ContainsFunc(authKeys, func(a string) bool { return strings.EqualFold(a, k) }) {
 			continue
 		}
 		out[k] = v
@@ -193,7 +167,7 @@ func stripDraftQuery(rawURL string, authKeys []string) string {
 			decoded = name
 		}
 		lower := strings.ToLower(decoded)
-		if draftStrippedQueryParams[lower] || injected[lower] {
+		if secrets.IsSensitiveQueryParam(decoded) || injected[lower] {
 			continue
 		}
 		kept = append(kept, pair)

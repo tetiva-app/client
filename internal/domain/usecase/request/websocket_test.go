@@ -110,6 +110,23 @@ func TestResolveWebSocketSubstitutesVarsAndAuth(t *testing.T) {
 	}
 }
 
+func TestResolveWebSocketNamesTheAPIKeyHeader(t *testing.T) {
+	reqID := uuid.New()
+	repo := newMockRepo()
+	r := wsRequest(reqID, "wss://example.com/ws")
+	r.AuthType = entities.AuthTypeAPIKey
+	r.AuthData = `{"key":"appid","value":"k-1","addTo":"header"}`
+	repo.requests[reqID] = r
+
+	dial, err := newTestUsecaseWithEnv(t, repo, nil).ResolveWebSocket(context.Background(), reqID, testWorkspaceID, "user-1")
+	if err != nil {
+		t.Fatalf("ResolveWebSocket: %v", err)
+	}
+	if got := dial.AuthHeaderKeys; len(got) != 1 || got[0] != "appid" {
+		t.Fatalf("AuthHeaderKeys = %v, want [appid]", got)
+	}
+}
+
 func TestResolveWebSocketRejectsNonWSScheme(t *testing.T) {
 	reqID := uuid.New()
 	repo := newMockRepo()

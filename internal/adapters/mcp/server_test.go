@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tetiva-app/client/internal/constants"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	authuc "github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
@@ -46,6 +47,12 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
+	return setupExecServer(t, &stubHTTPRequester{}, &stubEnvResolver{}, &stubScriptEngine{}, &stubScriptResolver{})
+}
+
+func setupExecServer(t *testing.T, http request.HTTPRequester, env request.EnvironmentResolver,
+	scriptEngine request.ScriptEngine, scripts request.ScriptResolver) *Server {
+	t.Helper()
 
 	db := setupTestDB(t)
 
@@ -63,10 +70,10 @@ func setupTestServer(t *testing.T) *Server {
 	wsUC := workspace.NewUsecase(wsRepo, nil, nil)
 
 	reqUC := request.NewUsecase(
-		reqRepo, &stubHistoryRepo{}, &stubHTTPRequester{},
+		reqRepo, &stubHistoryRepo{}, http,
 		&stubGRPCRequester{}, &stubGraphQLRequester{},
-		&stubEnvResolver{}, &stubScriptEngine{},
-		&stubScriptResolver{}, &stubVarPersister{},
+		env, scriptEngine,
+		scripts, &stubVarPersister{},
 		request.NewAuthResolver(collectionReaderFor{repo: colRepo}),
 		&stubCookieReader{}, nil, tokenRepo, authuc.NewProvider(tokenRepo, nil, nil), nil, nil,
 	)
@@ -107,6 +114,35 @@ func TestServer_AllToolsRegistered(t *testing.T) {
 
 	assert.Equal(t, len(expected), len(tools),
 		"expected %d tools, got %d", len(expected), len(tools))
+}
+
+func TestServer_ReportsTheAppVersion(t *testing.T) {
+	srv := setupTestServer(t)
+	rawMsg, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-03-26",
+			"clientInfo":      map[string]any{"name": "test", "version": "1"},
+			"capabilities":    map[string]any{},
+		},
+	})
+	require.NoError(t, err)
+
+	data, err := json.Marshal(srv.mcp.HandleMessage(context.Background(), rawMsg))
+	require.NoError(t, err)
+	var resp struct {
+		Result struct {
+			ServerInfo struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"serverInfo"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(data, &resp))
+	assert.Equal(t, "Tetiva DevTools", resp.Result.ServerInfo.Name)
+	assert.Equal(t, constants.AppVersion, resp.Result.ServerInfo.Version)
 }
 
 func TestServer_CreateAndListCollections(t *testing.T) {
@@ -443,6 +479,54 @@ func TestServer_UpdateRequest_ClearsFieldOnExplicitEmptyString(t *testing.T) {
 	assert.Equal(t, "", updated["description"])
 }
 
+func TestServer_GetRequest_HeadersRoundTripIntoUpdate(t *testing.T) {
+	srv := setupTestServer(t)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "API"})
+	created := callToolJSON(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"],
+		"name":          "Headered",
+		"headers": []map[string]any{
+			{"key": "X-Trace", "value": "on", "enabled": true},
+			{"key": "X-Debug", "value": "1", "enabled": false},
+		},
+	})
+
+	read := callToolJSON(t, srv, "get_request", map[string]any{"id": created["id"]})
+	assert.Equal(t, []any{
+		map[string]any{"key": "X-Trace", "value": "on", "enabled": true},
+		map[string]any{"key": "X-Debug", "value": "1", "enabled": false},
+	}, read["headers"])
+
+	callToolJSON(t, srv, "update_request", map[string]any{
+		"id":      created["id"],
+		"version": read["version"],
+		"headers": read["headers"],
+	})
+
+	stored, err := srv.reqUC.GetByID(context.Background(), uuid.MustParse(created["id"].(string)))
+	require.NoError(t, err)
+	assert.Equal(t, []entities.HeaderItem{
+		{Key: "X-Trace", Value: "on", Enabled: true},
+		{Key: "X-Debug", Value: "1", Enabled: false},
+	}, stored.Headers)
+}
+
+func TestServer_UpdateRequest_AcceptsCapitalizedHeaderFields(t *testing.T) {
+	srv := setupTestServer(t)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "API"})
+	created := callToolJSON(t, srv, "create_request", map[string]any{"collection_id": col["id"], "name": "Plain"})
+
+	callToolJSON(t, srv, "update_request", map[string]any{
+		"id":      created["id"],
+		"version": created["version"],
+		"headers": []map[string]any{{"Key": "X-Trace", "Value": "on", "Enabled": false}},
+	})
+
+	stored, err := srv.reqUC.GetByID(context.Background(), uuid.MustParse(created["id"].(string)))
+	require.NoError(t, err)
+	assert.Equal(t, []entities.HeaderItem{{Key: "X-Trace", Value: "on", Enabled: false}}, stored.Headers)
+}
+
 func TestServer_SendRequest_UsesExecute(t *testing.T) {
 	srv := setupTestServer(t)
 
@@ -742,10 +826,10 @@ func (r *stubHistoryRepo) GetByID(_ context.Context, _ uuid.UUID) (*entities.His
 	return nil, nil
 }
 
-type stubHTTPRequester struct{}
+type stubHTTPRequester struct{ response *entities.Response }
 
 func (r *stubHTTPRequester) Execute(_ context.Context, _ request.HTTPExecuteRequest) (*entities.Response, error) {
-	return nil, nil
+	return r.response, nil
 }
 
 type stubGRPCRequester struct{}
@@ -755,6 +839,10 @@ func (r *stubGRPCRequester) Execute(_ context.Context, _ request.GRPCExecuteRequ
 }
 
 func (r *stubGRPCRequester) ListServices(_ context.Context, _ request.GRPCConnectRequest) (*request.GRPCSchema, error) {
+	return nil, nil
+}
+
+func (r *stubGRPCRequester) DescribeService(_ context.Context, _ request.GRPCConnectRequest, _ string) (*request.GRPCService, error) {
 	return nil, nil
 }
 
@@ -772,10 +860,10 @@ func (r *stubGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ 
 	return nil, nil
 }
 
-type stubEnvResolver struct{}
+type stubEnvResolver struct{ vars map[string]string }
 
 func (r *stubEnvResolver) ResolveVariables(_ context.Context, _ uuid.UUID) (map[string]string, error) {
-	return nil, nil
+	return r.vars, nil
 }
 
 func (r *stubEnvResolver) ActiveVariables(_ context.Context, _ uuid.UUID) ([]*entities.Variable, error) {
@@ -792,14 +880,14 @@ func (r *stubScriptEngine) RunPostScript(_ context.Context, _ string, _ request.
 	return &request.PostScriptResult{}, nil
 }
 
-type stubScriptResolver struct{}
+type stubScriptResolver struct{ pre, post string }
 
 func (r *stubScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+	return r.pre, nil
 }
 
 func (r *stubScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+	return r.post, nil
 }
 
 type stubVarPersister struct{}

@@ -96,7 +96,7 @@ function snapshotPreview(data: any): ImportPreview {
   walk(root.items, root.name)
   return {
     format: 'tetiva', title: root.name ?? '', folders, requests, examples,
-    environmentName: data.environment?.name ?? '', hosts: [...hosts].sort(), scripts, warnings: [],
+    environmentNames: data.environment?.name ? [data.environment.name] : [], hosts: [...hosts].sort(), scripts, warnings: [],
   }
 }
 
@@ -155,8 +155,32 @@ function postmanPreview(data: any, content: string): ImportPreview {
   walk(data.item)
   return {
     format: 'postman', title: data.info?.name ?? '', folders, requests, examples: 0,
-    environmentName: variables.length > 0 ? (data.info?.name?.trim() || 'Collection variables') : '',
+    environmentNames: variables.length > 0 ? [data.info?.name?.trim() || 'Collection variables'] : [],
     hosts: [...hosts].sort(), scripts: listPostmanScripts(content), warnings: mockAuthWarnings(data),
+  }
+}
+
+const OPENAPI_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch']
+
+function isOpenAPI(data: any): boolean {
+  return isObject(data?.info) && (String(data.openapi ?? '').startsWith('3.') || data.swagger === '2.0')
+}
+
+function openAPIPreview(data: any): ImportPreview {
+  const folders = new Set<string>()
+  let requests = 0
+  for (const item of Object.values<any>(isObject(data.paths) ? data.paths : {})) {
+    for (const method of OPENAPI_METHODS) {
+      const op = item?.[method]
+      if (!isObject(op)) continue
+      requests++
+      if (typeof op.tags?.[0] === 'string') folders.add(op.tags[0])
+    }
+  }
+  const title = String(data.info.title ?? '').trim() || 'Untitled API'
+  return {
+    format: 'openapi', title, folders: folders.size, requests, examples: 0, environmentNames: [title],
+    hosts: [], scripts: [], warnings: [],
   }
 }
 
@@ -182,7 +206,7 @@ const DEMO_LINKS: Record<string, MockLink> = {
   'petstore-api-k3f9x2qa': {
     title: 'Petstore API',
     preview: {
-      format: 'tetiva', title: 'Petstore API', folders: 2, requests: 6, examples: 3, environmentName: 'Petstore',
+      format: 'tetiva', title: 'Petstore API', folders: 2, requests: 6, examples: 3, environmentNames: ['Petstore'],
       hosts: ['petstore.example.com'],
       scripts: [{ path: 'Petstore API / Pets / Create pet', phase: 'post', text: "pm.test('created', () => pm.expect(pm.response.code).to.equal(201))" }],
       warnings: [],
@@ -192,7 +216,7 @@ const DEMO_LINKS: Record<string, MockLink> = {
     title: 'Internal API',
     password: 'tetiva-demo',
     preview: {
-      format: 'tetiva', title: 'Internal API', folders: 0, requests: 2, examples: 0, environmentName: '',
+      format: 'tetiva', title: 'Internal API', folders: 0, requests: 2, examples: 0, environmentNames: [],
       hosts: ['internal.example.com'], scripts: [], warnings: [],
     },
   },
@@ -291,7 +315,7 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     }
     if (values.length > variables.length) warnings.push(unnamedWarning(values.length - variables.length))
     return {
-      data: { environmentId: env.data.id, environmentName: env.data.name, variablesCreated: variables.length, warnings },
+      data: { environmentId: env.data.id, environmentNames: [env.data.name], variablesCreated: variables.length, warnings },
     }
   }
 
@@ -336,8 +360,8 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     return { data: { previewId, preview: structuredClone(link.preview) } }
   }
 
-  async importPreview(content: string): Promise<Result<ImportPreview>> {
-    this.calls.push({ method: 'importPreview', args: [content] })
+  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreview>> {
+    this.calls.push({ method: 'importPreview', args: [content, fileName] })
     return this.previewContent(content)
   }
 
@@ -356,18 +380,18 @@ export class MockPortabilityService implements PortabilityServiceAPI {
       if (res.error) return failure(res.error)
       preview = res.data
     }
-    let environmentName = preview.environmentName
-    if (preview.format === 'postman' && environmentName) {
+    let environmentNames = preview.environmentNames
+    if (preview.format === 'postman' && environmentNames.length > 0) {
       const variables = collectionVariables(JSON.parse(req.content ?? ''))
-      const env = await this.addEnvironment({ workspaceId: req.workspaceId, name: environmentName, variables })
+      const env = await this.addEnvironment({ workspaceId: req.workspaceId, name: environmentNames[0], variables })
       if (env.error) return failure(env.error)
-      environmentName = env.data.name
+      environmentNames = [env.data.name]
     }
     this.lastImportedId = crypto.randomUUID()
     return {
       data: {
         collectionId: this.lastImportedId, folders: preview.folders, requests: preview.requests,
-        examples: preview.examples, environmentName, warnings: [...preview.warnings],
+        examples: preview.examples, environmentNames, activeEnvironment: '', warnings: [...preview.warnings],
       },
     }
   }
@@ -387,9 +411,10 @@ export class MockPortabilityService implements PortabilityServiceAPI {
     }
     if (data?.format === 'tetiva.collection-snapshot') return { data: snapshotPreview(data) }
     if (data?.info?.schema && Array.isArray(data.item)) return { data: postmanPreview(data, content) }
+    if (isOpenAPI(data)) return { data: openAPIPreview(data) }
     return failure({
       code: 'validation', reason: 'UNSUPPORTED_FILE', message: 'validation failed',
-      fields: { content: 'not a Tetiva collection or a Postman Collection v2.1 file' },
+      fields: { content: 'not a Tetiva, Postman v2.1, Insomnia or Hoppscotch collection, an OpenAPI / Swagger document or a HAR file' },
     })
   }
 }

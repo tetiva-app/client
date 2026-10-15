@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -204,6 +205,25 @@ func TestGraphQLRequester_Execute_HTTPError(t *testing.T) {
 	}
 	if resp.Protocol != entities.ProtocolGraphQL {
 		t.Errorf("expected protocol graphql, got %s", resp.Protocol)
+	}
+}
+
+func TestGraphQLRequester_Execute_ErrorHidesAuthQueryKeyUnderACustomName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+
+	for _, endpoint := range []string{
+		strings.Replace(server.URL, "http://", "https://", 1) + "/graphql?appid=b1b15e88",
+		"https://api.example .com/graphql?appid=b1b15e88",
+	} {
+		_, err := requester.NewGraphQLRequester(nil).Execute(t.Context(), req.GraphQLExecuteRequest{
+			Endpoint:      endpoint,
+			Query:         "{ __typename }",
+			AuthQueryKeys: []string{"appid"},
+		})
+		if err == nil || strings.Contains(err.Error(), "b1b15e88") {
+			t.Errorf("%s: err = %v", endpoint, err)
+		}
 	}
 }
 

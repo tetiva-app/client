@@ -2,6 +2,8 @@ package requester_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -430,14 +432,114 @@ enum ProductStatus {
 	}
 }
 
-func TestGraphQL_Introspect_BothSet(t *testing.T) {
-	r := requester.NewGraphQLRequester(nil)
-	_, err := r.Introspect(t.Context(), newIntrospectReq("http://example.com/graphql", "/some/path.graphql"))
-	if err == nil {
-		t.Fatal("expected error when both Endpoint and SchemaPath are set")
+func TestGraphQL_Introspect_FromIntrospectionJSONFile(t *testing.T) {
+	var full struct {
+		Data json.RawMessage `json:"data"`
 	}
-	if !strings.Contains(err.Error(), "both") {
-		t.Errorf("expected error message to mention 'both', got: %v", err)
+	if err := json.Unmarshal(introspectionFixture(), &full); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, content := range map[string][]byte{
+		"introspection response": introspectionFixture(),
+		"bare __schema":          full.Data,
+		"with a UTF-8 BOM":       append([]byte("\ufeff"), introspectionFixture()...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			schemaPath := filepath.Join(t.TempDir(), "schema.json")
+			if err := os.WriteFile(schemaPath, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			schema, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("", schemaPath))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if schema.Source != "schema_file" {
+				t.Errorf("source = %q, want schema_file", schema.Source)
+			}
+			if len(schema.Queries) != 2 || len(schema.Mutations) != 1 || schema.Mutations[0].Name != "createUser" {
+				t.Errorf("queries = %v, mutations = %v", schema.Queries, schema.Mutations)
+			}
+		})
+	}
+}
+
+func TestGraphQL_Introspect_JSONFileWithoutSchema(t *testing.T) {
+	schemaPath := filepath.Join(t.TempDir(), "schema.json")
+	if err := os.WriteFile(schemaPath, []byte(`{"data": {}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("", schemaPath))
+	if err == nil || !strings.Contains(err.Error(), "__schema") {
+		t.Fatalf("err = %v, want a missing __schema error", err)
+	}
+}
+
+func introspectionServer(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(introspectionFixture())
+	}))
+	t.Cleanup(server.Close)
+	return server, &calls
+}
+
+func TestGraphQL_Introspect_FilePreferredOverEndpoint(t *testing.T) {
+	server, calls := introspectionServer(t)
+	schemaPath := filepath.Join(t.TempDir(), "schema.graphql")
+	if err := os.WriteFile(schemaPath, []byte("type Query { ping: String }"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	schema, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq(server.URL, schemaPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if schema.Source != "schema_file" || *calls != 0 {
+		t.Errorf("source = %q, endpoint calls = %d", schema.Source, *calls)
+	}
+}
+
+func TestGraphQL_Introspect_FallsBackToEndpointWhenFileIsNotOnThisComputer(t *testing.T) {
+	server, _ := introspectionServer(t)
+	for _, schemaPath := range []string{
+		filepath.Join(t.TempDir(), "alice", "schema.graphql"),
+		`\\fileserver\share\api.graphql`,
+	} {
+		schema, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq(server.URL, schemaPath))
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", schemaPath, err)
+		}
+		if schema.Source != "introspection" || len(schema.Queries) != 2 {
+			t.Errorf("%s: source = %q, queries = %d", schemaPath, schema.Source, len(schema.Queries))
+		}
+	}
+}
+
+func TestGraphQL_Introspect_BrokenFileDoesNotFallBack(t *testing.T) {
+	server, calls := introspectionServer(t)
+	schemaPath := filepath.Join(t.TempDir(), "schema.graphql")
+	if err := os.WriteFile(schemaPath, []byte("type Query {"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq(server.URL, schemaPath)); err == nil {
+		t.Fatal("expected a parse error")
+	}
+	if *calls != 0 {
+		t.Errorf("endpoint calls = %d", *calls)
+	}
+}
+
+func TestGraphQL_Introspect_MissingFileWithoutEndpoint(t *testing.T) {
+	_, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("", filepath.Join(t.TempDir(), "schema.graphql")))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err = %v, want not exist", err)
 	}
 }
 
@@ -482,6 +584,13 @@ func newIntrospectReq(endpoint, schemaPath string) req.GraphQLIntrospectRequest 
 	return req.GraphQLIntrospectRequest{
 		Endpoint:   endpoint,
 		SchemaPath: schemaPath,
+	}
+}
+
+func TestGraphQL_Introspect_URLParseErrorHidesQueryCredentials(t *testing.T) {
+	_, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("https://api.example .com/graphql?access_token=sk_live_1", ""))
+	if err == nil || strings.Contains(err.Error(), "sk_live_1") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

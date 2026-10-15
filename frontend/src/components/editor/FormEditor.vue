@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Plus, X, ChevronDown, Upload } from 'lucide-vue-next'
+import { pickPath } from '@/lib/pick-file'
 
 const props = defineProps<{
   body: string
@@ -86,25 +87,7 @@ function selectType(index: number, type: 'text' | 'file') {
 }
 
 async function selectFile(index: number) {
-  try {
-    const win = window as unknown as Record<string, unknown>
-    if (win._wails) {
-      const { Dialogs } = await import('@wailsio/runtime')
-      const result = await Dialogs.OpenFile({
-        CanChooseFiles: true,
-        AllowsMultipleSelection: false,
-      })
-      if (result) {
-        onFieldChange(index, 'value', result as string)
-        return
-      }
-    }
-  } catch {
-    // Wails dialog not available
-  }
-
-  // Browser fallback
-  const path = prompt('Enter file path:')
+  const path = await pickPath({ CanChooseFiles: true }, 'Enter file path:')
   if (path) {
     onFieldChange(index, 'value', path)
   }

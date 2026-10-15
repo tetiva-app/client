@@ -22,10 +22,10 @@ test.describe('Environments Management', () => {
     await envInput.press('Enter');
     await expect(envList).toContainText('Staging');
 
-    const stagingBtn = envList.locator('button', { hasText: 'Staging' });
-    const checkBtn = stagingBtn.locator('button[title="Set as active"]');
+    const stagingRow = envList.getByTestId('env-row').filter({ hasText: 'Staging' });
+    const checkBtn = stagingRow.locator('button[title="Set as active"]');
     await checkBtn.click();
-    await expect(stagingBtn.locator('button[title="Active environment"]')).toBeVisible();
+    await expect(stagingRow.locator('button[title="Active environment"]')).toBeVisible();
 
     // newly created env is selected by default
     const rightPanel = dialog.locator('.flex-1.flex.flex-col').last();

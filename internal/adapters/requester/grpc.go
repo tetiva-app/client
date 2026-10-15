@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	// jhump/protoreflect is deprecated in favour of google.golang.org/protobuf v2 +
@@ -32,12 +35,19 @@ import (
 )
 
 const (
-	grpcConnectTimeout = 30 * time.Second
+	grpcConnectTimeout     = 30 * time.Second
+	grpcResolveConcurrency = 8
+)
+
+var (
 	grpcRequestTimeout = 30 * time.Second
+	grpcServiceTimeout = 10 * time.Second
 )
 
 // GRPCRequester implements request.GRPCRequester using protoreflect and grpc.
-type GRPCRequester struct{}
+type GRPCRequester struct {
+	rootCAs *x509.CertPool
+}
 
 func NewGRPCRequester() *GRPCRequester {
 	return &GRPCRequester{}
@@ -46,7 +56,11 @@ func NewGRPCRequester() *GRPCRequester {
 func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequest) (*entities.Response, error) {
 	const funcName = "GRPCRequester.Execute"
 
-	conn, err := connectToServer(req.Host, req.UseTLS)
+	ctx, cancel := context.WithTimeout(ctx, grpcRequestTimeout)
+	defer cancel()
+
+	target, useTLS := grpcTarget(req.Host)
+	conn, err := r.connect(target, useTLS)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
@@ -54,7 +68,7 @@ func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequ
 
 	methodDesc, err := resolveMethod(ctx, conn, req.ProtoPath, req.Service, req.Method)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", funcName, err)
+		return nil, withTLSHint(fmt.Errorf("%s: %w", funcName, err), req.Host)
 	}
 
 	inputMsg := dynamic.NewMessage(methodDesc.GetInputType())
@@ -64,12 +78,10 @@ func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequ
 		}
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, grpcRequestTimeout)
-	defer cancel()
-
+	callCtx := ctx
 	if len(req.Metadata) > 0 {
 		md := grpcmd.MD(map[string][]string(req.Metadata))
-		callCtx = grpcmd.NewOutgoingContext(callCtx, md)
+		callCtx = grpcmd.NewOutgoingContext(ctx, md)
 	}
 
 	var respHeaders, respTrailers grpcmd.MD
@@ -86,6 +98,9 @@ func (r *GRPCRequester) Execute(ctx context.Context, req request.GRPCExecuteRequ
 	if err != nil {
 		// Even on error, return a Response with gRPC status info.
 		st, _ := status.FromError(err)
+		if tlsHint(st.Message(), req.Host) != "" {
+			return nil, withTLSHint(fmt.Errorf("%s: %w", funcName, err), req.Host)
+		}
 		headers := mergeMetadata(respHeaders, respTrailers)
 
 		return &entities.Response{
@@ -132,50 +147,124 @@ func (r *GRPCRequester) ListServices(ctx context.Context, req request.GRPCConnec
 		return r.listServicesFromProto(req.ProtoPath)
 	}
 
-	return r.listServicesFromReflection(ctx, req.Host, req.UseTLS)
+	ctx, cancel := context.WithTimeout(ctx, grpcRequestTimeout)
+	defer cancel()
+
+	return r.listServicesFromReflection(ctx, req.Host)
 }
 
-func (r *GRPCRequester) listServicesFromReflection(ctx context.Context, host string, useTLS bool) (*request.GRPCSchema, error) {
+func (r *GRPCRequester) DescribeService(ctx context.Context, req request.GRPCConnectRequest, service string) (*request.GRPCService, error) {
+	const funcName = "GRPCRequester.DescribeService"
+
+	var sd *desc.ServiceDescriptor
+	var err error
+	if req.ProtoPath != "" {
+		sd, err = findProtoService(req.ProtoPath, service)
+	} else {
+		target, useTLS := grpcTarget(req.Host)
+		sd, err = r.reflectService(ctx, target, useTLS, service)
+	}
+	if err != nil {
+		return nil, withTLSHint(fmt.Errorf("%s: failed to resolve service %q: %w", funcName, service, err), req.Host)
+	}
+
+	svc := buildGRPCService(sd)
+	return &svc, nil
+}
+
+func (r *GRPCRequester) listServicesFromReflection(ctx context.Context, address string) (*request.GRPCSchema, error) {
 	const funcName = "GRPCRequester.listServicesFromReflection"
 
-	conn, err := connectToServer(host, useTLS)
+	target, useTLS := grpcTarget(address)
+	names, err := r.reflectServiceNames(ctx, target, useTLS)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", funcName, err)
+		return nil, withTLSHint(fmt.Errorf("%s: failed to list services: %w", funcName, err), address)
+	}
+
+	// One connection per service: one frozen mid-descriptor would stall every later service.
+	descs := make([]*desc.ServiceDescriptor, len(names))
+	errs := make([]error, len(names))
+	sem := make(chan struct{}, grpcResolveConcurrency)
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			descs[i], errs[i] = r.reflectService(ctx, target, useTLS, name)
+		})
+	}
+	wg.Wait()
+
+	schema := &request.GRPCSchema{Source: "reflection"}
+	for i, name := range names {
+		if errs[i] != nil {
+			schema.Warnings = append(schema.Warnings, name+": "+resolveFailureReason(errs[i]))
+			continue
+		}
+		schema.Services = append(schema.Services, buildGRPCService(descs[i]))
+	}
+	if len(schema.Services) == 0 && len(names) > 0 {
+		return nil, withTLSHint(fmt.Errorf("%s: failed to resolve service %q: %w", funcName, names[0], errs[0]), address)
+	}
+
+	return schema, nil
+}
+
+func (r *GRPCRequester) reflectServiceNames(ctx context.Context, target string, useTLS bool) ([]string, error) {
+	conn, err := r.connect(target, useTLS)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = conn.Close() }()
 
-	refClient := grpcreflect.NewClientAuto(ctx, conn)
-	defer refClient.Reset()
-
-	serviceNames, err := refClient.ListServices()
+	all, err := grpcreflect.NewClientAuto(ctx, conn).ListServices()
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to list services: %w", funcName, err)
+		return nil, err
 	}
 
-	var services []request.GRPCService
-	for _, svcName := range serviceNames {
-		if strings.HasPrefix(svcName, "grpc.reflection.") {
-			continue
+	names := make([]string, 0, len(all))
+	for _, name := range all {
+		if !strings.HasPrefix(name, "grpc.reflection.") {
+			names = append(names, name)
 		}
-
-		svcDesc, err := refClient.ResolveService(svcName)
-		if err != nil {
-			return nil, fmt.Errorf("%s: failed to resolve service %q: %w", funcName, svcName, err)
-		}
-
-		svc := buildGRPCService(svcDesc)
-		services = append(services, svc)
 	}
+	return names, nil
+}
 
-	return &request.GRPCSchema{
-		Services: services,
-		Source:   "reflection",
-	}, nil
+func (r *GRPCRequester) reflectService(ctx context.Context, target string, useTLS bool, service string) (*desc.ServiceDescriptor, error) {
+	ctx, cancel := context.WithTimeout(ctx, grpcServiceTimeout)
+	defer cancel()
+
+	conn, err := r.connect(target, useTLS)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = conn.Close() }()
+
+	return reflectServiceOn(ctx, conn, service)
+}
+
+// Cancel, not Reset: Reset drains the stream and blocks while the server stays silent.
+func reflectServiceOn(ctx context.Context, conn grpc.ClientConnInterface, service string) (*desc.ServiceDescriptor, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	return grpcreflect.NewClientAuto(ctx, conn).ResolveService(service)
+}
+
+func resolveFailureReason(err error) string {
+	if status.Code(err) == codes.DeadlineExceeded {
+		return "timed out"
+	}
+	return status.Convert(err).Message()
 }
 
 func (r *GRPCRequester) listServicesFromProto(protoPath string) (*request.GRPCSchema, error) {
 	const funcName = "GRPCRequester.listServicesFromProto"
 
+	if err := checkLocalPath(protoPath); err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
 	info, err := os.Stat(protoPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to access proto path %q: %w", funcName, protoPath, err)
@@ -209,67 +298,82 @@ func (r *GRPCRequester) listServicesFromProto(protoPath string) (*request.GRPCSc
 	}, nil
 }
 
-func connectToServer(host string, useTLS bool) (*grpc.ClientConn, error) {
+func grpcTarget(address string) (target string, useTLS bool) {
+	address = strings.TrimSpace(address)
+	scheme, rest, found := strings.Cut(address, "://")
+	if !found {
+		return address, false
+	}
+	switch strings.ToLower(scheme) {
+	case "grpcs", "https":
+		rest = strings.TrimSuffix(rest, "/")
+		if _, _, err := net.SplitHostPort(rest); err != nil {
+			rest = net.JoinHostPort(strings.Trim(rest, "[]"), "443")
+		}
+		return rest, true
+	case "grpc", "http":
+		return strings.TrimSuffix(rest, "/"), false
+	}
+	return address, false
+}
+
+func (r *GRPCRequester) connect(target string, useTLS bool) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grpcConnectTimeout)
 	defer cancel()
 
-	var opts []grpc.DialOption
+	creds := insecure.NewCredentials()
 	if useTLS {
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		creds = credentials.NewTLS(&tls.Config{
 			MinVersion: tls.VersionTLS12,
-		})))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			RootCAs:    r.rootCAs,
+		})
 	}
 
 	// grpc.NewClient connects lazily, which changes connect-error timing;
 	// deferred with the protoreflect migration.
-	conn, err := grpc.DialContext(ctx, host, opts...) //nolint:staticcheck // SA1019: deferred migration
+	conn, err := grpc.DialContext(ctx, target, grpc.WithTransportCredentials(creds)) //nolint:staticcheck // SA1019: deferred migration
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %q: %w", host, err)
+		return nil, fmt.Errorf("failed to connect to %q: %w", target, err)
 	}
 
 	return conn, nil
 }
 
+func tlsHint(msg, address string) string {
+	_, useTLS := grpcTarget(address)
+	scheme, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(address)), "://")
+	switch {
+	case useTLS && strings.Contains(msg, "first record does not look like a TLS handshake"):
+		return "The server may not use TLS — remove " + scheme + "://"
+	case !useTLS && strings.Contains(msg, "error reading server preface"):
+		if scheme == "http" {
+			return "The server may require TLS — use https://"
+		}
+		return "The server may require TLS — use grpcs://"
+	}
+	return ""
+}
+
+func withTLSHint(err error, address string) error {
+	if hint := tlsHint(err.Error(), address); hint != "" {
+		return fmt.Errorf("%s. %w", hint, err)
+	}
+	return err
+}
+
 func resolveMethod(ctx context.Context, conn *grpc.ClientConn, protoPath, service, method string) (*desc.MethodDescriptor, error) {
 	var svcDesc *desc.ServiceDescriptor
-
+	var err error
 	if protoPath != "" {
-		info, err := os.Stat(protoPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to access proto path %q: %w", protoPath, err)
-		}
-
-		var fileDescs []*desc.FileDescriptor
-		if info.IsDir() {
-			fileDescs, err = parseProtoDirectory(protoPath)
-		} else {
-			fileDescs, err = parseProtoFile(protoPath)
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		for _, fd := range fileDescs {
-			if sd := fd.FindService(service); sd != nil {
-				svcDesc = sd
-				break
-			}
-		}
+		svcDesc, err = findProtoService(protoPath, service)
 	} else {
-		refClient := grpcreflect.NewClientAuto(ctx, conn)
-		defer refClient.Reset()
-
-		var err error
-		svcDesc, err = refClient.ResolveService(service)
+		svcDesc, err = reflectServiceOn(ctx, conn, service)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve service %q via reflection: %w", service, err)
+			err = fmt.Errorf("failed to resolve service %q via reflection: %w", service, err)
 		}
 	}
-
-	if svcDesc == nil {
-		return nil, fmt.Errorf("service %q not found", service)
+	if err != nil {
+		return nil, err
 	}
 
 	methodDesc := svcDesc.FindMethodByName(method)
@@ -278,6 +382,33 @@ func resolveMethod(ctx context.Context, conn *grpc.ClientConn, protoPath, servic
 	}
 
 	return methodDesc, nil
+}
+
+func findProtoService(protoPath, service string) (*desc.ServiceDescriptor, error) {
+	if err := checkLocalPath(protoPath); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(protoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access proto path %q: %w", protoPath, err)
+	}
+
+	var fileDescs []*desc.FileDescriptor
+	if info.IsDir() {
+		fileDescs, err = parseProtoDirectory(protoPath)
+	} else {
+		fileDescs, err = parseProtoFile(protoPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fd := range fileDescs {
+		if sd := fd.FindService(service); sd != nil {
+			return sd, nil
+		}
+	}
+	return nil, fmt.Errorf("service %q not found", service)
 }
 
 func parseProtoFile(filePath string) ([]*desc.FileDescriptor, error) {
@@ -300,6 +431,7 @@ func parseProtoFile(filePath string) ([]*desc.FileDescriptor, error) {
 		ImportPaths:           importPaths,
 		InferImportPaths:      true,
 		IncludeSourceCodeInfo: true,
+		Accessor:              protoFileAccessor,
 	}
 
 	fds, err := parser.ParseFiles(fileName)
@@ -351,6 +483,7 @@ func parseProtoDirectory(dirPath string) ([]*desc.FileDescriptor, error) {
 		ImportPaths:           importPaths,
 		InferImportPaths:      true,
 		IncludeSourceCodeInfo: true,
+		Accessor:              protoFileAccessor,
 	}
 
 	fds, err := parser.ParseFiles(protoFiles...)

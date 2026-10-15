@@ -1,6 +1,7 @@
 export interface GRPCSchema {
   services: GRPCService[]
   source: 'reflection' | 'proto_file' | 'proto_directory'
+  warnings?: string[] | null
 }
 
 export interface GRPCService {
@@ -20,8 +21,8 @@ export interface GRPCMethodInfo {
 
 export interface GRPCConnectRequest {
   host: string
-  useTls: boolean
   protoPath: string
+  workspaceId: string
 }
 
 export interface GRPCGenerateExampleRequest extends GRPCConnectRequest {

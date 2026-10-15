@@ -5,6 +5,7 @@ import { getRequestService, getWindowService, type RestoreTabs } from '@/service
 import { DEFAULT_PROTOCOL, DEFAULT_METHOD, DEFAULT_BODY_TYPE, DEFAULT_AUTH_TYPE, DEFAULT_AUTH_DATA } from '@/constants/defaults'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { clearDrafts } from '@/composables/useBodyDrafts'
+import { clearAuthDrafts } from '@/composables/useAuthDrafts'
 import { descriptionSaveBlocked } from '@/lib/description'
 import { useResponseStore } from '@/stores/responses'
 import { useExamplesStore } from '@/stores/examples'
@@ -443,6 +444,7 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.delete(id)
     useResponseStore().deleteResponse(id)
     clearDrafts(id)
+    clearAuthDrafts(id)
     useExamplesStore().dropDrafts(id)
     await forgetTokenStatus([{ kind: 'request', id }])
     requestsMap.value = new Map(requestsMap.value)
@@ -563,6 +565,7 @@ export const useRequestStore = defineStore('requests', () => {
         savedSnapshots.value.delete(tab.requestId)
         useResponseStore().deleteResponse(tab.requestId)
         clearDrafts(tab.requestId)
+        clearAuthDrafts(tab.requestId)
         requestsMap.value = new Map(requestsMap.value)
         savedSnapshots.value = new Map(savedSnapshots.value)
         return true
@@ -763,8 +766,10 @@ export const useRequestStore = defineStore('requests', () => {
       savedSnapshots.value.delete(req.id)
       useResponseStore().deleteResponse(req.id)
       clearDrafts(req.id)
+      clearAuthDrafts(req.id)
       useExamplesStore().dropDrafts(req.id)
     }
+    collectionIds.forEach(clearAuthDrafts)
     const doomedRequestIds = new Set(doomed.map(r => r.id))
     await forgetTokenStatus([
       ...collectionIds.map(id => ({ kind: 'collection', id })),

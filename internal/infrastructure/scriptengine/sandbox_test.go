@@ -60,6 +60,24 @@ func TestSandbox_TryCatchDoesNotSwallowInterrupt(t *testing.T) {
 	assert.Less(t, time.Since(start), 10*time.Second)
 }
 
+func TestSandbox_ThrownValueWithEndlessToStringTimesOut(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	start := time.Now()
+	_, err := engine.RunPreScript(context.Background(), `throw { toString() { while (true) {} } }`, newContext())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout")
+	assert.Less(t, time.Since(start), 6*time.Second)
+}
+
+func TestSandbox_ThrownValueWhoseToStringThrows(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	_, err := engine.RunPostScript(context.Background(), `throw { toString() { throw new Error("inner") } }`, newContext())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "script error")
+}
+
 // A regexp that falls back to backtracking never checks for the interrupt. The run is abandoned
 // and the caller must still be released.
 func TestSandbox_BacktrackingRegexpDoesNotHoldCaller(t *testing.T) {

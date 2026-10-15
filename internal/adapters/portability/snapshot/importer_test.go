@@ -399,7 +399,7 @@ func TestImport_RefusesWhatTheServerWouldRefuse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, run := range []func() error{
 				func() error { _, err := e.imp.Import(context.Background(), tc.raw, opt(false)); return err },
-				func() error { _, err := e.imp.Preview(tc.raw); return err },
+				func() error { _, err := e.imp.Preview(tc.raw, ""); return err },
 			} {
 				var re *domain.ReasonError
 				require.ErrorAs(t, run(), &re)
@@ -433,7 +433,7 @@ func TestImport_Normalisation(t *testing.T) {
 		}}),
 	}, nil)
 
-	p, err := e.imp.Preview(raw)
+	p, err := e.imp.Preview(raw, "")
 	require.NoError(t, err)
 	res, err := e.imp.Import(context.Background(), raw, opt(false))
 	require.NoError(t, err)
@@ -496,8 +496,8 @@ func TestImport_EnvironmentNameConflictGetsASuffix(t *testing.T) {
 	second, err := e.imp.Import(context.Background(), raw, opt(false))
 	require.NoError(t, err)
 
-	assert.Equal(t, "prod", first.EnvironmentName)
-	assert.Equal(t, "prod (2)", second.EnvironmentName)
+	assert.Equal(t, []string{"prod"}, first.EnvironmentNames)
+	assert.Equal(t, []string{"prod (2)"}, second.EnvironmentNames)
 	envs, err := e.envs.List(context.Background(), environment.ListOpt{WorkspaceID: workspaceID})
 	require.NoError(t, err)
 	var names []string
@@ -510,7 +510,7 @@ func TestImport_EnvironmentNameConflictGetsASuffix(t *testing.T) {
 func TestPreview_AllProtocolsWritesNothing(t *testing.T) {
 	e := newEnv(t)
 
-	p, err := e.imp.Preview(fixture(t, "all-protocols.json"))
+	p, err := e.imp.Preview(fixture(t, "all-protocols.json"), "")
 	require.NoError(t, err)
 
 	assert.Equal(t, portability.FormatTetiva, p.Format)
@@ -518,7 +518,7 @@ func TestPreview_AllProtocolsWritesNothing(t *testing.T) {
 	assert.Equal(t, 3, p.Folders)
 	assert.Equal(t, 12, p.Requests)
 	assert.Equal(t, 6, p.Examples)
-	assert.Equal(t, "prod", p.EnvironmentName)
+	assert.Equal(t, []string{"prod"}, p.EnvironmentNames)
 	assert.Equal(t, []string{
 		"auth.example.com", "grpc.petstore.example.com:443", "petstore.example.com", "ws.petstore.example.com",
 	}, p.Hosts)
@@ -554,11 +554,11 @@ func TestPreview_HostsFromAuthURLsAndUnresolvedVariables(t *testing.T) {
 	raw, err := json.Marshal(d)
 	require.NoError(t, err)
 
-	p, err := e.imp.Preview(raw)
+	p, err := e.imp.Preview(raw, "")
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"auth.example.com", "login.example.com", "{{baseUrl}}"}, p.Hosts)
-	assert.Equal(t, "Untitled", p.EnvironmentName)
+	assert.Equal(t, []string{"auth.example.com", "login.example.com"}, p.Hosts)
+	assert.Equal(t, []string{"Untitled"}, p.EnvironmentNames)
 }
 
 func TestPreview_HostsOfGRPCResolverTargets(t *testing.T) {
@@ -575,7 +575,7 @@ func TestPreview_HostsOfGRPCResolverTargets(t *testing.T) {
 		grpc("D", "dns:///"),
 	}, nil)
 
-	p, err := e.imp.Preview(raw)
+	p, err := e.imp.Preview(raw, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"a.example.com:443", "b.example.com:443", "c.example.com:443", "dns:///"}, p.Hosts)

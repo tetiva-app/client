@@ -5,30 +5,31 @@ import (
 )
 
 type GRPCConnectRequest struct {
-	Host      string `json:"host"`
-	UseTLS    bool   `json:"useTls"`
-	ProtoPath string `json:"protoPath"`
+	Host        string `json:"host"`
+	ProtoPath   string `json:"protoPath"`
+	WorkspaceID string `json:"workspaceId"`
 }
 
 type GRPCGenerateExampleRequest struct {
-	Host      string `json:"host"`
-	UseTLS    bool   `json:"useTls"`
-	ProtoPath string `json:"protoPath"`
-	Service   string `json:"service"`
-	Method    string `json:"method"`
+	Host        string `json:"host"`
+	ProtoPath   string `json:"protoPath"`
+	WorkspaceID string `json:"workspaceId"`
+	Service     string `json:"service"`
+	Method      string `json:"method"`
 }
 
 type GRPCGetProtoDefinitionRequest struct {
-	Host      string `json:"host"`
-	UseTLS    bool   `json:"useTls"`
-	ProtoPath string `json:"protoPath"`
-	Service   string `json:"service"`
-	Method    string `json:"method"`
+	Host        string `json:"host"`
+	ProtoPath   string `json:"protoPath"`
+	WorkspaceID string `json:"workspaceId"`
+	Service     string `json:"service"`
+	Method      string `json:"method"`
 }
 
 type GRPCSchemaResponse struct {
 	Services []GRPCServiceResponse `json:"services"`
 	Source   string                `json:"source"`
+	Warnings []string              `json:"warnings"`
 }
 
 type GRPCServiceResponse struct {
@@ -47,7 +48,7 @@ type GRPCMethodInfoResponse struct {
 }
 
 func GRPCSchemaToResponse(schema *request.GRPCSchema) GRPCSchemaResponse {
-	resp := GRPCSchemaResponse{Source: schema.Source}
+	resp := GRPCSchemaResponse{Source: schema.Source, Warnings: schema.Warnings}
 	for _, svc := range schema.Services {
 		svcResp := GRPCServiceResponse{FullName: svc.FullName}
 		for _, m := range svc.Methods {

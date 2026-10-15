@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/tetiva-app/client/internal/domain/entities"
+import (
+	"time"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
+)
 
 type CreateCollectionRequest struct {
 	Name        string  `json:"name"`
@@ -69,8 +73,8 @@ func CollectionToResponse(c *entities.Collection) CollectionResponse {
 		GRPCMetadata: HeaderItemsToDTO(c.GRPCMetadata),
 		SortOrder:    c.SortOrder,
 		Version:      c.Version,
-		CreatedAt:    c.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:    c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:    c.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    c.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if c.ParentID != nil {
 		s := c.ParentID.String()

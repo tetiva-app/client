@@ -3,8 +3,10 @@ import { computed } from 'vue'
 import { RotateCcw, Trash2, AlertCircle } from 'lucide-vue-next'
 import type { HistoryRecord } from '@/types/history'
 import MethodBadge from '@/components/ui/MethodBadge.vue'
-import { formatRelativeTime } from '@/lib/time'
+import { fill, formatRelative } from '@/lib/locale'
+import { useCopy, useLocale } from '@/composables/useLocale'
 import { HISTORY_MAX_URL_DISPLAY_LENGTH } from '@/constants/history'
+import { HISTORY_COPY } from './copy'
 
 const props = defineProps<{ record: HistoryRecord; selected: boolean }>()
 const emit = defineEmits<{
@@ -12,6 +14,9 @@ const emit = defineEmits<{
   (e: 'replay'): void
   (e: 'delete'): void
 }>()
+
+const copy = useCopy(HISTORY_COPY)
+const locale = useLocale()
 
 const isError = computed(
   () => !!props.record.errorMessage && props.record.responseStatus === 0,
@@ -54,7 +59,7 @@ const displayURL = computed(() => {
         <button
           type="button"
           class="p-0.5 hover:bg-accent rounded cursor-pointer"
-          title="Replay (open as draft)"
+          :title="copy.replayAsDraft"
           @click.stop="emit('replay')"
         >
           <RotateCcw class="size-3.5" />
@@ -62,7 +67,7 @@ const displayURL = computed(() => {
         <button
           type="button"
           class="p-0.5 hover:bg-accent rounded cursor-pointer"
-          title="Delete"
+          :title="copy.delete"
           @click.stop="emit('delete')"
         >
           <Trash2 class="size-3.5" />
@@ -70,9 +75,9 @@ const displayURL = computed(() => {
       </div>
     </div>
     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>{{ formatRelativeTime(record.createdAt) }}</span>
+      <span>{{ formatRelative(locale, record.createdAt) }}</span>
       <span>·</span>
-      <span>{{ record.durationMs }}ms</span>
+      <span>{{ fill(copy.duration, { n: record.durationMs }) }}</span>
     </div>
   </div>
 </template>

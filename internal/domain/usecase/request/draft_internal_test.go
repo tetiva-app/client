@@ -1,6 +1,9 @@
 package request
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestStripDraftQuery(t *testing.T) {
 	tests := []struct {
@@ -48,5 +51,17 @@ func TestStripDraftQuery(t *testing.T) {
 				t.Errorf("stripDraftQuery(%q) = %q, want %q", tc.url, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStripDraftHeaders(t *testing.T) {
+	headers := map[string][]string{
+		"Authorization": {"Bearer t"},
+		"AppID":         {"k-1"},
+		"X-Trace":       {"keep"},
+	}
+	got := stripDraftHeaders(headers, []string{"appid"})
+	if want := map[string][]string{"X-Trace": {"keep"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("stripDraftHeaders = %v, want %v", got, want)
 	}
 }

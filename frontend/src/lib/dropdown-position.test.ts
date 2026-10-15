@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dropdownPlacement, placementStyle } from './dropdown-position'
+import { REQUEST_AUTH_OPTIONS } from '@/constants/auth'
 
 const anchor = { top: 200, bottom: 232, left: 340, width: 240 }
 
@@ -9,7 +10,7 @@ describe('dropdownPlacement', () => {
 
     expect(placement.top).toBe(236)
     expect(placement.bottom).toBeUndefined()
-    expect(placement.maxHeight).toBe(240)
+    expect(placement.maxHeight).toBe(320)
     expect(placement.left).toBe(340)
     expect(placement.width).toBe(240)
   })
@@ -43,6 +44,30 @@ describe('dropdownPlacement', () => {
 
     expect(placement.maxHeight).toBe(120)
   })
+
+  it('shows every authorization scheme without scrolling when there is room', () => {
+    const optionRow = 32
+    const listChrome = 8 + 2
+    const list = REQUEST_AUTH_OPTIONS.length * optionRow + listChrome
+
+    expect(dropdownPlacement(anchor, 900).maxHeight).toBeGreaterThanOrEqual(list)
+  })
+
+  it('keeps a short list below when it fits there', () => {
+    const low = { top: 500, bottom: 532, left: 0, width: 200 }
+    const placement = dropdownPlacement(low, 800, { contentHeight: 74 })
+
+    expect(placement.top).toBe(536)
+    expect(placement.bottom).toBeUndefined()
+  })
+
+  it('flips a list that does not fit below onto the larger room above', () => {
+    const low = { top: 500, bottom: 532, left: 0, width: 200 }
+    const placement = dropdownPlacement(low, 800, { contentHeight: 298 })
+
+    expect(placement.bottom).toBe(304)
+    expect(placement.maxHeight).toBe(320)
+  })
 })
 
 describe('placementStyle', () => {
@@ -51,7 +76,7 @@ describe('placementStyle', () => {
       position: 'fixed',
       left: '340px',
       width: '240px',
-      maxHeight: '240px',
+      maxHeight: '320px',
       top: '236px',
     })
   })

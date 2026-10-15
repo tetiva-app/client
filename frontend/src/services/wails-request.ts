@@ -190,16 +190,16 @@ export class WailsRequestService implements RequestServiceAPI {
   async grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {
     return unwrap<GRPCSchema>(await RequestService.GRPCListServices(new BindingGRPCConnectRequest({
       host: req.host,
-      useTls: req.useTls,
       protoPath: req.protoPath,
+      workspaceId: req.workspaceId,
     })) as unknown as BindingResult<GRPCSchema>)
   }
 
   async grpcGenerateExample(req: GRPCGenerateExampleRequest): Promise<Result<string>> {
     return unwrap<string>(await RequestService.GRPCGenerateExample(new BindingGRPCGenerateExampleRequest({
       host: req.host,
-      useTls: req.useTls,
       protoPath: req.protoPath,
+      workspaceId: req.workspaceId,
       service: req.service,
       method: req.method,
     })) as unknown as BindingResult<string>)
@@ -208,8 +208,8 @@ export class WailsRequestService implements RequestServiceAPI {
   async grpcGetProtoDefinition(req: GRPCGenerateExampleRequest): Promise<Result<string>> {
     return unwrap<string>(await RequestService.GRPCGetProtoDefinition(new BindingGRPCGetProtoDefinitionRequest({
       host: req.host,
-      useTls: req.useTls,
       protoPath: req.protoPath,
+      workspaceId: req.workspaceId,
       service: req.service,
       method: req.method,
     })) as unknown as BindingResult<string>)

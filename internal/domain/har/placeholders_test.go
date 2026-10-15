@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/domain/har"
+	"github.com/tetiva-app/client/internal/race"
 )
 
 func TestPlaceholders(t *testing.T) {
@@ -125,7 +126,7 @@ func TestPlaceholders(t *testing.T) {
 
 		tok := p.Protect("{{a}}", nil)
 		assert.Equal(t, "tetivaph"+strings.Repeat("z", run+1)+"0x", tok)
-		assert.Less(t, elapsed, 200*time.Millisecond)
+		assert.Less(t, elapsed, time.Second*race.Slowdown)
 		assert.Equal(t, "https://{{a}}/", p.Restore("https://"+tok+"/"))
 	})
 

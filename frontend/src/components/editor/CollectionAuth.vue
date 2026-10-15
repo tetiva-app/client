@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { ShieldOff } from 'lucide-vue-next'
 import AuthEditor from './AuthEditor.vue'
 import AuthSelect from './auth/AuthSelect.vue'
 import type { AuthType } from '@/types/request'
 import { collectionAuthOptions } from '@/constants/auth'
-import { defaultAuthData } from '@/lib/auth-data'
+import { switchAuthDraft } from '@/composables/useAuthDrafts'
 import { useAuthTokenStore } from '@/stores/auth-tokens'
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
   authType: string
   authData: string
   version?: number
+  nested?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,10 +22,6 @@ const emit = defineEmits<{
 }>()
 
 const authTypeOptions = computed(() => collectionAuthOptions())
-
-// Credentials of a type the user steps away from survive the session, the same
-// way the request editor keeps them.
-const drafts = ref<Partial<Record<string, string>>>({})
 
 const tokens = useAuthTokenStore()
 
@@ -39,9 +36,9 @@ function selectType(value: AuthType) {
       authData: props.authData,
     })
   }
-  drafts.value = { ...drafts.value, [props.authType]: props.authData }
+  const next = switchAuthDraft(props.collectionId, props.authType, props.authData, value)
   emit('update:authType', value)
-  emit('update:authData', drafts.value[value] ?? defaultAuthData(value))
+  emit('update:authData', next)
 }
 </script>
 
@@ -74,7 +71,8 @@ function selectType(value: AuthType) {
       </div>
       <p class="text-sm font-medium text-muted-foreground">No authorization</p>
       <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">
-        Requests in this collection will be sent without auth headers
+        <template v-if="nested">Requests in this collection use the parent collection's auth, if it has one</template>
+        <template v-else>Requests in this collection will be sent without auth headers</template>
       </p>
     </div>
   </div>

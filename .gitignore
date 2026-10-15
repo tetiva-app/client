@@ -6,7 +6,7 @@ bin
 # Frontend
 frontend/dist
 frontend/bindings
-frontend/node_modules
+node_modules
 frontend/playwright-report
 frontend/test-results
 .tour-capture

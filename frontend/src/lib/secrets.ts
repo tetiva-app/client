@@ -105,9 +105,13 @@ function literal(run: string): string {
   return run.trim() === '' ? run : REDACTED
 }
 
-export function redactValue(value: string): string {
+export function hasLiteral(value: string): boolean {
   const literals = value.replace(VAR_REF, '').trim()
-  if (literals === '' || BARE_AUTH_SCHEME.test(literals)) return value
+  return literals !== '' && !BARE_AUTH_SCHEME.test(literals)
+}
+
+export function redactValue(value: string): string {
+  if (!hasLiteral(value)) return value
 
   const scheme = value.match(AUTH_SCHEME)?.[0] ?? ''
   const rest = value.slice(scheme.length)

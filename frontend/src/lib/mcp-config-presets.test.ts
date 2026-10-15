@@ -28,10 +28,13 @@ describe('buildMcpPreset', () => {
     expect(buildMcpPreset('url', url, token)).toBe(`${url}?token=tok%20en%2F%2B`)
   })
 
-  it('puts the token in the claude url', () => {
+  it('puts the token in a Claude Code Authorization header, not the url', () => {
     const parsed = JSON.parse(buildMcpPreset('claude', url, token))
-    expect(parsed.mcpServers.tetiva.url).toBe(`${url}?token=tok%20en%2F%2B`)
-    expect(parsed.mcpServers.tetiva.headers).toBeUndefined()
+    expect(parsed.mcpServers.tetiva).toEqual({ type: 'sse', url, headers: { Authorization: `Bearer ${token}` } })
+  })
+
+  it('labels the claude preset as Claude Code', () => {
+    expect(MCP_CLIENTS.find(c => c.value === 'claude')?.label).toBe('Claude Code')
   })
 
   it('puts the token in a Cursor Authorization header, not the url', () => {
@@ -42,6 +45,7 @@ describe('buildMcpPreset', () => {
 
   it('omits the token entirely when there is none', () => {
     expect(JSON.parse(buildMcpPreset('cursor', url, '')).mcpServers.tetiva.headers).toBeUndefined()
+    expect(JSON.parse(buildMcpPreset('claude', url, '')).mcpServers.tetiva.headers).toBeUndefined()
   })
 })
 

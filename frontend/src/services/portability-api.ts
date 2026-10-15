@@ -2,7 +2,7 @@ import type { Result } from '@/types/common'
 
 export interface ImportEnvironmentResult {
   environmentId: string
-  environmentName: string
+  environmentNames: string[]
   variablesCreated: number
   warnings: string[]
 }
@@ -29,13 +29,15 @@ export interface ImportScript {
   text: string
 }
 
+export type ImportFormat = 'tetiva' | 'postman' | 'insomnia' | 'openapi' | 'har' | 'hoppscotch'
+
 export interface ImportPreview {
-  format: 'tetiva' | 'postman'
+  format: ImportFormat
   title: string
   folders: number
   requests: number
   examples: number
-  environmentName: string
+  environmentNames: string[]
   hosts: string[]
   scripts: ImportScript[]
   warnings: string[]
@@ -46,10 +48,11 @@ export interface ImportPreviewResult {
   preview: ImportPreview
 }
 
-// Exactly one of previewId (link) and content (file); parentId applies to Postman files only.
+// Exactly one of previewId (link) and content (file); a Tetiva file ignores parentId.
 export interface ImportConfirmRequest {
   previewId?: string
   content?: string
+  fileName?: string
   includeScripts: boolean
   workspaceId: string
   parentId?: string | null
@@ -60,7 +63,8 @@ export interface ImportConfirmResult {
   folders: number
   requests: number
   examples: number
-  environmentName: string
+  environmentNames: string[]
+  activeEnvironment: string
   warnings: string[]
 }
 
@@ -71,6 +75,6 @@ export interface PortabilityServiceAPI {
   linkMeta(slug: string): Promise<Result<LinkMeta>>
   linkUnlock(slug: string, password: string): Promise<Result<{ token: string }>>
   linkFetch(slug: string, token: string): Promise<Result<ImportPreviewResult>>
-  importPreview(content: string): Promise<Result<ImportPreview>>
+  importPreview(content: string, fileName?: string): Promise<Result<ImportPreview>>
   importConfirm(req: ImportConfirmRequest): Promise<Result<ImportConfirmResult>>
 }

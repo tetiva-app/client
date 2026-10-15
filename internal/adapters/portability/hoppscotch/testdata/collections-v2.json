@@ -1,0 +1,58 @@
+[
+  {
+    "v": 2,
+    "name": "Billing",
+    "folders": [],
+    "requests": [
+      {
+        "v": "1",
+        "name": "Invoices",
+        "method": "get",
+        "endpoint": "https://billing.example.com/invoices?status=open",
+        "params": [{ "key": "page", "value": "2", "active": true }],
+        "headers": [],
+        "preRequestScript": "",
+        "testScript": "",
+        "auth": { "authType": "basic", "authActive": true, "username": "<<user>>", "password": "<<pass>>" },
+        "body": { "contentType": "application/json", "body": "" }
+      },
+      {
+        "v": "4",
+        "name": "Usage",
+        "method": "GET",
+        "endpoint": "https://billing.example.com/usage",
+        "params": [],
+        "headers": [],
+        "preRequestScript": "",
+        "testScript": "",
+        "auth": { "authType": "api-key", "authActive": true, "key": "api_key", "value": "<<apiKey>>", "addTo": "QUERY_PARAMS" },
+        "body": { "contentType": "text/plain", "body": "hello" },
+        "requestVariables": []
+      }
+    ],
+    "auth": { "authType": "inherit", "authActive": true },
+    "headers": []
+  },
+  {
+    "v": 2,
+    "name": "Status",
+    "folders": [],
+    "requests": [
+      {
+        "v": "3",
+        "name": "Ping",
+        "method": "HEAD",
+        "endpoint": "https://status.example.com/ping",
+        "params": [],
+        "headers": [],
+        "preRequestScript": "",
+        "testScript": "",
+        "auth": { "authType": "bearer", "authActive": false, "token": "stale" },
+        "body": { "contentType": null, "body": null },
+        "requestVariables": []
+      }
+    ],
+    "auth": { "authType": "none", "authActive": true },
+    "headers": []
+  }
+]

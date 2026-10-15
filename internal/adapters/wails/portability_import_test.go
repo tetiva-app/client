@@ -49,6 +49,15 @@ const threeRequestPostman = `{"info":{"name":"P","schema":"https://schema.getpos
 	`{"name":"B","request":{"method":"GET","url":{"raw":"https://b.example.com"}}},` +
 	`{"name":"C","request":{"method":"GET","url":{"raw":"https://c.example.com"}}}]}`
 
+const twoEntryHAR = `{"log":{"version":"1.2","entries":[` +
+	`{"request":{"method":"GET","url":"https://a.example.com/x","headers":[]}},` +
+	`{"request":{"method":"POST","url":"https://b.example.com/y","headers":[]}}]}}`
+
+const hoppscotchCollection = `{"v":12,"name":"H","folders":[],"requests":[` +
+	`{"v":"17","name":"A","method":"GET","endpoint":"<<host>>/a","preRequestScript":"pw.env.set('x','1')"},` +
+	`{"v":"17","name":"B","method":"GET","endpoint":"<<host>>/b"}],` +
+	`"variables":[{"key":"host","initialValue":"https://h.example.com","currentValue":"","secret":false}]}`
+
 const postmanWithVariables = `{"info":{"name":"P","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},` +
 	`"variable":[{"key":"host","value":"https://a.example.com"},{"key":"b","value":"2","disabled":true},{"key":"c","value":"3"}],` +
 	`"item":[{"name":"A","request":{"method":"GET","url":{"raw":"{{host}}/a"}}}]}`
@@ -179,7 +188,7 @@ func TestLinkFetch_ConfirmImportsWithoutASecondDownload(t *testing.T) {
 	assert.Equal(t, 3, confirmed.Data.Folders)
 	assert.Equal(t, 12, confirmed.Data.Requests)
 	assert.Equal(t, 6, confirmed.Data.Examples)
-	assert.Equal(t, "prod", confirmed.Data.EnvironmentName)
+	assert.Equal(t, []string{"prod"}, confirmed.Data.EnvironmentNames)
 	assert.Equal(t, int32(1), f.snapshots.Load())
 	assert.Equal(t, 4, f.count(t, "collections"))
 
@@ -226,10 +235,12 @@ func TestPreviewCache_FifthEntryEvictsTheOldest(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestImportConfirm_RollsBackBothFormats(t *testing.T) {
+func TestImportConfirm_RollsBackEveryFormat(t *testing.T) {
 	cases := map[string]string{
-		"snapshot": string(allProtocolsSnapshot(t)),
-		"postman":  threeRequestPostman,
+		"snapshot":   string(allProtocolsSnapshot(t)),
+		"postman":    threeRequestPostman,
+		"har":        twoEntryHAR,
+		"hoppscotch": hoppscotchCollection,
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -275,8 +286,8 @@ func TestImportEnvironment_ThroughTheService(t *testing.T) {
 
 	require.Nil(t, first.Error)
 	require.Nil(t, second.Error)
-	assert.Equal(t, "Dev", first.Data.EnvironmentName)
-	assert.Equal(t, "Dev (2)", second.Data.EnvironmentName)
+	assert.Equal(t, []string{"Dev"}, first.Data.EnvironmentNames)
+	assert.Equal(t, []string{"Dev (2)"}, second.Data.EnvironmentNames)
 	assert.Equal(t, 2, first.Data.VariablesCreated)
 	assert.Equal(t, []string{"a variable without a name was skipped"}, first.Data.Warnings)
 	var enabled []bool
@@ -404,12 +415,65 @@ func TestImportPreview_DetectsTheFormat(t *testing.T) {
 	snapPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: string(allProtocolsSnapshot(t))})
 	require.Nil(t, snapPreview.Error)
 	assert.Equal(t, "tetiva", snapPreview.Data.Format)
-	assert.Equal(t, "prod", snapPreview.Data.EnvironmentName)
+	assert.Equal(t, []string{"prod"}, snapPreview.Data.EnvironmentNames)
+
+	harPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: twoEntryHAR, FileName: "session.har"})
+	require.Nil(t, harPreview.Error)
+	assert.Equal(t, "har", harPreview.Data.Format)
+	assert.Equal(t, "session", harPreview.Data.Title)
+	assert.Equal(t, 2, harPreview.Data.Folders)
+
+	hoppPreview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: hoppscotchCollection, FileName: "ignored.json"})
+	require.Nil(t, hoppPreview.Error)
+	assert.Equal(t, "hoppscotch", hoppPreview.Data.Format)
+	assert.Equal(t, "H", hoppPreview.Data.Title)
+	assert.Equal(t, []string{"H"}, hoppPreview.Data.EnvironmentNames)
+	assert.Equal(t, []string{"h.example.com"}, hoppPreview.Data.Hosts)
+	assert.Len(t, hoppPreview.Data.Scripts, 1)
 
 	junk := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: `{"hello":"world"}`})
 	requireReason(t, junk, ErrCodeValidation, portability.ReasonUnsupportedFile)
 	assert.Zero(t, f.count(t, "collections"))
 	assert.Equal(t, 1, f.count(t, "environments"), "only the seeded Default")
+}
+
+const openAPIYAML = `openapi: 3.0.3
+info: {title: Shop, version: "1"}
+servers: [{url: "https://shop.example.com"}]
+paths:
+  /items/{id}:
+    get:
+      summary: Get item
+      responses: {"200": {description: ok}}
+`
+
+func TestImportOpenAPI_PreviewThenConfirmIntoAFolder(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	parent := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: threeRequestPostman, WorkspaceID: importWorkspace})
+	require.Nil(t, parent.Error)
+
+	preview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: openAPIYAML})
+	require.Nil(t, preview.Error)
+	assert.Equal(t, "openapi", preview.Data.Format)
+	assert.Equal(t, "Shop", preview.Data.Title)
+	assert.Equal(t, []string{"shop.example.com"}, preview.Data.Hosts)
+
+	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: openAPIYAML, WorkspaceID: importWorkspace, ParentID: &parent.Data.CollectionID})
+	require.Nil(t, res.Error)
+	assert.Equal(t, 1, res.Data.Requests)
+	assert.Equal(t, []string{"Shop"}, res.Data.EnvironmentNames)
+
+	var parentID sql.NullString
+	require.NoError(t, f.db.QueryRow(`SELECT parent_id FROM collections WHERE id = ?`, res.Data.CollectionID).Scan(&parentID))
+	assert.Equal(t, parent.Data.CollectionID, parentID.String)
+	var url string
+	require.NoError(t, f.db.QueryRow(`SELECT url FROM requests WHERE name = 'Get item'`).Scan(&url))
+	assert.Equal(t, "{{baseUrl}}/items/{{id}}", url)
+
+	broken := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: "openapi: 3.0.0\ninfo: {title: T}\npaths: [1]\n"})
+	require.NotNil(t, broken.Error)
+	assert.Equal(t, ErrCodeValidation, broken.Error.Code)
+	assert.Contains(t, broken.Error.Fields["content"], "the OpenAPI document can't be read")
 }
 
 func TestImportPreview_HandsEnvironmentFilesBack(t *testing.T) {
@@ -536,4 +600,97 @@ func TestImportCollection_TakesASnapshotFileThroughTheSamePath(t *testing.T) {
 	var scripts int
 	require.NoError(t, f.db.QueryRow(`SELECT COUNT(*) FROM collections WHERE pre_script != '' OR post_script != ''`).Scan(&scripts))
 	assert.Zero(t, scripts)
+}
+
+func TestImportConfirm_NamesAHARAfterItsFileAndKeepsTheFolder(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	parent := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: threeRequestPostman, WorkspaceID: importWorkspace})
+	require.Nil(t, parent.Error)
+
+	res := f.svc.ImportConfirm(dto.ImportConfirmRequest{
+		Content: twoEntryHAR, FileName: "capture.har", WorkspaceID: importWorkspace, ParentID: &parent.Data.CollectionID,
+	})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, 2, res.Data.Folders)
+	assert.Equal(t, 2, res.Data.Requests)
+	var name string
+	var parentID sql.NullString
+	require.NoError(t, f.db.QueryRow(`SELECT name, parent_id FROM collections WHERE id = ?`, res.Data.CollectionID).Scan(&name, &parentID))
+	assert.Equal(t, "capture", name)
+	assert.Equal(t, parent.Data.CollectionID, parentID.String)
+}
+
+func TestImportConfirm_HoppscotchScriptsFollowTheFlag(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+
+	without := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: hoppscotchCollection, WorkspaceID: importWorkspace})
+	with := f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: hoppscotchCollection, WorkspaceID: importWorkspace, IncludeScripts: true})
+
+	require.Nil(t, without.Error)
+	require.Nil(t, with.Error)
+	assert.Equal(t, []string{"H"}, without.Data.EnvironmentNames)
+	assert.Equal(t, []string{"H (2)"}, with.Data.EnvironmentNames)
+	var scripts int
+	require.NoError(t, f.db.QueryRow(`SELECT COUNT(*) FROM requests WHERE pre_script != ''`).Scan(&scripts))
+	assert.Equal(t, 1, scripts)
+	assert.Contains(t, with.Data.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+	assert.NotContains(t, without.Data.Warnings, "Hoppscotch scripts use the pw.* API, which Tetiva does not run: rewrite them to pm.* after importing")
+}
+
+func TestImportEnvironment_TakesHoppscotchEnvironments(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	single := `{"v":2,"id":"e1","name":"Dev","variables":[` +
+		`{"key":"host","initialValue":"https://dev.example.com","currentValue":"","secret":false},` +
+		`{"key":"token","initialValue":"","currentValue":"","secret":true}]}`
+	list := `[{"v":1,"id":"e2","name":"Prod","variables":[{"key":"host","value":"https://example.com","secret":false}]},` +
+		`{"name":"Stage","variables":[{"key":"host","value":"https://stage.example.com"}]}]`
+
+	preview := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: single})
+	requireReason(t, preview, ErrCodeValidation, portability.ReasonEnvironmentFile)
+	assert.Equal(t, map[string]string{"content": "a Hoppscotch environment, not a collection"}, preview.Error.Fields)
+
+	one := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: single, WorkspaceID: importWorkspace})
+	require.Nil(t, one.Error)
+	assert.Equal(t, []string{"Dev"}, one.Data.EnvironmentNames)
+	assert.Equal(t, 2, one.Data.VariablesCreated)
+	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, one.Data.Warnings)
+	var value string
+	var secret bool
+	require.NoError(t, f.db.QueryRow(`SELECT value, is_secret FROM variables WHERE environment_id = ? AND key = 'host'`, one.Data.EnvironmentID).Scan(&value, &secret))
+	assert.Equal(t, "https://dev.example.com", value)
+	assert.False(t, secret)
+
+	many := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: list, WorkspaceID: importWorkspace})
+	require.Nil(t, many.Error)
+	assert.Equal(t, []string{"Prod", "Stage"}, many.Data.EnvironmentNames)
+	assert.Equal(t, 2, many.Data.VariablesCreated)
+
+	twice := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: "[" + single + "," + single + "]", WorkspaceID: importWorkspace})
+	require.Nil(t, twice.Error)
+	assert.Equal(t, []string{"Dev (2)", "Dev (3)"}, twice.Data.EnvironmentNames)
+	assert.Equal(t, []string{"Hoppscotch exports secrets without their values: fill in token"}, twice.Data.Warnings)
+}
+
+func TestImportEnvironment_RefusesCollectionsOfEveryFormat(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	envs := f.count(t, "environments")
+
+	for name, content := range map[string]string{"har": twoEntryHAR, "hoppscotch": hoppscotchCollection, "postman": threeRequestPostman} {
+		res := f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: content, WorkspaceID: importWorkspace})
+		requireReason(t, res, ErrCodeValidation, portability.ReasonCollectionFile)
+		assert.Equal(t, envs, f.count(t, "environments"), name)
+	}
+}
+
+func TestImport_RefusesFilesOverTheSizeLimit(t *testing.T) {
+	f := newImportFixture(t, statusOnly(http.StatusNotFound), importFixtureOpts{})
+	big := threeRequestPostman + strings.Repeat(" ", portability.MaxFileBytes)
+
+	requireReason(t, f.svc.ImportPreview(dto.ImportPreviewRequest{Content: big}), ErrCodeValidation, portability.ReasonFileTooLarge)
+	requireReason(t, f.svc.ImportConfirm(dto.ImportConfirmRequest{Content: big, WorkspaceID: importWorkspace}), ErrCodeValidation, portability.ReasonFileTooLarge)
+	requireReason(t, f.svc.ImportCollection(dto.ImportCollectionRequest{Content: big, WorkspaceID: importWorkspace}), ErrCodeValidation, portability.ReasonFileTooLarge)
+	requireReason(t, f.svc.ImportEnvironment(dto.ImportEnvironmentRequest{Content: big, WorkspaceID: importWorkspace}), ErrCodeValidation, portability.ReasonFileTooLarge)
+	assert.Zero(t, f.count(t, "requests"))
+	assert.Nil(t, f.svc.ImportPreview(dto.ImportPreviewRequest{Content: threeRequestPostman + strings.Repeat(" ", portability.MaxFileBytes-len(threeRequestPostman))}).Error)
 }

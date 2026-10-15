@@ -475,7 +475,7 @@ async function handleExportPostman(collectionId: string) {
   <input
     ref="fileInputRef"
     type="file"
-    accept=".json"
+    accept=".json,.yaml,.yml,.har"
     class="hidden"
     @change="handleFileSelected"
   />

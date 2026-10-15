@@ -227,9 +227,13 @@ func nameTokens(name string) []string {
 	return tokens
 }
 
-func RedactValue(value string) string {
+func HasLiteral(value string) bool {
 	literals := strings.TrimSpace(varRef.ReplaceAllString(value, ""))
-	if literals == "" || bareAuthScheme.MatchString(literals) {
+	return literals != "" && !bareAuthScheme.MatchString(literals)
+}
+
+func RedactValue(value string) string {
+	if !HasLiteral(value) {
 		return value
 	}
 

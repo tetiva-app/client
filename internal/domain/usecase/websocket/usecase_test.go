@@ -414,6 +414,55 @@ func TestDisconnectAll(t *testing.T) {
 	}
 }
 
+func TestDisconnectOwnerClosesOnlyItsConnections(t *testing.T) {
+	reloaded, kept := newFakeConn(), newFakeConn()
+	dialer := &seqDialer{steps: []dialStep{{conn: reloaded}, {conn: kept}}}
+	uc := newTestUsecase(dialer, &fakeResolver{dial: ResolvedDial{URL: "ws://x"}}, &fakeSink{}, &fakeHistory{})
+	reloadedID, keptID := uuid.New(), uuid.New()
+	for _, opt := range []ConnectOpt{
+		{ConnectionID: reloadedID, Owner: "main"},
+		{ConnectionID: keptID, Owner: "detached-request-1"},
+	} {
+		opt.RequestID, opt.WorkspaceID = uuid.New(), uuid.New()
+		if _, err := uc.Connect(context.Background(), opt); err != nil {
+			t.Fatalf("Connect: %v", err)
+		}
+	}
+
+	if err := uc.DisconnectOwner(context.Background(), "main"); err != nil {
+		t.Fatalf("DisconnectOwner: %v", err)
+	}
+
+	waitFor(t, reloaded.isClosed)
+	if uc.has(reloadedID) {
+		t.Fatal("expected the reloaded window's connection to be gone")
+	}
+	if !uc.isLive(keptID) || kept.isClosed() {
+		t.Fatal("expected the other window's connection to stay open")
+	}
+}
+
+func TestDisconnectOwnerCancelsPendingAttempt(t *testing.T) {
+	dialer := &fakeDialer{conn: newFakeConn(), gate: make(chan struct{}), dialed: make(chan struct{})}
+	uc := newTestUsecase(dialer, &fakeResolver{dial: ResolvedDial{URL: "ws://x"}}, &fakeSink{}, &fakeHistory{})
+	connID := uuid.New()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = uc.Connect(context.Background(), ConnectOpt{ConnectionID: connID, RequestID: uuid.New(), WorkspaceID: uuid.New(), Owner: "main"})
+	}()
+
+	<-dialer.dialed
+	if err := uc.DisconnectOwner(context.Background(), "main"); err != nil {
+		t.Fatalf("DisconnectOwner: %v", err)
+	}
+	<-done
+	if uc.has(connID) {
+		t.Fatal("expected an empty registry")
+	}
+}
+
 func TestCount(t *testing.T) {
 	uc := newTestUsecase(&fakeDialer{conn: newFakeConn()}, &fakeResolver{dial: ResolvedDial{URL: "ws://x"}}, &fakeSink{}, &fakeHistory{})
 	if n := uc.Count(); n != 0 {

@@ -110,8 +110,8 @@ func (s *Server) handleGetEnvironment(ctx context.Context, req mcplib.CallToolRe
 		"is_active":  e.IsActive,
 		"version":    e.Version,
 		"is_delete":  e.IsDelete,
-		"created_at": e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		"updated_at": e.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at": formatTimestamp(e.CreatedAt),
+		"updated_at": formatTimestamp(e.UpdatedAt),
 		"variables":  varItems,
 	})
 }

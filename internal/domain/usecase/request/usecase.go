@@ -39,11 +39,11 @@ type HTTPRequester interface {
 type GRPCRequester interface {
 	Execute(ctx context.Context, req GRPCExecuteRequest) (*entities.Response, error)
 	ListServices(ctx context.Context, req GRPCConnectRequest) (*GRPCSchema, error)
+	DescribeService(ctx context.Context, req GRPCConnectRequest, service string) (*GRPCService, error)
 }
 
 type GRPCExecuteRequest struct {
 	Host        string
-	UseTLS      bool
 	Service     string
 	Method      string
 	Message     string
@@ -54,7 +54,6 @@ type GRPCExecuteRequest struct {
 
 type GRPCConnectRequest struct {
 	Host        string
-	UseTLS      bool
 	ProtoPath   string
 	WorkspaceID uuid.UUID
 }
@@ -62,6 +61,7 @@ type GRPCConnectRequest struct {
 type GRPCSchema struct {
 	Services []GRPCService
 	Source   string // "reflection" | "proto_file" | "proto_directory"
+	Warnings []string
 }
 
 type GRPCService struct {
@@ -92,9 +92,10 @@ type GraphQLExecuteRequest struct {
 	OperationName string
 	Headers       map[string][]string
 	WorkspaceID   uuid.UUID // selects the cookie jar; Nil sends no cookies
+	AuthQueryKeys []string
 }
 
-// GraphQLIntrospectRequest needs exactly one of Endpoint or SchemaPath.
+// SchemaPath wins over Endpoint; Endpoint stands in when that file is not on this computer.
 type GraphQLIntrospectRequest struct {
 	Endpoint    string
 	SchemaPath  string
@@ -216,13 +217,14 @@ type RequestAuth struct {
 }
 
 type HTTPExecuteRequest struct {
-	Method      entities.HTTPMethod
-	URL         string
-	Headers     map[string][]string
-	Body        string
-	BodyReader  io.Reader
-	WorkspaceID uuid.UUID // required for per-workspace cookie jar
-	Auth        *RequestAuth
+	Method        entities.HTTPMethod
+	URL           string
+	Headers       map[string][]string
+	Body          string
+	BodyReader    io.Reader
+	WorkspaceID   uuid.UUID // required for per-workspace cookie jar
+	Auth          *RequestAuth
+	AuthQueryKeys []string
 }
 
 type ExecuteOpt struct {
@@ -278,6 +280,7 @@ type Usecase interface {
 	Delete(ctx context.Context, opt DeleteOpt) error
 	Reorder(ctx context.Context, id uuid.UUID, sortOrder int) error
 	Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*entities.Response, error)
+	AuthCredentials(ctx context.Context, requestID, workspaceID uuid.UUID) ([]string, error)
 	BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error)
 	BuildSnippetInput(ctx context.Context, req *entities.Request, opt BuildSnippetOpt) (SnippetInput, error)
 	Move(ctx context.Context, opt MoveOpt) (*entities.Request, error)

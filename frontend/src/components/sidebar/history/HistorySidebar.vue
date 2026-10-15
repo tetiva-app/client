@@ -9,9 +9,14 @@ import HistoryGroupedList from './HistoryGroupedList.vue'
 import HistoryEmptyState from './HistoryEmptyState.vue'
 import HistoryFooter from './HistoryFooter.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { fill, plural } from '@/lib/locale'
+import { HISTORY_COPY } from './copy'
 
 const store = useHistoryStore()
 const ws = useWorkspaceStore()
+const copy = useCopy(HISTORY_COPY)
+const locale = useLocale()
 
 const confirmClear = ref(false)
 const confirmDeleteId = ref<string | null>(null)
@@ -26,9 +31,8 @@ const filtersActive = computed(
     !!store.filter.requestId,
 )
 
-const clearDescription = computed(
-  () =>
-    `This deletes ${store.totalCount} record${store.totalCount === 1 ? '' : 's'} in workspace ${ws.activeWorkspace?.name ?? ''}. This cannot be undone.`,
+const clearDescription = computed(() =>
+  fill(plural(locale.value, store.totalCount, copy.value.clearAll.text), { workspace: ws.activeWorkspace?.name ?? '' }),
 )
 
 onMounted(() => store.load(true))
@@ -59,11 +63,11 @@ async function handleConfirmDelete() {
       v-if="store.filter.requestId"
       class="px-3 py-1 flex items-center gap-2 text-xs bg-accent/30"
     >
-      <span class="text-muted-foreground">Filtered by request</span>
+      <span class="text-muted-foreground">{{ copy.filteredByRequest }}</span>
       <button
         type="button"
         class="ml-auto p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        title="Clear filter"
+        :title="copy.clearFilter"
         @click="store.setRequestIdFilter(null)"
       >
         <X class="size-3" />
@@ -89,18 +93,20 @@ async function handleConfirmDelete() {
 
     <ConfirmDialog
       :open="confirmClear"
-      title="Clear all history?"
+      :title="copy.clearAll.title"
       :description="clearDescription"
-      confirm-label="Clear all"
+      :confirm-label="copy.clearAll.confirm"
+      :cancel-label="copy.cancel"
       destructive
       @update:open="confirmClear = $event"
       @confirm="handleConfirmClear"
     />
     <ConfirmDialog
       :open="confirmDeleteId !== null"
-      title="Delete history record?"
-      description="This cannot be undone."
-      confirm-label="Delete"
+      :title="copy.deleteRecord.title"
+      :description="copy.deleteRecord.text"
+      :confirm-label="copy.deleteRecord.confirm"
+      :cancel-label="copy.cancel"
       destructive
       @update:open="(v) => { if (!v) confirmDeleteId = null }"
       @confirm="handleConfirmDelete"

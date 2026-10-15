@@ -178,7 +178,7 @@ func TestImporter_ImportReportsTheEnvironment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "Petstore (2)", res.EnvironmentName)
+	assert.Equal(t, []string{"Petstore (2)"}, res.EnvironmentNames)
 }
 
 func TestImportCollection_SQLite_FixtureVariablesBecomeAnEnvironment(t *testing.T) {

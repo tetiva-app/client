@@ -1,0 +1,21 @@
+[
+  {
+    "v": 2,
+    "id": "cm1dev",
+    "name": "Petstore dev",
+    "variables": [
+      { "key": "baseUrl", "initialValue": "https://dev.petstore.example.com/v1", "currentValue": "", "secret": false },
+      { "key": "pets", "initialValue": "<<baseUrl>>/pets", "currentValue": "", "secret": false },
+      { "key": "token", "initialValue": "", "currentValue": "", "secret": true }
+    ]
+  },
+  {
+    "v": 2,
+    "id": "cm1prod",
+    "name": "Petstore prod",
+    "variables": [
+      { "key": "baseUrl", "initialValue": "https://petstore.example.com/v1", "currentValue": "", "secret": false },
+      { "key": "token", "initialValue": "", "currentValue": "", "secret": true }
+    ]
+  }
+]

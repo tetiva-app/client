@@ -904,9 +904,10 @@ func (s *SyncService) restartLinkedSyncer(ctx context.Context, localWorkspaceID 
 // ListRemoteWorkspaces fetches the workspaces visible to the user under their
 // active org. Used by the connect-modal to show available remotes for linking.
 func (s *SyncService) ListRemoteWorkspaces() Result[[]dto.RemoteWorkspace] {
+	const funcName = "SyncService.ListRemoteWorkspaces"
 	ctx := context.Background()
 	if s.client() == nil {
-		return Err[[]dto.RemoteWorkspace](fmt.Errorf("not connected to sync server"))
+		return Err[[]dto.RemoteWorkspace](fmt.Errorf("%s: %w", funcName, ErrNotConnected))
 	}
 
 	remotes, err := s.fetchRemoteWorkspaces(ctx)
@@ -926,7 +927,7 @@ func (s *SyncService) ListRemoteWorkspaces() Result[[]dto.RemoteWorkspace] {
 func (s *SyncService) syncRemoteWorkspaces(ctx context.Context) error {
 	const funcName = "SyncService.syncRemoteWorkspaces"
 	if s.client() == nil {
-		return fmt.Errorf("%s: not connected", funcName)
+		return fmt.Errorf("%s: %w", funcName, ErrNotConnected)
 	}
 
 	slog.Info("sync: syncRemoteWorkspaces start")

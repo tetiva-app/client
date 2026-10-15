@@ -378,11 +378,11 @@ func (s *RequestService) BuildSnippetInput(req dto.BuildSnippetRequest) Result[d
 
 func (s *RequestService) GRPCListServices(req dto.GRPCConnectRequest) Result[dto.GRPCSchemaResponse] {
 	ctx := context.Background()
-	schema, err := s.uc.GRPCListServices(ctx, request.GRPCConnectRequest{
-		Host:      req.Host,
-		UseTLS:    req.UseTLS,
-		ProtoPath: req.ProtoPath,
-	})
+	connect, err := grpcConnectRequest(req.Host, req.ProtoPath, req.WorkspaceID)
+	if err != nil {
+		return Err[dto.GRPCSchemaResponse](err)
+	}
+	schema, err := s.uc.GRPCListServices(ctx, connect)
 	if err != nil {
 		return Err[dto.GRPCSchemaResponse](err)
 	}
@@ -391,11 +391,11 @@ func (s *RequestService) GRPCListServices(req dto.GRPCConnectRequest) Result[dto
 
 func (s *RequestService) GRPCGenerateExample(req dto.GRPCGenerateExampleRequest) Result[string] {
 	ctx := context.Background()
-	example, err := s.uc.GRPCGenerateExample(ctx, request.GRPCConnectRequest{
-		Host:      req.Host,
-		UseTLS:    req.UseTLS,
-		ProtoPath: req.ProtoPath,
-	}, req.Service, req.Method)
+	connect, err := grpcConnectRequest(req.Host, req.ProtoPath, req.WorkspaceID)
+	if err != nil {
+		return Err[string](err)
+	}
+	example, err := s.uc.GRPCGenerateExample(ctx, connect, req.Service, req.Method)
 	if err != nil {
 		return Err[string](err)
 	}
@@ -404,15 +404,29 @@ func (s *RequestService) GRPCGenerateExample(req dto.GRPCGenerateExampleRequest)
 
 func (s *RequestService) GRPCGetProtoDefinition(req dto.GRPCGetProtoDefinitionRequest) Result[string] {
 	ctx := context.Background()
-	proto, err := s.uc.GRPCGetProtoDefinition(ctx, request.GRPCConnectRequest{
-		Host:      req.Host,
-		UseTLS:    req.UseTLS,
-		ProtoPath: req.ProtoPath,
-	}, req.Service, req.Method)
+	connect, err := grpcConnectRequest(req.Host, req.ProtoPath, req.WorkspaceID)
+	if err != nil {
+		return Err[string](err)
+	}
+	proto, err := s.uc.GRPCGetProtoDefinition(ctx, connect, req.Service, req.Method)
 	if err != nil {
 		return Err[string](err)
 	}
 	return OK(proto)
+}
+
+// An empty workspace is allowed: it only selects the variables the address may use.
+func grpcConnectRequest(host, protoPath, workspaceID string) (request.GRPCConnectRequest, error) {
+	out := request.GRPCConnectRequest{Host: host, ProtoPath: protoPath}
+	if workspaceID == "" {
+		return out, nil
+	}
+	id, err := parseUUIDField("workspaceId", workspaceID)
+	if err != nil {
+		return out, err
+	}
+	out.WorkspaceID = id
+	return out, nil
 }
 
 func singleValueHeaders(h map[string]string) map[string][]string {

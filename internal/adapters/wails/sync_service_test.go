@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -191,11 +190,14 @@ func TestSyncService_ListRemoteWorkspaces_Error_NotConnected(t *testing.T) {
 	res := svc.ListRemoteWorkspaces()
 
 	require.NotNil(t, res.Error)
-	assert.Equal(t, ErrCodeInternal, res.Error.Code)
-	assert.True(t,
-		strings.Contains(res.Error.Message, "not connected to sync server"),
-		"expected 'not connected to sync server' in message, got %q", res.Error.Message,
-	)
+	assert.Equal(t, ErrCodeNotConnected, res.Error.Code)
+	assert.Contains(t, res.Error.Message, "not connected to sync server")
+}
+
+func TestSyncService_SyncRemoteWorkspaces_Error_NotConnected(t *testing.T) {
+	err := (&SyncService{}).syncRemoteWorkspaces(context.Background())
+
+	assert.ErrorIs(t, err, ErrNotConnected)
 }
 
 func TestResumeOnStartup_ResetsStuckSendingRows(t *testing.T) {

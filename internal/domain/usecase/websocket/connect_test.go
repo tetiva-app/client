@@ -258,8 +258,8 @@ func TestLateDialRollbackSparesTheConnectionThatReusedTheID(t *testing.T) {
 	}
 }
 
-func TestConnectRecordsAuthQueryKeysInHistory(t *testing.T) {
-	resolver := &fakeResolver{dial: ResolvedDial{URL: "ws://x/ws?tok=abc", AuthQueryKeys: []string{"tok"}}}
+func TestConnectRecordsAuthKeysInHistory(t *testing.T) {
+	resolver := &fakeResolver{dial: ResolvedDial{URL: "ws://x/ws?tok=abc", AuthQueryKeys: []string{"tok"}, AuthHeaderKeys: []string{"appid"}}}
 	hist := &fakeHistory{}
 	uc := newTestUsecase(&fakeDialer{conn: newFakeConn()}, resolver, &fakeSink{}, hist)
 
@@ -273,5 +273,8 @@ func TestConnectRecordsAuthQueryKeysInHistory(t *testing.T) {
 	}
 	if got := recs[0].AuthQueryKeys; len(got) != 1 || got[0] != "tok" {
 		t.Errorf("AuthQueryKeys = %v, want [tok]", got)
+	}
+	if got := recs[0].AuthHeaderKeys; len(got) != 1 || got[0] != "appid" {
+		t.Errorf("AuthHeaderKeys = %v, want [appid]", got)
 	}
 }

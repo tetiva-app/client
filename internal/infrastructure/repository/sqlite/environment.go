@@ -154,25 +154,19 @@ func (r *EnvironmentRepo) GetActive(ctx context.Context, workspaceID uuid.UUID) 
 func (r *EnvironmentRepo) SetActive(ctx context.Context, workspaceID uuid.UUID, environmentID uuid.UUID) error {
 	const funcName = "EnvironmentRepo.SetActive"
 
-	tx, err := r.db.BeginTx(ctx, nil)
+	err := WithTx(ctx, r.db, func(txCtx context.Context) error {
+		db := DBTXFromContext(txCtx, r.db)
+		if _, err := db.ExecContext(txCtx, `UPDATE environments SET is_active = 0 WHERE workspace_id = ?`, workspaceID.String()); err != nil {
+			return fmt.Errorf("deactivate: %w", err)
+		}
+		if _, err := db.ExecContext(txCtx, `UPDATE environments SET is_active = 1 WHERE id = ? AND workspace_id = ?`,
+			environmentID.String(), workspaceID.String()); err != nil {
+			return fmt.Errorf("activate: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("%s: begin tx: %w", funcName, err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	_, err = tx.ExecContext(ctx, `UPDATE environments SET is_active = 0 WHERE workspace_id = ?`, workspaceID.String())
-	if err != nil {
-		return fmt.Errorf("%s: deactivate: %w", funcName, err)
-	}
-
-	_, err = tx.ExecContext(ctx, `UPDATE environments SET is_active = 1 WHERE id = ? AND workspace_id = ?`,
-		environmentID.String(), workspaceID.String())
-	if err != nil {
-		return fmt.Errorf("%s: activate: %w", funcName, err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("%s: commit: %w", funcName, err)
+		return fmt.Errorf("%s: %w", funcName, err)
 	}
 
 	return nil

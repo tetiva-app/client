@@ -4,7 +4,7 @@ import type { DeepLink, ImportConfirmRequest, ImportConfirmResult, ImportEnviron
 import { getDeepLinkService, getPortabilityService } from '@/services'
 import { guarded } from '@/lib/service-call'
 import { contentSaved } from '@/lib/content-saved'
-import { formatResultError, isUnreachable, UNREACHABLE_TEXT } from '@/lib/result-error'
+import { formatResultError, isUnreachable } from '@/lib/result-error'
 import { warningsToastMessage } from '@/lib/auth-warnings'
 import { freeName } from '@/lib/free-name'
 import { useImportUi, type ImportSource } from '@/stores/importUi'
@@ -14,25 +14,15 @@ import { useEnvironmentStore } from '@/stores/environments'
 import { useEnvModalUi } from '@/stores/envModalUi'
 import { useRequestStore } from '@/stores/tabs'
 import { useToast } from '@/composables/useToast'
+import { currentLocale, fill, plural, type Locale } from '@/lib/locale'
+import { IMPORT_COPY, type ImportErrorReason } from '@/components/import/copy'
 
+export const MAX_IMPORT_FILE_BYTES = 48 * 1024 * 1024
 export const MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
 
 const SLUG = /^[a-z0-9-]{1,40}-[a-z0-9]{8}$/
 const SHARE_HOST = 'share.tetiva.app'
 const SNAPSHOT_MARKER = '"tetiva.collection-snapshot"'
-const EXPIRED_LINK = 'The link has expired — open it again from the page'
-
-const REASON_TEXT: Record<string, string> = {
-  LINK_NOT_FOUND: "This collection isn't published, or the link is wrong",
-  PASSWORD_REQUIRED: 'Enter the password to import this collection',
-  PASSWORD_INVALID: 'Wrong password',
-  RATE_LIMITED: 'Too many attempts — try again in a minute',
-  SNAPSHOT_TOO_LARGE: 'The collection is larger than 8 MiB',
-  UPDATE_REQUIRED: 'Update Tetiva to import this collection',
-  PREVIEW_EXPIRED: 'The download expired — import from the link again',
-  UNSUPPORTED_FILE: "This file isn't a Postman or Tetiva collection",
-  COLLECTION_FILE: 'This is a collection, not an environment — import it from the sidebar',
-}
 
 const ANY_SHARE_HOST = import.meta.env.MODE !== 'production'
 
@@ -59,25 +49,59 @@ export async function snapshotFileTooLarge(file: Blob): Promise<boolean> {
   return (await file.slice(0, 4096).text()).includes(SNAPSHOT_MARKER)
 }
 
-export function importErrorText(e: ResultError): string {
-  if (isUnreachable(e)) return UNREACHABLE_TEXT
+export async function fileTooLargeText(file: Blob, locale: Locale = currentLocale.value): Promise<string> {
+  const errors = IMPORT_COPY[locale].errors
+  if (file.size > MAX_IMPORT_FILE_BYTES) return errors.reasons.FILE_TOO_LARGE
+  return (await snapshotFileTooLarge(file)) ? errors.snapshotFileTooLarge : ''
+}
+
+function isReason(reason: string | undefined): reason is ImportErrorReason {
+  return !!reason && Object.prototype.hasOwnProperty.call(IMPORT_COPY.en.errors.reasons, reason)
+}
+
+export function importErrorText(e: ResultError, locale: Locale = currentLocale.value): string {
+  const errors = IMPORT_COPY[locale].errors
+  if (isUnreachable(e)) return errors.unreachable
   if (e.reason === 'SNAPSHOT_INVALID') {
     const detail = e.fields?.snapshot
-    return detail ? `The collection can't be read: ${detail}` : "The collection can't be read"
+    return detail ? fill(errors.unreadableDetail, { detail }) : errors.unreadable
   }
-  return (e.reason && REASON_TEXT[e.reason]) || formatResultError(e)
+  return isReason(e.reason) ? errors.reasons[e.reason] : formatResultError(e)
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
+export function importCounts(
+  c: Pick<ImportPreview, 'folders' | 'requests' | 'examples'>,
+  locale: Locale = currentLocale.value,
+): string {
+  const counts = IMPORT_COPY[locale].counts
+  return [
+    plural(locale, c.folders, counts.folders),
+    plural(locale, c.requests, counts.requests),
+    plural(locale, c.examples, counts.examples),
+  ].join(' · ')
 }
 
-export function importCounts(c: Pick<ImportPreview, 'folders' | 'requests' | 'examples'>): string {
-  return [plural(c.folders, 'folder'), plural(c.requests, 'request'), plural(c.examples, 'example')].join(' · ')
+export function environmentPhrase(names: string[], locale: Locale = currentLocale.value): string {
+  const copy = IMPORT_COPY[locale]
+  const quoted = names.map(name => fill(copy.quoted, { name })).join(', ')
+  return fill(names.length === 1 ? copy.environments.single : copy.environments.several, { names: quoted })
 }
 
-export function importedEnvironmentText(r: Pick<ImportEnvironmentResult, 'environmentName' | 'variablesCreated'>): string {
-  return `Imported environment “${r.environmentName}” · ${plural(r.variablesCreated, 'variable')}`
+export function importedEnvironmentText(
+  r: Pick<ImportEnvironmentResult, 'environmentNames' | 'variablesCreated'>,
+  locale: Locale = currentLocale.value,
+): string {
+  const copy = IMPORT_COPY[locale]
+  const text = r.environmentNames.length === 1 ? copy.results.importedEnvironments.single : copy.results.importedEnvironments.several
+  return fill(text, {
+    environments: environmentPhrase(r.environmentNames, locale),
+    variables: plural(locale, r.variablesCreated, copy.counts.variables),
+  })
+}
+
+export function importWarningsText(warnings: string[] | undefined, locale: Locale = currentLocale.value): string {
+  const more = IMPORT_COPY[locale].results.moreWarnings
+  return warningsToastMessage(warnings, { more: rest => plural(locale, rest, more) })
 }
 
 export function useImportFlow() {
@@ -87,6 +111,7 @@ export function useImportFlow() {
   const environments = useEnvironmentStore()
   const envModalUi = useEnvModalUi()
   const toast = useToast()
+  const copy = () => IMPORT_COPY[currentLocale.value]
 
   function authOwnerName(folderId: string): string {
     const seen = new Set<string>()
@@ -103,14 +128,20 @@ export function useImportFlow() {
     const ws = workspaces.activeWorkspace
     const parentId = ui.source?.kind === 'file' ? ui.source.parentId : null
     const tetiva = ui.preview?.format === 'tetiva'
-    const envName = ui.preview?.environmentName ?? ''
+    const ownAuth = tetiva || ui.preview?.format === 'har'
+    const taken = environments.environments.map(e => e.name)
+    const envNames = (ui.preview?.environmentNames ?? []).map(name => {
+      const free = freeName(name, taken)
+      taken.push(free)
+      return free
+    })
     return {
       workspaceName: ws?.name ?? '',
       cloud: !!ws?.remoteWorkspaceId,
       folderName: parentId && !tetiva ? collections.collectionsMap.get(parentId)?.name ?? '' : '',
       alwaysTopLevel: parentId !== null && tetiva,
-      inheritedAuth: parentId && !tetiva ? authOwnerName(parentId) : '',
-      environmentName: envName ? freeName(envName, environments.environments.map(e => e.name)) : '',
+      inheritedAuth: parentId && !ownAuth ? authOwnerName(parentId) : '',
+      environmentNames: envNames,
     }
   })
 
@@ -145,7 +176,7 @@ export function useImportFlow() {
   async function submitLink(input: string) {
     const slug = parseShareLink(input)
     if (!slug) {
-      ui.linkError = 'Paste a share.tetiva.app link or a collection slug'
+      ui.linkError = copy().errors.badLink
       return
     }
     await openLink(ui.flow, slug, '', false)
@@ -157,7 +188,7 @@ export function useImportFlow() {
     ui.slug = slug
     ui.token = token
     ui.linkError = ''
-    ui.busy = 'Checking the link…'
+    ui.busy = copy().busy.checking
     const meta = await guarded((await getPortabilityService()).linkMeta(slug))
     if (!current(flow)) return
     ui.busy = ''
@@ -177,11 +208,11 @@ export function useImportFlow() {
   async function submitPassword(password: string) {
     const flow = ui.flow
     if (password === '') {
-      ui.linkError = 'Enter the password'
+      ui.linkError = copy().errors.enterPassword
       return
     }
     ui.linkError = ''
-    ui.busy = 'Unlocking…'
+    ui.busy = copy().busy.unlocking
     const res = await guarded((await getPortabilityService()).linkUnlock(ui.slug, password))
     if (!current(flow)) return
     ui.busy = ''
@@ -194,7 +225,7 @@ export function useImportFlow() {
   }
 
   async function fetchPreview(flow: number, token: string, oneTimeToken: boolean) {
-    ui.busy = 'Downloading the collection…'
+    ui.busy = copy().busy.downloading
     const res = await guarded((await getPortabilityService()).linkFetch(ui.slug, token))
     if (!current(flow)) return
     ui.busy = ''
@@ -212,27 +243,29 @@ export function useImportFlow() {
 
   async function openFile(file: Blob, parentId: string | null) {
     if (ui.active) {
-      toast.info('Finish the current import first')
+      toast.info(copy().errors.importInProgress)
       return
     }
     const flow = ui.reset()
     const wsId = workspaces.activeWorkspace?.id ?? ''
-    ui.busy = 'Reading the file…'
+    ui.busy = copy().busy.reading
     let content: string
     try {
-      if (await snapshotFileTooLarge(file)) {
-        toast.error('The file is larger than 8 MiB')
+      const tooLarge = await fileTooLargeText(file)
+      if (tooLarge) {
+        toast.error(tooLarge)
         finish()
         return
       }
       content = await file.text()
     } catch {
-      toast.error("Couldn't read the file")
+      toast.error(copy().errors.readFailed)
       finish()
       return
     }
     if (!current(flow)) return
-    const res = await guarded((await getPortabilityService()).importPreview(content))
+    const fileName = file instanceof File ? file.name : ''
+    const res = await guarded((await getPortabilityService()).importPreview(content, fileName))
     if (!current(flow)) return
     if (res.error?.reason === 'ENVIRONMENT_FILE') {
       await importEnvironmentFile(flow, content, wsId)
@@ -244,16 +277,16 @@ export function useImportFlow() {
       finish()
       return
     }
-    showPreview({ kind: 'file', content, parentId }, res.data)
+    showPreview({ kind: 'file', content, fileName, parentId }, res.data)
   }
 
   async function importEnvironmentFile(flow: number, content: string, wsId: string) {
     if (!wsId) {
-      toast.error('No active workspace')
+      toast.error(copy().errors.noWorkspace)
       finish()
       return
     }
-    ui.busy = 'Importing the environment…'
+    ui.busy = copy().busy.importingEnvironment
     const res = await guarded((await getPortabilityService()).importEnvironment(content, wsId))
     if (current(flow)) finish()
     if (res.error) {
@@ -264,16 +297,16 @@ export function useImportFlow() {
     const stillHere = workspaces.activeWorkspace?.id === wsId
     toast.success(
       importedEnvironmentText(res.data),
-      stillHere ? { label: 'Open', onClick: () => envModalUi.openForEnvironment(id) } : undefined,
+      stillHere ? { label: copy().results.open, onClick: () => envModalUi.openForEnvironment(id) } : undefined,
     )
-    const warning = warningsToastMessage(res.data.warnings)
+    const warning = importWarningsText(res.data.warnings)
     if (warning) toast.info(warning, undefined, { sticky: true })
     if (stillHere) await environments.fetchAll(wsId)
   }
 
   async function redownload(flow: number, src: Extract<ImportSource, { kind: 'link' }>) {
     if (src.oneTimeToken) {
-      ui.confirmError = EXPIRED_LINK
+      ui.confirmError = copy().errors.expiredLink
       ui.expired = true
       return
     }
@@ -286,7 +319,7 @@ export function useImportFlow() {
       return
     }
     showPreview({ ...src, previewId: res.data.previewId }, res.data.preview)
-    ui.notice = 'The download expired, so the collection was downloaded again. Review it and import.'
+    ui.notice = copy().results.downloadedAgain
   }
 
   async function confirm() {
@@ -296,16 +329,17 @@ export function useImportFlow() {
     if (!src || !preview || ui.importing || ui.expired) return
     const wsId = workspaces.activeWorkspace?.id
     if (!wsId) {
-      ui.confirmError = 'No active workspace'
+      ui.confirmError = copy().errors.noWorkspace
       return
     }
     const req: ImportConfirmRequest = src.kind === 'link'
       ? { previewId: src.previewId, includeScripts: ui.includeScripts, workspaceId: wsId }
       : {
           content: src.content,
+          fileName: src.fileName,
           includeScripts: ui.includeScripts,
           workspaceId: wsId,
-          ...(preview.format === 'postman' && src.parentId ? { parentId: src.parentId } : {}),
+          ...(preview.format !== 'tetiva' && src.parentId ? { parentId: src.parentId } : {}),
         }
     ui.importing = true
     ui.confirmError = ''
@@ -322,13 +356,18 @@ export function useImportFlow() {
       return
     }
     finish()
-    await imported(wsId, preview.title, res.data)
+    await imported(wsId, preview, res.data)
   }
 
-  async function imported(wsId: string, title: string, result: ImportConfirmResult) {
-    const env = result.environmentName ? ` · environment “${result.environmentName}”` : ''
-    toast.success(`Imported “${title}”: ${importCounts(result)}${env}`)
-    const warning = warningsToastMessage(result.warnings)
+  async function imported(wsId: string, preview: ImportPreview, result: ImportConfirmResult) {
+    const names = result.environmentNames
+    const active = result.activeEnvironment
+      ? fill(copy().results.activeEnvironment, { name: fill(copy().quoted, { name: result.activeEnvironment }) })
+      : ''
+    const env = active ? ` · ${active}` : names.length > 0 ? ` · ${environmentPhrase(names)}` : ''
+    const title = preview.title || copy().confirm.untitled
+    toast.success(fill(copy().results.imported, { title, counts: importCounts(result) }) + env)
+    const warning = importWarningsText(result.warnings)
     if (warning) toast.info(warning, undefined, { sticky: true })
     await Promise.all([collections.fetchAll(wsId), environments.fetchAll(wsId)])
     contentSaved()

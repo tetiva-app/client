@@ -54,7 +54,9 @@ const currentLabel = computed(() => {
 function place() {
   const anchor = buttonRef.value?.getBoundingClientRect()
   if (!anchor) return
-  menuStyle.value = placementStyle(dropdownPlacement(anchor, window.innerHeight))
+  const list = listRef.value
+  const contentHeight = list ? list.scrollHeight + list.offsetHeight - list.clientHeight : undefined
+  menuStyle.value = placementStyle(dropdownPlacement(anchor, window.innerHeight, { contentHeight }))
 }
 
 function scrollHighlightIntoView() {

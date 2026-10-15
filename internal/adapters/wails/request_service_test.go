@@ -93,6 +93,10 @@ func (s *stubRequestUsecase) Execute(ctx context.Context, id uuid.UUID, opt requ
 	return s.executeFn(ctx, id, opt)
 }
 
+func (s *stubRequestUsecase) AuthCredentials(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	panic("not implemented")
+}
+
 func (s *stubRequestUsecase) BuildCurl(ctx context.Context, id uuid.UUID, opt request.BuildCurlOpt) (request.CurlResult, error) {
 	if s.buildCurlFn == nil {
 		panic("buildCurlFn not set")
@@ -777,26 +781,58 @@ func TestRequestService_Execute_Error_BadUUID(t *testing.T) {
 func TestRequestService_GRPCListServices_Happy(t *testing.T) {
 	stub := &stubRequestUsecase{
 		grpcListServicesFn: func(_ context.Context, req request.GRPCConnectRequest) (*request.GRPCSchema, error) {
-			assert.Equal(t, "localhost:9000", req.Host)
-			assert.True(t, req.UseTLS)
+			assert.Equal(t, "grpcs://localhost:9000", req.Host)
 			return &request.GRPCSchema{
 				Source: "reflection",
 				Services: []request.GRPCService{
 					{FullName: "pkg.Svc", Methods: []request.GRPCMethodInfo{{Name: "Do"}}},
 				},
+				Warnings: []string{"pkg.Slow: timed out"},
 			}, nil
 		},
 	}
 	svc := NewRequestService(stub)
 
 	res := svc.GRPCListServices(dto.GRPCConnectRequest{
-		Host:   "localhost:9000",
-		UseTLS: true,
+		Host: "grpcs://localhost:9000",
 	})
 
 	require.Nil(t, res.Error)
 	require.Len(t, res.Data.Services, 1)
 	assert.Equal(t, "pkg.Svc", res.Data.Services[0].FullName)
+	assert.Equal(t, []string{"pkg.Slow: timed out"}, res.Data.Warnings)
+}
+
+func TestRequestService_GRPCSchemaCallsCarryTheWorkspace(t *testing.T) {
+	ws := uuid.New()
+	var got []uuid.UUID
+	record := func(req request.GRPCConnectRequest) { got = append(got, req.WorkspaceID) }
+	stub := &stubRequestUsecase{
+		grpcListServicesFn: func(_ context.Context, req request.GRPCConnectRequest) (*request.GRPCSchema, error) {
+			record(req)
+			return &request.GRPCSchema{}, nil
+		},
+		grpcGenerateExampleFn: func(_ context.Context, req request.GRPCConnectRequest, _, _ string) (string, error) {
+			record(req)
+			return "", nil
+		},
+		grpcGetProtoDefinitionFn: func(_ context.Context, req request.GRPCConnectRequest, _, _ string) (string, error) {
+			record(req)
+			return "", nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	require.Nil(t, svc.GRPCListServices(dto.GRPCConnectRequest{Host: "{{grpcUrl}}", WorkspaceID: ws.String()}).Error)
+	require.Nil(t, svc.GRPCGenerateExample(dto.GRPCGenerateExampleRequest{Host: "{{grpcUrl}}", WorkspaceID: ws.String()}).Error)
+	require.Nil(t, svc.GRPCGetProtoDefinition(dto.GRPCGetProtoDefinitionRequest{Host: "{{grpcUrl}}", WorkspaceID: ws.String()}).Error)
+	require.Nil(t, svc.GRPCListServices(dto.GRPCConnectRequest{Host: "h:1"}).Error)
+	assert.Equal(t, []uuid.UUID{ws, ws, ws, uuid.Nil}, got)
+
+	res := svc.GRPCListServices(dto.GRPCConnectRequest{Host: "h:1", WorkspaceID: "nope"})
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+	assert.Contains(t, res.Error.Fields, "workspaceId")
 }
 
 func TestRequestService_GRPCListServices_Error_UsecaseFailure(t *testing.T) {

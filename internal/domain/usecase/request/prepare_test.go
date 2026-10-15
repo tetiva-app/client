@@ -3,6 +3,7 @@ package request_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,6 +18,7 @@ type captureScriptEngine struct {
 	preConsole  []string
 	preErr      error
 	seenHeaders map[string][]string // headers the script was given
+	postCtx     request.ScriptContext
 }
 
 func (c *captureScriptEngine) RunPreScript(_ context.Context, _ string, sctx request.ScriptContext) (*request.PreScriptResult, error) {
@@ -36,18 +38,19 @@ func (c *captureScriptEngine) RunPreScript(_ context.Context, _ string, sctx req
 	return &request.PreScriptResult{Headers: headers, Variables: vars, ConsoleOutput: c.preConsole}, nil
 }
 
-func (c *captureScriptEngine) RunPostScript(_ context.Context, _ string, _ request.ScriptContext) (*request.PostScriptResult, error) {
+func (c *captureScriptEngine) RunPostScript(_ context.Context, _ string, sctx request.ScriptContext) (*request.PostScriptResult, error) {
+	c.postCtx = sctx
 	return &request.PostScriptResult{}, nil
 }
 
-type scriptResolverWithPre struct{ pre string }
+type scriptResolverWithPre struct{ pre, post string }
 
 func (s *scriptResolverWithPre) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
 	return s.pre, nil
 }
 
 func (s *scriptResolverWithPre) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+	return s.post, nil
 }
 
 // prepareHTTP is unexported; the parity tests below exercise it via Execute.
@@ -162,5 +165,30 @@ func TestExecute_HTTPParity_PreScriptInjectsHeader(t *testing.T) {
 	}
 	if got := requester.lastRequest.Headers["X-Trace"]; len(got) != 1 || got[0] != "abc" {
 		t.Errorf("X-Trace: got %v", got)
+	}
+}
+
+func TestExecute_PostScriptGetsResponseTime(t *testing.T) {
+	repo := newMockRepo()
+	requester := &mockRequester{response: &entities.Response{StatusCode: 200, StatusText: "200 OK", Duration: 120 * time.Millisecond}}
+	engine := &captureScriptEngine{}
+	uc := request.NewUsecase(repo, &mockHistoryRepo{}, requester, nil, nil, &mockEnvResolver{}, engine, &scriptResolverWithPre{post: "pm.response.responseTime"}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+
+	id := uuid.New()
+	repo.requests[id] = &entities.Request{
+		ID:           id,
+		CollectionID: testCollectionID,
+		Protocol:     entities.ProtocolHTTP,
+		Method:       entities.MethodGET,
+		URL:          "https://api.example.com/x",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}
+
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if engine.postCtx.ResponseTime != 120*time.Millisecond {
+		t.Errorf("ResponseTime: got %v, want 120ms", engine.postCtx.ResponseTime)
 	}
 }

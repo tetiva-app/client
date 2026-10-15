@@ -11,6 +11,10 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tetiva-app/client/internal/adapters/portability"
+	"github.com/tetiva-app/client/internal/adapters/portability/har"
+	"github.com/tetiva-app/client/internal/adapters/portability/hoppscotch"
+	"github.com/tetiva-app/client/internal/adapters/portability/insomnia"
+	"github.com/tetiva-app/client/internal/adapters/portability/openapi"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 	"github.com/tetiva-app/client/internal/adapters/portability/snapshot"
 	"github.com/tetiva-app/client/internal/adapters/publication/snapshotjson"
@@ -35,7 +39,7 @@ type PortabilityService struct {
 	tx             portability.TxRunner
 	previews       *previewCache
 	snapshots      *snapshot.Importer
-	postman        *postman.Importer
+	importers      []portability.Importer
 	chooseSavePath func(suggestedName string) (string, error)
 }
 
@@ -51,7 +55,7 @@ func NewPortabilityService(
 	if tx == nil {
 		tx = directTx{}
 	}
-	return &PortabilityService{
+	s := &PortabilityService{
 		collectionUC:  collectionUC,
 		requestUC:     requestUC,
 		environmentUC: environmentUC,
@@ -60,8 +64,16 @@ func NewPortabilityService(
 		tx:            tx,
 		previews:      newPreviewCache(),
 		snapshots:     snapshot.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
-		postman:       postman.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
 	}
+	s.importers = []portability.Importer{
+		s.snapshots,
+		postman.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
+		insomnia.NewImporter(collectionUC, requestUC, environmentUC),
+		openapi.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
+		har.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
+		hoppscotch.NewImporter(collectionUC, requestUC, exampleUC, environmentUC),
+	}
+	return s
 }
 
 type directTx struct{}
@@ -75,6 +87,9 @@ func (s *PortabilityService) SetApp(app *application.App) {
 
 // ImportCollection never imports scripts: only ImportConfirm shows them for review first.
 func (s *PortabilityService) ImportCollection(req dto.ImportCollectionRequest) Result[dto.ImportCollectionResponse] {
+	if err := portability.CheckFileSize(len(req.Content)); err != nil {
+		return Err[dto.ImportCollectionResponse](err)
+	}
 	opt, err := importOpt(req.WorkspaceID, req.ParentID, false)
 	if err != nil {
 		return Err[dto.ImportCollectionResponse](err)
@@ -124,7 +139,7 @@ func (s *PortabilityService) LinkFetch(req dto.LinkFetchRequest) Result[dto.Impo
 	if err != nil {
 		return Err[dto.ImportPreviewResult](linkError(req.Slug, err))
 	}
-	preview, err := s.snapshots.Preview(data)
+	preview, err := s.snapshots.Preview(data, "")
 	if err != nil {
 		return Err[dto.ImportPreviewResult](fmt.Errorf("%s: %w", funcName, err))
 	}
@@ -138,18 +153,28 @@ func (s *PortabilityService) LinkFetch(req dto.LinkFetchRequest) Result[dto.Impo
 func (s *PortabilityService) ImportPreview(req dto.ImportPreviewRequest) Result[dto.ImportPreview] {
 	const funcName = "PortabilityService.ImportPreview"
 
+	if err := portability.CheckFileSize(len(req.Content)); err != nil {
+		return Err[dto.ImportPreview](err)
+	}
 	data := []byte(req.Content)
-	if postman.IsEnvironment(data) {
+	envFormat := ""
+	switch {
+	case postman.IsEnvironment(data):
+		envFormat = "Postman"
+	case hoppscotch.IsEnvironment(data):
+		envFormat = "Hoppscotch"
+	}
+	if envFormat != "" {
 		return Err[dto.ImportPreview](&domain.ReasonError{
 			Reason: portability.ReasonEnvironmentFile,
-			Err:    &domain.ValidationError{Fields: map[string]string{"content": "a Postman environment, not a collection"}},
+			Err:    &domain.ValidationError{Fields: map[string]string{"content": "a " + envFormat + " environment, not a collection"}},
 		})
 	}
-	imp, err := portability.Select(data, s.snapshots, s.postman)
+	imp, err := portability.Select(data, s.importers...)
 	if err != nil {
 		return Err[dto.ImportPreview](err)
 	}
-	preview, err := imp.Preview(data)
+	preview, err := imp.Preview(data, req.FileName)
 	if err != nil {
 		return Err[dto.ImportPreview](fmt.Errorf("%s: %w", funcName, err))
 	}
@@ -165,10 +190,14 @@ func (s *PortabilityService) ImportConfirm(req dto.ImportConfirmRequest) Result[
 			"previewId": "exactly one of previewId and content is required",
 		}})
 	}
+	if err := portability.CheckFileSize(len(req.Content)); err != nil {
+		return Err[dto.ImportConfirmResult](err)
+	}
 	opt, err := importOpt(req.WorkspaceID, req.ParentID, req.IncludeScripts)
 	if err != nil {
 		return Err[dto.ImportConfirmResult](err)
 	}
+	opt.FileName = req.FileName
 	data := []byte(req.Content)
 	if req.PreviewID != "" {
 		cached, ok := s.previews.get(req.PreviewID)
@@ -208,7 +237,7 @@ func importOpt(workspaceID string, parentID *string, includeScripts bool) (porta
 }
 
 func (s *PortabilityService) importData(ctx context.Context, data []byte, opt portability.ImportOpt) (*portability.ImportResult, error) {
-	imp, err := portability.Select(data, s.snapshots, s.postman)
+	imp, err := portability.Select(data, s.importers...)
 	if err != nil {
 		return nil, err
 	}
@@ -257,8 +286,11 @@ func (s *PortabilityService) ExportCollection(req dto.ExportCollectionRequest) R
 	return s.promptAndWrite(funcName, data, suggestedName, warnings)
 }
 
-// ImportEnvironment imports a Postman Environment JSON string.
+// ImportEnvironment imports a Postman or Hoppscotch environment JSON string.
 func (s *PortabilityService) ImportEnvironment(req dto.ImportEnvironmentRequest) Result[dto.ImportEnvironmentResponse] {
+	if err := portability.CheckFileSize(len(req.Content)); err != nil {
+		return Err[dto.ImportEnvironmentResponse](err)
+	}
 	workspaceID, err := uuid.Parse(req.WorkspaceID)
 	if err != nil {
 		return Err[dto.ImportEnvironmentResponse](&domain.ValidationError{
@@ -266,20 +298,39 @@ func (s *PortabilityService) ImportEnvironment(req dto.ImportEnvironmentRequest)
 		})
 	}
 
-	var result *postman.ImportEnvResult
+	data := []byte(req.Content)
+	if _, err := portability.Select(data, s.importers...); err == nil {
+		return Err[dto.ImportEnvironmentResponse](&domain.ReasonError{
+			Reason: portability.ReasonCollectionFile,
+			Err:    &domain.ValidationError{Fields: map[string]string{"content": "a collection, not an environment"}},
+		})
+	}
+	var result dto.ImportEnvironmentResponse
 	err = s.tx.Run(context.Background(), func(ctx context.Context) error {
-		var err error
-		result, err = postman.ImportEnvironment(ctx, []byte(req.Content), postman.ImportEnvOpts{
+		if hoppscotch.IsEnvironment(data) {
+			r, err := hoppscotch.ImportEnvironments(ctx, data, s.environmentUC,
+				portability.ImportOpt{WorkspaceID: workspaceID, UserID: defaultUserID})
+			if err != nil {
+				return err
+			}
+			result = dto.HoppscotchEnvironmentResponseFrom(r)
+			return nil
+		}
+		r, err := postman.ImportEnvironment(ctx, data, postman.ImportEnvOpts{
 			WorkspaceID: workspaceID,
 			UserID:      defaultUserID,
 		}, s.environmentUC)
-		return err
+		if err != nil {
+			return err
+		}
+		result = dto.ImportEnvironmentResponseFrom(r)
+		return nil
 	})
 	if err != nil {
 		return Err[dto.ImportEnvironmentResponse](fmt.Errorf("import failed: %w", err))
 	}
 
-	return OK(dto.ImportEnvironmentResponseFrom(result))
+	return OK(result)
 }
 
 // ExportEnvironment builds a Postman Environment JSON, prompts for a save location,

@@ -27,10 +27,11 @@ type preparedHTTP struct {
 
 	// Auth is set for the schemes the requester applies itself (digest, aws_sigv4).
 	Auth *RequestAuth
-	// AuthQueryKeys names the query parameters auth injected, so history replay
+	// AuthQueryKeys and AuthHeaderKeys name what auth injected, so history replay
 	// can strip them; Warnings carry auth problems that did not stop the send.
-	AuthQueryKeys []string
-	Warnings      []string
+	AuthQueryKeys  []string
+	AuthHeaderKeys []string
+	Warnings       []string
 }
 
 // prepareOpt tunes the pipeline for callers that must not send anything:
@@ -120,15 +121,16 @@ func (u *usecase) prepareHTTP(
 	}
 
 	prep := preparedHTTP{
-		Method:        req.Method,
-		URL:           execURL,
-		Headers:       headers,
-		BodyType:      req.BodyType,
-		RawBody:       body,
-		Vars:          vars,
-		Auth:          reqAuth,
-		AuthQueryKeys: authQueryKeys,
-		Warnings:      authWarnings,
+		Method:         req.Method,
+		URL:            execURL,
+		Headers:        headers,
+		BodyType:       req.BodyType,
+		RawBody:        body,
+		Vars:           vars,
+		Auth:           reqAuth,
+		AuthQueryKeys:  authQueryKeys,
+		AuthHeaderKeys: authHeaderKeys(ra.Type, fields),
+		Warnings:       authWarnings,
 	}
 
 	switch req.BodyType {

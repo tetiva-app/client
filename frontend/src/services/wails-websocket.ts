@@ -32,6 +32,10 @@ export class WailsWebSocketService implements WebSocketServiceAPI {
     })) as unknown as BindingResult<Record<string, never>>)
   }
 
+  async disconnectWindow(): Promise<Result<Record<string, never>>> {
+    return unwrap<Record<string, never>>(await WebSocketService.DisconnectWindow() as unknown as BindingResult<Record<string, never>>)
+  }
+
   async subscribe(
     connectionId: string,
     handlers: { onMessage: (m: WsIncoming) => void; onState: (s: WsStateEvent) => void },

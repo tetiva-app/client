@@ -56,8 +56,8 @@ func (s *Server) handleListWorkspaces(ctx context.Context, _ mcplib.CallToolRequ
 			"is_delete":           w.IsDelete,
 			"remote_workspace_id": remoteID,
 			"version":             w.Version,
-			"created_at":          w.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			"updated_at":          w.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			"created_at":          formatTimestamp(w.CreatedAt),
+			"updated_at":          formatTimestamp(w.UpdatedAt),
 		})
 	}
 
@@ -90,8 +90,8 @@ func (s *Server) handleGetWorkspace(ctx context.Context, req mcplib.CallToolRequ
 		"is_delete":           w.IsDelete,
 		"remote_workspace_id": remoteID,
 		"version":             w.Version,
-		"created_at":          w.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		"updated_at":          w.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at":          formatTimestamp(w.CreatedAt),
+		"updated_at":          formatTimestamp(w.UpdatedAt),
 	})
 }
 
@@ -111,7 +111,7 @@ func (s *Server) handleCreateWorkspace(ctx context.Context, req mcplib.CallToolR
 		"name":       w.Name,
 		"is_active":  w.IsActive,
 		"version":    w.Version,
-		"created_at": w.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at": formatTimestamp(w.CreatedAt),
 		"message":    "workspace created",
 	})
 }

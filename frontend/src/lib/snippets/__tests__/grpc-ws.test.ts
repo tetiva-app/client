@@ -6,7 +6,6 @@ import { FIXTURES, goldenFixtures } from '../__fixtures__/fixtures'
 
 const HAS_BASH = spawnSync('bash', ['-c', 'true']).status === 0
 const GOLDEN = goldenFixtures()
-const PLAINTEXT = 'Tetiva sends gRPC without TLS; drop -plaintext for TLS servers'
 const NO_METHOD = 'Choose a service and method; the command uses a placeholder'
 const MULTILINE = 'Each line becomes a separate message in websocat'
 const NO_HEADERS = 'Browsers cannot send custom WebSocket headers'
@@ -64,7 +63,7 @@ describe('grpcurl', () => {
   it('passes each metadata value and the message through the shell unchanged', () => {
     const input = FIXTURES.grpc_metadata
     const r = generate(input, 'grpcurl')
-    expect(r.warnings).toEqual([PLAINTEXT])
+    expect(r.warnings).toEqual([])
     expect(r.code).toMatch(/^grpcurl -plaintext \\\n/)
     expect(r.code).toContain(`-H 'x-name: O'\\''Brien'`)
     if (!HAS_BASH) return
@@ -84,9 +83,17 @@ describe('grpcurl', () => {
     for (const [service, method] of [['', ''], ['example.v1.UserService', ''], ['', 'GetUser']]) {
       const r = generate(withGrpc((g) => { g.service = service; g.method = method }), 'grpcurl')
       expect(r.code, `${service}/${method}`).toMatch(/ '<service>\/<method>'$/)
-      expect(r.warnings).toEqual([NO_METHOD, PLAINTEXT])
+      expect(r.warnings).toEqual([NO_METHOD])
       if (HAS_BASH) expect(runShell(r.code, 'grpcurl').args.at(-1)).toBe('<service>/<method>')
     }
+  })
+
+  it('drops -plaintext and the scheme for a grpcs:// address', () => {
+    const r = generate(withGrpc((g) => { g.target = 'grpcs://api.example.com' }), 'grpcurl')
+    expect(r.code).not.toContain('-plaintext')
+    expect(r.code).not.toContain('grpcs://')
+    expect(r.warnings).toEqual([])
+    if (HAS_BASH) expect(runShell(r.code, 'grpcurl').args.at(-2)).toBe('api.example.com:443')
   })
 
   it('leaves out -d when the message is empty', () => {
@@ -180,7 +187,7 @@ describe('placeholder names', () => {
     const warning = 'Variable "$HOME" contains unsafe characters and is shown as VAR_0'
     const grpc = generate(withGrpc((g) => { g.target = '{{$HOME}}:50051' }), 'grpcurl')
     expect(grpc.code).toContain("'VAR_0:50051'")
-    expect(grpc.warnings).toEqual([warning, PLAINTEXT])
+    expect(grpc.warnings).toEqual([warning])
 
     for (const key of ['websocat', 'js-websocket']) {
       const r = generate(withWs('ws_binary', (w) => { w.url = 'wss://a.io/{{$HOME}}' }), key)
@@ -202,7 +209,6 @@ describe('placeholder names', () => {
     expect(r.warnings).toEqual([
       'Variable "$HOME" contains unsafe characters and is shown as VAR_0',
       'Variable "a b" contains unsafe characters and is shown as VAR_1',
-      PLAINTEXT,
     ])
   })
 })

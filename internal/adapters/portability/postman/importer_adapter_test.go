@@ -109,7 +109,7 @@ func TestImporter_Detect(t *testing.T) {
 func TestImporter_PreviewWritesNothing(t *testing.T) {
 	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
 
-	p, err := imp.Preview(adapterFixture(t))
+	p, err := imp.Preview(adapterFixture(t), "")
 	require.NoError(t, err)
 
 	assert.Equal(t, portability.FormatPostman, p.Format)
@@ -117,8 +117,8 @@ func TestImporter_PreviewWritesNothing(t *testing.T) {
 	assert.Equal(t, 2, p.Folders)
 	assert.Equal(t, 2, p.Requests)
 	assert.Equal(t, 2, p.Examples)
-	assert.Empty(t, p.EnvironmentName)
-	assert.Equal(t, []string{"auth.example.com", "shop.example.com", "{{host}}"}, p.Hosts)
+	assert.Empty(t, p.EnvironmentNames)
+	assert.Equal(t, []string{"auth.example.com", "shop.example.com"}, p.Hosts)
 	assert.Equal(t, []portability.ScriptPreview{
 		{Path: "Shop", Phase: "pre", Text: "pm.environment.set('a', 1)"},
 		{Path: "Shop / Orders", Phase: "post", Text: "pm.test('ok', () => {})"},
@@ -135,18 +135,18 @@ func TestImporter_PreviewResolvesCollectionVariables(t *testing.T) {
 		`{"key":"legacy","value":"https://legacy.example.com","disabled":true}]`,
 		"{{baseUrl}}/pets", "{{vault}}/keys", "{{legacy}}/old")
 
-	p, err := imp.Preview(data)
+	p, err := imp.Preview(data, "")
 	require.NoError(t, err)
 
-	assert.Equal(t, "Petstore", p.EnvironmentName)
-	assert.Equal(t, []string{"petstore.example.com", "{{legacy}}", "{{vault}}"}, p.Hosts)
+	assert.Equal(t, []string{"Petstore"}, p.EnvironmentNames)
+	assert.Equal(t, []string{"petstore.example.com"}, p.Hosts)
 	assert.Empty(t, p.Warnings)
 }
 
 func TestImporter_PreviewRejectsAnOlderSchema(t *testing.T) {
 	imp := postman.NewImporter(failingCollections{}, failingRequests{}, failingExamples{}, failingEnvironments{})
 
-	_, err := imp.Preview([]byte(`{"info":{"name":"x","schema":"https://schema.getpostman.com/json/collection/v2.0.0/collection.json"},"item":[]}`))
+	_, err := imp.Preview([]byte(`{"info":{"name":"x","schema":"https://schema.getpostman.com/json/collection/v2.0.0/collection.json"},"item":[]}`), "")
 	require.Error(t, err)
 }
 

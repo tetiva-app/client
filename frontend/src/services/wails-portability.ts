@@ -3,6 +3,7 @@ import type {
   ImportEnvironmentResult,
   ExportResult,
   LinkMeta,
+  ImportFormat,
   ImportPreview,
   ImportPreviewResult,
   ImportConfirmRequest as ConfirmRequest,
@@ -42,7 +43,7 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
       data: res.data
         ? {
             environmentId: res.data.environmentId,
-            environmentName: res.data.environmentName,
+            environmentNames: res.data.environmentNames ?? [],
             variablesCreated: res.data.variablesCreated,
             warnings: res.data.warnings ?? [],
           }
@@ -72,8 +73,8 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
     return mapData(res, d => ({ previewId: d.previewId, preview: toPreview(d.preview) }))
   }
 
-  async importPreview(content: string): Promise<Result<ImportPreview>> {
-    return mapData(await PortabilityService.ImportPreview(new ImportPreviewRequest({ content })), toPreview)
+  async importPreview(content: string, fileName = ''): Promise<Result<ImportPreview>> {
+    return mapData(await PortabilityService.ImportPreview(new ImportPreviewRequest({ content, fileName })), toPreview)
   }
 
   async importConfirm(req: ConfirmRequest): Promise<Result<ImportConfirmResult>> {
@@ -81,7 +82,12 @@ export class WailsPortabilityService implements PortabilityServiceAPI {
       ...req,
       parentId: req.parentId ?? undefined,
     }))
-    return mapData(res, d => ({ ...d, warnings: d.warnings ?? [] }))
+    return mapData(res, d => ({
+      ...d,
+      environmentNames: d.environmentNames ?? [],
+      activeEnvironment: d.activeEnvironment ?? '',
+      warnings: d.warnings ?? [],
+    }))
   }
 }
 
@@ -91,14 +97,16 @@ function mapData<S, T>(res: { data?: S | null; error?: unknown }, map: (data: S)
   return { ...out, data: (out.data ? map(out.data) : undefined) as T }
 }
 
+const FORMATS: ImportFormat[] = ['tetiva', 'postman', 'insomnia', 'openapi', 'har', 'hoppscotch']
+
 function toPreview(p: ImportPreviewDTO): ImportPreview {
   return {
-    format: p.format === 'postman' ? 'postman' : 'tetiva',
+    format: FORMATS.find(f => f === p.format) ?? 'tetiva',
     title: p.title,
     folders: p.folders,
     requests: p.requests,
     examples: p.examples,
-    environmentName: p.environmentName,
+    environmentNames: p.environmentNames ?? [],
     hosts: p.hosts ?? [],
     scripts: (p.scripts ?? []).map(s => ({ path: s.path, phase: s.phase === 'post' ? 'post' : 'pre', text: s.text })),
     warnings: p.warnings ?? [],

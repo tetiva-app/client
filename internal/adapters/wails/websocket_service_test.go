@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
 	"github.com/tetiva-app/client/internal/domain/entities"
@@ -13,12 +14,13 @@ import (
 )
 
 type fakeWSUsecase struct {
-	result    ws.ConnectResult
-	connErr   error
-	opt       ws.ConnectOpt
-	sent      []ws.OutgoingMessage
-	disconnID ws.ConnectionID
-	count     int
+	result       ws.ConnectResult
+	connErr      error
+	opt          ws.ConnectOpt
+	sent         []ws.OutgoingMessage
+	disconnID    ws.ConnectionID
+	disconnOwner *string
+	count        int
 }
 
 func (f *fakeWSUsecase) Connect(_ context.Context, opt ws.ConnectOpt) (ws.ConnectResult, error) {
@@ -33,6 +35,10 @@ func (f *fakeWSUsecase) Disconnect(_ context.Context, id ws.ConnectionID) error 
 	f.disconnID = id
 	return nil
 }
+func (f *fakeWSUsecase) DisconnectOwner(_ context.Context, owner string) error {
+	f.disconnOwner = &owner
+	return nil
+}
 func (f *fakeWSUsecase) DisconnectAll(_ context.Context) error { return nil }
 func (f *fakeWSUsecase) Count() int                            { return f.count }
 
@@ -45,7 +51,7 @@ func TestWSServiceConnectOK(t *testing.T) {
 	}}
 	svc := NewWebSocketService(fake, NewWebSocketEventSink())
 	connID := uuid.New()
-	res := svc.Connect(dto.WSConnectRequest{
+	res := svc.Connect(context.Background(), dto.WSConnectRequest{
 		RequestID:    uuid.New().String(),
 		WorkspaceID:  uuid.New().String(),
 		ConnectionID: connID.String(),
@@ -74,7 +80,7 @@ func TestWSServiceConnectFailedHandshakeIsData(t *testing.T) {
 		Script: &entities.ScriptResult{PreConsole: []string{"hi"}},
 	}}
 	svc := NewWebSocketService(fake, NewWebSocketEventSink())
-	res := svc.Connect(dto.WSConnectRequest{
+	res := svc.Connect(context.Background(), dto.WSConnectRequest{
 		RequestID:    uuid.New().String(),
 		WorkspaceID:  uuid.New().String(),
 		ConnectionID: uuid.New().String(),
@@ -92,7 +98,7 @@ func TestWSServiceConnectFailedHandshakeIsData(t *testing.T) {
 
 func TestWSServiceConnectUsecaseErrorIsError(t *testing.T) {
 	svc := NewWebSocketService(&fakeWSUsecase{connErr: errors.New("boom")}, NewWebSocketEventSink())
-	res := svc.Connect(dto.WSConnectRequest{
+	res := svc.Connect(context.Background(), dto.WSConnectRequest{
 		RequestID:    uuid.New().String(),
 		WorkspaceID:  uuid.New().String(),
 		ConnectionID: uuid.New().String(),
@@ -104,11 +110,11 @@ func TestWSServiceConnectUsecaseErrorIsError(t *testing.T) {
 
 func TestWSServiceConnectBadUUID(t *testing.T) {
 	svc := NewWebSocketService(&fakeWSUsecase{}, NewWebSocketEventSink())
-	res := svc.Connect(dto.WSConnectRequest{RequestID: "not-a-uuid", WorkspaceID: uuid.New().String(), ConnectionID: uuid.New().String()})
+	res := svc.Connect(context.Background(), dto.WSConnectRequest{RequestID: "not-a-uuid", WorkspaceID: uuid.New().String(), ConnectionID: uuid.New().String()})
 	if res.Error == nil || res.Error.Code != ErrCodeValidation {
 		t.Fatalf("expected validation error, got %+v", res.Error)
 	}
-	res = svc.Connect(dto.WSConnectRequest{RequestID: uuid.New().String(), WorkspaceID: uuid.New().String(), ConnectionID: "nope"})
+	res = svc.Connect(context.Background(), dto.WSConnectRequest{RequestID: uuid.New().String(), WorkspaceID: uuid.New().String(), ConnectionID: "nope"})
 	if res.Error == nil || res.Error.Fields["connectionId"] == "" {
 		t.Fatalf("expected a connectionId validation error, got %+v", res.Error)
 	}
@@ -152,5 +158,57 @@ func TestWSServiceSendRejectsBadBinaryAndType(t *testing.T) {
 	r = svc.Send(dto.WSSendRequest{ConnectionID: uuid.New().String(), Data: "x", MessageType: "protobuf"})
 	if r.Error == nil || r.Error.Fields["messageType"] == "" {
 		t.Fatalf("expected a messageType validation error, got %+v", r.Error)
+	}
+}
+
+type namedWindow struct {
+	application.Window
+	name string
+}
+
+func (w namedWindow) Name() string { return w.name }
+
+func windowCtx(name string) context.Context {
+	return context.WithValue(context.Background(), application.WindowKey, namedWindow{name: name})
+}
+
+func TestWSServiceConnectRecordsTheCallingWindow(t *testing.T) {
+	fake := &fakeWSUsecase{}
+	svc := NewWebSocketService(fake, NewWebSocketEventSink())
+
+	svc.Connect(windowCtx("detached-request-1"), dto.WSConnectRequest{
+		RequestID:    uuid.New().String(),
+		WorkspaceID:  uuid.New().String(),
+		ConnectionID: uuid.New().String(),
+	})
+
+	if fake.opt.Owner != "detached-request-1" {
+		t.Fatalf("owner = %q", fake.opt.Owner)
+	}
+}
+
+func TestWSServiceDisconnectWindowClosesTheCallersConnections(t *testing.T) {
+	fake := &fakeWSUsecase{}
+	svc := NewWebSocketService(fake, NewWebSocketEventSink())
+
+	if r := svc.DisconnectWindow(windowCtx("main")); r.Error != nil {
+		t.Fatalf("DisconnectWindow error: %+v", r.Error)
+	}
+
+	if fake.disconnOwner == nil || *fake.disconnOwner != "main" {
+		t.Fatalf("disconnected owner = %v", fake.disconnOwner)
+	}
+}
+
+func TestWSServiceDisconnectWindowWithoutAWindowClosesNothing(t *testing.T) {
+	fake := &fakeWSUsecase{}
+	svc := NewWebSocketService(fake, NewWebSocketEventSink())
+
+	if r := svc.DisconnectWindow(context.Background()); r.Error != nil {
+		t.Fatalf("DisconnectWindow error: %+v", r.Error)
+	}
+
+	if fake.disconnOwner != nil {
+		t.Fatalf("disconnected owner = %q", *fake.disconnOwner)
 	}
 }

@@ -1,8 +1,12 @@
 package mcp
 
 import (
+	"cmp"
 	"fmt"
+	"net/url"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -33,18 +37,8 @@ func authTypeDoc(types []entities.AuthType) string {
 	return strings.Join(names, ", ")
 }
 
-// isVariableRef reports whether a value is nothing but a template reference:
-// "session=abc; theme={{t}}" still carries a literal secret next to the placeholder.
-func isVariableRef(v string) bool {
-	t := strings.TrimSpace(v)
-	if len(t) <= 4 || !strings.HasPrefix(t, "{{") || !strings.HasSuffix(t, "}}") {
-		return false
-	}
-	return !strings.Contains(t[2:len(t)-2], "}}")
-}
-
 func maskSensitiveValue(value string, sensitive bool) string {
-	if !sensitive || value == "" || isVariableRef(value) {
+	if !sensitive || !secrets.HasLiteral(value) {
 		return value
 	}
 	return redactedValue
@@ -59,6 +53,23 @@ func maskHeaderItems(items []entities.HeaderItem) []entities.HeaderItem {
 	for i, h := range items {
 		h.Value = maskSensitiveValue(h.Value, secrets.IsSensitiveHeader(h.Key))
 		out[i] = h
+	}
+	return out
+}
+
+type headerItemDTO struct {
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Enabled bool   `json:"enabled"`
+}
+
+func headerItemDTOs(items []entities.HeaderItem) []headerItemDTO {
+	if items == nil {
+		return nil
+	}
+	out := make([]headerItemDTO, len(items))
+	for i, h := range items {
+		out[i] = headerItemDTO{Key: h.Key, Value: h.Value, Enabled: h.Enabled}
 	}
 	return out
 }
@@ -82,6 +93,115 @@ func maskResponseHeaders(headers map[string][]string) map[string][]string {
 // maskURLSecrets redacts credential query parameters.
 func maskURLSecrets(raw string) string {
 	return secrets.MaskQuery(raw, redactedValue)
+}
+
+const minScriptSecretLen = 4
+
+func sentSecrets(sent *entities.SentRequest) []string {
+	var out []string
+	add := func(v string) { out = append(out, v, url.QueryEscape(v)) }
+	for k, vs := range sent.Headers {
+		if !secrets.IsSensitiveHeader(k) && !slices.ContainsFunc(sent.AuthHeaderKeys, func(a string) bool { return strings.EqualFold(a, k) }) {
+			continue
+		}
+		for _, v := range vs {
+			if strings.EqualFold(k, "Cookie") {
+				for pair := range strings.SplitSeq(v, ";") {
+					if _, value, ok := strings.Cut(pair, "="); ok {
+						add(strings.TrimSpace(value))
+					}
+				}
+			}
+			if scheme, credential, ok := strings.Cut(v, " "); ok && !strings.ContainsAny(scheme, "=;") {
+				v = credential
+			}
+			add(v)
+		}
+	}
+	if u, err := url.Parse(sent.URL); err == nil {
+		for k, vs := range u.Query() {
+			if slices.Contains(sent.AuthQueryKeys, k) || secrets.IsSensitiveQueryParam(k) {
+				for _, v := range vs {
+					add(v)
+				}
+			}
+		}
+	}
+	return out
+}
+
+const chaiTruncateThreshold = 40
+
+// redactScriptResult also masks the prefix + "…" that chai prints for a long string.
+func redactScriptResult(r *entities.ScriptResult, values []string) *entities.ScriptResult {
+	values = slices.DeleteFunc(slices.Clone(values), func(v string) bool { return len(v) < minScriptSecretLen })
+	if len(values) == 0 {
+		return r
+	}
+	slices.SortFunc(values, func(a, b string) int { return cmp.Or(len(b)-len(a), strings.Compare(a, b)) })
+	values = slices.Compact(values)
+	pairs := make([]string, 0, 2*len(values))
+	for _, v := range values {
+		pairs = append(pairs, v, redactedValue)
+	}
+	rep := strings.NewReplacer(pairs...)
+	redact := func(s string) string { return maskTruncated(rep.Replace(s), values) }
+
+	out := *r
+	out.PreConsole = replaceLines(redact, r.PreConsole)
+	out.PostConsole = replaceLines(redact, r.PostConsole)
+	out.Tests = slices.Clone(r.Tests)
+	for i := range out.Tests {
+		out.Tests[i].Name = redact(out.Tests[i].Name)
+		out.Tests[i].Error = redact(out.Tests[i].Error)
+	}
+	out.Errors = slices.Clone(r.Errors)
+	for i := range out.Errors {
+		out.Errors[i].Message = redact(out.Errors[i].Message)
+	}
+	return &out
+}
+
+func maskTruncated(s string, values []string) string {
+	const ellipsis = "…"
+	if !strings.Contains(s, ellipsis) {
+		return s
+	}
+	var b strings.Builder
+	for {
+		head, rest, found := strings.Cut(s, ellipsis)
+		if !found {
+			b.WriteString(s)
+			return b.String()
+		}
+		if n := truncatedSecret(head, values); n > 0 {
+			b.WriteString(head[:len(head)-n])
+			b.WriteString(redactedValue)
+		} else {
+			b.WriteString(head)
+			b.WriteString(ellipsis)
+		}
+		s = rest
+	}
+}
+
+func truncatedSecret(head string, values []string) int {
+	for n := min(len(head), chaiTruncateThreshold); n >= minScriptSecretLen; n-- {
+		for _, v := range values {
+			if n < len(v) && strings.HasPrefix(v, head[len(head)-n:]) {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func replaceLines(redact func(string) string, lines []string) []string {
+	out := slices.Clone(lines)
+	for i := range out {
+		out[i] = redact(out[i])
+	}
+	return out
 }
 
 // maskVariableValue redacts variables the user flagged as secret.
@@ -322,13 +442,13 @@ func headersFromArg(req mcplib.CallToolRequest, name string) []entities.HeaderIt
 			continue
 		}
 		h := entities.HeaderItem{Enabled: true}
-		if k, ok := obj["key"].(string); ok {
+		if k, ok := headerField(obj, "key").(string); ok {
 			h.Key = k
 		}
-		if val, ok := obj["value"].(string); ok {
+		if val, ok := headerField(obj, "value").(string); ok {
 			h.Value = val
 		}
-		if en, ok := obj["enabled"].(bool); ok {
+		if en, ok := headerField(obj, "enabled").(bool); ok {
 			h.Enabled = en
 		}
 		if h.Key == "" {
@@ -337,6 +457,13 @@ func headersFromArg(req mcplib.CallToolRequest, name string) []entities.HeaderIt
 		out = append(out, h)
 	}
 	return out
+}
+
+func headerField(obj map[string]any, name string) any {
+	if v, ok := obj[name]; ok {
+		return v
+	}
+	return obj[strings.ToUpper(name[:1])+name[1:]]
 }
 
 // Accepts either [{"key","value"}, ...] or {"key": ["v1","v2"]}.
@@ -374,6 +501,10 @@ func grpcMetadataFromArg(req mcplib.CallToolRequest, name string) map[string][]s
 	return out
 }
 
+func formatTimestamp(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
 func serializeCollection(c *entities.Collection) map[string]any {
 	return map[string]any{
 		"id":           c.ID.String(),
@@ -388,8 +519,8 @@ func serializeCollection(c *entities.Collection) map[string]any {
 		"sort_order":   c.SortOrder,
 		"version":      c.Version,
 		"is_delete":    c.IsDelete,
-		"created_at":   c.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		"updated_at":   c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at":   formatTimestamp(c.CreatedAt),
+		"updated_at":   formatTimestamp(c.UpdatedAt),
 	}
 }
 
@@ -402,7 +533,7 @@ func serializeRequest(r *entities.Request) map[string]any {
 		"protocol":            string(r.Protocol),
 		"method":              string(r.Method),
 		"url":                 maskURLSecrets(r.URL),
-		"headers":             maskHeaderItems(r.Headers),
+		"headers":             headerItemDTOs(maskHeaderItems(r.Headers)),
 		"body":                r.Body,
 		"body_type":           string(r.BodyType),
 		"auth_type":           string(r.AuthType),
@@ -420,7 +551,7 @@ func serializeRequest(r *entities.Request) map[string]any {
 		"sort_order":          r.SortOrder,
 		"version":             r.Version,
 		"is_delete":           r.IsDelete,
-		"created_at":          r.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		"updated_at":          r.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		"created_at":          formatTimestamp(r.CreatedAt),
+		"updated_at":          formatTimestamp(r.UpdatedAt),
 	}
 }

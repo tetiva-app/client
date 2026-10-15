@@ -4,8 +4,11 @@ import { onClickOutside, useEventListener } from '@vueuse/core'
 import { Search, Filter as FilterIcon } from 'lucide-vue-next'
 import { useHistoryStore } from '@/stores/history'
 import HistoryFilterPopover from './HistoryFilterPopover.vue'
+import { useCopy } from '@/composables/useLocale'
+import { HISTORY_COPY } from './copy'
 
 const store = useHistoryStore()
+const copy = useCopy(HISTORY_COPY)
 
 const urlInput = ref(store.filter.urlContains)
 let debounce: ReturnType<typeof setTimeout> | undefined
@@ -52,7 +55,7 @@ useEventListener('keydown', (e: KeyboardEvent) => {
       <input
         v-model="urlInput"
         type="text"
-        placeholder="Search URL..."
+        :placeholder="copy.search"
         class="w-full h-8 pl-7 pr-2 text-xs bg-input border border-border rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary/40"
       />
     </div>
@@ -66,7 +69,7 @@ useEventListener('keydown', (e: KeyboardEvent) => {
             ? 'bg-primary/15 border-primary/55 text-primary'
             : 'bg-input border-border text-muted-foreground hover:text-foreground'
         "
-        title="Filters"
+        :title="copy.filters"
         @click="popoverOpen = !popoverOpen"
       >
         <FilterIcon class="size-3.5" />

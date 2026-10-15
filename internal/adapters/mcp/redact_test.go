@@ -3,13 +3,20 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/usecase/environment"
+	"github.com/tetiva-app/client/internal/domain/usecase/request"
+	"github.com/tetiva-app/client/internal/infrastructure/scriptengine"
+	"github.com/tetiva-app/client/internal/race"
 )
 
 func TestMaskURLSecrets(t *testing.T) {
@@ -89,8 +96,8 @@ func TestServer_SerializedRequest_MasksSecrets(t *testing.T) {
 
 	assert.Equal(t, "https://api.example.com/u?api_key="+redactedValue+"&page=2", created["url"])
 	headers := created["headers"].([]any)
-	assert.Equal(t, redactedValue, headers[0].(map[string]any)["Value"])
-	assert.Equal(t, "on", headers[1].(map[string]any)["Value"])
+	assert.Equal(t, redactedValue, headers[0].(map[string]any)["value"])
+	assert.Equal(t, "on", headers[1].(map[string]any)["value"])
 
 	listRes := callTool(t, srv, "list_requests", map[string]any{"collection_id": col["id"].(string)})
 	var listed map[string]any
@@ -119,20 +126,6 @@ func callToolJSON(t *testing.T, srv *Server, name string, args map[string]any) m
 	return out
 }
 
-// headerArgs turns a serialized headers array back into tool arguments, which is
-// what an agent editing a request it just read has to do.
-func headerArgs(t *testing.T, serialized any) []map[string]any {
-	t.Helper()
-	items, ok := serialized.([]any)
-	require.True(t, ok, "headers is not an array: %v", serialized)
-	out := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		h := item.(map[string]any)
-		out = append(out, map[string]any{"key": h["Key"], "value": h["Value"], "enabled": h["Enabled"]})
-	}
-	return out
-}
-
 func TestUpdateRequest_EchoedMaskKeepsStoredSecrets(t *testing.T) {
 	srv := setupTestServer(t)
 	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "Echo"})
@@ -154,7 +147,7 @@ func TestUpdateRequest_EchoedMaskKeepsStoredSecrets(t *testing.T) {
 	require.Contains(t, read["url"], redactedValue)
 
 	// Adding one header means resending the whole array, masks included.
-	echoed := append(headerArgs(t, read["headers"]),
+	echoed := append(read["headers"].([]any),
 		map[string]any{"key": "X-New", "value": "added", "enabled": true})
 	callToolJSON(t, srv, "update_request", map[string]any{
 		"id":        created["id"],
@@ -299,11 +292,33 @@ func TestMaskHeaderItems_PartialTemplateStaysMasked(t *testing.T) {
 	out := maskHeaderItems([]entities.HeaderItem{
 		{Key: "Cookie", Value: "session=REALSECRET; theme={{theme}}"},
 		{Key: "Cookie", Value: " {{session}} "},
-		{Key: "Authorization", Value: "Bearer {{token}}"},
+		{Key: "Authorization", Value: "Bearer abc{{suffix}}"},
+		{Key: "Authorization", Value: "Bearer {{a}}.{{b}}"},
 	})
 	assert.Equal(t, redactedValue, out[0].Value)
 	assert.Equal(t, " {{session}} ", out[1].Value)
 	assert.Equal(t, redactedValue, out[2].Value)
+	assert.Equal(t, redactedValue, out[3].Value)
+}
+
+func TestMaskHeaderItems_SchemeWithReferenceStaysVisible(t *testing.T) {
+	out := maskHeaderItems([]entities.HeaderItem{
+		{Key: "Authorization", Value: "Bearer {{token}}"},
+		{Key: "Authorization", Value: "Basic {{credentials}}"},
+		{Key: "X-API-Key", Value: "ApiKey {{key}}"},
+		{Key: "Authorization", Value: "Bearer abc123"},
+		{Key: "Authorization", Value: "Basic dXNlcjpwYXNz"},
+		{Key: "Authorization", Value: "Bearer {{a}}{{b}}"},
+	})
+	assert.Equal(t, "Bearer {{token}}", out[0].Value)
+	assert.Equal(t, "Basic {{credentials}}", out[1].Value)
+	assert.Equal(t, "ApiKey {{key}}", out[2].Value)
+	assert.Equal(t, redactedValue, out[3].Value)
+	assert.Equal(t, redactedValue, out[4].Value)
+	assert.Equal(t, "Bearer {{a}}{{b}}", out[5].Value)
+
+	md := maskResponseHeaders(map[string][]string{"authorization": {"Bearer {{token}}", "Bearer abc123"}})
+	assert.Equal(t, []string{"Bearer {{token}}", redactedValue}, md["authorization"])
 }
 
 func TestUpdateCollection_KeepsOmittedFields(t *testing.T) {
@@ -571,4 +586,161 @@ func TestMaskSecrets_WholeNameTokensOnly(t *testing.T) {
 	})
 	assert.Equal(t, []string{"true"}, resp["Access-Control-Allow-Credentials"])
 	assert.Equal(t, []string{redactedValue}, resp["Idempotency-Key"])
+}
+
+func TestSendRequest_ScriptOutputHidesSecretsMaskedElsewhere(t *testing.T) {
+	const token = "tok-0123456789abcdefghijklmnopqrstuvwxyz"
+	const cookie = "sid=8f14e45fceea167a"
+	srv := setupExecServer(t,
+		&stubHTTPRequester{response: &entities.Response{
+			StatusCode: 200, StatusText: "200 OK", Protocol: entities.ProtocolHTTP,
+			Headers: map[string][]string{"Set-Cookie": {cookie}, "X-Trace": {"t-1"}},
+		}},
+		&stubEnvResolver{vars: map[string]string{"token": token, "region": "eu-west"}},
+		scriptengine.NewGojaEngine(),
+		&stubScriptResolver{post: `
+			console.log("token " + pm.environment.get("token"));
+			pm.test("token", function () { pm.expect(pm.environment.get("token")).to.equal("other") });
+			pm.test("cookie", function () { pm.response.to.have.header("Set-Cookie", "sid=other") });
+			pm.test("region", function () { pm.expect(pm.environment.get("region")).to.equal("us") });
+		`},
+	)
+
+	env := callToolJSON(t, srv, "create_environment", map[string]any{"name": "Prod"})
+	callToolJSON(t, srv, "create_variable", map[string]any{"environment_id": env["id"], "key": "token", "value": token, "is_secret": true})
+	callToolJSON(t, srv, "create_variable", map[string]any{"environment_id": env["id"], "key": "region", "value": "eu-west"})
+	require.NoError(t, srv.envUC.SetActive(context.Background(), environment.SetActiveOpt{
+		WorkspaceID: uuid.MustParse(defaultWorkspaceID), EnvironmentID: uuid.MustParse(env["id"].(string)),
+	}))
+
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "API"})
+	created := callToolJSON(t, srv, "create_request", map[string]any{"collection_id": col["id"], "name": "Me", "url": "https://api.example.com/me"})
+	raw := callTool(t, srv, "send_request", map[string]any{"id": created["id"]})
+
+	assert.NotContains(t, raw, "0123456789")
+	assert.NotContains(t, raw, "8f14e45f")
+	assert.Contains(t, raw, "eu-west")
+	assert.Contains(t, raw, "t-1")
+
+	var sent struct {
+		ScriptResult entities.ScriptResult `json:"script_result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &sent))
+	assert.Equal(t, []string{"token [redacted]"}, sent.ScriptResult.PostConsole)
+	require.Len(t, sent.ScriptResult.Tests, 3)
+	assert.Equal(t, "AssertionError: expected '[redacted]' to equal 'other'", sent.ScriptResult.Tests[0].Error)
+	assert.Equal(t, "AssertionError: expected response header 'Set-Cookie' to be 'sid=other' but got '[redacted]'", sent.ScriptResult.Tests[1].Error)
+	assert.Equal(t, "AssertionError: expected 'eu-west' to equal 'us'", sent.ScriptResult.Tests[2].Error)
+}
+
+func TestSendRequest_ScriptOutputHidesTheRequestsOwnAuth(t *testing.T) {
+	const bearer = "tok_live_0123456789abcdef"
+	const apiKey = "ak_live_fedcba9876543210"
+	srv := setupExecServer(t,
+		&stubHTTPRequester{response: &entities.Response{
+			StatusCode: 200, StatusText: "200 OK", Protocol: entities.ProtocolHTTP,
+			Headers: map[string][]string{}, Body: `{"auth":"Bearer ` + bearer + `"}`,
+		}},
+		&stubEnvResolver{vars: map[string]string{"apiKey": apiKey}},
+		scriptengine.NewGojaEngine(),
+		&stubScriptResolver{post: `
+			console.log("key " + pm.environment.get("apiKey"));
+			pm.test("echo", function () { pm.expect(pm.response.json().auth).to.equal("Bearer other") });
+		`},
+	)
+
+	keyed := callToolJSON(t, srv, "create_collection", map[string]any{
+		"name": "Keyed", "auth_type": "api_key", "auth_data": `{"key":"appid","value":"{{apiKey}}","addTo":"header"}`,
+	})
+	inherits := callToolJSON(t, srv, "create_request", map[string]any{"collection_id": keyed["id"], "name": "Inherits", "url": "https://api.example.com/me"})
+	own := callToolJSON(t, srv, "create_request", map[string]any{
+		"collection_id": keyed["id"], "name": "Own", "url": "https://api.example.com/me",
+		"auth_type": "bearer", "auth_data": `{"token":"` + bearer + `"}`,
+	})
+
+	var sent struct {
+		ScriptResult entities.ScriptResult `json:"script_result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(callTool(t, srv, "send_request", map[string]any{"id": inherits["id"]})), &sent))
+	assert.Equal(t, []string{"key [redacted]"}, sent.ScriptResult.PostConsole)
+
+	require.NoError(t, json.Unmarshal([]byte(callTool(t, srv, "send_request", map[string]any{"id": own["id"]})), &sent))
+	require.Len(t, sent.ScriptResult.Tests, 1)
+	assert.Equal(t, "AssertionError: expected 'Bearer [redacted]' to equal 'Bearer other'", sent.ScriptResult.Tests[0].Error)
+	assert.Equal(t, []string{"key " + apiKey}, sent.ScriptResult.PostConsole)
+}
+
+type echoAuthRequester struct{}
+
+func (echoAuthRequester) Execute(_ context.Context, req request.HTTPExecuteRequest) (*entities.Response, error) {
+	return &entities.Response{
+		StatusCode: 200, StatusText: "200 OK", Protocol: entities.ProtocolHTTP,
+		Headers: map[string][]string{}, Body: strings.Join(append(req.Headers["Authorization"], req.Headers["Cookie"]...), ","),
+	}, nil
+}
+
+func TestSendRequest_ScriptOutputHidesTheCredentialsActuallySent(t *testing.T) {
+	srv := setupExecServer(t, echoAuthRequester{},
+		&stubEnvResolver{vars: map[string]string{"token": "tok_stored_0123456789"}},
+		scriptengine.NewGojaEngine(),
+		&stubScriptResolver{
+			pre:  `if (pm.request.url.indexOf("rotate") >= 0) pm.environment.set("token", "tok_rotated_9876543210");`,
+			post: `console.log("url " + pm.request.url); console.log("sent " + pm.response.text());`,
+		},
+	)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "C"})
+	send := func(fields map[string]any) []string {
+		t.Helper()
+		fields["collection_id"] = col["id"]
+		r := callToolJSON(t, srv, "create_request", fields)
+		var sent struct {
+			ScriptResult entities.ScriptResult `json:"script_result"`
+		}
+		out := callTool(t, srv, "send_request", map[string]any{"id": r["id"]})
+		require.NoError(t, json.Unmarshal([]byte(out), &sent), out)
+		return sent.ScriptResult.PostConsole
+	}
+	const jwt = `{"alg":"HS256","secret":"supersecretsigningkey123","payload":"{\"sub\":\"1\"}"`
+
+	assert.Equal(t, []string{"url https://api.example.com/me", "sent Bearer [redacted]"}, send(map[string]any{
+		"name": "JWT", "url": "https://api.example.com/me", "auth_type": "jwt", "auth_data": jwt + `}`,
+	}))
+	assert.Equal(t, []string{"url https://api.example.com/me?token=[redacted]", "sent "}, send(map[string]any{
+		"name": "JWT in query", "url": "https://api.example.com/me", "auth_type": "jwt", "auth_data": jwt + `,"addTo":"query"}`,
+	}))
+	assert.Equal(t, []string{"url https://api.example.com/rotate", "sent Bearer [redacted]"}, send(map[string]any{
+		"name": "Rotated", "url": "https://api.example.com/rotate", "auth_type": "bearer", "auth_data": `{"token":"{{token}}"}`,
+	}))
+	assert.Equal(t, []string{"url https://api.example.com/me?appid=[redacted]", "sent "}, send(map[string]any{
+		"name": "Query key", "url": "https://api.example.com/me",
+		"auth_type": "api_key", "auth_data": `{"key":"appid","value":"k+y/z=1&2 ok","addTo":"query"}`,
+	}))
+	assert.Equal(t, []string{"url https://api.example.com/me", "sent [redacted]"}, send(map[string]any{
+		"name": "Cookie", "url": "https://api.example.com/me",
+		"headers": []map[string]any{{"key": "Cookie", "value": "sid=abc123; theme=dark", "enabled": true}},
+	}))
+}
+
+func TestRedactScriptResult_MasksEachCookieSent(t *testing.T) {
+	sent := &entities.SentRequest{Headers: map[string][]string{"Cookie": {"sid=manual_secret_123456; theme=dark; id=7"}}}
+
+	r := redactScriptResult(&entities.ScriptResult{PostConsole: []string{"sid manual_secret_123456", "id 7"}}, sentSecrets(sent))
+
+	assert.Equal(t, []string{"sid [redacted]", "id 7"}, r.PostConsole)
+}
+
+func TestRedactScriptResult_LargeSecretStaysCheap(t *testing.T) {
+	secret := strings.Repeat("0123456789abcdef", 4<<10)
+	r := &entities.ScriptResult{PostConsole: []string{"whole " + secret, "cut '" + secret[:37] + "…'"}}
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	start := time.Now()
+	out := redactScriptResult(r, []string{secret})
+	elapsed := time.Since(start)
+	runtime.ReadMemStats(&after)
+
+	assert.Equal(t, []string{"whole [redacted]", "cut '[redacted]'"}, out.PostConsole)
+	assert.Less(t, elapsed, time.Second*race.Slowdown)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(8<<20))
 }

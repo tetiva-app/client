@@ -6796,6 +6796,28 @@ function commentLine(language, text3) {
   return language === "shell" || language === "python" ? `# ${safe}` : `// ${safe}`;
 }
 
+// src/lib/grpc-address.ts
+var SCHEME = /^(grpcs?|https?):\/\//i;
+function isGrpcTls(address) {
+  return /^(grpcs|https):\/\//i.test(address.trim());
+}
+function grpcTarget(address) {
+  const trimmed = address.trim();
+  const m = SCHEME.exec(trimmed);
+  if (!m) return { target: trimmed, tls: false };
+  const rest = trimmed.slice(m[0].length).replace(/\/$/, "");
+  const tls = isGrpcTls(trimmed);
+  return { target: tls && !hasPort(rest) && !rest.includes("{{") ? withPort443(rest) : rest, tls };
+}
+function hasPort(host) {
+  const close = host.lastIndexOf("]");
+  return close >= 0 ? host.slice(close + 1).startsWith(":") : host.split(":").length === 2;
+}
+function withPort443(host) {
+  const bare = host.replace(/^\[(.*)\]$/, "$1");
+  return bare.includes(":") ? `[${bare}]:443` : `${bare}:443`;
+}
+
 // src/lib/snippets/own/encode.ts
 function shellQuote(s) {
   return `'${s.replaceAll("'", "'\\''")}'`;
@@ -6975,20 +6997,20 @@ function authorityRange(url) {
 }
 
 // src/lib/snippets/grpc.ts
-var PLAINTEXT = "Tetiva sends gRPC without TLS; drop -plaintext for TLS servers";
 var NO_METHOD = "Choose a service and method; the command uses a placeholder";
 function renderGrpcurl(g) {
   const names = snippetNames();
   const quote2 = (...parts) => shellQuote(names.safe(...parts));
-  const args = ["-plaintext"];
+  const { target, tls } = grpcTarget(g.target);
+  const args = tls ? [] : ["-plaintext"];
   for (const key of Object.keys(g.metadata).sort()) {
     for (const value of g.metadata[key]) args.push(`-H ${quote2(key, ": ", value)}`);
   }
   if (g.message.trim()) args.push(`-d ${quote2(g.message)}`);
   const chosen = g.service.trim() !== "" && g.method.trim() !== "";
-  args.push(quote2(g.target), chosen ? quote2(g.service, "/", g.method) : shellQuote("<service>/<method>"));
+  args.push(quote2(target), chosen ? quote2(g.service, "/", g.method) : shellQuote("<service>/<method>"));
   const notes = chosen ? [] : [NO_METHOD];
-  return { code: `grpcurl ${args.join(" \\\n  ")}`, warnings: [...names.warnings, ...notes, PLAINTEXT] };
+  return { code: `grpcurl ${args.join(" \\\n  ")}`, warnings: [...names.warnings, ...notes] };
 }
 
 // src/lib/snippets/types.ts

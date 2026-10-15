@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/tetiva-app/client/internal/domain/entities"
+import (
+	"time"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
+)
 
 type CreateWorkspaceRequest struct {
 	Name string `json:"name"`
@@ -38,8 +42,8 @@ func WorkspaceToResponse(w *entities.Workspace) WorkspaceResponse {
 		IsActive:          w.IsActive,
 		Version:           w.Version,
 		RemoteWorkspaceID: w.RemoteWorkspaceID,
-		CreatedAt:         w.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:         w.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:         w.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:         w.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

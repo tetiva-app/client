@@ -42,4 +42,9 @@ describe('SETTINGS_COPY', () => {
         .toEqual(['about', 'editor', 'interface', 'mcp', 'publishing', 'updates'])
     }
   })
+
+  it('names import, environments and history among the translated parts', () => {
+    expect(SETTINGS_COPY.en.interface.translated).toContain('import, environments, history')
+    expect(SETTINGS_COPY.ru.interface.translated).toContain('импорт, окружения, история')
+  })
 })

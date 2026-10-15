@@ -1,6 +1,9 @@
 package request
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type ScriptContext struct {
 	Variables          map[string]string
@@ -11,6 +14,7 @@ type ScriptContext struct {
 	ResponseBody       string              // post-script only
 	ResponseHeaders    map[string][]string // post-script only
 	ResponseStatusText string              // post-script only (gRPC status name)
+	ResponseTime       time.Duration       // post-script only
 	// gRPC-specific fields (nil/empty for HTTP)
 	Protocol   string              // "http" | "grpc" | "graphql"
 	Metadata   map[string][]string // gRPC metadata

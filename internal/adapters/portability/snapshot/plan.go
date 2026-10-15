@@ -115,15 +115,11 @@ func (p *plan) name(kind, parentPath, raw string) string {
 }
 
 func (p *plan) description(label, s string) string {
-	if len(s) <= domain.MaxDescriptionLen {
-		return s
+	text, warning := portability.ClampDescription(label, s)
+	if warning != "" {
+		p.warn(warning)
 	}
-	cut := domain.MaxDescriptionLen
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	p.warn(fmt.Sprintf("%s: description longer than %d bytes was truncated", label, domain.MaxDescriptionLen))
-	return s[:cut]
+	return text
 }
 
 // On a collection none already passes auth through, so null and inherit map to none.

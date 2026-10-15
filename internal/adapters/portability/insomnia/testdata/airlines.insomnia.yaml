@@ -1,0 +1,236 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Insomnia Airlines
+meta:
+  id: wrk_b2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7
+  created: 1779753600000
+  modified: 1779753600000
+  description: Flights and bookings.
+collection:
+  - name: Flights
+    meta:
+      id: fld_87b0432032bf4237977594affb1976fb
+      created: 1779816124318
+      modified: 1779816364828
+      sortKey: -1779816124318
+      description: Search and manage flights.
+    children:
+      - url: "{{ _.base_url }}/flights/:flightId"
+        name: Get flight
+        meta:
+          id: req_70759093fbcf498996c1da257b8e6f8b
+          created: 1779816145656
+          modified: 1779816330205
+          isPrivate: false
+          description: Returns one flight.
+          sortKey: -1779816145656
+        method: GET
+        parameters:
+          - name: include
+            value: crew
+            disabled: false
+          - name: verbose
+            value: "true"
+            disabled: true
+        pathParameters:
+          - name: flightId
+            value: "{{ _.default_flight }}"
+        headers:
+          - name: Authorization
+            value: Bearer {{ _.auth_token }}
+            disabled: false
+        scripts:
+          afterResponse: |-
+            insomnia.test('Status is 200', () => {
+              insomnia.expect(insomnia.response.status).to.eql(200);
+            });
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.base_url }}/flights"
+        name: Add flight
+        meta:
+          id: req_ba5048ee5a0248d18f1b27cd82ecc6c9
+          created: 1778267676046
+          modified: 1778267676046
+          isPrivate: false
+          description: ""
+          sortKey: -1778267676046
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "number": "IA{% prompt 'Flight number', '', '101' %}",
+              "origin": "{{ _.origin }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+        authentication:
+          type: basic
+          useISO88591: false
+          username: "{{ _['ops-user'] }}"
+          password: ""
+          disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+    scripts:
+      preRequest: |-
+        insomnia.environment.set('started', Date.now());
+    authentication:
+      type: apikey
+      key: X-Api-Key
+      value: "{{ _.vault.api_key }}"
+      addTo: queryParams
+      disabled: false
+    environment:
+      origin: YYZ
+    environmentPropertyOrder:
+      "&":
+        - origin
+  - url: wss://{{ _.ws_host }}/boarding
+    name: Boarding updates
+    meta:
+      id: ws-req_89505c5538ea4130b3075b5cfa379f0a
+      created: 1661942202873
+      modified: 1661942223227
+      sortKey: -1661942202873
+    settings:
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+    authentication:
+      type: bearer
+      token: "{{ _.auth_token }}"
+      disabled: false
+    headers:
+      - name: X-Gate
+        value: B12
+  - url: localhost:50051
+    name: Route chat
+    meta:
+      id: greq_85d23a4f6a50465cac85791fd8652046
+      created: 1638201149312
+      modified: 1669986566981
+      isPrivate: false
+      sortKey: -1638200268676
+    body:
+      text: |-
+        {
+        	"message": "{{ _.greeting }}"
+        }
+    metadata:
+      - name: x-crew
+        value: "{{ _.crew_id }}"
+    protoFileId: pf_5ec276c683544562935672a39ed2abe7
+    protoMethodName: /routeguide.RouteGuide/RouteChat
+    reflectionApi:
+      enabled: false
+      url: https://buf.build
+      apiKey: ""
+      module: buf.build/connectrpc/eliza
+  - url: "{{ _.base_url }}/graphql"
+    name: Departures
+    meta:
+      id: req_d7540e876f894c07969fa8b8616d7923
+      created: 1655289826760
+      modified: 1655289849596
+      isPrivate: false
+      sortKey: -1655289826760
+    method: POST
+    body:
+      mimeType: application/graphql
+      text: '{"query":"query($airport: String) {\n\tdepartures(airport: $airport) { number }\n}", "variables": "{ \"airport\": \"{{ _.origin }}\" }"}'
+    headers:
+      - name: Content-Type
+        value: application/json
+    authentication:
+      type: hawk
+      id: hawk-id
+      key: hawk-key
+      algorithm: sha256
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: http://localhost:4010/socket.io
+    name: Chat
+    meta:
+      id: socketio-req_7f1e2d3c4b5a69788796a5b4c3d2e1f0
+      created: 1661942202873
+      modified: 1661942223227
+    settings:
+      encodeUrl: true
+      cookies:
+        send: true
+        store: true
+    eventListeners:
+      - id: listener_1
+        eventName: message
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+    created: 1779753600000
+    modified: 1781112672829
+environments:
+  name: Base Environment
+  meta:
+    id: env_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+    created: 1779753600000
+    modified: 1781112672830
+    isPrivate: false
+  data:
+    base_url: https://{{ _.host }}/api
+    ops-user: dispatcher
+    auth_token: null
+    default_flight: IA101
+    crew:
+      captain: Rivera
+  subEnvironments:
+    - name: Staging
+      meta:
+        id: env_ce01ec4776894c65bdac6257f386682e
+        created: 1779815070437
+        modified: 1779815572862
+        isPrivate: false
+        sortKey: 1779815070437
+      data:
+        host: staging.airlines.example
+        ws_host: ws.staging.airlines.example
+      color: "#ca2121"
+    - name: Empty Env
+      meta:
+        id: env_78889bc1bfad49a19d1d56fe11578272
+        created: 1779815546981
+        modified: 1781112672830
+        isPrivate: false
+        sortKey: 1779815546981
+testSuites:
+  - name: Smoke
+    meta:
+      id: uts_7af6f78f43e84c8eae85b4287c2268ae
+    tests:
+      - name: Returns 200
+        requestId: req_70759093fbcf498996c1da257b8e6f8b
+        code: |-
+          const response1 = await insomnia.send();
+          expect(response1.status).to.equal(200);

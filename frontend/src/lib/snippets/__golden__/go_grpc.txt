@@ -6,5 +6,3 @@ grpcurl -plaintext \
 }' \
   'localhost:50051' \
   'example.v1.UserService/GetUser'
---- warnings ---
-Tetiva sends gRPC without TLS; drop -plaintext for TLS servers

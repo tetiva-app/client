@@ -10,7 +10,7 @@ test.describe('Import / Export Management', () => {
     const envDialog = page.getByRole('dialog').filter({ hasText: 'Manage Environments' });
     await expect(envDialog).toBeVisible();
 
-    const importBtn = envDialog.locator('button[title="Import Postman Environment"]');
+    const importBtn = envDialog.locator('button[title="Import a Postman or Hoppscotch environment"]');
     await expect(importBtn).toBeVisible();
 
     // waitForEvent('filechooser') must be registered before the click

@@ -6,10 +6,12 @@ import { useEnvModalUi } from '@/stores/envModalUi'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getPortabilityService } from '@/services'
 import { guarded } from '@/lib/service-call'
-import { warningsToastMessage } from '@/lib/auth-warnings'
 import { useToast } from '@/composables/useToast'
 import { useConfirmDelete } from '@/composables/useConfirmDelete'
-import { importedEnvironmentText, importErrorText } from '@/composables/useImportFlow'
+import { useCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { ENVIRONMENT_COPY } from '@/components/environments/copy'
+import { fileTooLargeText, importedEnvironmentText, importErrorText, importWarningsText } from '@/composables/useImportFlow'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,7 @@ const emit = defineEmits<{
 const store = useEnvironmentStore()
 const envModalUi = useEnvModalUi()
 const toast = useToast()
+const copy = useCopy(ENVIRONMENT_COPY)
 const selectedEnvId = ref<string | null>(null)
 const newEnvName = ref('')
 const newVarKey = ref('')
@@ -153,7 +156,7 @@ async function createEnv() {
 async function duplicateEnv(id: string) {
   const env = store.environments.find(e => e.id === id)
   if (!env) return
-  const newEnv = await store.duplicate(id, `${env.name} (copy)`)
+  const newEnv = await store.duplicate(id, fill(copy.value.modal.copyName, { name: env.name }))
   if (newEnv) {
     selectEnv(newEnv.id)
   }
@@ -164,9 +167,10 @@ function deleteEnv(id: string) {
   if (!env) return
   deleteFlow.ask({
     payload: { id, version: env.version },
-    title: 'Delete environment',
-    description: `Delete environment "${env.name}"? All variables in this environment will be lost.`,
-    confirmLabel: 'Delete',
+    title: () => copy.value.deleteEnvironment.title,
+    description: () => fill(copy.value.deleteEnvironment.text, { name: env.name }),
+    confirmLabel: () => copy.value.deleteEnvironment.confirm,
+    failed: () => copy.value.deleteEnvironment.failed,
   })
 }
 
@@ -308,7 +312,12 @@ async function handleEnvFileSelected(event: Event) {
 
   const wsId = useWorkspaceStore().activeWorkspace?.id
   if (!wsId) {
-    toast.error('No active workspace')
+    toast.error(copy.value.results.noWorkspace)
+    return
+  }
+  const tooLarge = await fileTooLargeText(file)
+  if (tooLarge) {
+    toast.error(tooLarge)
     return
   }
   const content = await file.text()
@@ -318,7 +327,7 @@ async function handleEnvFileSelected(event: Event) {
     return
   }
   toast.success(importedEnvironmentText(result.data))
-  const warning = warningsToastMessage(result.data.warnings)
+  const warning = importWarningsText(result.data.warnings)
   if (warning) toast.info(warning, undefined, { sticky: true })
   await store.fetchAll()
   if (store.environments.some(e => e.id === result.data.environmentId)) {
@@ -337,7 +346,7 @@ async function exportEnv(id: string) {
   if (result.data.canceled) return
 
   if (result.data.path) {
-    toast.success(`Exported to ${result.data.path}`)
+    toast.success(fill(copy.value.results.exported, { path: result.data.path }))
   }
 }
 
@@ -353,7 +362,7 @@ watch(selectedEnvId, () => {
     <DialogContent class="w-[90vw] sm:max-w-[780px] p-0 gap-0 border-border/50 bg-background">
       <DialogHeader class="px-4 py-3 border-b border-border">
         <div class="flex items-center gap-1">
-          <DialogTitle class="text-sm font-medium">Manage Environments</DialogTitle>
+          <DialogTitle class="text-sm font-medium">{{ copy.modal.title }}</DialogTitle>
           <HelpLink slug="environments-and-variables" />
         </div>
       </DialogHeader>
@@ -363,9 +372,10 @@ watch(selectedEnvId, () => {
           <div class="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
             <ContextMenu v-for="env in store.environments" :key="env.id">
               <ContextMenuTrigger as-child>
-                <button
+                <div
                   class="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded transition-colors cursor-pointer"
                   :class="selectedEnvId === env.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted/30 text-foreground'"
+                  data-testid="env-row"
                   @click="selectEnv(env.id)"
                   @dblclick="startRenameEnv(env.id, env.name)"
                 >
@@ -385,31 +395,31 @@ watch(selectedEnvId, () => {
                       class="size-3.5 flex items-center justify-center shrink-0 rounded-full border transition-colors cursor-pointer"
                       :class="env.isActive ? 'border-emerald-400 bg-emerald-400' : 'border-muted-foreground/30 hover:border-muted-foreground'"
                       @click.stop="setActiveFromModal(env.id)"
-                      :title="env.isActive ? 'Active environment' : 'Set as active'"
+                      :title="env.isActive ? copy.modal.active : copy.modal.setActive"
                     >
                       <Check v-if="env.isActive" class="size-2.5 text-white" />
                     </button>
-                    <span class="flex-1 truncate text-left">{{ env.name }}</span>
+                    <button type="button" class="flex-1 truncate text-left cursor-pointer">{{ env.name }}</button>
                   </template>
-                </button>
+                </div>
               </ContextMenuTrigger>
 
               <ContextMenuContent class="w-48">
                 <ContextMenuItem @click="startRenameEnv(env.id, env.name)">
-                  Rename
+                  {{ copy.modal.rename }}
                 </ContextMenuItem>
                 <ContextMenuItem @click="duplicateEnv(env.id)">
-                  Duplicate
+                  {{ copy.modal.duplicate }}
                 </ContextMenuItem>
                 <ContextMenuItem @click="exportEnv(env.id)">
-                  Export as Postman
+                  {{ copy.modal.exportPostman }}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   class="text-destructive focus:text-destructive"
                   @click="deleteEnv(env.id)"
                 >
-                  Delete
+                  {{ copy.modal.delete }}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
@@ -419,7 +429,7 @@ watch(selectedEnvId, () => {
             <div class="flex gap-1 items-center">
               <input
                 v-model="newEnvName"
-                placeholder="New environment"
+                :placeholder="copy.modal.newEnvironment"
                 class="flex-1 h-7 bg-muted/20 border border-border rounded px-2 text-xs outline-none placeholder:text-muted-foreground"
                 @keydown.enter="createEnv"
               />
@@ -436,7 +446,7 @@ watch(selectedEnvId, () => {
                 size="sm"
                 variant="ghost"
                 class="h-7 w-7 p-0 shrink-0 cursor-pointer"
-                title="Import Postman Environment"
+                :title="copy.modal.importFile"
                 @click="triggerEnvImport"
               >
                 <Download class="size-3.5" />
@@ -449,15 +459,15 @@ watch(selectedEnvId, () => {
           <template v-if="selectedEnvId">
             <div class="px-4 py-2.5 border-b border-border">
               <h3 class="text-xs font-medium text-muted-foreground">
-                Variables: <span class="text-foreground">{{ selectedEnvName }}</span>
+                {{ copy.modal.variables }} <span class="text-foreground">{{ selectedEnvName }}</span>
               </h3>
             </div>
 
             <div class="flex-1 min-h-0 overflow-y-auto">
               <div class="grid grid-cols-[28px_2fr_3fr_28px_28px_28px] px-3 py-1.5 border-b border-border bg-muted/30">
                 <div />
-                <div class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Key</div>
-                <div class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Value</div>
+                <div class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">{{ copy.modal.key }}</div>
+                <div class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">{{ copy.modal.value }}</div>
                 <div />
                 <div />
                 <div />
@@ -508,7 +518,7 @@ watch(selectedEnvId, () => {
                   <button
                     class="size-5 flex items-center justify-center transition-colors cursor-pointer"
                     :class="v.isSecret ? 'text-amber-500 hover:text-amber-400' : 'text-muted-foreground/30 hover:text-muted-foreground'"
-                    :title="v.isSecret ? 'Secret (click to unset)' : 'Not secret (click to set)'"
+                    :title="v.isSecret ? copy.modal.secret : copy.modal.notSecret"
                     @click="toggleVariableSecret(v)"
                   >
                     <Lock v-if="v.isSecret" class="size-3" />
@@ -533,7 +543,7 @@ watch(selectedEnvId, () => {
                 <div>
                   <input
                     v-model="newVarKey"
-                    placeholder="Variable name"
+                    :placeholder="copy.modal.variableName"
                     class="w-full h-7 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground"
                     @keydown="handleNewVarKeydown"
                   />
@@ -541,7 +551,7 @@ watch(selectedEnvId, () => {
                 <div>
                   <input
                     v-model="newVarValue"
-                    placeholder="Value"
+                    :placeholder="copy.modal.value"
                     class="w-full h-7 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground font-mono"
                     @keydown="handleNewVarValueKeydown"
                   />
@@ -550,7 +560,7 @@ watch(selectedEnvId, () => {
                   <button
                     class="size-5 flex items-center justify-center transition-colors cursor-pointer"
                     :class="newVarSecret ? 'text-amber-500 hover:text-amber-400' : 'text-muted-foreground/30 hover:text-muted-foreground'"
-                    :title="newVarSecret ? 'Secret (click to unset)' : 'Not secret (click to set)'"
+                    :title="newVarSecret ? copy.modal.secret : copy.modal.notSecret"
                     @click="newVarSecret = !newVarSecret"
                   >
                     <Lock v-if="newVarSecret" class="size-3" />
@@ -571,7 +581,7 @@ watch(selectedEnvId, () => {
           </template>
 
           <div v-else class="flex-1 flex items-center justify-center">
-            <p class="text-xs text-muted-foreground">Select or create an environment</p>
+            <p class="text-xs text-muted-foreground">{{ copy.modal.empty }}</p>
           </div>
         </div>
       </div>
@@ -591,6 +601,7 @@ watch(selectedEnvId, () => {
     :title="deleteFlow.title.value"
     :description="deleteFlow.description.value"
     :confirm-label="deleteFlow.confirmLabel.value"
+    :cancel-label="copy.deleteEnvironment.cancel"
     destructive
     @update:open="deleteFlow.open.value = $event"
     @confirm="deleteFlow.confirm"

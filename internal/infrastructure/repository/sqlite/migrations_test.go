@@ -139,12 +139,12 @@ func TestMigration016RebuildsCollectionsWithoutDataLoss(t *testing.T) {
 		VALUES ('ws1', 'request', 'req1', 'hash', 'token', '2026-09-05T00:00:00Z', '2026-09-05T00:00:00Z')`); err != nil {
 		t.Errorf("auth_tokens insert: %v", err)
 	}
-	var keys string
-	if err := db.QueryRow(`SELECT auth_query_keys FROM history WHERE id = 'h1'`).Scan(&keys); err != nil {
-		t.Fatalf("read auth_query_keys: %v", err)
+	var queryKeys, headerKeys string
+	if err := db.QueryRow(`SELECT auth_query_keys, auth_header_keys FROM history WHERE id = 'h1'`).Scan(&queryKeys, &headerKeys); err != nil {
+		t.Fatalf("read auth keys: %v", err)
 	}
-	if keys != "[]" {
-		t.Errorf("auth_query_keys default: got %q, want %q", keys, "[]")
+	if queryKeys != "[]" || headerKeys != "[]" {
+		t.Errorf("auth keys default: got %q and %q, want []", queryKeys, headerKeys)
 	}
 }
 

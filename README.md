@@ -42,14 +42,15 @@ with Postman, Insomnia, Bruno and Yaak at [tetiva.app](https://tetiva.app).
 - **Environments** — `{{variable}}` substitution and secret values, scoped per
   workspace.
 - **History** — every request is recorded and can be replayed as a draft.
-- **Scripting** — pre- and post-request JavaScript in a goja sandbox: no
-  filesystem, no network, hard 5-second limit.
+- **Scripting** — pre- and post-request JavaScript in a goja sandbox with
+  Postman's `pm.test` and chai-based `pm.expect`: no filesystem, no network,
+  hard 5-second limit.
 - **Cookies** — a persistent cookie jar per workspace.
 - **Sync** *(optional)* — realtime cloud sync with an offline queue and
   last-write-wins conflict resolution. Free for two devices; paid plans add
   shared team workspaces.
 - **MCP server** — exposes collections and requests to AI clients (Claude
-  Desktop, Cursor) over SSE.
+  Code, Cursor) over SSE.
 
 ## Stack
 

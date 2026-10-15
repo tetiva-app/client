@@ -38,19 +38,19 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 		return fmt.Errorf("%s: marshal response_headers: %w", funcName, err)
 	}
 
-	authQueryKeys := h.AuthQueryKeys
-	if authQueryKeys == nil {
-		authQueryKeys = []string{}
-	}
-	queryKeys, err := json.Marshal(authQueryKeys)
+	queryKeys, err := marshalKeys(h.AuthQueryKeys)
 	if err != nil {
 		return fmt.Errorf("%s: marshal auth_query_keys: %w", funcName, err)
+	}
+	headerKeys, err := marshalKeys(h.AuthHeaderKeys)
+	if err != nil {
+		return fmt.Errorf("%s: marshal auth_header_keys: %w", funcName, err)
 	}
 
 	query := `INSERT INTO history (id, request_id, workspace_id, protocol, method, url,
 		request_headers, request_body, response_status, response_headers, response_body,
-		response_size, duration_ms, error_message, created_at, auth_query_keys)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		response_size, duration_ms, error_message, created_at, auth_query_keys, auth_header_keys)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	// request_id is nullable in schema (ON DELETE SET NULL). Persist a zero
 	// UUID as NULL so the FK constraint accepts orphan history rows.
@@ -75,7 +75,8 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 		h.DurationMs,
 		h.ErrorMessage,
 		h.CreatedAt.Format(time.RFC3339),
-		string(queryKeys),
+		queryKeys,
+		headerKeys,
 	)
 	if err != nil {
 		return fmt.Errorf("%s: %w", funcName, err)
@@ -84,9 +85,17 @@ func (r *HistoryRepo) Create(ctx context.Context, h *entities.History) error {
 	return nil
 }
 
+func marshalKeys(keys []string) (string, error) {
+	if keys == nil {
+		keys = []string{}
+	}
+	b, err := json.Marshal(keys)
+	return string(b), err
+}
+
 const historyColumns = `id, request_id, workspace_id, protocol, method, url,
 	request_headers, request_body, response_status, response_headers, response_body,
-	response_size, duration_ms, error_message, created_at, auth_query_keys`
+	response_size, duration_ms, error_message, created_at, auth_query_keys, auth_header_keys`
 
 // Returns (nil, nil) when the record does not exist.
 func (r *HistoryRepo) GetByID(ctx context.Context, id uuid.UUID) (*entities.History, error) {
@@ -219,12 +228,12 @@ type rowScanner interface {
 
 // UUID/JSON parsing is deferred to populateHistory. request_id reads into sql.NullString:
 // the schema stores NULL, not zero-UUID, for orphan rows.
-func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys string, err error) {
+func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys string, err error) {
 	var reqIDNS sql.NullString
 	err = rs.Scan(
 		&idStr, &reqIDNS, &workspaceIDStr, &protocolStr, &h.Method, &h.URL,
 		&reqHeaders, &h.RequestBody, &h.ResponseStatus, &respHeaders, &h.ResponseBody,
-		&h.ResponseSize, &h.DurationMs, &h.ErrorMessage, &createdAt, &authQueryKeys,
+		&h.ResponseSize, &h.DurationMs, &h.ErrorMessage, &createdAt, &authQueryKeys, &authHeaderKeys,
 	)
 	if reqIDNS.Valid {
 		requestIDStr = reqIDNS.String
@@ -234,7 +243,7 @@ func scanHistoryFields(rs rowScanner, h *entities.History) (idStr, requestIDStr,
 
 // id and workspace_id are parsed strictly; request_id is lenient because orphan
 // history rows may carry an empty or zero UUID — a valid state.
-func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys string) error {
+func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys string) error {
 	parsedID, err := uuid.Parse(idStr)
 	if err != nil {
 		return fmt.Errorf("parse id: %w", err)
@@ -262,6 +271,9 @@ func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, p
 	if err := json.Unmarshal([]byte(authQueryKeys), &h.AuthQueryKeys); err != nil {
 		return fmt.Errorf("unmarshal auth_query_keys: %w", err)
 	}
+	if err := json.Unmarshal([]byte(authHeaderKeys), &h.AuthHeaderKeys); err != nil {
+		return fmt.Errorf("unmarshal auth_header_keys: %w", err)
+	}
 
 	parsedCreated, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
@@ -273,11 +285,11 @@ func populateHistory(h *entities.History, idStr, requestIDStr, workspaceIDStr, p
 
 func scanHistoryRow(rows *sql.Rows) (*entities.History, error) {
 	var h entities.History
-	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, err := scanHistoryFields(rows, &h)
+	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys, err := scanHistoryFields(rows, &h)
 	if err != nil {
 		return nil, err
 	}
-	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys); err != nil {
+	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys); err != nil {
 		return nil, err
 	}
 	return &h, nil
@@ -286,11 +298,11 @@ func scanHistoryRow(rows *sql.Rows) (*entities.History, error) {
 // Returns sql.ErrNoRows unwrapped so callers can use errors.Is.
 func scanHistoryRowSingle(row *sql.Row) (*entities.History, error) {
 	var h entities.History
-	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, err := scanHistoryFields(row, &h)
+	idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys, err := scanHistoryFields(row, &h)
 	if err != nil {
 		return nil, err
 	}
-	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys); err != nil {
+	if err := populateHistory(&h, idStr, requestIDStr, workspaceIDStr, protocolStr, reqHeaders, respHeaders, createdAt, authQueryKeys, authHeaderKeys); err != nil {
 		return nil, err
 	}
 	return &h, nil

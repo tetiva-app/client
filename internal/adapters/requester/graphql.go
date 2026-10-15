@@ -48,7 +48,7 @@ func (r *GraphQLRequester) Execute(ctx context.Context, req request.GraphQLExecu
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, strings.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, err)
+		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, redactURLError(err, req.AuthQueryKeys))
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -62,7 +62,7 @@ func (r *GraphQLRequester) Execute(ctx context.Context, req request.GraphQLExecu
 	httpResp, err := r.clientFor(ctx, req.WorkspaceID).Do(httpReq)
 	elapsed := time.Since(start)
 	if err != nil {
-		return nil, fmt.Errorf("%s: request failed: %w", funcName, err)
+		return nil, fmt.Errorf("%s: request failed: %w", funcName, redactURLError(err, req.AuthQueryKeys))
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 

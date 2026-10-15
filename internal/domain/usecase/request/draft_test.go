@@ -3,7 +3,6 @@ package request_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -525,10 +524,12 @@ func TestCreateDraftFromHistory_StripsCredentials(t *testing.T) {
 		WorkspaceID: workspaceID,
 		Protocol:    entities.ProtocolHTTP,
 		Method:      "GET",
-		URL:         "https://api.example.com/users?page=2&access_token=secret&sess=abc",
+		URL:         "https://api.example.com/users?page=2&access_token=secret&sess=abc&client_secret_v2=s&x-session-id=1&apiKey=k",
 		RequestHeaders: map[string][]string{
 			"authorization": {"Bearer secret"},
 			"Cookie":        {"sid=1"},
+			"X-API-Key":     {"sk_live_1"},
+			"X-Auth-Token":  {"t1"},
 			"X-Trace":       {"keep"},
 		},
 		AuthQueryKeys: []string{"sess"},
@@ -556,11 +557,63 @@ func TestCreateDraftFromHistory_StripsCredentials(t *testing.T) {
 		t.Errorf("URL = %q, want the credential parameters gone", draft.URL)
 	}
 	for _, h := range draft.Headers {
-		if strings.EqualFold(h.Key, "authorization") || strings.EqualFold(h.Key, "cookie") {
+		if h.Key != "X-Trace" {
 			t.Errorf("header %q must not reach the draft", h.Key)
 		}
 	}
 	if !hasHeader(draft.Headers, "X-Trace", "keep") {
 		t.Errorf("ordinary headers must survive, got %+v", draft.Headers)
+	}
+}
+
+func TestReplayDraft_DropsTheHeaderInheritedAPIKeyAuthAdded(t *testing.T) {
+	for _, protocol := range []entities.Protocol{entities.ProtocolHTTP, entities.ProtocolGraphQL} {
+		t.Run(string(protocol), func(t *testing.T) {
+			ctx := context.Background()
+			collections := fixtureCollections()
+			parent := collections.collections[testCollectionID]
+			parent.AuthType = entities.AuthTypeAPIKey
+			parent.AuthData = `{"key":"{{keyHeader}}","value":"{{appKey}}","addTo":"header"}`
+			repo := newMockRepo()
+			historyRepo := &mockHistoryRepo{}
+			ok := &entities.Response{StatusCode: 200, Headers: map[string][]string{}}
+			uc := request.NewUsecase(repo, historyRepo, &mockRequester{response: ok}, nil, &mockGraphQLRequester{response: ok},
+				&mockEnvResolver{vars: map[string]string{"keyHeader": "appid", "appKey": "k-123"}},
+				&noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{},
+				request.NewAuthResolver(collections), nil, collections, nil, nil, nil, nil)
+
+			id := uuid.New()
+			repo.requests[id] = &entities.Request{
+				ID: id, CollectionID: testCollectionID, Protocol: protocol, Method: entities.MethodGET,
+				URL: "https://api.example.com/graphql", GraphQLQuery: "{ me }", BodyType: entities.BodyTypeNone,
+				Headers:  []entities.HeaderItem{{Key: "X-Trace", Value: "keep", Enabled: true}},
+				AuthType: entities.AuthTypeInherit, AuthData: "{}",
+			}
+			if _, err := uc.Execute(ctx, id, request.ExecuteOpt{UserID: "tester", WorkspaceID: testWorkspaceID}); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if len(historyRepo.entries) != 1 {
+				t.Fatalf("history entries = %d, want 1", len(historyRepo.entries))
+			}
+			h := historyRepo.entries[0]
+			if got := h.AuthHeaderKeys; len(got) != 1 || got[0] != "appid" {
+				t.Fatalf("AuthHeaderKeys = %v, want [appid]", got)
+			}
+
+			draft, err := uc.CreateDraftFromHistory(ctx, request.CreateDraftFromHistoryOpt{
+				HistoryID: h.ID, WorkspaceID: testWorkspaceID, UserID: "tester",
+			})
+			if err != nil {
+				t.Fatalf("CreateDraftFromHistory: %v", err)
+			}
+			for _, item := range draft.Headers {
+				if item.Value == "k-123" {
+					t.Errorf("header %q kept the API key", item.Key)
+				}
+			}
+			if !hasHeader(draft.Headers, "X-Trace", "keep") {
+				t.Errorf("ordinary headers must survive, got %+v", draft.Headers)
+			}
+		})
 	}
 }

@@ -59,7 +59,7 @@ func (i *Importer) Detect(data []byte) bool {
 	return snapshotjson.Sniff(data)
 }
 
-func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
+func (i *Importer) Preview(data []byte, _ string) (*portability.ImportPreview, error) {
 	s, err := snapshotjson.Decode(bytes.NewReader(data), maxBytes)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 		Warnings: p.warnings,
 	}
 	if p.env != nil {
-		preview.EnvironmentName = p.env.name
+		preview.EnvironmentNames = []string{p.env.name}
 	}
 	return preview, nil
 }
@@ -201,7 +201,7 @@ func (w *writer) environment(ctx context.Context, ep *envPlan) error {
 	if err != nil {
 		return fmt.Errorf("create environment %q: %w", ep.name, err)
 	}
-	w.res.EnvironmentName = env.Name
+	w.res.EnvironmentNames = []string{env.Name}
 	for _, v := range ep.vars {
 		v.EnvironmentID = env.ID
 		if _, err := w.environments.AddVariable(ctx, v, environment.AddVariableOpt{UserID: w.opt.UserID}); err != nil {

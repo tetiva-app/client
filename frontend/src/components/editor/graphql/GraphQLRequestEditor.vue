@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
-import { Loader2, RefreshCw, X } from 'lucide-vue-next'
+import { FileUp, Loader2, RefreshCw, X } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -10,7 +10,7 @@ import { getRequestService } from '@/services'
 import { useToast } from '@/composables/useToast'
 import { useCopyAs } from '@/composables/useCopyAs'
 import type { Request } from '@/types/request'
-import type { GraphQLSchema, GraphQLIntrospectRequest } from '@/types/graphql'
+import type { GraphQLSchema } from '@/types/graphql'
 import GraphQLUrlBar from './GraphQLUrlBar.vue'
 import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 import GraphQLResponseViewer from './GraphQLResponseViewer.vue'
@@ -18,6 +18,8 @@ import RequestDocs from '../RequestDocs.vue'
 import UnsavedExamplesDot from '../examples/UnsavedExamplesDot.vue'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { authBadgeLabel } from '@/constants/auth'
+import { introspectRequest } from '@/lib/graphql-introspect'
+import { pickPath } from '@/lib/pick-file'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -80,29 +82,24 @@ function updateField(field: string, value: any) {
   }
 }
 
-function buildIntrospectReq(): GraphQLIntrospectRequest {
-  const hdrs: Record<string, string> = {}
-  for (const h of props.request.headers) {
-    if (h.enabled && h.key) {
-      hdrs[h.key] = h.value
-    }
-  }
-  return {
-    endpoint: props.request.url,
-    schemaPath: props.request.graphqlSchemaPath || '',
-    headers: hdrs,
-    workspaceId: workspaceStore.activeWorkspace?.id ?? '',
-  }
+function buildIntrospectReq(graphqlSchemaPath = props.request.graphqlSchemaPath) {
+  return introspectRequest({ ...props.request, graphqlSchemaPath }, workspaceStore.activeWorkspace?.id ?? '')
 }
 
-async function loadSchema() {
-  if (!props.request.url && !props.request.graphqlSchemaPath) return
+let latestSchemaLoad = 0
 
-  schemaLoading.value = true
+// Every call, even one with nothing to load, supersedes the loads still pending.
+async function loadSchema(schemaPath = props.request.graphqlSchemaPath) {
+  const load = ++latestSchemaLoad
+  const isLatest = () => load === latestSchemaLoad
   schemaError.value = ''
+  schemaLoading.value = Boolean(props.request.url || schemaPath)
+  if (!schemaLoading.value) return
+
   try {
     const service = await getRequestService()
-    const result = await service.graphqlIntrospect(buildIntrospectReq())
+    const result = await service.graphqlIntrospect(buildIntrospectReq(schemaPath))
+    if (!isLatest()) return
     if (result.error) {
       schemaError.value = result.error.message
       console.error('Failed to introspect GraphQL schema:', result.error.message)
@@ -110,10 +107,11 @@ async function loadSchema() {
     }
     schema.value = result.data
   } catch (err) {
+    if (!isLatest()) return
     schemaError.value = String(err)
     console.error('Failed to load GraphQL schema:', err)
   } finally {
-    schemaLoading.value = false
+    if (isLatest()) schemaLoading.value = false
   }
 }
 
@@ -170,10 +168,25 @@ function updateHeaders(action: string, payload: any) {
   updateField('headers', rows)
 }
 
-function clearSchemaFile() {
+async function attachSchemaFile() {
+  const path = await pickPath(
+    { CanChooseFiles: true, Filters: [{ DisplayName: 'GraphQL schema', Pattern: '*.graphql;*.graphqls;*.gql;*.json' }] },
+    'Enter path to a GraphQL schema file:',
+  )
+  if (!path) return
+  updateField('graphqlSchemaPath', path)
+  schema.value = null
+  await loadSchema(path)
+}
+
+function detachSchemaFile() {
   updateField('graphqlSchemaPath', '')
   schema.value = null
+  void loadSchema('')
 }
+
+const schemaFileName = computed(() => props.request.graphqlSchemaPath.split(/[\\/]/).pop() || props.request.graphqlSchemaPath)
+const schemaFileMissing = computed(() => Boolean(props.request.graphqlSchemaPath) && schema.value?.source === 'introspection')
 
 function handleShowInDocs(typeName: string) {
   activeTab.value = 'schema'
@@ -221,9 +234,7 @@ function handleKeydown(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   void examplesStore.fetch(props.request.id)
-  if (props.request.url) {
-    loadSchema()
-  }
+  loadSchema()
 })
 
 onUnmounted(() => {
@@ -256,8 +267,8 @@ onUnmounted(() => {
       <button
         v-if="!schema && !schemaLoading"
         class="h-8 px-3 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/30 transition-colors cursor-pointer"
-        :disabled="!request.url"
-        @click="loadSchema"
+        :disabled="!request.url && !request.graphqlSchemaPath"
+        @click="loadSchema()"
       >
         Load Schema
       </button>
@@ -266,26 +277,43 @@ onUnmounted(() => {
         v-if="schema && !schemaLoading"
         class="h-8 px-2 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/30 transition-colors cursor-pointer"
         title="Reload schema"
-        @click="loadSchema"
+        @click="loadSchema()"
       >
         <RefreshCw class="size-3" />
+      </button>
+
+      <button
+        class="h-8 px-3 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/30 transition-colors cursor-pointer flex items-center gap-1.5"
+        title="Attach a .graphql, .graphqls, .gql or introspection .json file"
+        @click="attachSchemaFile"
+      >
+        <FileUp class="size-3" />
+        Attach schema
       </button>
 
       <div
         v-if="request.graphqlSchemaPath"
         class="flex items-center gap-1.5 h-8 px-2 text-xs text-muted-foreground bg-muted/30 border border-border rounded-md"
       >
-        <span class="size-1.5 rounded-full bg-green-500" />
+        <span class="size-1.5 rounded-full" :class="schemaFileMissing ? 'bg-amber-500' : 'bg-green-500'" />
         <span class="max-w-[150px] truncate font-mono" :title="request.graphqlSchemaPath">
-          {{ request.graphqlSchemaPath.split('/').pop() || request.graphqlSchemaPath }}
+          {{ schemaFileName }}
         </span>
         <button
           class="hover:text-foreground transition-colors cursor-pointer"
-          title="Clear schema file"
-          @click="clearSchemaFile"
+          title="Detach schema file"
+          @click="detachSchemaFile"
         >
           <X class="size-3" />
         </button>
+      </div>
+
+      <div
+        v-if="schemaFileMissing && !schemaLoading"
+        class="text-xs text-muted-foreground truncate max-w-[300px]"
+        title="File not found on this computer, using the URL"
+      >
+        File not found on this computer, using the URL
       </div>
 
       <div v-if="schemaLoading" class="flex items-center gap-1.5 text-xs text-muted-foreground">

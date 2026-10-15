@@ -9,7 +9,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -66,11 +65,7 @@ func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[stri
 	case entities.AuthTypeAPIKey:
 		key := f.Str("key")
 		value := f.Str("value")
-		addTo := f.Str("addTo")
-		if addTo == "" {
-			addTo = f.Str("in") // legacy key from Postman imports
-		}
-		if addTo == "query" {
+		if apiKeyAddTo(f) == "query" {
 			parsed, err := url.Parse(rawURL)
 			if err != nil {
 				return headers, rawURL, nil, fmt.Errorf("invalid URL for API key: %w", err)
@@ -94,6 +89,20 @@ func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[stri
 	}
 
 	return headers, rawURL, queryKeys, nil
+}
+
+func apiKeyAddTo(f auth.Fields) string {
+	if addTo := f.Str("addTo"); addTo != "" {
+		return addTo
+	}
+	return f.Str("in") // legacy key from Postman imports
+}
+
+func authHeaderKeys(authType entities.AuthType, f auth.Fields) []string {
+	if authType != entities.AuthTypeAPIKey || apiKeyAddTo(f) == "query" || f.Str("key") == "" {
+		return nil
+	}
+	return []string{f.Str("key")}
 }
 
 // formField's JSON tags describe the wire format the frontend writes into
@@ -170,9 +179,9 @@ func encodeMultipartFormBody(body string) (string, io.Reader, error) {
 				return "", nil, fmt.Errorf("form file path must be absolute: %s", f.Key)
 			}
 
-			file, openErr := os.Open(cleanPath)
+			file, openErr := openBodyFile(cleanPath)
 			if openErr != nil {
-				return "", nil, fmt.Errorf("form file not found %q: %w", f.Key, openErr)
+				return "", nil, fmt.Errorf("form file %q: %w", f.Key, openErr)
 			}
 
 			part, partErr := writer.CreateFormFile(f.Key, filepath.Base(cleanPath))
@@ -249,7 +258,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	var execURL string
 	var historyHeaders map[string][]string
 	var historyBody string
-	var historyAuthQueryKeys []string
+	var historyAuthQueryKeys, historyAuthHeaderKeys []string
 	var grpcRequestMetadata map[string][]string
 
 	switch req.Protocol {
@@ -281,10 +290,12 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		if fieldsErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, fieldsErr)
 		}
-		headers, execURL, historyAuthQueryKeys, _, err = u.applyResolvedAuth(ctx, resolvedAuth, auth.Substitute(authFields, vars), headers, execURL, prepareOpt{UserID: opt.UserID})
+		authFields = auth.Substitute(authFields, vars)
+		headers, execURL, historyAuthQueryKeys, _, err = u.applyResolvedAuth(ctx, resolvedAuth, authFields, headers, execURL, prepareOpt{UserID: opt.UserID})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, err)
 		}
+		historyAuthHeaderKeys = authHeaderKeys(resolvedAuth.Type, authFields)
 		graphqlQuery := substituteVariables(req.GraphQLQuery, vars)
 		graphqlVars := substituteVariables(req.GraphQLVariables, vars)
 		graphqlReq := GraphQLExecuteRequest{
@@ -294,6 +305,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			OperationName: req.GraphQLOperation,
 			Headers:       headers,
 			WorkspaceID:   opt.WorkspaceID,
+			AuthQueryKeys: historyAuthQueryKeys,
 		}
 		resp, execErr = u.graphqlRequester.Execute(ctx, graphqlReq)
 		historyHeaders = headers
@@ -309,20 +321,21 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		vars = prep.Vars
 		execURL = prep.URL
 		execReq := HTTPExecuteRequest{
-			Method:      prep.Method,
-			URL:         prep.URL,
-			Headers:     prep.Headers,
-			Body:        prep.Body,
-			WorkspaceID: opt.WorkspaceID,
-			Auth:        prep.Auth,
+			Method:        prep.Method,
+			URL:           prep.URL,
+			Headers:       prep.Headers,
+			Body:          prep.Body,
+			WorkspaceID:   opt.WorkspaceID,
+			Auth:          prep.Auth,
+			AuthQueryKeys: prep.AuthQueryKeys,
 		}
 		if prep.BodyReader != nil {
 			execReq.BodyReader = prep.BodyReader
 		}
 		if prep.BinaryPath != "" {
-			file, openErr := os.Open(prep.BinaryPath)
+			file, openErr := openBodyFile(prep.BinaryPath)
 			if openErr != nil {
-				return nil, fmt.Errorf("%s: file not found: %w", funcName, openErr)
+				return nil, fmt.Errorf("%s: %w", funcName, openErr)
 			}
 			defer func() { _ = file.Close() }()
 			execReq.BodyReader = file
@@ -331,6 +344,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		historyHeaders = prep.Headers
 		historyBody = prep.RawBody
 		historyAuthQueryKeys = prep.AuthQueryKeys
+		historyAuthHeaderKeys = prep.AuthHeaderKeys
 		if req.BodyType == entities.BodyTypeBinary {
 			historyBody = "[binary: " + prep.BinaryPath + "]"
 		}
@@ -353,6 +367,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			ResponseBody:       resp.Body,
 			ResponseHeaders:    resp.Headers,
 			ResponseStatusText: resp.StatusText,
+			ResponseTime:       resp.Duration,
 			Protocol:           string(req.Protocol),
 		}
 		if req.Protocol == entities.ProtocolGRPC {
@@ -382,6 +397,15 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 
 	if resp != nil && scriptResult != nil {
 		resp.ScriptResult = scriptResult
+	}
+	if resp != nil {
+		sentHeaders := historyHeaders
+		if req.Protocol == entities.ProtocolGRPC {
+			sentHeaders = grpcRequestMetadata
+		}
+		resp.Sent = &entities.SentRequest{
+			URL: execURL, Headers: sentHeaders, AuthQueryKeys: historyAuthQueryKeys, AuthHeaderKeys: historyAuthHeaderKeys,
+		}
 	}
 
 	if u.varPersister != nil && scriptResult != nil && len(vars) > 0 {
@@ -419,6 +443,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		RequestBody:     historyBody,
 		ResponseHeaders: make(map[string][]string),
 		AuthQueryKeys:   historyAuthQueryKeys,
+		AuthHeaderKeys:  historyAuthHeaderKeys,
 		CreatedAt:       time.Now(),
 	}
 

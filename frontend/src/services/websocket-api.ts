@@ -18,6 +18,7 @@ export interface WebSocketServiceAPI {
   connect(req: WsConnectReq): Promise<Result<WsConnectResult>>
   send(req: WsSendReq): Promise<Result<Record<string, never>>>
   disconnect(req: { connectionId: string }): Promise<Result<Record<string, never>>>
+  disconnectWindow(): Promise<Result<Record<string, never>>>
   // subscribe wires inbound message + state handlers; returns an unsubscribe fn.
   subscribe(
     connectionId: string,

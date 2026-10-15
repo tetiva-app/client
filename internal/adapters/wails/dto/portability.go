@@ -2,6 +2,7 @@ package dto
 
 import (
 	"github.com/tetiva-app/client/internal/adapters/portability"
+	"github.com/tetiva-app/client/internal/adapters/portability/hoppscotch"
 	"github.com/tetiva-app/client/internal/adapters/portability/postman"
 )
 
@@ -30,7 +31,7 @@ type ImportEnvironmentRequest struct {
 
 type ImportEnvironmentResponse struct {
 	EnvironmentID    string   `json:"environmentId"`
-	EnvironmentName  string   `json:"environmentName"`
+	EnvironmentNames []string `json:"environmentNames"`
 	VariablesCreated int      `json:"variablesCreated"`
 	Warnings         []string `json:"warnings"`
 }
@@ -73,7 +74,8 @@ type LinkFetchRequest struct {
 }
 
 type ImportPreviewRequest struct {
-	Content string `json:"content"`
+	Content  string `json:"content"`
+	FileName string `json:"fileName,omitempty"`
 }
 
 type ScriptPreview struct {
@@ -83,15 +85,15 @@ type ScriptPreview struct {
 }
 
 type ImportPreview struct {
-	Format          string          `json:"format"`
-	Title           string          `json:"title"`
-	Folders         int             `json:"folders"`
-	Requests        int             `json:"requests"`
-	Examples        int             `json:"examples"`
-	EnvironmentName string          `json:"environmentName"`
-	Hosts           []string        `json:"hosts"`
-	Scripts         []ScriptPreview `json:"scripts"`
-	Warnings        []string        `json:"warnings"`
+	Format           string          `json:"format"`
+	Title            string          `json:"title"`
+	Folders          int             `json:"folders"`
+	Requests         int             `json:"requests"`
+	Examples         int             `json:"examples"`
+	EnvironmentNames []string        `json:"environmentNames"`
+	Hosts            []string        `json:"hosts"`
+	Scripts          []ScriptPreview `json:"scripts"`
+	Warnings         []string        `json:"warnings"`
 }
 
 type ImportPreviewResult struct {
@@ -105,15 +107,17 @@ type ImportConfirmRequest struct {
 	IncludeScripts bool    `json:"includeScripts"`
 	WorkspaceID    string  `json:"workspaceId"`
 	ParentID       *string `json:"parentId,omitempty"`
+	FileName       string  `json:"fileName,omitempty"`
 }
 
 type ImportConfirmResult struct {
-	CollectionID    string   `json:"collectionId"`
-	Folders         int      `json:"folders"`
-	Requests        int      `json:"requests"`
-	Examples        int      `json:"examples"`
-	EnvironmentName string   `json:"environmentName"`
-	Warnings        []string `json:"warnings"`
+	CollectionID      string   `json:"collectionId"`
+	Folders           int      `json:"folders"`
+	Requests          int      `json:"requests"`
+	Examples          int      `json:"examples"`
+	EnvironmentNames  []string `json:"environmentNames"`
+	ActiveEnvironment string   `json:"activeEnvironment"`
+	Warnings          []string `json:"warnings"`
 }
 
 func ImportPreviewFrom(p *portability.ImportPreview) ImportPreview {
@@ -123,20 +127,28 @@ func ImportPreviewFrom(p *portability.ImportPreview) ImportPreview {
 	}
 	return ImportPreview{
 		Format: p.Format, Title: p.Title, Folders: p.Folders, Requests: p.Requests, Examples: p.Examples,
-		EnvironmentName: p.EnvironmentName, Hosts: nonNilStrings(p.Hosts), Scripts: scripts, Warnings: nonNilStrings(p.Warnings),
+		EnvironmentNames: nonNilStrings(p.EnvironmentNames), Hosts: nonNilStrings(p.Hosts), Scripts: scripts, Warnings: nonNilStrings(p.Warnings),
 	}
 }
 
 func ImportConfirmResultFrom(r *portability.ImportResult) ImportConfirmResult {
 	return ImportConfirmResult{
 		CollectionID: r.CollectionID.String(), Folders: r.Folders, Requests: r.Requests, Examples: r.Examples,
-		EnvironmentName: r.EnvironmentName, Warnings: nonNilStrings(r.Warnings),
+		EnvironmentNames: nonNilStrings(r.EnvironmentNames), ActiveEnvironment: r.ActiveEnvironment,
+		Warnings: nonNilStrings(r.Warnings),
 	}
 }
 
 func ImportEnvironmentResponseFrom(r *postman.ImportEnvResult) ImportEnvironmentResponse {
 	return ImportEnvironmentResponse{
-		EnvironmentID: r.EnvironmentID.String(), EnvironmentName: r.EnvironmentName,
+		EnvironmentID: r.EnvironmentID.String(), EnvironmentNames: []string{r.EnvironmentName},
 		VariablesCreated: r.VariablesCreated, Warnings: nonNilStrings(r.Warnings),
+	}
+}
+
+func HoppscotchEnvironmentResponseFrom(r *hoppscotch.EnvironmentResult) ImportEnvironmentResponse {
+	return ImportEnvironmentResponse{
+		EnvironmentID: r.ID.String(), EnvironmentNames: nonNilStrings(r.Names),
+		VariablesCreated: r.Variables, Warnings: nonNilStrings(r.Warnings),
 	}
 }

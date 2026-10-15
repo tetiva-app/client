@@ -1,7 +1,9 @@
 package scriptengine
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -43,6 +45,7 @@ func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx reque
 	setupConsole(vm, &consoleOutput)
 	setupPmEnvironment(vm, vars)
 	setupPmRequestPreScript(vm, sctx, headers)
+	setupPmExpect(vm, nil, false)
 
 	if err := runWithTimeout(ctx, vm, script, scriptTimeout); err != nil {
 		return nil, err
@@ -69,7 +72,7 @@ func (e *GojaEngine) RunPostScript(ctx context.Context, script string, sctx requ
 	setupConsole(vm, &consoleOutput)
 	setupPmEnvironment(vm, vars)
 	setupPmRequestPreScript(vm, sctx, headers)
-	setupPmResponse(vm, sctx)
+	setupPmExpect(vm, setupPmResponse(vm, sctx), sctx.Protocol == "grpc")
 	setupPmTest(vm, &testResults)
 
 	if err := runWithTimeout(ctx, vm, script, scriptTimeout); err != nil {
@@ -194,10 +197,11 @@ func setupPmRequestPreScript(vm *goja.Runtime, sctx request.ScriptContext, heade
 	_ = pm.Set("request", reqObj)
 }
 
-func setupPmResponse(vm *goja.Runtime, sctx request.ScriptContext) {
+func setupPmResponse(vm *goja.Runtime, sctx request.ScriptContext) *goja.Object {
 	respObj := vm.NewObject()
 	_ = respObj.Set("code", sctx.ResponseStatusCode)
-	_ = respObj.Set("status", sctx.ResponseStatusCode) // alias
+	_ = respObj.Set("status", reasonPhrase(sctx))
+	_ = respObj.Set("responseTime", sctx.ResponseTime.Milliseconds())
 	_ = respObj.Set("text", func(call goja.FunctionCall) goja.Value {
 		return vm.ToValue(sctx.ResponseBody)
 	})
@@ -214,6 +218,18 @@ func setupPmResponse(vm *goja.Runtime, sctx request.ScriptContext) {
 		return parsed
 	})
 
+	respHeaders := vm.NewObject()
+	_ = respHeaders.Set("get", func(call goja.FunctionCall) goja.Value {
+		if vals := headerValues(sctx.ResponseHeaders, call.Argument(0).String()); len(vals) > 0 {
+			return vm.ToValue(vals[0])
+		}
+		return goja.Undefined()
+	})
+	_ = respHeaders.Set("has", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(len(headerValues(sctx.ResponseHeaders, call.Argument(0).String())) > 0)
+	})
+	_ = respObj.Set("headers", respHeaders)
+
 	if sctx.Protocol == "grpc" {
 		_ = respObj.Set("statusText", sctx.ResponseStatusText)
 		metadataObj := vm.NewObject()
@@ -227,6 +243,7 @@ func setupPmResponse(vm *goja.Runtime, sctx request.ScriptContext) {
 
 	pm := getPmObject(vm)
 	_ = pm.Set("response", respObj)
+	return respObj
 }
 
 func setupPmTest(vm *goja.Runtime, results *[]request.TestResult) {
@@ -243,8 +260,12 @@ func setupPmTest(vm *goja.Runtime, results *[]request.TestResult) {
 
 		_, err := fn(goja.Undefined())
 		if err != nil {
+			var jsErr *goja.Exception
+			if !errors.As(err, &jsErr) {
+				panic(err)
+			}
 			*results = append(*results, request.TestResult{
-				Name: name, Passed: false, Error: err.Error(),
+				Name: name, Passed: false, Error: testFailureText(jsErr),
 			})
 		} else {
 			*results = append(*results, request.TestResult{
@@ -273,7 +294,7 @@ func runWithTimeout(ctx context.Context, vm *goja.Runtime, script string, timeou
 	done := make(chan error, 1)
 	go func() {
 		_, err := vm.RunString(script)
-		done <- err
+		done <- scriptError(err)
 	}()
 
 	timer := time.NewTimer(timeout)
@@ -281,16 +302,13 @@ func runWithTimeout(ctx context.Context, vm *goja.Runtime, script string, timeou
 
 	select {
 	case err := <-done:
-		if err == nil {
-			return nil
-		}
 		if interrupted, ok := err.(*goja.InterruptedError); ok {
 			if ctx.Err() != nil {
 				return fmt.Errorf("cancelled: %w", ctx.Err())
 			}
 			return fmt.Errorf("timeout: %s", interrupted.Value())
 		}
-		return fmt.Errorf("script error: %w", err)
+		return err
 	case <-timer.C:
 		stopScript(vm, done, "script timeout exceeded")
 		return fmt.Errorf("timeout: script timeout exceeded")
@@ -313,6 +331,59 @@ func stopScript(vm *goja.Runtime, done <-chan error, reason string) {
 		slog.Warn("script did not stop on interrupt, left running",
 			"reason", reason, "abandoned_total", abandonedScripts.Load())
 	}
+}
+
+// Runs on the script goroutine: converting a thrown value to text runs script code.
+func scriptError(err error) (out error) {
+	var interrupted *goja.InterruptedError
+	var jsErr *goja.Exception
+	switch {
+	case err == nil, errors.As(err, &interrupted):
+		return err
+	case !errors.As(err, &jsErr):
+		return fmt.Errorf("script error: %w", err)
+	}
+	defer func() {
+		switch r := recover().(type) {
+		case nil:
+		case *goja.InterruptedError:
+			out = r
+		default:
+			out = errors.New("script error: the thrown value could not be converted to text")
+		}
+	}()
+	return fmt.Errorf("script error: %s", exceptionText(jsErr))
+}
+
+func exceptionText(ex *goja.Exception) string {
+	var b bytes.Buffer
+	b.WriteString(ex.Value().String())
+	for _, frame := range ex.Stack() {
+		if frame.SrcName() == "" {
+			b.WriteString(" at ")
+			frame.Write(&b)
+			break
+		}
+	}
+	return b.String()
+}
+
+func testFailureText(ex *goja.Exception) string {
+	if obj, ok := ex.Value().(*goja.Object); ok {
+		if name := obj.Get("name"); name != nil && name.String() == "AssertionError" {
+			return obj.String()
+		}
+	}
+	return exceptionText(ex)
+}
+
+func headerValues(headers map[string][]string, name string) []string {
+	for k, v := range headers {
+		if strings.EqualFold(k, name) {
+			return v
+		}
+	}
+	return nil
 }
 
 func copyMap(m map[string]string) map[string]string {

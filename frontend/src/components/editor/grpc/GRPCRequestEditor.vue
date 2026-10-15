@@ -5,6 +5,7 @@ import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
 import { useExamplesStore } from '@/stores/examples'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { getRequestService } from '@/services'
 import { useCopyAs } from '@/composables/useCopyAs'
 import type { Request } from '@/types/request'
@@ -16,6 +17,7 @@ import RequestDocs from '../RequestDocs.vue'
 import UnsavedExamplesDot from '../examples/UnsavedExamplesDot.vue'
 import HelpLink from '@/components/ui/HelpLink.vue'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
+import { pickPath } from '@/lib/pick-file'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -36,6 +38,8 @@ const store = useRequestStore()
 const responseStore = useResponseStore()
 const envStore = useEnvironmentStore()
 const examplesStore = useExamplesStore()
+const workspaceStore = useWorkspaceStore()
+const workspaceId = computed(() => workspaceStore.activeWorkspace?.id ?? '')
 
 const secretKeys = computed(() => {
   const active = envStore.activeEnvironment
@@ -65,6 +69,10 @@ const examplesPanel = ref<{ save: () => boolean } | null>(null)
 const schema = ref<GRPCSchema | null>(null)
 const schemaLoading = ref(false)
 const schemaError = ref('')
+const schemaWarning = computed(() => {
+  const warnings = schema.value?.warnings
+  return warnings?.length ? `Skipped ${warnings.join('; ')}` : ''
+})
 const protoDefinition = ref('')
 
 const metadataRows = computed(() => {
@@ -126,8 +134,8 @@ async function loadSchema(overrideProtoPath?: string) {
     const service = await getRequestService()
     const connectReq: GRPCConnectRequest = {
       host: host || '',
-      useTls: false,
       protoPath,
+      workspaceId: workspaceId.value,
     }
     const result = await service.grpcListServices(connectReq)
     if (result.error) {
@@ -149,23 +157,10 @@ function connectToServer() {
 }
 
 async function importProtoFile() {
-  let path: string | null = null
-  try {
-    const win = window as unknown as Record<string, unknown>
-    if (win._wails) {
-      const { Dialogs } = await import('@wailsio/runtime')
-      path = await Dialogs.OpenFile({
-        CanChooseFiles: true,
-        AllowsMultipleSelection: false,
-        Filters: [{ DisplayName: 'Proto Files', Pattern: '*.proto' }],
-      }) as string | null
-    }
-  } catch { /* Wails dialog not available */ }
-
-  if (!path) {
-    path = prompt('Enter path to .proto file:')
-  }
-
+  const path = await pickPath(
+    { CanChooseFiles: true, Filters: [{ DisplayName: 'Proto Files', Pattern: '*.proto' }] },
+    'Enter path to .proto file:',
+  )
   if (path) {
     updateField('grpcProtoPath', path)
     schema.value = null
@@ -174,22 +169,10 @@ async function importProtoFile() {
 }
 
 async function importProtoDirectory() {
-  let path: string | null = null
-  try {
-    const win = window as unknown as Record<string, unknown>
-    if (win._wails) {
-      const { Dialogs } = await import('@wailsio/runtime')
-      path = await Dialogs.OpenFile({
-        CanChooseFiles: false,
-        CanChooseDirectories: true,
-      }) as string | null
-    }
-  } catch { /* Wails dialog not available */ }
-
-  if (!path) {
-    path = prompt('Enter path to directory with .proto files:')
-  }
-
+  const path = await pickPath(
+    { CanChooseFiles: false, CanChooseDirectories: true },
+    'Enter path to directory with .proto files:',
+  )
   if (path) {
     updateField('grpcProtoPath', path)
     schema.value = null
@@ -229,8 +212,8 @@ async function generateExample(service?: string, method?: string) {
     const requestService = await getRequestService()
     const result = await requestService.grpcGenerateExample({
       host: props.request.url,
-      useTls: false,
       protoPath: props.request.grpcProtoPath || '',
+      workspaceId: workspaceId.value,
       service: svc,
       method: meth,
     })
@@ -256,8 +239,8 @@ async function loadProtoDefinition(service?: string, method?: string) {
     const requestService = await getRequestService()
     const result = await requestService.grpcGetProtoDefinition({
       host: props.request.url,
-      useTls: false,
       protoPath: props.request.grpcProtoPath || '',
+      workspaceId: workspaceId.value,
       service: svc,
       method: meth,
     })
@@ -433,6 +416,13 @@ const tabs = computed(() => [
       </div>
       <div v-if="schemaError" class="text-xs text-destructive truncate max-w-[300px]" :title="schemaError">
         {{ schemaError }}
+      </div>
+      <div
+        v-else-if="schemaWarning && !schemaLoading"
+        class="text-xs text-[var(--gc-warning)] truncate max-w-[300px]"
+        :title="schemaWarning"
+      >
+        {{ schemaWarning }}
       </div>
 
       <HelpLink slug="grpc" class="ml-auto" />

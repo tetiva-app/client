@@ -104,6 +104,31 @@ func TestHTTPRequester_ConnectionRefused(t *testing.T) {
 	}
 }
 
+func TestHTTPRequester_ErrorHidesAuthQueryKeyUnderACustomName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+
+	_, err := NewHTTPRequester(nil).Execute(context.Background(), request.HTTPExecuteRequest{
+		Method:        entities.MethodGET,
+		URL:           strings.Replace(server.URL, "http://", "https://", 1) + "/weather?appid=b1b15e88&q=London",
+		AuthQueryKeys: []string{"appid"},
+	})
+	if err == nil || strings.Contains(err.Error(), "b1b15e88") || !strings.Contains(err.Error(), "q=London") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHTTPRequester_URLParseErrorHidesQueryCredentials(t *testing.T) {
+	_, err := NewHTTPRequester(nil).Execute(context.Background(), request.HTTPExecuteRequest{
+		Method:        entities.MethodGET,
+		URL:           "https://api.example .com/w?appid=b1b15e88&api_key=sk_live_1",
+		AuthQueryKeys: []string{"appid"},
+	})
+	if err == nil || strings.Contains(err.Error(), "b1b15e88") || strings.Contains(err.Error(), "sk_live_1") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestHTTPRequester_BinaryResponse(t *testing.T) {
 	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

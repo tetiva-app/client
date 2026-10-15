@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/secrets"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
@@ -56,7 +58,7 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS (default: GET, ignored for non-HTTP)"),
 			),
 			mcplib.WithString("url",
-				mcplib.Description("Request URL (HTTP/GraphQL), host (gRPC) or ws:// / wss:// endpoint (WebSocket)"),
+				mcplib.Description("Request URL (HTTP/GraphQL), host:port or grpcs://host[:port] for TLS (gRPC), or ws:// / wss:// endpoint (WebSocket)"),
 			),
 			mcplib.WithString("body",
 				mcplib.Description("Request body (HTTP/gRPC message). For websocket: "+wsSettingsSchemaDoc),
@@ -126,7 +128,7 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("HTTP method"),
 			),
 			mcplib.WithString("url",
-				mcplib.Description("Request URL / gRPC host"),
+				mcplib.Description("Request URL / gRPC host:port (grpcs://host[:port] for TLS)"),
 			),
 			mcplib.WithString("body",
 				mcplib.Description("Request body. For websocket: "+wsSettingsSchemaDoc),
@@ -517,9 +519,39 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 		"suggested_filename": resp.SuggestedFilename,
 	}
 	if resp.ScriptResult != nil {
-		out["script_result"] = resp.ScriptResult
+		values, err := s.maskedScriptValues(ctx, wsID, resp.Headers)
+		if err != nil {
+			return errResult(err), nil
+		}
+		creds, err := s.reqUC.AuthCredentials(ctx, id, wsID)
+		if err != nil {
+			return errResult(err), nil
+		}
+		values = append(append(values, creds...), sentSecrets(resp.Sent)...)
+		out["script_result"] = redactScriptResult(resp.ScriptResult, values)
 	}
 	return jsonResult(out)
+}
+
+func (s *Server) maskedScriptValues(ctx context.Context, wsID uuid.UUID, headers map[string][]string) ([]string, error) {
+	vars, err := s.envUC.ActiveVariables(ctx, wsID)
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	for _, v := range vars {
+		if v.IsSecret {
+			values = append(values, v.Value)
+		}
+	}
+	for k, vs := range headers {
+		for _, v := range vs {
+			if maskSensitiveValue(v, secrets.IsSensitiveHeader(k)) != v {
+				values = append(values, v)
+			}
+		}
+	}
+	return values, nil
 }
 
 func (s *Server) handleDeleteRequest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {

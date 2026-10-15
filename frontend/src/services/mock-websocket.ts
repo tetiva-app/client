@@ -43,6 +43,10 @@ export class MockWebSocketService implements WebSocketServiceAPI {
     return { data: {} }
   }
 
+  async disconnectWindow(): Promise<Result<Record<string, never>>> {
+    return { data: {} }
+  }
+
   async subscribe(
     connectionId: string,
     handlers: { onMessage: (m: WsIncoming) => void; onState: (s: WsStateEvent) => void },

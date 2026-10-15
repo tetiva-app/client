@@ -1,12 +1,14 @@
 package requester
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
-	"os"
 	"strings"
 
 	gqlparser "github.com/vektah/gqlparser/v2"
@@ -122,30 +124,37 @@ type introspectionTypeRefFull struct {
 	OfType *introspectionTypeRefFull `json:"ofType"`
 }
 
-// Exactly one of req.Endpoint or req.SchemaPath must be non-empty.
 func (r *GraphQLRequester) Introspect(ctx context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
 	const funcName = "GraphQLRequester.Introspect"
 
-	if req.Endpoint != "" && req.SchemaPath != "" {
-		return nil, fmt.Errorf("%s: exactly one of Endpoint or SchemaPath must be set, got both", funcName)
-	}
 	if req.Endpoint == "" && req.SchemaPath == "" {
-		return nil, fmt.Errorf("%s: exactly one of Endpoint or SchemaPath must be set, got neither", funcName)
+		return nil, fmt.Errorf("%s: neither Endpoint nor SchemaPath is set", funcName)
 	}
 
-	if req.Endpoint != "" {
+	if req.SchemaPath != "" {
+		schema, fileErr := r.introspectFromFile(req.SchemaPath)
+		if fileErr == nil {
+			return schema, nil
+		}
+		if req.Endpoint == "" || !schemaFileMissing(fileErr) {
+			return nil, fmt.Errorf("%s: %w", funcName, fileErr)
+		}
 		schema, err := r.introspectFromEndpoint(ctx, req)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", funcName, err)
+			return nil, fmt.Errorf("%s: %w; introspecting the URL instead: %w", funcName, fileErr, err)
 		}
 		return schema, nil
 	}
 
-	schema, err := r.introspectFromFile(req.SchemaPath)
+	schema, err := r.introspectFromEndpoint(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 	return schema, nil
+}
+
+func schemaFileMissing(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNetworkSchemaPath)
 }
 
 func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
@@ -158,7 +167,7 @@ func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req reque
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.Endpoint, strings.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, err)
+		return nil, fmt.Errorf("%s: failed to create HTTP request: %w", funcName, redactURLError(err, nil))
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -170,7 +179,7 @@ func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req reque
 
 	httpResp, err := r.clientFor(ctx, req.WorkspaceID).Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%s: request failed: %w", funcName, err)
+		return nil, fmt.Errorf("%s: request failed: %w", funcName, redactURLError(err, nil))
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
@@ -194,9 +203,18 @@ func (r *GraphQLRequester) introspectFromEndpoint(ctx context.Context, req reque
 func (r *GraphQLRequester) introspectFromFile(schemaPath string) (*request.GraphQLSchema, error) {
 	const funcName = "introspectFromFile"
 
-	data, err := os.ReadFile(schemaPath)
+	data, err := readSchemaFile(schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to read schema file: %w", funcName, err)
+	}
+	data = bytes.TrimPrefix(data, []byte("\ufeff"))
+
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 && trimmed[0] == '{' {
+		schema, err := schemaFromIntrospectionJSON(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, err)
+		}
+		return schema, nil
 	}
 
 	src := &ast.Source{
@@ -210,6 +228,33 @@ func (r *GraphQLRequester) introspectFromFile(schemaPath string) (*request.Graph
 	}
 
 	return convertASTSchema(schema), nil
+}
+
+// Accepts both a saved introspection response and the bare {"__schema": …} that graphql-js and Apollo write.
+func schemaFromIntrospectionJSON(data []byte) (*request.GraphQLSchema, error) {
+	const funcName = "schemaFromIntrospectionJSON"
+
+	var file struct {
+		Data struct {
+			Schema *introspectionSchema `json:"__schema"`
+		} `json:"data"`
+		Schema *introspectionSchema `json:"__schema"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("%s: failed to parse introspection JSON: %w", funcName, err)
+	}
+
+	parsed := file.Schema
+	if parsed == nil {
+		parsed = file.Data.Schema
+	}
+	if parsed == nil {
+		return nil, fmt.Errorf("%s: no __schema in introspection JSON", funcName)
+	}
+
+	schema := convertIntrospectionSchema(parsed)
+	schema.Source = "schema_file"
+	return schema, nil
 }
 
 func convertIntrospectionSchema(s *introspectionSchema) *request.GraphQLSchema {

@@ -91,6 +91,74 @@ describe('inline actions', () => {
     expect(run('code', '`a b', 1, 2).doc).toBe('``a` b')
   })
 
+  it('unwraps a multi-backtick span selected whole', () => {
+    const doc = 'see `` a`b `` here'
+    const r = run('code', doc, ...span(doc, '`` a`b ``'))
+    expect(r.doc).toBe('see a`b here')
+    expect(r.selected).toBe('a`b')
+  })
+
+  it('unwraps a multi-backtick span from a selection inside its padding', () => {
+    const doc = 'see `` a`b `` here'
+    const r = run('code', doc, ...span(doc, 'a`b'))
+    expect(r.doc).toBe('see a`b here')
+    expect(r.selected).toBe('a`b')
+  })
+
+  it('unwraps a plain span from a selection inside it', () => {
+    const doc = 'call `getUser` now'
+    const r = run('code', doc, ...span(doc, 'User'))
+    expect(r.doc).toBe('call getUser now')
+    expect(r.selected).toBe('User')
+  })
+
+  it('does not merge neighbouring spans when the text between them is selected', () => {
+    const doc = 'use `foo` or `bar`'
+    expect(run('code', doc, ...span(doc, 'or')).doc).toBe('use `foo` `or` `bar`')
+  })
+
+  it('wraps two spans in one fence instead of unwrapping them', () => {
+    const doc = '`a` and `b`'
+    expect(run('code', doc, 0, doc.length).doc).toBe('`` `a` and `b` ``')
+  })
+
+  it('does not treat a longer closing run as the end of the span', () => {
+    const doc = '`a`` b'
+    expect(run('code', doc, ...span(doc, 'a')).doc).toBe('``a``` b')
+  })
+
+  it('picks a fence longer than the longest backtick run inside', () => {
+    const r = run('code', 'a``b`c', 0, 6)
+    expect(r.doc).toBe('``` a``b`c ```')
+    expect(renderMarkdown(r.doc)).toContain('<code>a``b`c</code>')
+  })
+
+  it('keeps backslash-escaped backticks as literal text', () => {
+    const doc = '\\`hello\\`'
+    const r = run('code', doc, ...span(doc, 'hello'))
+    expect(r.doc).toBe('\\``hello`\\`')
+    expect(renderMarkdown(r.doc)).toContain('`<code>hello</code>`')
+    expect(run('code', r.doc, r.from, r.to).doc).toBe(doc)
+  })
+
+  it('unwraps a span that follows an escaped backslash', () => {
+    const doc = '\\\\`hello`'
+    expect(run('code', doc, ...span(doc, 'hello')).doc).toBe('\\\\hello')
+  })
+
+  it('pads text that starts and ends with a space so the spaces survive', () => {
+    const r = run('code', ' x ', 0, 3)
+    expect(r.doc).toBe('`  x  `')
+    expect(r.selected).toBe(' x ')
+  })
+
+  it('round-trips wrapped text back to the original', () => {
+    for (const text of ['x', 'a`b', '`', 'a`', 'a``b`c', ' x ']) {
+      const wrapped = run('code', text, 0, text.length)
+      expect(run('code', wrapped.doc, wrapped.from, wrapped.to).doc, text).toBe(text)
+    }
+  })
+
   it('normalizes a reversed selection', () => {
     expect(run('bold', 'one two', 7, 4).doc).toBe('one **two**')
   })

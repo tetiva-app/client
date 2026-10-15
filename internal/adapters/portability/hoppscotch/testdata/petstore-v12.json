@@ -1,0 +1,173 @@
+{
+  "v": 12,
+  "name": "Petstore",
+  "description": "Pets API",
+  "folders": [
+    {
+      "v": 12,
+      "name": "Admin",
+      "description": null,
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "Delete pet",
+          "method": "DELETE",
+          "endpoint": "<<baseUrl>>/pets/<<petId>>",
+          "params": [],
+          "headers": [{ "key": "X-Client", "value": "admin-console", "active": true, "description": "" }],
+          "preRequestScript": "",
+          "testScript": "pw.test(\"deleted\", () => {\n  pw.expect(pw.response.status).toBe(204);\n});",
+          "auth": { "authType": "inherit", "authActive": true },
+          "body": { "contentType": null, "body": null },
+          "requestVariables": [{ "key": "petId", "value": "42", "active": true }],
+          "responses": {},
+          "description": null
+        }
+      ],
+      "auth": {
+        "authType": "oauth-2",
+        "authActive": true,
+        "grantTypeInfo": {
+          "grantType": "CLIENT_CREDENTIALS",
+          "authEndpoint": "https://auth.example.com/oauth/token",
+          "clientID": "<<clientId>>",
+          "clientSecret": "<<clientSecret>>",
+          "scopes": "pets:write",
+          "token": "",
+          "clientAuthentication": "IN_BODY",
+          "tokenRequestParams": [],
+          "refreshRequestParams": []
+        },
+        "addTo": "HEADERS"
+      },
+      "headers": [{ "key": "X-Admin", "value": "true", "active": true, "description": "" }],
+      "variables": [
+        { "key": "clientId", "initialValue": "petstore-admin", "currentValue": "", "secret": false },
+        { "key": "clientSecret", "initialValue": "", "currentValue": "", "secret": true }
+      ],
+      "preRequestScript": "",
+      "testScript": ""
+    }
+  ],
+  "requests": [
+    {
+      "v": "17",
+      "name": "List pets",
+      "method": "GET",
+      "endpoint": "<<baseUrl>>/pets",
+      "params": [
+        { "key": "limit", "value": "<<limit>>", "active": true, "description": "" },
+        { "key": "debug", "value": "1", "active": false, "description": "" }
+      ],
+      "headers": [
+        { "key": "Accept", "value": "application/json", "active": true, "description": "" },
+        { "key": "X-Trace", "value": "on", "active": false, "description": "" }
+      ],
+      "preRequestScript": "pw.env.set(\"limit\", \"10\");",
+      "testScript": "",
+      "auth": { "authType": "inherit", "authActive": true },
+      "body": { "contentType": null, "body": null },
+      "requestVariables": [{ "key": "limit", "value": "20", "active": false }],
+      "responses": {
+        "OK": {
+          "name": "OK",
+          "originalRequest": {
+            "v": "6",
+            "name": "List pets",
+            "method": "GET",
+            "endpoint": "<<baseUrl>>/pets",
+            "headers": [],
+            "params": [],
+            "body": { "contentType": null, "body": null },
+            "auth": { "authType": "inherit", "authActive": true },
+            "requestVariables": []
+          },
+          "status": "OK",
+          "code": 200,
+          "headers": [{ "key": "content-type", "value": "application/json" }],
+          "body": "[{\"id\":1,\"name\":\"Rex\"}]"
+        }
+      },
+      "description": "Returns all pets"
+    },
+    {
+      "v": "17",
+      "name": "Create pet",
+      "method": "POST",
+      "endpoint": "<<baseUrl>>/pets",
+      "params": [],
+      "headers": [],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": { "authType": "bearer", "authActive": true, "token": "<<token>>" },
+      "body": { "contentType": "application/json", "body": "{\"name\":\"<<petName>>\"}" },
+      "requestVariables": [{ "key": "petName", "value": "Rex", "active": true }],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Login",
+      "method": "POST",
+      "endpoint": "<<baseUrl>>/login",
+      "params": [],
+      "headers": [],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": { "authType": "none", "authActive": true },
+      "body": {
+        "contentType": "application/x-www-form-urlencoded",
+        "body": "username: admin\npassword: <<password>>\n# remember: true",
+        "isBulkEditing": false
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Upload photo",
+      "method": "POST",
+      "endpoint": "<<baseUrl>>/pets/1/photo",
+      "params": [],
+      "headers": [],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": { "authType": "inherit", "authActive": true },
+      "body": {
+        "contentType": "multipart/form-data",
+        "body": [
+          { "key": "caption", "value": "<<petName>> at home", "active": true, "isFile": false },
+          { "key": "photo", "value": [{}], "active": true, "isFile": true }
+        ],
+        "showIndividualContentType": false,
+        "isBulkEditing": false
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": 10,
+      "name": "Pet by id",
+      "url": "<<baseUrl>>/graphql",
+      "headers": [],
+      "query": "query Pet($id: ID!) { pet(id: $id) { name } }",
+      "variables": "{\"id\": 1}",
+      "auth": { "authType": "inherit", "authActive": true },
+      "preRequestScript": "",
+      "testScript": "",
+      "description": null,
+      "responses": {}
+    }
+  ],
+  "auth": { "authType": "bearer", "authActive": true, "token": "<<token>>" },
+  "headers": [{ "key": "X-Client", "value": "hoppscotch", "active": true, "description": "" }],
+  "variables": [
+    { "key": "baseUrl", "initialValue": "https://petstore.example.com/v1", "currentValue": "", "secret": false },
+    { "key": "token", "initialValue": "", "currentValue": "", "secret": true }
+  ],
+  "preRequestScript": "",
+  "testScript": "pw.test(\"ok\", () => pw.expect(pw.response.status).toBeLevel2xx());"
+}

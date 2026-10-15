@@ -8,7 +8,8 @@ export interface El {
   text: string
 }
 
-const el = (text = ''): El => ({ parent: null, children: [], props: {}, text })
+// v-model on a native input attaches DOM listeners to the node.
+const el = (text = ''): El => Object.assign({ parent: null, children: [], props: {}, text }, { addEventListener: () => {} })
 
 function detach(n: El) {
   if (!n.parent) return
@@ -33,6 +34,7 @@ const ops: RendererOptions<El, El> = {
   parentNode: n => n.parent,
   nextSibling: n => (n.parent ? n.parent.children[n.parent.children.indexOf(n) + 1] ?? null : null),
   patchProp: (n, key, _prev, next) => { n.props[key] = next },
+  querySelector: () => el(),
 }
 
 export function mountTree(root: Component, pinia: Pinia, props?: Record<string, unknown>): { app: App; root: El } {

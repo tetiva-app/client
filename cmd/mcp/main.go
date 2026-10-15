@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"log/slog"
 	"net/http"
@@ -147,6 +148,8 @@ func (n *noopHTTPRequester) Execute(_ context.Context, _ request.HTTPExecuteRequ
 	return nil, nil
 }
 
+var errSchemaUnavailable = errors.New("schema lookups are not available in the standalone MCP server")
+
 type noopGRPCRequester struct{}
 
 func (n *noopGRPCRequester) Execute(_ context.Context, _ request.GRPCExecuteRequest) (*entities.Response, error) {
@@ -155,6 +158,9 @@ func (n *noopGRPCRequester) Execute(_ context.Context, _ request.GRPCExecuteRequ
 func (n *noopGRPCRequester) ListServices(_ context.Context, _ request.GRPCConnectRequest) (*request.GRPCSchema, error) {
 	return nil, nil
 }
+func (n *noopGRPCRequester) DescribeService(_ context.Context, _ request.GRPCConnectRequest, _ string) (*request.GRPCService, error) {
+	return nil, errSchemaUnavailable
+}
 
 type noopGraphQLRequester struct{}
 
@@ -162,7 +168,7 @@ func (n *noopGraphQLRequester) Execute(_ context.Context, _ request.GraphQLExecu
 	return nil, nil
 }
 func (n *noopGraphQLRequester) Introspect(_ context.Context, _ request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
-	return nil, nil
+	return nil, errSchemaUnavailable
 }
 func (n *noopGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ string) (*request.GraphQLExampleResponse, error) {
 	return nil, nil

@@ -240,6 +240,7 @@ onUnmounted(() => {
           :auth-type="localAuthType"
           :auth-data="localAuthData"
           :version="collection.version"
+          :nested="!isRoot"
           @update:auth-type="localAuthType = $event"
           @update:auth-data="localAuthData = $event"
         />

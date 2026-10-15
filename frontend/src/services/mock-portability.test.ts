@@ -24,7 +24,7 @@ describe('MockPortabilityService', () => {
     }), WS)
 
     expect(res.data).toMatchObject({
-      environmentName: 'Globals (2)',
+      environmentNames: ['Globals (2)'],
       variablesCreated: 1,
       warnings: [
         'Tetiva has no global variables: they were imported as the environment "Globals (2)"',
@@ -61,7 +61,7 @@ describe('MockPortabilityService', () => {
       workspaceId: WS,
     })
 
-    expect(res.data.environmentName).toBe('Petstore (2)')
+    expect(res.data.environmentNames).toEqual(['Petstore (2)'])
     const created = (await environments.list(WS)).data.find(e => e.name === 'Petstore (2)')!
     const vars = (await environments.listVariables(created.id)).data
     expect(vars.map(v => [v.key, v.value, v.enabled])).toEqual([

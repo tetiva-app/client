@@ -174,7 +174,7 @@ func (s *Server) handleSyncQueueList(ctx context.Context, req mcplib.CallToolReq
 			"action":      e.Action,
 			"status":      e.Status,
 			"retry_count": e.RetryCount,
-			"created_at":  e.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"created_at":  formatTimestamp(e.CreatedAt),
 		})
 	}
 

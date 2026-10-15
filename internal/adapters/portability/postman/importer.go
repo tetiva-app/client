@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/tetiva-app/client/internal/adapters/portability"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
@@ -27,7 +28,7 @@ import (
 const maxExampleNameLen = 200
 
 const scriptsWarning = "scripts were imported: only part of the pm.* API is available " +
-	"(pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test), so some may need changes"
+	"(pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes"
 
 const unreadableVariablesWarning = "collection variables could not be read and were skipped"
 
@@ -90,7 +91,7 @@ func ImportCollection(
 	rootAuthType, rootAuthData, warnings := mapAuth(pc.Auth, rootLabel)
 	result.Warnings = append(result.Warnings, warnings...)
 	appendWarning(result, warnDescriptionType(rootLabel, pc.Info.Description))
-	rootDescription, rootDescWarning := clampDescription(rootLabel, pc.Info.Description.Text())
+	rootDescription, rootDescWarning := portability.ClampDescription(rootLabel, pc.Info.Description.Text())
 	appendWarning(result, rootDescWarning)
 	rootScripts := collectScripts(pc.Event, rootLabel, opts.IncludeScripts, result)
 
@@ -240,7 +241,7 @@ func importItems(
 			folderAuthType, folderAuthData, warnings := mapAuth(item.Auth, folderLabel)
 			result.Warnings = append(result.Warnings, warnings...)
 			appendWarning(result, warnDescriptionType(folderLabel, item.Description))
-			folderDescription, folderDescWarning := clampDescription(folderLabel, item.Description.Text())
+			folderDescription, folderDescWarning := portability.ClampDescription(folderLabel, item.Description.Text())
 			appendWarning(result, folderDescWarning)
 			folderScripts := collectScripts(item.Event, folderLabel, opts.IncludeScripts, result)
 			subColl, err := collUC.Create(ctx, collection.Create{
@@ -329,22 +330,11 @@ func requestDescription(item PostmanItem, label string) (string, []string) {
 	if reqDesc != nil {
 		text = reqText
 	}
-	text, clampWarning := clampDescription(label, text)
+	text, clampWarning := portability.ClampDescription(label, text)
 	if clampWarning != "" {
 		warnings = append(warnings, clampWarning)
 	}
 	return text, warnings
-}
-
-func clampDescription(label, s string) (string, string) {
-	if len(s) <= domain.MaxDescriptionLen {
-		return s, ""
-	}
-	cut := domain.MaxDescriptionLen
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut], fmt.Sprintf("%s: description longer than %d bytes was truncated", label, domain.MaxDescriptionLen)
 }
 
 func mapPostmanRequest(item PostmanItem, collectionID uuid.UUID, includeScripts bool, result *ImportResult) (request.Create, []string) {

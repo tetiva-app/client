@@ -76,6 +76,9 @@ func (s *stubRequestUC) Reorder(context.Context, uuid.UUID, int) error   { retur
 func (s *stubRequestUC) Execute(context.Context, uuid.UUID, request.ExecuteOpt) (*entities.Response, error) {
 	return nil, nil
 }
+func (s *stubRequestUC) AuthCredentials(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	return nil, nil
+}
 func (s *stubRequestUC) BuildCurl(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error) {
 	return request.CurlResult{}, nil
 }
@@ -735,7 +738,7 @@ func TestImportCollection_ScriptsAndBodies(t *testing.T) {
 		`request "Login form": disabled test script was not imported`,
 		`request "Upload avatar": file field "avatar" was imported without its file; pick it again`,
 		`request "Put blob": the file body was imported without its file; pick it again`,
-		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test), so some may need changes",
+		"scripts were imported: only part of the pm.* API is available (pm.environment, pm.collectionVariables, pm.request, pm.response, pm.test, pm.expect), so some may need changes",
 	}, res.Warnings)
 }
 

@@ -47,7 +47,7 @@ func (i *Importer) Detect(data []byte) bool {
 	return bytes.HasPrefix(bytes.TrimSpace(probe.Item), []byte("["))
 }
 
-func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
+func (i *Importer) Preview(data []byte, _ string) (*portability.ImportPreview, error) {
 	const funcName = "postman.Importer.Preview"
 
 	rec := &recorder{vars: map[string]string{}}
@@ -61,15 +61,15 @@ func (i *Importer) Preview(data []byte) (*portability.ImportPreview, error) {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
 	return &portability.ImportPreview{
-		Format:          portability.FormatPostman,
-		Title:           pc.Info.Name,
-		Folders:         res.FoldersCreated - 1,
-		Requests:        res.RequestsCreated,
-		Examples:        res.ExamplesCreated,
-		EnvironmentName: res.EnvironmentName,
-		Hosts:           portability.Hosts(rec.urls, rec.vars),
-		Scripts:         scriptPreviews(pc),
-		Warnings:        nonNil(res.Warnings),
+		Format:           portability.FormatPostman,
+		Title:            pc.Info.Name,
+		Folders:          res.FoldersCreated - 1,
+		Requests:         res.RequestsCreated,
+		Examples:         res.ExamplesCreated,
+		EnvironmentNames: res.environmentNames(),
+		Hosts:            portability.Hosts(rec.urls, rec.vars),
+		Scripts:          scriptPreviews(pc),
+		Warnings:         nonNil(res.Warnings),
 	}, nil
 }
 
@@ -81,13 +81,20 @@ func (i *Importer) Import(ctx context.Context, data []byte, opt portability.Impo
 		return nil, err
 	}
 	return &portability.ImportResult{
-		CollectionID:    res.RootID,
-		Folders:         res.FoldersCreated - 1,
-		Requests:        res.RequestsCreated,
-		Examples:        res.ExamplesCreated,
-		EnvironmentName: res.EnvironmentName,
-		Warnings:        nonNil(res.Warnings),
+		CollectionID:     res.RootID,
+		Folders:          res.FoldersCreated - 1,
+		Requests:         res.RequestsCreated,
+		Examples:         res.ExamplesCreated,
+		EnvironmentNames: res.environmentNames(),
+		Warnings:         nonNil(res.Warnings),
 	}, nil
+}
+
+func (r *ImportResult) environmentNames() []string {
+	if r.EnvironmentName == "" {
+		return nil
+	}
+	return []string{r.EnvironmentName}
 }
 
 // Secret values stay out of vars so the preview's host list cannot show them.

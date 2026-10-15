@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/domain/secrets"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
@@ -80,7 +81,7 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 
 	httpReq, err := http.NewRequestWithContext(ctx, string(req.Method), req.URL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, req.AuthQueryKeys))
 	}
 
 	for key, values := range req.Headers {
@@ -119,7 +120,7 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	duration := time.Since(start)
 
 	if err != nil {
-		return nil, classifyError(err)
+		return nil, classifyError(err, req.AuthQueryKeys)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -194,7 +195,7 @@ func needsSpooledBody(t entities.AuthType) bool {
 	return t == entities.AuthTypeDigest || t == entities.AuthTypeAWSSigV4
 }
 
-func classifyError(err error) error {
+func classifyError(err error, authQueryKeys []string) error {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if urlErr.Timeout() {
@@ -213,7 +214,17 @@ func classifyError(err error) error {
 		}
 	}
 
-	return fmt.Errorf("request failed: %w", err)
+	return fmt.Errorf("request failed: %w", redactURLError(err, authQueryKeys))
+}
+
+func redactURLError(err error, authQueryKeys []string) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	redacted := *urlErr
+	redacted.URL = secrets.RedactURLParams(urlErr.URL, authQueryKeys)
+	return &redacted
 }
 
 // Used by curl-builder and the response-viewer "Sent" section.

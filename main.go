@@ -177,7 +177,7 @@ func main() {
 		Title:            constants.AppTitle(),
 		Width:            1280,
 		Height:           800,
-		BackgroundColour: application.NewRGB(26, 26, 46),
+		BackgroundColour: application.NewRGB(255, 255, 255),
 		URL:              "/",
 	})
 

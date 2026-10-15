@@ -2,8 +2,11 @@
 import { useHistoryStore } from '@/stores/history'
 import type { Protocol } from '@/types/request'
 import type { StatusKind } from '@/types/history'
+import { useCopy } from '@/composables/useLocale'
+import { HISTORY_COPY } from './copy'
 
 const store = useHistoryStore()
+const copy = useCopy(HISTORY_COPY)
 const protocols: Protocol[] = ['http', 'grpc', 'graphql', 'websocket']
 const kinds: StatusKind[] = ['2xx', '3xx', '4xx', '5xx', 'error']
 
@@ -27,12 +30,16 @@ function protocolLabel(p: Protocol): string {
   if (p === 'websocket') return 'WS'
   return 'HTTP'
 }
+
+function kindLabel(k: StatusKind): string {
+  return k === 'error' ? copy.value.filter.error : k
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3 p-3 w-60 rounded-md shadow-2xl bg-zinc-800/95 backdrop-blur-sm border border-zinc-700">
     <section>
-      <h4 class="text-[11px] font-medium text-muted-foreground mb-2">Protocol</h4>
+      <h4 class="text-[11px] font-medium text-muted-foreground mb-2">{{ copy.filter.protocol }}</h4>
       <div class="flex flex-wrap gap-1">
         <button
           v-for="p in protocols"
@@ -52,7 +59,7 @@ function protocolLabel(p: Protocol): string {
     </section>
 
     <section>
-      <h4 class="text-[11px] font-medium text-muted-foreground mb-2">Status</h4>
+      <h4 class="text-[11px] font-medium text-muted-foreground mb-2">{{ copy.filter.status }}</h4>
       <div class="flex flex-wrap gap-1">
         <button
           v-for="k in kinds"
@@ -66,7 +73,7 @@ function protocolLabel(p: Protocol): string {
           "
           @click="toggleKind(k)"
         >
-          {{ k }}
+          {{ kindLabel(k) }}
         </button>
       </div>
     </section>
@@ -77,9 +84,9 @@ function protocolLabel(p: Protocol): string {
         class="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
         @click="store.clearFilters()"
       >
-        Clear filters
+        {{ copy.filter.clear }}
       </button>
-      <span class="text-[10px] text-muted-foreground/70">Esc to close</span>
+      <span class="text-[10px] text-muted-foreground/70">{{ copy.filter.escToClose }}</span>
     </div>
   </div>
 </template>

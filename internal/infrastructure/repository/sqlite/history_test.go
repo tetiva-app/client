@@ -472,7 +472,7 @@ func TestHistoryRepo_List_StatusFilter_WebSocketHandshakeIs2xx(t *testing.T) {
 	}
 }
 
-func TestHistoryRepo_AuthQueryKeysRoundTrip(t *testing.T) {
+func TestHistoryRepo_AuthKeysRoundTrip(t *testing.T) {
 	db := setupTestDB(t)
 	requestID := createTestRequest(t, db)
 	repo := NewHistoryRepo(db)
@@ -480,6 +480,7 @@ func TestHistoryRepo_AuthQueryKeysRoundTrip(t *testing.T) {
 
 	h := newTestHistory(requestID)
 	h.AuthQueryKeys = []string{"access_token", "sig"}
+	h.AuthHeaderKeys = []string{"appid"}
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create history failed: %v", err)
 	}
@@ -491,6 +492,9 @@ func TestHistoryRepo_AuthQueryKeysRoundTrip(t *testing.T) {
 	if len(got.AuthQueryKeys) != 2 || got.AuthQueryKeys[0] != "access_token" || got.AuthQueryKeys[1] != "sig" {
 		t.Errorf("AuthQueryKeys = %v, want [access_token sig]", got.AuthQueryKeys)
 	}
+	if len(got.AuthHeaderKeys) != 1 || got.AuthHeaderKeys[0] != "appid" {
+		t.Errorf("AuthHeaderKeys = %v, want [appid]", got.AuthHeaderKeys)
+	}
 
 	plain := newTestHistory(requestID)
 	if err := repo.Create(ctx, plain); err != nil {
@@ -501,8 +505,8 @@ func TestHistoryRepo_AuthQueryKeysRoundTrip(t *testing.T) {
 		t.Fatalf("List failed: %v", err)
 	}
 	for _, row := range rows {
-		if row.ID == plain.ID && len(row.AuthQueryKeys) != 0 {
-			t.Errorf("AuthQueryKeys = %v, want empty", row.AuthQueryKeys)
+		if row.ID == plain.ID && (len(row.AuthQueryKeys) != 0 || len(row.AuthHeaderKeys) != 0) {
+			t.Errorf("auth keys = %v and %v, want empty", row.AuthQueryKeys, row.AuthHeaderKeys)
 		}
 	}
 }

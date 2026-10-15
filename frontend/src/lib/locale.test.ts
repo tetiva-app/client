@@ -67,7 +67,7 @@ describe('formatNumber', () => {
 describe('formatRelative', () => {
   const now = new Date('2026-08-16T12:00:00Z')
 
-  it('uses the lib/time buckets in English', () => {
+  it('keeps the English wording', () => {
     expect(formatRelative('en', '2026-08-16T11:59:30Z', now)).toBe('just now')
     expect(formatRelative('en', '2026-08-16T11:59:00Z', now)).toBe('1 minute ago')
     expect(formatRelative('en', '2026-08-16T09:00:00Z', now)).toBe('3 hours ago')

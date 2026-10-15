@@ -60,6 +60,25 @@ func (u *usecase) Disconnect(_ context.Context, connID ConnectionID) error {
 	return nil
 }
 
+// DisconnectOwner closes every connection, pending attempts included, opened with this owner.
+func (u *usecase) DisconnectOwner(ctx context.Context, owner string) error {
+	const funcName = "websocket.DisconnectOwner"
+	u.mu.Lock()
+	var ids []ConnectionID
+	for id, e := range u.conns {
+		if e.owner == owner {
+			ids = append(ids, id)
+		}
+	}
+	u.mu.Unlock()
+	for _, id := range ids {
+		if err := u.Disconnect(ctx, id); err != nil {
+			return fmt.Errorf("%s: %w", funcName, err)
+		}
+	}
+	return nil
+}
+
 // DisconnectAll finalizes every entry, pending attempts included (used on shutdown).
 func (u *usecase) DisconnectAll(ctx context.Context) error {
 	u.mu.Lock()

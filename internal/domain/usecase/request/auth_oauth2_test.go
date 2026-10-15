@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -288,6 +289,9 @@ func TestExecuteGraphQLOAuth2QueryKeyLandsInHistory(t *testing.T) {
 	if !strings.Contains(d.graphql.last.Endpoint, "tok=at-1") {
 		t.Errorf("endpoint = %q, want the token in the query", d.graphql.last.Endpoint)
 	}
+	if got := d.graphql.last.AuthQueryKeys; len(got) != 1 || got[0] != "tok" {
+		t.Errorf("AuthQueryKeys = %v, want [tok]", got)
+	}
 	if len(d.history.entries) != 1 {
 		t.Fatalf("history entries = %d, want 1", len(d.history.entries))
 	}
@@ -552,5 +556,35 @@ func TestResolveWebSocketOAuth2DirectAndInherited(t *testing.T) {
 	// The collection and the request are separate owners, so each fetched once.
 	if idp.hitCount() != 2 {
 		t.Errorf("token endpoint hits = %d, want 2", idp.hitCount())
+	}
+}
+
+func TestAuthCredentialsIncludesTheCachedOAuth2Token(t *testing.T) {
+	idp := newIDPServer(t)
+	d := newOAuth2Deps(t)
+	uc := newOAuth2Usecase(d)
+
+	id := uuid.New()
+	d.repo.requests[id] = &entities.Request{
+		ID: id, CollectionID: testCollectionID, Protocol: entities.ProtocolHTTP, Method: entities.MethodGET,
+		URL: "https://api.example.com/x", BodyType: entities.BodyTypeNone,
+		AuthType: entities.AuthTypeOAuth2,
+		AuthData: `{"grant":"client_credentials","tokenUrl":"` + idp.URL + `","clientId":"cid","clientSecret":"cs-1"}`,
+	}
+
+	before, err := uc.AuthCredentials(context.Background(), id, testWorkspaceID)
+	if err != nil {
+		t.Fatalf("AuthCredentials: %v", err)
+	}
+	if _, err := uc.Execute(context.Background(), id, request.ExecuteOpt{WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	after, err := uc.AuthCredentials(context.Background(), id, testWorkspaceID)
+	if err != nil {
+		t.Fatalf("AuthCredentials: %v", err)
+	}
+
+	if !reflect.DeepEqual(before, []string{"cs-1"}) || !reflect.DeepEqual(after, []string{"cs-1", "at-1"}) {
+		t.Errorf("credentials before %v, after %v", before, after)
 	}
 }

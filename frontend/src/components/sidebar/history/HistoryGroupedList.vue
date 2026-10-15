@@ -3,8 +3,11 @@ import { computed } from 'vue'
 import { useHistoryStore } from '@/stores/history'
 import { groupByDate } from '@/lib/historyGroups'
 import HistoryItem from './HistoryItem.vue'
+import { useCopy } from '@/composables/useLocale'
+import { HISTORY_COPY } from './copy'
 
 const store = useHistoryStore()
+const copy = useCopy(HISTORY_COPY)
 const groups = computed(() => groupByDate(store.items))
 
 defineEmits<{
@@ -19,7 +22,7 @@ defineEmits<{
       <div
         class="sticky top-0 z-10 bg-sidebar text-xs font-medium text-muted-foreground px-3 py-1 border-b border-border/50"
       >
-        {{ group.bucket }}
+        {{ copy.buckets[group.bucket] }}
       </div>
       <HistoryItem
         v-for="rec in group.items"

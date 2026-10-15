@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"time"
+
 	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
@@ -162,8 +164,8 @@ func RequestToResponse(r *entities.Request) RequestResponse {
 		SortOrder:         r.SortOrder,
 		IsDraft:           r.IsDraft,
 		Version:           r.Version,
-		CreatedAt:         r.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:         r.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:         r.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:         r.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

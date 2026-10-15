@@ -35,6 +35,7 @@ import CollectionEditor from '@/components/editor/CollectionEditor.vue'
 import HistoryViewer from '@/components/HistoryViewer.vue'
 import { useHistoryStore } from '@/stores/history'
 import { useToast } from '@/composables/useToast'
+import { useHistoryReplay } from '@/composables/useHistoryReplay'
 import EnvironmentModal from '@/components/EnvironmentModal.vue'
 import CookieManagerModal from '@/components/CookieManagerModal.vue'
 import { useCookieModalUi } from '@/stores/cookieModalUi'
@@ -99,6 +100,7 @@ const historyStore = useHistoryStore()
 const appUpdate = useAppUpdateStore()
 const syncStatus = windowMode ? null : useSyncStatus()
 const toast = useToast()
+const replayHistory = useHistoryReplay()
 const linux = isLinux()
 const stopPublicationList = windowMode ? null : publications.trackList()
 
@@ -111,16 +113,7 @@ watch(() => settingsStore.publishingEnabled, enabled => {
 
 async function onHistoryReplay() {
   const id = historyStore.selectedId
-  if (!id) return
-  const req = await historyStore.replay(id)
-  if (req) {
-    store.loadRequest(req)
-    await store.openTab(req.id)
-    activeSection.value = 'collections'
-    toast.info('Opened as draft — edit and Send, or save to a collection.')
-  } else {
-    toast.error('Replay failed')
-  }
+  if (id && await replayHistory(id)) activeSection.value = 'collections'
 }
 
 onMounted(async () => {

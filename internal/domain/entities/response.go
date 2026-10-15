@@ -15,6 +15,14 @@ type Response struct {
 	IsBinary          bool
 	BinaryPath        string
 	SuggestedFilename string
+	Sent              *SentRequest
+}
+
+type SentRequest struct {
+	URL            string
+	Headers        map[string][]string
+	AuthQueryKeys  []string
+	AuthHeaderKeys []string
 }
 
 type ScriptResult struct {

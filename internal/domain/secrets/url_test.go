@@ -54,6 +54,16 @@ func TestRedactURL(t *testing.T) {
 	}
 }
 
+func TestRedactURLParams(t *testing.T) {
+	names := []string{"appid"}
+	assert.Equal(t, "https://api.example.com/w?appid=<redacted>&q=London&api_key=<redacted>",
+		RedactURLParams("https://api.example.com/w?appid=b1b15e88&q=London&api_key=sk_1", names))
+	assert.Equal(t, "https://api.example.com/w?AppID=<redacted>&q=London#appid=x",
+		RedactURLParams("https://api.example.com/w?AppID=b1b15e88&q=London#appid=x", names))
+	assert.Equal(t, "https://api.example.com/w?appid={{id}}&q=London",
+		RedactURLParams("https://api.example.com/w?appid={{id}}&q=London", names))
+}
+
 func TestRedactHeaders_URLValues(t *testing.T) {
 	in := []entities.HeaderItem{
 		{Key: "Location", Value: "https://bucket.s3.example/r.csv?X-Amz-Credential=AKIA&X-Amz-Signature=sig", Enabled: true},

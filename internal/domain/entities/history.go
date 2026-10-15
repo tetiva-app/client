@@ -22,8 +22,8 @@ type History struct {
 	ResponseSize    int64
 	DurationMs      int64
 	ErrorMessage    string
-	// AuthQueryKeys names the query parameters auth injected into the URL, so a
-	// replay draft can strip them instead of persisting a token.
-	AuthQueryKeys []string
-	CreatedAt     time.Time
+	// AuthQueryKeys and AuthHeaderKeys let a replay draft strip what auth injected.
+	AuthQueryKeys  []string
+	AuthHeaderKeys []string
+	CreatedAt      time.Time
 }

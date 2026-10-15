@@ -2,12 +2,15 @@
 import { ref, onMounted } from 'vue'
 import { ChevronDown, Settings } from 'lucide-vue-next'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useCopy } from '@/composables/useLocale'
+import { ENVIRONMENT_COPY } from '@/components/environments/copy'
 
 const emit = defineEmits<{
   (e: 'manage'): void
 }>()
 
 const store = useEnvironmentStore()
+const copy = useCopy(ENVIRONMENT_COPY)
 const dropdownOpen = ref(false)
 
 onMounted(() => {
@@ -42,7 +45,7 @@ function openManage() {
       @click="dropdownOpen = !dropdownOpen"
     >
       <span class="inline-block size-1.5 rounded-full" :class="store.activeEnvironment ? 'bg-emerald-400' : 'bg-muted-foreground'" />
-      {{ store.activeEnvironment?.name ?? 'No Environment' }}
+      {{ store.activeEnvironment?.name ?? copy.picker.none }}
       <ChevronDown class="size-3 text-muted-foreground" />
     </button>
 
@@ -64,7 +67,7 @@ function openManage() {
         @click="clearEnv"
       >
         <span class="inline-block size-1.5 rounded-full bg-muted-foreground" />
-        No Environment
+        {{ copy.picker.none }}
       </button>
 
       <div v-if="store.environments.length > 0" class="my-1 border-t border-border" />
@@ -87,7 +90,7 @@ function openManage() {
         @click="openManage"
       >
         <Settings class="size-3" />
-        Manage Environments...
+        {{ copy.picker.manage }}
       </button>
     </div>
   </div>

@@ -49,6 +49,7 @@ export type {
   ExportResult,
   LinkMeta,
   ImportScript,
+  ImportFormat,
   ImportPreview,
   ImportPreviewResult,
   ImportConfirmRequest,

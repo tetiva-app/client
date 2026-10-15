@@ -3,6 +3,7 @@ package secrets
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -47,7 +48,7 @@ func MaskQuery(raw, mask string) string {
 	if !ok {
 		return raw
 	}
-	masked, changed := maskParams(query, mask)
+	masked, changed := maskParams(query, mask, nil)
 	if !changed {
 		return raw
 	}
@@ -55,21 +56,32 @@ func MaskQuery(raw, mask string) string {
 }
 
 func RedactURL(raw string) string {
+	return RedactURLParams(raw, nil)
+}
+
+func RedactURLParams(raw string, names []string) string {
 	base, frag, hasFrag := strings.Cut(raw, "#")
-	base = MaskQuery(redactUserinfo(base), redactedValue)
+	base = redactUserinfo(base)
+	if prefix, query, _, ok := SplitQuery(base); ok {
+		masked, _ := maskParams(query, redactedValue, names)
+		base = prefix + masked
+	}
 	if !hasFrag {
 		return base
 	}
-	masked, _ := maskParams(frag, redactedValue)
+	masked, _ := maskParams(frag, redactedValue, nil)
 	return base + "#" + masked
 }
 
-func maskParams(params, mask string) (string, bool) {
+func maskParams(params, mask string, names []string) (string, bool) {
 	parts := strings.Split(params, "&")
 	changed := false
 	for i, part := range parts {
 		name, value, ok := strings.Cut(part, "=")
-		if !ok || value == "" || onlyRefs(value) || !IsSensitiveQueryParam(name) {
+		if !ok || value == "" || onlyRefs(value) {
+			continue
+		}
+		if !IsSensitiveQueryParam(name) && !slices.ContainsFunc(names, func(n string) bool { return ParamKey(n) == ParamKey(name) }) {
 			continue
 		}
 		if value != mask {

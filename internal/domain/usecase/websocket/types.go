@@ -101,9 +101,9 @@ type ResolvedDial struct {
 	Subprotocols []string
 	PingInterval time.Duration
 	Script       *entities.ScriptResult // nil when no pre-connect script ran
-	// AuthQueryKeys names the query parameters auth injected into the URL, recorded
-	// with the history row so a replay draft can strip them.
-	AuthQueryKeys []string
+	// AuthQueryKeys and AuthHeaderKeys let a replay draft strip what auth injected.
+	AuthQueryKeys  []string
+	AuthHeaderKeys []string
 	// Failed is a preparation failure after the script stage (scheme guard, auth);
 	// it rides in ConnectResult so the script output explaining it survives.
 	Failed string
@@ -115,6 +115,7 @@ type ConnectOpt struct {
 	RequestID    uuid.UUID
 	WorkspaceID  uuid.UUID
 	UserID       string
+	Owner        string
 }
 
 // ConnectResult reports every failure after the pre-connect script instead of a Go error,

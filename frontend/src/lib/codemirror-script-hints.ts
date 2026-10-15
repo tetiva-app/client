@@ -14,8 +14,17 @@ const pmOptions = [
   snippetCompletion('pm.request.headers.remove("${1:name}")', { label: 'pm.request.headers.remove', type: 'function', info: 'Remove header' }),
   { label: 'pm.response', type: 'namespace', info: 'Response data (Post-script only)' },
   { label: 'pm.response.code', type: 'property', info: 'Status code' },
+  { label: 'pm.response.status', type: 'property', info: 'Status reason, like "OK"' },
   snippetCompletion('pm.response.json()', { label: 'pm.response.json', type: 'function', info: 'Parse response as JSON' }),
   snippetCompletion('pm.response.text()', { label: 'pm.response.text', type: 'function', info: 'Response as text' }),
+  snippetCompletion('pm.response.headers.get("${1:name}")', { label: 'pm.response.headers.get', type: 'function', info: 'Response header value' }),
+  { label: 'pm.response.responseTime', type: 'property', info: 'Response time in ms' },
+  snippetCompletion('pm.response.to.have.status(${1:200})', { label: 'pm.response.to.have.status', type: 'function', info: 'Assert status code or reason' }),
+  snippetCompletion('pm.response.to.have.header("${1:name}")', { label: 'pm.response.to.have.header', type: 'function', info: 'Assert a response header' }),
+  snippetCompletion('pm.response.to.have.jsonBody("${1:path}")', { label: 'pm.response.to.have.jsonBody', type: 'function', info: 'Assert a JSON path in the body' }),
+  { label: 'pm.response.to.be.ok', type: 'property', info: 'Assert status 200 (OK on gRPC)' },
+  { label: 'pm.response.to.be.success', type: 'property', info: 'Assert a 2XX status (OK on gRPC)' },
+  snippetCompletion('pm.expect(${1:value}).to.equal(${2:expected})', { label: 'pm.expect', type: 'function', info: 'Chai assertion' }),
   snippetCompletion('pm.test("${1:Test name}", function() {\n  ${2}\n});', { label: 'pm.test', type: 'function', info: 'Write a test (Post-script only)' }),
   snippetCompletion('console.log(${1});', { label: 'console.log', type: 'function', info: 'Print to console' })
 ]

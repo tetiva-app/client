@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/tetiva-app/client/internal/domain/entities"
+	"github.com/tetiva-app/client/internal/race"
 )
 
 func TestScan_EveryRuleWarnsAndMasks(t *testing.T) {
@@ -187,7 +188,7 @@ func TestScan_UnclosedCDATAStaysLinear(t *testing.T) {
 	start := time.Now()
 	s, _ := f.build(t)
 
-	assert.Less(t, time.Since(start), time.Second)
+	assert.Less(t, time.Since(start), time.Second*race.Slowdown)
 	assert.Equal(t, body, findRequest(s.Collection.Items, "r").HTTP.Body.Raw)
 }
 
@@ -203,7 +204,7 @@ func TestScan_URLsInsideTextStayLinear(t *testing.T) {
 		start := time.Now()
 		s, _ := f.build(t)
 
-		assert.Less(t, time.Since(start), time.Second, name)
+		assert.Less(t, time.Since(start), time.Second*race.Slowdown, name)
 		assert.Equal(t, text, findRequest(s.Collection.Items, "d").Description, name)
 	}
 }

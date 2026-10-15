@@ -1,0 +1,21 @@
+[
+  {
+    "v": 9,
+    "name": "Countries",
+    "folders": [],
+    "requests": [
+      {
+        "v": 8,
+        "name": "Countries",
+        "url": "https://countries.example.com/graphql",
+        "headers": [{ "key": "X-Api-Key", "value": "<<key>>", "active": true, "description": "" }],
+        "query": "query { countries { code name } }",
+        "variables": "{}",
+        "auth": { "authType": "none", "authActive": true }
+      }
+    ],
+    "auth": { "authType": "none", "authActive": true },
+    "headers": [],
+    "variables": []
+  }
+]

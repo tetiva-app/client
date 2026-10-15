@@ -1,4 +1,5 @@
 import type { Result } from '@/types/common'
+import type { ThemePreference } from '@/lib/settings-storage'
 
 export interface SchemaContent {
   definition: string
@@ -16,4 +17,5 @@ export interface WindowServiceAPI {
   getSchemaContent(schemaId: string): Promise<Result<SchemaContent>>
   childWindowCount(): Promise<Result<number>>
   closeChildWindows(): Promise<Result<void>>
+  setTheme(preference: ThemePreference, effective: 'light' | 'dark'): Promise<Result<void>>
 }

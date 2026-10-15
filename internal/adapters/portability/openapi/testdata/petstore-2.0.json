@@ -1,0 +1,69 @@
+{
+	"swagger": "2.0",
+	"info": {"title": "Swagger Petstore", "version": "1.0.7"},
+	"host": "petstore.swagger.io",
+	"basePath": "/v2",
+	"schemes": ["https", "http"],
+	"tags": [{"name": "pet", "description": "Everything about your Pets"}],
+	"securityDefinitions": {
+		"basic": {"type": "basic"},
+		"password_auth": {
+			"type": "oauth2",
+			"flow": "password",
+			"tokenUrl": "https://petstore.swagger.io/oauth/token",
+			"scopes": {"read": "read"}
+		}
+	},
+	"security": [{"basic": []}],
+	"paths": {
+		"/pet/{petId}": {
+			"get": {
+				"tags": ["pet"],
+				"summary": "Find pet by ID",
+				"produces": ["application/json"],
+				"parameters": [{"name": "petId", "in": "path", "required": true, "type": "integer", "default": 5}],
+				"responses": {
+					"200": {
+						"description": "ok",
+						"schema": {"$ref": "#/definitions/Pet"},
+						"examples": {"application/json": {"name": "Rex", "id": 5}}
+					}
+				}
+			}
+		},
+		"/pet": {
+			"post": {
+				"tags": ["pet"],
+				"summary": "Add a pet",
+				"consumes": ["application/json"],
+				"produces": ["application/json"],
+				"security": [{"password_auth": ["read"]}],
+				"parameters": [{"name": "body", "in": "body", "required": true, "schema": {"$ref": "#/definitions/Pet"}}],
+				"responses": {"200": {"description": "ok", "schema": {"$ref": "#/definitions/Pet"}}}
+			}
+		},
+		"/pet/{petId}/uploadImage": {
+			"post": {
+				"tags": ["pet"],
+				"summary": "Upload an image",
+				"consumes": ["multipart/form-data"],
+				"parameters": [
+					{"name": "petId", "in": "path", "required": true, "type": "integer"},
+					{"name": "additionalMetadata", "in": "formData", "type": "string"},
+					{"name": "file", "in": "formData", "type": "file"}
+				],
+				"responses": {"200": {"description": "ok"}}
+			}
+		}
+	},
+	"definitions": {
+		"Pet": {
+			"type": "object",
+			"properties": {
+				"name": {"type": "string", "example": "doggie"},
+				"id": {"type": "integer", "format": "int64"},
+				"photoUrls": {"type": "array", "items": {"type": "string"}}
+			}
+		}
+	}
+}

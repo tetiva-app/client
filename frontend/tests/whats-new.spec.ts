@@ -52,8 +52,8 @@ test.describe("What's New & update badge", () => {
   });
 
   const viewports = [
-    { width: 960, height: 640, listOverflows: true },
-    { width: 1280, height: 800, listOverflows: false },
+    { width: 960, height: 640 },
+    { width: 1280, height: 800 },
   ];
   for (const locale of ['en-US', 'ru-RU']) {
     test.describe(`upgrade modal in ${locale}`, () => {
@@ -73,15 +73,16 @@ test.describe("What's New & update badge", () => {
           await expect(title).toBeInViewport({ ratio: 1 });
           await expect(gotIt).toBeInViewport({ ratio: 1 });
           await expect(close).toBeInViewport({ ratio: 1 });
-          if (size.listOverflows) {
-            expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-          }
 
-          const lastItem = list.locator('li').last();
-          await lastItem.scrollIntoViewIfNeeded();
-          await expect(lastItem).toBeInViewport({ ratio: 1 });
+          const items = await list.locator('li').all();
+          expect(items.length).toBeGreaterThan(0);
+          for (const item of items) {
+            await item.scrollIntoViewIfNeeded();
+            await expect(item).toBeInViewport({ ratio: 1 });
+          }
           await expect(title).toBeInViewport({ ratio: 1 });
           await expect(gotIt).toBeInViewport({ ratio: 1 });
+          await expect(close).toBeInViewport({ ratio: 1 });
         });
       }
     });

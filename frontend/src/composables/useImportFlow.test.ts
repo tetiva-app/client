@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { MockPortabilityService } from '@/services/mock-portability'
 import type { MockDeepLinkService } from '@/services/mock-deeplink'
@@ -23,8 +23,13 @@ vi.mock('@/services', async () => {
 })
 
 import {
+  MAX_IMPORT_FILE_BYTES,
   MAX_SNAPSHOT_FILE_BYTES,
+  fileTooLargeText,
+  importCounts,
   importErrorText,
+  importedEnvironmentText,
+  importWarningsText,
   parseShareLink,
   useImportFlow,
 } from './useImportFlow'
@@ -35,6 +40,7 @@ import { useEnvironmentStore } from '@/stores/environments'
 import { useRequestStore } from '@/stores/tabs'
 import { useToast } from '@/composables/useToast'
 import { onContentSaved } from '@/lib/content-saved'
+import { setCurrentLocale } from '@/lib/locale'
 
 const PUBLIC = 'petstore-api-k3f9x2qa'
 const LOCKED = 'internal-api-pa55word'
@@ -42,7 +48,7 @@ const OTHER = 'billing-api-m2n8b4vc'
 
 function preview(over: Partial<ImportPreview> = {}): ImportPreview {
   return {
-    format: 'tetiva', title: 'Petstore API', folders: 1, requests: 3, examples: 1, environmentName: '',
+    format: 'tetiva', title: 'Petstore API', folders: 1, requests: 3, examples: 1, environmentNames: [],
     hosts: ['petstore.example.com'], scripts: [{ path: 'Petstore API', phase: 'pre', text: 'pm.environment.set("a", 1)' }],
     warnings: [], ...over,
   }
@@ -291,6 +297,18 @@ describe('importing from a link', () => {
 })
 
 describe('importing a file', () => {
+  it('names an untitled collection in the toast', async () => {
+    clearToasts()
+    const svc = await portability()
+    vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({ data: preview({ format: 'postman', title: '' }) })
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported “Untitled”: 0 folders · 0 requests · 0 examples'])
+  })
+
   it('previews the file and keeps scripts off by default, Postman included', async () => {
     const svc = await portability()
     const flow = useImportFlow()
@@ -330,6 +348,40 @@ describe('importing a file', () => {
     expect(calls(svc, 'importConfirm')[0].args[0]).toMatchObject({ parentId: 'folder-1' })
   })
 
+  it('names the file and keeps the folder for HAR and Hoppscotch files', async () => {
+    const svc = await portability()
+    const previewed = vi.spyOn(svc, 'importPreview')
+    for (const format of ['har', 'hoppscotch'] as const) {
+      previewed.mockResolvedValueOnce({ data: preview({ format, title: 'session' }) })
+      const flow = useImportFlow()
+
+      await flow.openFile(new File([POSTMAN_FILE], 'session.har'), 'folder-1')
+      expect(flow.destination.value.alwaysTopLevel).toBe(false)
+      await flow.confirm()
+    }
+
+    expect(previewed.mock.calls.map(c => c[1])).toEqual(['session.har', 'session.har'])
+    for (const c of calls(svc, 'importConfirm')) {
+      expect(c.args[0]).toMatchObject({ fileName: 'session.har', parentId: 'folder-1' })
+    }
+  })
+
+  it('imports an OpenAPI spec into the folder it was opened from', async () => {
+    const svc = await portability()
+    const flow = useImportFlow()
+    const spec = JSON.stringify({
+      openapi: '3.0.3', info: { title: 'Shop' },
+      paths: { '/items': { get: { tags: ['items'] }, post: { tags: ['items'] } }, '/health': { get: {} } },
+    })
+
+    await flow.openFile(file(spec), 'folder-1')
+    expect(flow.ui.preview).toMatchObject({ format: 'openapi', title: 'Shop', folders: 1, requests: 3, environmentNames: ['Shop'] })
+    expect(flow.destination.value.alwaysTopLevel).toBe(false)
+    await flow.confirm()
+
+    expect(calls(svc, 'importConfirm')[0].args[0]).toMatchObject({ content: spec, parentId: 'folder-1' })
+  })
+
   it('imports a Tetiva file at the top level even from a folder menu', async () => {
     const svc = await portability()
     const flow = useImportFlow()
@@ -361,6 +413,24 @@ describe('importing a file', () => {
     expect(flow.ui.active).toBe(false)
   })
 
+  it('refuses a file of any format over 48 MiB before reading it', async () => {
+    const svc = await portability()
+    const text = vi.fn(async () => POSTMAN_FILE)
+    const big = {
+      size: 48 * 1024 * 1024 + 1,
+      slice: () => new Blob([POSTMAN_FILE.slice(0, 64)]),
+      text,
+    } as unknown as Blob
+    const flow = useImportFlow()
+
+    await flow.openFile(big, null)
+
+    expect(text).not.toHaveBeenCalled()
+    expect(calls(svc, 'importPreview')).toHaveLength(0)
+    expect(useToast().toasts.value.some(t => t.message === 'The file is larger than 48 MiB')).toBe(true)
+    expect(flow.ui.active).toBe(false)
+  })
+
   it('still reads a large Postman file', async () => {
     const svc = await portability()
     const text = vi.fn(async () => POSTMAN_FILE)
@@ -384,7 +454,7 @@ describe('importing a file', () => {
 
     expect(flow.ui.preview).toBeNull()
     expect(flow.ui.active).toBe(false)
-    expect(useToast().toasts.value.some(t => t.message.includes('Postman or Tetiva'))).toBe(true)
+    expect(useToast().toasts.value.some(t => t.message === "This file isn't a Tetiva, Postman, Insomnia or Hoppscotch collection, an OpenAPI spec or a HAR file")).toBe(true)
   })
 
   it('announces the import once the tree has reloaded, so a published folder gets recounted', async () => {
@@ -429,11 +499,23 @@ describe('an environment file in Import', () => {
     expect(envUi.targetEnvId).toBe(data.environmentId)
   })
 
+  it('names every environment of a file that holds several', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importEnvironment').mockResolvedValueOnce({
+      data: { environmentId: 'env-1', environmentNames: ['Dev', 'Prod'], variablesCreated: 3, warnings: [] },
+    })
+    const flow = useImportFlow()
+
+    await flow.openFile(file(ENV_FILE), null)
+
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Imported environments “Dev”, “Prod” · 3 variables'])
+  })
+
   it('shows what the import changed until it is dismissed', async () => {
     const svc = await portability()
     vi.spyOn(svc, 'importEnvironment').mockResolvedValueOnce({
       data: {
-        environmentId: 'env-1', environmentName: 'Globals', variablesCreated: 1,
+        environmentId: 'env-1', environmentNames: ['Globals'], variablesCreated: 1,
         warnings: ['Tetiva has no global variables: they were imported as the environment "Globals"'],
       },
     })
@@ -545,10 +627,28 @@ describe('an environment file in Import', () => {
 describe('collection variables', () => {
   beforeEach(clearToasts)
 
+  it('says which environment the import made active', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
+      data: {
+        collectionId: 'c1', folders: 1, requests: 3, examples: 0,
+        environmentNames: ['Shop'], activeEnvironment: 'Shop', warnings: [],
+      },
+    })
+    const flow = useImportFlow()
+
+    await flow.openFile(file(JSON.stringify({ openapi: '3.0.3', info: { title: 'Shop' }, paths: {} })), null)
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual([
+      'Imported “Shop”: 1 folder · 3 requests · 0 examples · environment “Shop” is now active',
+    ])
+  })
+
   it('name the environment in the import toast', async () => {
     const flow = useImportFlow()
     await flow.openFile(file(POSTMAN_WITH_VARIABLES), null)
-    expect(flow.ui.preview?.environmentName).toBe('Petstore')
+    expect(flow.ui.preview?.environmentNames).toEqual(['Petstore'])
     expect(flow.ui.preview?.hosts).toEqual(['petstore.example.com'])
 
     await flow.confirm()
@@ -566,7 +666,164 @@ describe('collection variables', () => {
 
     await flow.openFile(file(POSTMAN_WITH_VARIABLES), null)
 
-    expect(flow.destination.value.environmentName).toBe('Petstore (2)')
+    expect(flow.destination.value.environmentNames).toEqual(['Petstore (2)'])
+  })
+
+  it('name each Insomnia environment on its own, commas and all', async () => {
+    useEnvironmentStore().environments = [
+      { id: 'e1', name: 'Users, Orders · Local', isActive: false, version: 1, createdAt: '', updatedAt: '' },
+    ]
+    const svc = await portability()
+    vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({
+      data: preview({ format: 'insomnia', title: 'Users, Orders', environmentNames: ['Users, Orders · Local', 'Users, Orders · Prod'] }),
+    })
+    vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
+      data: {
+        collectionId: 'c1', folders: 0, requests: 1, examples: 0,
+        environmentNames: ['Users, Orders · Local (2)', 'Users, Orders · Prod'], activeEnvironment: '', warnings: [],
+      },
+    })
+    const flow = useImportFlow()
+
+    await flow.openFile(file('type: collection.insomnia.rest/5.0\n'), null)
+    expect(flow.destination.value.environmentNames).toEqual(['Users, Orders · Local (2)', 'Users, Orders · Prod'])
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual([
+      'Imported “Users, Orders”: 0 folders · 1 request · 0 examples · environments “Users, Orders · Local (2)”, “Users, Orders · Prod”',
+    ])
+  })
+})
+
+describe('in Russian', () => {
+  beforeEach(() => {
+    clearToasts()
+    setCurrentLocale('ru')
+  })
+  afterEach(() => { setCurrentLocale('en') })
+
+  it('words the link errors', async () => {
+    const flow = useImportFlow()
+    flow.openLinkDialog()
+
+    await flow.submitLink('not a link')
+    expect(flow.ui.linkError).toBe('Вставьте ссылку на share.tetiva.app или код коллекции')
+
+    await flow.submitLink('gone-collection-a1b2c3d4')
+    expect(flow.ui.linkError).toBe('Коллекция не опубликована, или ссылка неверна')
+
+    await flow.submitLink(LOCKED)
+    await flow.submitPassword('')
+    expect(flow.ui.linkError).toBe('Введите пароль')
+    await flow.submitPassword('wrong-password')
+    expect(flow.ui.linkError).toBe('Неверный пароль')
+  })
+
+  it('tells why the collection was downloaded again', async () => {
+    const svc = await portability()
+    const flow = useImportFlow()
+    flow.openLinkDialog()
+    await flow.submitLink(PUBLIC)
+    svc.expirePreviews()
+
+    await flow.confirm()
+
+    expect(flow.ui.notice).toBe('Срок скачанной копии истёк, поэтому коллекцию скачали заново. Проверьте её и импортируйте.')
+  })
+
+  it('counts what was imported in the toast', async () => {
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_WITH_VARIABLES), null)
+
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual([
+      'Импортирована коллекция «Petstore»: 0 папок · 1 запрос · 0 примеров · окружение «Petstore»',
+    ])
+  })
+
+  it('names an imported environment and offers to open it', async () => {
+    const flow = useImportFlow()
+
+    await flow.openFile(file(ENV_FILE), null)
+
+    const [toast] = toastsOf('success')
+    expect(toast.message).toBe('Импортировано окружение «Dev» · 2 переменные')
+    expect(toast.action?.label).toBe('Открыть')
+  })
+
+  it('names an untitled collection in the toast', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importPreview').mockResolvedValueOnce({ data: preview({ format: 'postman', title: '' }) })
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Импортирована коллекция «Без названия»: 0 папок · 0 запросов · 0 примеров'])
+  })
+
+  it('counts the warnings left out of the toast in Russian', async () => {
+    const svc = await portability()
+    vi.spyOn(svc, 'importConfirm').mockResolvedValueOnce({
+      data: {
+        collectionId: 'c1', folders: 2, requests: 5, examples: 1, environmentNames: [], activeEnvironment: '',
+        warnings: ['one', 'two', 'three', 'four', 'five'],
+      },
+    })
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.confirm()
+
+    expect(toastsOf('success').map(t => t.message)).toEqual(['Импортирована коллекция «Legacy»: 2 папки · 5 запросов · 1 пример'])
+    expect(toastsOf('info').map(t => t.message)).toEqual(['one; two; three (и ещё 2)'])
+  })
+
+  it('asks to finish the current import first', async () => {
+    const flow = useImportFlow()
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    await flow.openFile(file(POSTMAN_FILE), null)
+
+    expect(toastsOf('info').map(t => t.message)).toEqual(['Сначала завершите текущий импорт'])
+  })
+})
+
+describe('import wording', () => {
+  it('counts folders, requests and examples in both languages', () => {
+    expect(importCounts({ folders: 1, requests: 2, examples: 5 }, 'en')).toBe('1 folder · 2 requests · 5 examples')
+    expect(importCounts({ folders: 1, requests: 2, examples: 5 }, 'ru')).toBe('1 папка · 2 запроса · 5 примеров')
+    expect(importCounts({ folders: 21, requests: 11, examples: 3 }, 'ru')).toBe('21 папка · 11 запросов · 3 примера')
+  })
+
+  it('agrees the Russian verb with one or several environments', () => {
+    expect(importedEnvironmentText({ environmentNames: ['Dev'], variablesCreated: 1 }, 'ru'))
+      .toBe('Импортировано окружение «Dev» · 1 переменная')
+    expect(importedEnvironmentText({ environmentNames: ['Dev', 'Prod'], variablesCreated: 5 }, 'ru'))
+      .toBe('Импортированы окружения «Dev», «Prod» · 5 переменных')
+  })
+
+  it('counts the warnings a toast leaves out in both languages', () => {
+    expect(importWarningsText(['one', 'two', 'three', 'four'], 'en')).toBe('one; two; three (and 1 more)')
+    expect(importWarningsText(['one', 'two', 'three', 'four'], 'ru')).toBe('one; two; three (и ещё 1)')
+  })
+
+  it('names the size limit in Russian', async () => {
+    expect(await fileTooLargeText({ size: MAX_IMPORT_FILE_BYTES + 1 } as Blob, 'ru')).toBe('Файл больше 48 МБ')
+    expect(importErrorText({ code: 'validation', reason: 'SNAPSHOT_TOO_LARGE', message: '' }, 'ru')).toBe('Коллекция больше 8 МБ')
+  })
+
+  it('words the import errors in Russian and passes backend text through', () => {
+    const ru = (e: Parameters<typeof importErrorText>[0]) => importErrorText(e, 'ru')
+    expect(ru({ code: 'internal', message: 'EOF', reason: 'SERVER_UNREACHABLE' })).toBe('Сервер недоступен\u00a0— попробуйте снова')
+    expect(ru({ code: 'validation', message: '', reason: 'SNAPSHOT_INVALID', fields: { snapshot: 'bad json' } }))
+      .toBe('Не удалось прочитать коллекцию: bad json')
+    expect(ru({ code: 'validation', message: '', reason: 'COLLECTION_FILE' }))
+      .toBe('Это коллекция, а не окружение\u00a0— импортируйте её из боковой панели')
+    expect(ru({ code: 'validation', message: '', reason: 'UNSUPPORTED_FILE' }))
+      .toBe('Это не коллекция Tetiva, Postman, Insomnia или Hoppscotch, не спецификация OpenAPI и не HAR-файл')
+    expect(ru({ code: 'internal', message: 'name: environment name is empty' })).toBe('name: environment name is empty')
   })
 })
 
@@ -574,6 +831,11 @@ describe('importErrorText', () => {
   it('points a collection dropped into the environment import to the sidebar', () => {
     expect(importErrorText({ code: 'validation', reason: 'COLLECTION_FILE', message: 'validation failed' }))
       .toBe('This is a collection, not an environment — import it from the sidebar')
+  })
+
+  it('names the size limit the app refused a file over', () => {
+    expect(importErrorText({ code: 'validation', reason: 'FILE_TOO_LARGE', message: 'validation failed' }))
+      .toBe('The file is larger than 48 MiB')
   })
 })
 
@@ -948,5 +1210,21 @@ describe('destination', () => {
     flow.cancel()
     await flow.openFile(file(SNAPSHOT_FILE), 'secured')
     expect(flow.destination.value.inheritedAuth).toBe('')
+  })
+
+  it('leaves out a HAR, whose requests carry their own headers, but not Hoppscotch', async () => {
+    folders({ id: 'secured', name: 'Secured', parentId: null, authType: 'bearer' })
+    const svc = await portability()
+    const previewed = vi.spyOn(svc, 'importPreview')
+    const flow = useImportFlow()
+
+    previewed.mockResolvedValueOnce({ data: preview({ format: 'har' }) })
+    await flow.openFile(file('{}'), 'secured')
+    expect(flow.destination.value).toMatchObject({ folderName: 'Secured', inheritedAuth: '' })
+
+    flow.cancel()
+    previewed.mockResolvedValueOnce({ data: preview({ format: 'hoppscotch' }) })
+    await flow.openFile(file('{}'), 'secured')
+    expect(flow.destination.value.inheritedAuth).toBe('Secured')
   })
 })

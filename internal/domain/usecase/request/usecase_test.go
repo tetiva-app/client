@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -971,7 +972,7 @@ func TestExecute_APIKey_Query(t *testing.T) {
 		URL:          "https://api.example.com/data",
 		BodyType:     entities.BodyTypeNone,
 		AuthType:     entities.AuthTypeAPIKey,
-		AuthData:     `{"key":"api_key","value":"sk_live_123","addTo":"query"}`,
+		AuthData:     `{"key":"appid","value":"sk_live_123","addTo":"query"}`,
 	}, request.CreateOpt{UserID: "user-1"})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
@@ -985,8 +986,11 @@ func TestExecute_APIKey_Query(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(requester.lastRequest.URL, "api_key=sk_live_123") {
-		t.Errorf("expected URL to contain api_key param, got %q", requester.lastRequest.URL)
+	if !strings.Contains(requester.lastRequest.URL, "appid=sk_live_123") {
+		t.Errorf("expected URL to contain appid param, got %q", requester.lastRequest.URL)
+	}
+	if got := requester.lastRequest.AuthQueryKeys; len(got) != 1 || got[0] != "appid" {
+		t.Errorf("AuthQueryKeys = %v, want [appid]", got)
 	}
 }
 
@@ -1231,6 +1235,134 @@ func TestExecute_SubstitutesURL(t *testing.T) {
 
 	if requester.lastRequest.URL != "https://api.staging.example.com/users" {
 		t.Errorf("expected substituted URL, got %q", requester.lastRequest.URL)
+	}
+}
+
+type captureGRPCRequester struct {
+	last      request.GRPCExecuteRequest
+	connect   request.GRPCConnectRequest
+	described []string
+	service   request.GRPCService
+}
+
+func (r *captureGRPCRequester) Execute(_ context.Context, req request.GRPCExecuteRequest) (*entities.Response, error) {
+	r.last = req
+	return &entities.Response{StatusText: "OK", Headers: map[string][]string{}}, nil
+}
+
+func (r *captureGRPCRequester) ListServices(_ context.Context, req request.GRPCConnectRequest) (*request.GRPCSchema, error) {
+	r.connect = req
+	return &request.GRPCSchema{Services: []request.GRPCService{r.service}}, nil
+}
+
+func (r *captureGRPCRequester) DescribeService(_ context.Context, req request.GRPCConnectRequest, service string) (*request.GRPCService, error) {
+	r.connect = req
+	r.described = append(r.described, service)
+	if service != r.service.FullName {
+		return nil, errors.New("unknown service")
+	}
+	return &r.service, nil
+}
+
+func TestGRPCSchema_AddressFromActiveEnvironment(t *testing.T) {
+	grpcReq := &captureGRPCRequester{service: request.GRPCService{
+		FullName: "pkg.Svc",
+		Methods:  []request.GRPCMethodInfo{{Name: "Do", ExampleJSON: "{}", ProtoDefinition: "rpc Do"}},
+	}}
+	env := &mockEnvResolver{vars: map[string]string{"grpcUrl": "grpcs://api.example.com:8443"}}
+	uc := request.NewUsecase(newMockRepo(), &mockHistoryRepo{}, &mockRequester{}, grpcReq, nil, env, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+	ctx := context.Background()
+	connect := request.GRPCConnectRequest{Host: "{{grpcUrl}}", WorkspaceID: testWorkspaceID}
+
+	calls := map[string]func() error{
+		"list": func() error { _, err := uc.GRPCListServices(ctx, connect); return err },
+		"example": func() error {
+			_, err := uc.GRPCGenerateExample(ctx, connect, "pkg.Svc", "Do")
+			return err
+		},
+		"proto": func() error {
+			_, err := uc.GRPCGetProtoDefinition(ctx, connect, "pkg.Svc", "Do")
+			return err
+		},
+	}
+	for name, call := range calls {
+		grpcReq.connect = request.GRPCConnectRequest{}
+		if err := call(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if grpcReq.connect.Host != "grpcs://api.example.com:8443" {
+			t.Errorf("%s: Host = %q", name, grpcReq.connect.Host)
+		}
+	}
+}
+
+func TestGRPCSchema_NoWorkspaceKeepsAddress(t *testing.T) {
+	grpcReq := &captureGRPCRequester{}
+	env := &mockEnvResolver{vars: map[string]string{"grpcUrl": "grpcs://api.example.com"}}
+	uc := request.NewUsecase(newMockRepo(), &mockHistoryRepo{}, &mockRequester{}, grpcReq, nil, env, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+
+	if _, err := uc.GRPCListServices(context.Background(), request.GRPCConnectRequest{Host: "{{grpcUrl}}"}); err != nil {
+		t.Fatalf("GRPCListServices: %v", err)
+	}
+	if grpcReq.connect.Host != "{{grpcUrl}}" || env.calls != 0 {
+		t.Errorf("Host = %q, env calls = %d", grpcReq.connect.Host, env.calls)
+	}
+}
+
+func TestGRPCMethodDetails_ResolveOnlyTheSelectedService(t *testing.T) {
+	grpcReq := &captureGRPCRequester{service: request.GRPCService{
+		FullName: "pkg.Svc",
+		Methods:  []request.GRPCMethodInfo{{Name: "Do", ExampleJSON: `{"id":""}`, ProtoDefinition: "service Svc {}"}},
+	}}
+	uc := request.NewUsecase(newMockRepo(), &mockHistoryRepo{}, &mockRequester{}, grpcReq, nil, &mockEnvResolver{}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+	ctx := context.Background()
+	conn := request.GRPCConnectRequest{Host: "localhost:50051"}
+
+	example, err := uc.GRPCGenerateExample(ctx, conn, "pkg.Svc", "Do")
+	if err != nil || example != `{"id":""}` {
+		t.Fatalf("example = %q, %v", example, err)
+	}
+	def, err := uc.GRPCGetProtoDefinition(ctx, conn, "pkg.Svc", "Do")
+	if err != nil || def != "service Svc {}" {
+		t.Fatalf("definition = %q, %v", def, err)
+	}
+	if _, err := uc.GRPCGenerateExample(ctx, conn, "pkg.Svc", "Missing"); err == nil || !strings.Contains(err.Error(), "method pkg.Svc/Missing not found") {
+		t.Fatalf("missing method err = %v", err)
+	}
+	if _, err := uc.GRPCGetProtoDefinition(ctx, conn, "pkg.Other", "Do"); err == nil || !strings.Contains(err.Error(), "unknown service") {
+		t.Fatalf("unknown service err = %v", err)
+	}
+	if strings.Join(grpcReq.described, ",") != "pkg.Svc,pkg.Svc,pkg.Svc,pkg.Other" {
+		t.Fatalf("described = %v", grpcReq.described)
+	}
+}
+
+func TestExecute_GRPCSchemeFromVariableReachesRequester(t *testing.T) {
+	repo := newMockRepo()
+	grpcReq := &captureGRPCRequester{}
+	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, grpcReq, nil, &mockEnvResolver{vars: map[string]string{"host": "grpcs://api.example.com"}}, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+	ctx := context.Background()
+
+	created, err := uc.Create(ctx, request.Create{
+		CollectionID: testCollectionID,
+		Name:         "TLS host",
+		Protocol:     entities.ProtocolGRPC,
+		Method:       entities.MethodPOST,
+		URL:          "{{host}}",
+		GRPCService:  "pkg.Svc",
+		GRPCMethod:   "Do",
+		BodyType:     entities.BodyTypeNone,
+		AuthType:     entities.AuthTypeNone,
+	}, request.CreateOpt{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := uc.Execute(ctx, created.ID, request.ExecuteOpt{UserID: "user-1", WorkspaceID: testWorkspaceID}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if grpcReq.last.Host != "grpcs://api.example.com" {
+		t.Errorf("Host = %q", grpcReq.last.Host)
 	}
 }
 
@@ -1854,8 +1986,9 @@ func TestCreateEdit_HTTPBodyNotValidatedAsSettings(t *testing.T) {
 }
 
 type mockGraphQLRequester struct {
-	response *entities.Response
-	last     request.GraphQLExecuteRequest
+	response     *entities.Response
+	last         request.GraphQLExecuteRequest
+	introspected request.GraphQLIntrospectRequest
 }
 
 func (m *mockGraphQLRequester) Execute(_ context.Context, req request.GraphQLExecuteRequest) (*entities.Response, error) {
@@ -1863,12 +1996,49 @@ func (m *mockGraphQLRequester) Execute(_ context.Context, req request.GraphQLExe
 	return m.response, nil
 }
 
-func (m *mockGraphQLRequester) Introspect(_ context.Context, _ request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
-	return nil, nil
+func (m *mockGraphQLRequester) Introspect(_ context.Context, req request.GraphQLIntrospectRequest) (*request.GraphQLSchema, error) {
+	m.introspected = req
+	return &request.GraphQLSchema{Types: []request.GraphQLType{{Name: "User", Definition: "type User"}}}, nil
 }
 
 func (m *mockGraphQLRequester) GenerateExampleQuery(_ *request.GraphQLSchema, _ string) (*request.GraphQLExampleResponse, error) {
 	return nil, nil
+}
+
+func TestGraphQLSchema_EndpointAndHeadersFromActiveEnvironment(t *testing.T) {
+	gql := &mockGraphQLRequester{}
+	env := &mockEnvResolver{vars: map[string]string{"baseUrl": "https://api.example.com", "token": "t-1"}}
+	uc := request.NewUsecase(newMockRepo(), &mockHistoryRepo{}, &mockRequester{}, nil, gql, env, &noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+	ctx := context.Background()
+	introspect := request.GraphQLIntrospectRequest{
+		Endpoint:    "{{baseUrl}}/graphql",
+		Headers:     map[string][]string{"X-Token": {"{{token}}"}},
+		WorkspaceID: testWorkspaceID,
+	}
+
+	calls := map[string]func() error{
+		"introspect": func() error { _, err := uc.GraphQLIntrospect(ctx, introspect); return err },
+		"example": func() error {
+			_, err := uc.GraphQLGenerateExample(ctx, introspect, "me")
+			return err
+		},
+		"type": func() error {
+			_, err := uc.GraphQLGetTypeDefinition(ctx, introspect, "User")
+			return err
+		},
+	}
+	for name, call := range calls {
+		gql.introspected = request.GraphQLIntrospectRequest{}
+		if err := call(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if gql.introspected.Endpoint != "https://api.example.com/graphql" {
+			t.Errorf("%s: Endpoint = %q", name, gql.introspected.Endpoint)
+		}
+		if got := gql.introspected.Headers["X-Token"]; len(got) != 1 || got[0] != "t-1" {
+			t.Errorf("%s: X-Token = %v", name, got)
+		}
+	}
 }
 
 func ucWithPreScript(repo *mockRepo, vars map[string]string, engine request.ScriptEngine, httpReq *mockRequester, gqlReq *mockGraphQLRequester) request.Usecase {
@@ -2098,5 +2268,40 @@ func TestEdit_RejectsOversizedDescription(t *testing.T) {
 
 	if _, err := edit("Renamed", strings.Repeat("b", 21*1024), shortened.Version); !errors.As(err, &verr) || verr.Fields["description"] == "" {
 		t.Fatalf("growing an oversized description must be rejected, got %v", err)
+	}
+}
+
+func TestAuthCredentials_InheritedAndOwnAuthWithVariables(t *testing.T) {
+	collections := fixtureCollections()
+	parent := collections.collections[testCollectionID]
+	parent.AuthType = entities.AuthTypeAPIKey
+	parent.AuthData = `{"key":"appid","value":"{{appKey}}"}`
+	repo := newMockRepo()
+	uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, nil, nil,
+		&mockEnvResolver{vars: map[string]string{"appKey": "k-123", "pass": "p-456"}},
+		&noopScriptEngine{}, &noopScriptResolver{}, &noopVarPersister{},
+		request.NewAuthResolver(collections), nil, collections, nil, nil, nil, nil)
+
+	cases := map[string]struct {
+		authType entities.AuthType
+		authData string
+		want     []string
+	}{
+		"inherited api key": {entities.AuthTypeInherit, "{}", []string{"k-123"}},
+		"bearer":            {entities.AuthTypeBearer, `{"token":"t-1"}`, []string{"t-1"}},
+		"basic":             {entities.AuthTypeBasic, `{"username":"admin","password":"{{pass}}"}`, []string{"p-456", "YWRtaW46cC00NTY="}},
+		"none":              {entities.AuthTypeNone, "{}", nil},
+	}
+	for name, tc := range cases {
+		id := uuid.New()
+		repo.requests[id] = &entities.Request{ID: id, CollectionID: testCollectionID, AuthType: tc.authType, AuthData: tc.authData}
+
+		got, err := uc.AuthCredentials(context.Background(), id, testWorkspaceID)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: credentials = %v, want %v", name, got, tc.want)
+		}
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/tetiva-app/client/internal/domain/usecase/request"
 )
 
 // A file-backed MCP database runs on an uncapped pool, so busy_timeout has to
@@ -48,5 +50,14 @@ func TestOpenDB_FileBackedPoolCarriesBusyTimeout(t *testing.T) {
 	wg.Wait()
 	for _, conn := range held {
 		_ = conn.Close()
+	}
+}
+
+func TestNoopRequestersRefuseSchemaLookups(t *testing.T) {
+	if svc, err := (&noopGRPCRequester{}).DescribeService(t.Context(), request.GRPCConnectRequest{}, "users.v1.Users"); err == nil {
+		t.Fatalf("DescribeService = %v, want an error", svc)
+	}
+	if schema, err := (&noopGraphQLRequester{}).Introspect(t.Context(), request.GraphQLIntrospectRequest{}); err == nil {
+		t.Fatalf("Introspect = %v, want an error", schema)
 	}
 }

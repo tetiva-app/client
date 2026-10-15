@@ -13,9 +13,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { keepOpenOnToast } from '@/components/ui/toast'
 import { useImportFlow } from '@/composables/useImportFlow'
+import { useLocale } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { IMPORT_COPY } from './copy'
 
 const flow = useImportFlow()
 const ui = flow.ui
+const locale = useLocale()
+const text = computed(() => IMPORT_COPY[locale.value].link)
 
 const link = ref('')
 const password = ref('')
@@ -31,9 +36,9 @@ watch([locked, () => ui.busy], async ([on, busy]) => {
 })
 
 const description = computed(() => {
-  if (ui.linkStep === 'password') return `“${ui.title}” is protected. Enter the password you got with the link.`
+  if (ui.linkStep === 'password') return fill(text.value.passwordDescription, { title: ui.title })
   if (ui.linkStep === 'opening') return `share.tetiva.app/${ui.slug}`
-  return 'Paste a link to a collection published on share.tetiva.app.'
+  return text.value.description
 })
 
 const canSubmit = computed(() => {
@@ -63,7 +68,7 @@ async function submit() {
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2 text-sm font-medium">
           <component :is="locked ? Lock : Link" class="size-4 text-primary" />
-          {{ locked ? 'Password required' : 'Import from link' }}
+          {{ locked ? text.passwordTitle : text.title }}
         </DialogTitle>
         <DialogDescription class="break-all text-xs">{{ description }}</DialogDescription>
       </DialogHeader>
@@ -73,7 +78,7 @@ async function submit() {
           v-if="ui.linkStep === 'url'"
           v-model="link"
           placeholder="https://share.tetiva.app/…"
-          aria-label="Link or slug"
+          :aria-label="text.linkLabel"
           class="h-8"
           autofocus
           :disabled="ui.busy !== ''"
@@ -85,8 +90,8 @@ async function submit() {
           v-model="password"
           type="password"
           autocomplete="off"
-          placeholder="Password"
-          aria-label="Password"
+          :placeholder="text.password"
+          :aria-label="text.password"
           class="h-8"
           autofocus
           :disabled="ui.busy !== ''"
@@ -100,10 +105,10 @@ async function submit() {
 
       <DialogFooter>
         <Button variant="outline" size="sm" @click="flow.cancel()">
-          {{ ui.linkStep === 'opening' && !ui.busy ? 'Close' : 'Cancel' }}
+          {{ ui.linkStep === 'opening' && !ui.busy ? text.close : text.cancel }}
         </Button>
         <Button v-if="ui.linkStep !== 'opening'" size="sm" :disabled="!canSubmit" @click="submit">
-          {{ locked ? 'Unlock' : 'Continue' }}
+          {{ locked ? text.unlock : text.continue }}
         </Button>
       </DialogFooter>
     </DialogContent>

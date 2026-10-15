@@ -1,0 +1,8 @@
+//go:build race
+
+package race
+
+const (
+	Enabled  = true
+	Slowdown = 10
+)

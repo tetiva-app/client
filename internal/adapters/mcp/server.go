@@ -13,6 +13,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/tetiva-app/client/internal/constants"
 	"github.com/tetiva-app/client/internal/domain"
 	"github.com/tetiva-app/client/internal/domain/usecase/collection"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
@@ -72,7 +73,7 @@ func NewServer(
 
 	s.mcp = mcpserver.NewMCPServer(
 		"Tetiva DevTools",
-		"1.0.0",
+		constants.AppVersion,
 		mcpserver.WithToolCapabilities(true),
 	)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSensitiveHeader, isSensitiveQueryParam, redactHeaders, redactURL, redactValue } from './secrets'
+import { hasLiteral, isSensitiveHeader, isSensitiveQueryParam, redactHeaders, redactURL, redactValue } from './secrets'
 import type { HeaderItem } from '@/types/request'
 
 describe('secrets (browser-mode port of the Go package)', () => {
@@ -74,6 +74,17 @@ describe('secrets (browser-mode port of the Go package)', () => {
     ['Bearer {{a}}.{{b}}', 'Bearer {{a}}<redacted>{{b}}'],
   ])('redactValue(%j)', (input, want) => {
     expect(redactValue(input)).toBe(want)
+  })
+
+  it.each([
+    ['sk-live', true],
+    ['{{a}}x', true],
+    ['{{token}}', false],
+    [' {{a}} {{b}} ', false],
+    ['Bearer {{t}}', false],
+    ['', false],
+  ])('hasLiteral(%j) is %s', (input, want) => {
+    expect(hasLiteral(input)).toBe(want)
   })
 
   it.each([

@@ -1,5 +1,6 @@
 import type { Result } from '@/types/common'
 import type { WindowServiceAPI, SchemaContent } from './window-api'
+import type { ThemePreference } from '@/lib/settings-storage'
 import { unwrap } from './unwrap'
 
 // Wails bindings are auto-generated at runtime — lazy import to avoid build errors
@@ -43,5 +44,9 @@ export class WailsWindowService implements WindowServiceAPI {
 
   async closeChildWindows(): Promise<Result<void>> {
     return unwrap<void>(await (await svc()).CloseChildWindows())
+  }
+
+  async setTheme(preference: ThemePreference, effective: 'light' | 'dark'): Promise<Result<void>> {
+    return unwrap<void>(await (await svc()).SetTheme(preference, effective))
   }
 }

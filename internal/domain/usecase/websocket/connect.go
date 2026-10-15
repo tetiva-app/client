@@ -32,7 +32,7 @@ func (u *usecase) Connect(ctx context.Context, opt ConnectOpt) (ConnectResult, e
 	// The live connection is detached from the caller's ctx, but stays cancellable
 	// through the registry so Disconnect can abort an attempt that is still dialing.
 	connCtx, cancel := context.WithCancel(context.Background())
-	e := &entry{state: entryPending, cancel: cancel, done: make(chan struct{})}
+	e := &entry{state: entryPending, cancel: cancel, done: make(chan struct{}), owner: opt.Owner}
 
 	u.mu.Lock()
 	if _, exists := u.conns[connID]; exists {
@@ -219,6 +219,7 @@ func (u *usecase) recordHistory(ctx context.Context, opt ConnectOpt, resolved Re
 		ResponseStatus:  info.StatusCode,
 		ResponseHeaders: info.ResponseHeaders,
 		AuthQueryKeys:   resolved.AuthQueryKeys,
+		AuthHeaderKeys:  resolved.AuthHeaderKeys,
 		DurationMs:      elapsed.Milliseconds(),
 		CreatedAt:       u.now(),
 	}

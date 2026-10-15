@@ -6,11 +6,14 @@ import { emitWailsEvent } from '@/composables/useWindowEvents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { runMutation } from '@/stores/runMutation'
 import { contentSaved } from '@/lib/content-saved'
+import { currentLocale } from '@/lib/locale'
+import { ENVIRONMENT_COPY } from '@/components/environments/copy'
 
 export const useEnvironmentStore = defineStore('environments', () => {
   const environments = ref<Environment[]>([])
   const variablesMap = ref<Map<string, Variable[]>>(new Map())
   const loading = ref(false)
+  const failed = () => ENVIRONMENT_COPY[currentLocale.value].errors
 
   const activeEnvironment = computed<Environment | null>(() =>
     environments.value.find(e => e.isActive) ?? null
@@ -60,7 +63,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   async function create(name: string): Promise<Environment | null> {
     const wsId = useWorkspaceStore().activeWorkspace?.id
     if (!wsId) return null
-    const data = await runMutation('Failed to create environment', () =>
+    const data = await runMutation(failed().create, () =>
       getEnvironmentService().then(s => s.create({ name, workspaceId: wsId }))
     )
     if (!data) return null
@@ -72,7 +75,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   async function duplicate(sourceId: string, newName: string): Promise<Environment | null> {
     const wsId = useWorkspaceStore().activeWorkspace?.id
     if (!wsId) return null
-    const data = await runMutation('Failed to duplicate environment', () =>
+    const data = await runMutation(failed().duplicate, () =>
       getEnvironmentService().then(s => s.duplicate({ sourceId, newName, workspaceId: wsId }))
     )
     if (!data) return null
@@ -83,7 +86,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function edit(id: string, name: string, version: number): Promise<Environment | null> {
-    const data = await runMutation('Failed to edit environment', () =>
+    const data = await runMutation(failed().edit, () =>
       getEnvironmentService().then(s => s.edit({ id, name, version }))
     )
     if (!data) return null
@@ -94,7 +97,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function remove(id: string, version: number) {
-    const data = await runMutation('Failed to delete environment', () =>
+    const data = await runMutation(failed().delete, () =>
       getEnvironmentService().then(s => s.delete({ id, version }))
     )
     if (!data) return
@@ -108,7 +111,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   async function setActive(id: string) {
     const wsId = useWorkspaceStore().activeWorkspace?.id
     if (!wsId) return
-    const data = await runMutation('Failed to set active environment', () =>
+    const data = await runMutation(failed().setActive, () =>
       getEnvironmentService().then(s => s.setActive(wsId, id))
     )
     if (!data) return
@@ -138,7 +141,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function fetchVariables(environmentId: string) {
-    const data = await runMutation('Failed to fetch variables', () =>
+    const data = await runMutation(failed().fetchVariables, () =>
       getEnvironmentService().then(s => s.listVariables(environmentId))
     )
     if (!data) return
@@ -147,7 +150,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function addVariable(environmentId: string, key: string, value: string, isSecret: boolean): Promise<Variable | null> {
-    const data = await runMutation('Failed to add variable', () =>
+    const data = await runMutation(failed().addVariable, () =>
       getEnvironmentService().then(s => s.addVariable({ environmentId, key, value, isSecret }))
     )
     if (!data) return null
@@ -160,7 +163,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function editVariable(req: { id: string; key: string; value: string; isSecret: boolean; enabled: boolean; version: number }): Promise<Variable | null> {
-    const data = await runMutation('Failed to edit variable', () =>
+    const data = await runMutation(failed().editVariable, () =>
       getEnvironmentService().then(s => s.editVariable(req))
     )
     if (!data) return null
@@ -174,7 +177,7 @@ export const useEnvironmentStore = defineStore('environments', () => {
   }
 
   async function removeVariable(id: string, environmentId: string) {
-    const data = await runMutation('Failed to delete variable', () =>
+    const data = await runMutation(failed().deleteVariable, () =>
       getEnvironmentService().then(s => s.deleteVariable({ id }))
     )
     if (!data) return

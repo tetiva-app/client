@@ -6,7 +6,9 @@ import AuthTextField from './auth/AuthTextField.vue'
 import { useCollectionStore } from '@/stores/collections'
 import { useRequestStore } from '@/stores/tabs'
 import { AUTH_TYPE_LABELS, REQUEST_AUTH_OPTIONS } from '@/constants/auth'
-import { authFormValues, defaultAuthData, setAuthField } from '@/lib/auth-data'
+import { authFormValues, setAuthField } from '@/lib/auth-data'
+import { switchAuthDraft } from '@/composables/useAuthDrafts'
+import { hasLiteral } from '@/lib/secrets'
 import { tokenStatusLabel, useAuthTokenStore } from '@/stores/auth-tokens'
 import { getAuthService } from '@/services'
 import type { AuthOwnerKind, ResolvedOwner } from '@/services/auth-api'
@@ -59,8 +61,6 @@ const currentAuthLabel = computed(() => AUTH_TYPE_LABELS[props.authType] || prop
 
 // A mis-click on the type selector must not wipe credentials: what each type
 // held is kept for the session and handed back when the user returns to it.
-const drafts = ref<Partial<Record<AuthType, string>>>({})
-
 function selectAuthType(type: AuthType) {
   if (type === props.authType) return
   // The flow belongs to the OAuth block that started it, and the block is about
@@ -73,9 +73,9 @@ function selectAuthType(type: AuthType) {
       authData: props.authData,
     })
   }
-  drafts.value = { ...drafts.value, [props.authType]: props.authData }
+  const next = switchAuthDraft(props.ownerId, props.authType, props.authData, type)
   emit('update:authType', type)
-  emit('update:authData', drafts.value[type] ?? defaultAuthData(type))
+  emit('update:authData', next)
 }
 
 function updateField(field: string, value: string) {
@@ -226,6 +226,7 @@ onActivated(() => { void loadInherited() })
         :model-value="values.token"
         placeholder="Paste your token here"
         multiline
+        :secret="hasLiteral(values.token)"
         @update:model-value="updateField('token', $event)"
       />
     </div>
@@ -241,6 +242,7 @@ onActivated(() => { void loadInherited() })
         label="Value"
         :model-value="values.value"
         placeholder="Your API key value"
+        :secret="hasLiteral(values.value)"
         @update:model-value="updateField('value', $event)"
       />
       <AuthSelect

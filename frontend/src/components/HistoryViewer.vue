@@ -4,10 +4,15 @@ import { useHistoryStore } from '@/stores/history'
 import { RotateCcw, Trash2 } from 'lucide-vue-next'
 import MethodBadge from '@/components/ui/MethodBadge.vue'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { fill, formatBytes } from '@/lib/locale'
+import { HISTORY_COPY } from '@/components/sidebar/history/copy'
 
 const CodeViewer = defineAsyncComponent(() => import('@/components/editor/CodeViewer.vue'))
 
 const store = useHistoryStore()
+const copy = useCopy(HISTORY_COPY)
+const locale = useLocale()
 const record = computed(() => store.selectedRecord)
 
 const activeTab = ref<'request' | 'response' | 'error'>('request')
@@ -64,23 +69,23 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
 
 <template>
   <div v-if="!record" class="flex items-center justify-center h-full text-muted-foreground">
-    Select a history record to view details.
+    {{ copy.viewer.select }}
   </div>
   <div v-else class="flex flex-col h-full">
     <div class="flex items-center gap-3 border-b border-border px-4 py-3">
       <MethodBadge :method="record.method" :protocol="record.protocol" />
       <span class="font-mono text-sm flex-1 truncate">{{ record.url }}</span>
       <span class="text-xs">{{ record.responseStatus || 'ERR' }}</span>
-      <span class="text-xs text-muted-foreground">{{ record.durationMs }}ms</span>
+      <span class="text-xs text-muted-foreground">{{ fill(copy.duration, { n: record.durationMs }) }}</span>
       <button
         class="px-3 py-1 text-sm rounded bg-primary text-primary-foreground hover:opacity-90 cursor-pointer"
         @click="emit('replay')"
       >
-        <RotateCcw class="size-3.5 inline mr-1" /> Replay
+        <RotateCcw class="size-3.5 inline mr-1" /> {{ copy.viewer.replay }}
       </button>
       <button
         class="px-2 py-1 text-sm rounded hover:bg-accent cursor-pointer"
-        title="Delete"
+        :title="copy.delete"
         @click="store.deleteOne(record.id)"
       >
         <Trash2 class="size-3.5" />
@@ -89,22 +94,22 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
 
     <Tabs v-model="activeTab" class="flex-1 flex flex-col">
       <TabsList>
-        <TabsTrigger value="request">Request</TabsTrigger>
-        <TabsTrigger value="response">Response</TabsTrigger>
-        <TabsTrigger v-if="record.errorMessage" value="error">Error</TabsTrigger>
+        <TabsTrigger value="request">{{ copy.viewer.request }}</TabsTrigger>
+        <TabsTrigger value="response">{{ copy.viewer.response }}</TabsTrigger>
+        <TabsTrigger v-if="record.errorMessage" value="error">{{ copy.viewer.error }}</TabsTrigger>
       </TabsList>
 
       <TabsContent value="request" class="flex-1 overflow-auto">
         <div class="p-4 space-y-4">
           <section>
             <h3 class="text-xs font-medium text-muted-foreground mb-2">
-              Headers
+              {{ copy.viewer.headers }}
               <span v-if="requestHeaderRows.length > 0" class="text-muted-foreground/70">
                 ({{ requestHeaderRows.length }})
               </span>
             </h3>
             <div v-if="requestHeaderRows.length === 0" class="text-xs text-muted-foreground italic">
-              (no headers)
+              {{ copy.viewer.noHeaders }}
             </div>
             <table v-else class="w-full text-[12px] border border-border/50 rounded overflow-hidden">
               <tbody>
@@ -122,9 +127,9 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
           </section>
 
           <section>
-            <h3 class="text-xs font-medium text-muted-foreground mb-2">Body</h3>
+            <h3 class="text-xs font-medium text-muted-foreground mb-2">{{ copy.viewer.body }}</h3>
             <div v-if="!record.requestBody" class="text-xs text-muted-foreground italic">
-              (empty)
+              {{ copy.viewer.emptyBody }}
             </div>
             <div v-else class="border border-border/50 rounded overflow-hidden bg-[var(--gc-surface)]" style="min-height: 80px; max-height: 480px;">
               <CodeViewer :content="requestBodyFormatted" :language="requestLang" />
@@ -137,13 +142,13 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
         <div class="p-4 space-y-4">
           <section>
             <h3 class="text-xs font-medium text-muted-foreground mb-2">
-              Headers
+              {{ copy.viewer.headers }}
               <span v-if="responseHeaderRows.length > 0" class="text-muted-foreground/70">
                 ({{ responseHeaderRows.length }})
               </span>
             </h3>
             <div v-if="responseHeaderRows.length === 0" class="text-xs text-muted-foreground italic">
-              (no headers)
+              {{ copy.viewer.noHeaders }}
             </div>
             <table v-else class="w-full text-[12px] border border-border/50 rounded overflow-hidden">
               <tbody>
@@ -162,10 +167,10 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
 
           <section>
             <h3 class="text-xs font-medium text-muted-foreground mb-2">
-              Body <span class="text-muted-foreground/70">({{ record.responseSize }} bytes)</span>
+              {{ copy.viewer.body }} <span class="text-muted-foreground/70">({{ formatBytes(locale, record.responseSize) }})</span>
             </h3>
             <div v-if="!record.responseBody" class="text-xs text-muted-foreground italic">
-              (empty)
+              {{ copy.viewer.emptyBody }}
             </div>
             <div v-else class="border border-border/50 rounded overflow-hidden bg-[var(--gc-surface)]" style="min-height: 80px; max-height: 480px;">
               <CodeViewer :content="responseBodyFormatted" :language="responseLang" />

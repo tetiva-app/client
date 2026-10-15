@@ -16,6 +16,7 @@ type Usecase interface {
 	Connect(ctx context.Context, opt ConnectOpt) (ConnectResult, error)
 	Send(ctx context.Context, connID ConnectionID, msg OutgoingMessage) error
 	Disconnect(ctx context.Context, connID ConnectionID) error
+	DisconnectOwner(ctx context.Context, owner string) error
 	DisconnectAll(ctx context.Context) error
 	Count() int
 }
@@ -68,6 +69,7 @@ type entry struct {
 	conn         Conn
 	writeMu      sync.Mutex // coder/websocket allows one Write at a time
 	workspaceID  uuid.UUID
+	owner        string
 	pingInterval time.Duration
 	done         chan struct{} // closed by finalize; stops the ping loop
 }

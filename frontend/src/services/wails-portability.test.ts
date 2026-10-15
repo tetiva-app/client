@@ -96,7 +96,7 @@ describe('WailsPortabilityService import', () => {
 
   it('turns null lists of a preview into empty ones', async () => {
     const preview = {
-      format: 'tetiva', title: 'Petstore', folders: 0, requests: 1, examples: 0, environmentName: '',
+      format: 'tetiva', title: 'Petstore', folders: 0, requests: 1, examples: 0, environmentNames: null,
       hosts: null, scripts: null, warnings: null,
     }
     linkFetch.mockResolvedValue({ data: { previewId: 'p-1', preview }, error: null } as any)
@@ -110,13 +110,36 @@ describe('WailsPortabilityService import', () => {
     expect(fetched.error).toBeUndefined()
     expect(fetched.data.previewId).toBe('p-1')
     for (const p of [fetched.data.preview, previewed.data]) {
-      expect(p).toMatchObject({ hosts: [], scripts: [], warnings: [] })
+      expect(p).toMatchObject({ environmentNames: [], hosts: [], scripts: [], warnings: [] })
     }
+  })
+
+  it('passes the file name and keeps the HAR, Hoppscotch, Insomnia and OpenAPI formats', async () => {
+    const preview = {
+      format: 'har', title: 'session', folders: 0, requests: 1, examples: 0, environmentNames: [], hosts: [], scripts: [], warnings: [],
+    }
+    importPreview.mockResolvedValueOnce({ data: preview } as any)
+    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'hoppscotch' } } as any)
+    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'insomnia' } } as any)
+    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'openapi' } } as any)
+    importPreview.mockResolvedValueOnce({ data: { ...preview, format: 'bruno' } } as any)
+    const svc = new WailsPortabilityService()
+
+    const formats = [
+      (await svc.importPreview('{}', 'session.har')).data.format,
+      (await svc.importPreview('{}')).data.format,
+      (await svc.importPreview('{}')).data.format,
+      (await svc.importPreview('{}')).data.format,
+      (await svc.importPreview('{}')).data.format,
+    ]
+
+    expect(importPreview).toHaveBeenNthCalledWith(1, expect.objectContaining({ content: '{}', fileName: 'session.har' }))
+    expect(formats).toEqual(['har', 'hoppscotch', 'insomnia', 'openapi', 'tetiva'])
   })
 
   it('sends the scripts choice and leaves out a null parent', async () => {
     importConfirm.mockResolvedValue({
-      data: { collectionId: 'c-1', folders: 0, requests: 1, examples: 0, warnings: null },
+      data: { collectionId: 'c-1', folders: 0, requests: 1, examples: 0, environmentNames: null, warnings: null },
     } as any)
     const svc = new WailsPortabilityService()
 
@@ -126,5 +149,6 @@ describe('WailsPortabilityService import', () => {
     expect(importConfirm.mock.calls[0][0]).toEqual({ previewId: 'p-1', includeScripts: false, workspaceId: 'ws-1', parentId: undefined })
     expect(importConfirm).toHaveBeenNthCalledWith(2, expect.objectContaining({ content: '{}', includeScripts: true, parentId: 'f-1' }))
     expect(res.data.warnings).toEqual([])
+    expect(res.data.environmentNames).toEqual([])
   })
 })

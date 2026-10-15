@@ -129,7 +129,7 @@ func TestPortabilityService_ImportEnvironment_Happy(t *testing.T) {
 
 	require.Nil(t, res.Error)
 	assert.Equal(t, envID.String(), res.Data.EnvironmentID)
-	assert.Equal(t, "prod (2)", res.Data.EnvironmentName)
+	assert.Equal(t, []string{"prod (2)"}, res.Data.EnvironmentNames)
 	assert.Equal(t, 0, res.Data.VariablesCreated)
 	assert.NotNil(t, res.Data.Warnings)
 }

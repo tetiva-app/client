@@ -30,9 +30,17 @@ tasks:
     # Parallel universal builds race on frontend/bindings: -clean wipes it mid-read (#4637).
     run: when_changed
     dir: frontend
+    # Not **/*: Task drops a glob on any walk error, and node_modules once froze dist that way.
     sources:
-      - "**/*"
-      - exclude: node_modules/**/*
+      - src/**/*
+      - public/**/*
+      - bindings/**/*
+      - patches/**/*
+      - index.html
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - vite.config.ts
     generates:
       - dist/**/*
     deps:

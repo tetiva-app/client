@@ -51,6 +51,34 @@ func TestProbeRunCost(t *testing.T) {
 	t.Logf("new VM + setup + typical script: %s per run", (time.Since(start) / runs).Round(time.Microsecond))
 }
 
+// Run alone (-run TestProbeChaiCost) so the first call still pays for compiling chai.
+func TestProbeChaiCost(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	plain := `pm.test("status", function () { if (pm.response.code !== 201) throw new Error("bad") })`
+	withChai := `pm.test("status", function () { pm.expect(pm.response.code).to.equal(201) })`
+
+	start := time.Now()
+	if _, err := engine.RunPostScript(context.Background(), withChai, postContext()); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	t.Logf("first pm.expect in the process (compile + load): %s", time.Since(start).Round(time.Microsecond))
+
+	const runs = 200
+	for _, tc := range []struct{ name, script string }{{"without chai", plain}, {"with chai", withChai}} {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		start := time.Now()
+		for range runs {
+			if _, err := engine.RunPostScript(context.Background(), tc.script, postContext()); err != nil {
+				t.Fatalf("run failed: %v", err)
+			}
+		}
+		runtime.ReadMemStats(&after)
+		t.Logf("%-12s %s per run, %s allocated per run", tc.name, (time.Since(start) / runs).Round(time.Microsecond),
+			humanBytes(int64(after.TotalAlloc-before.TotalAlloc)/runs))
+	}
+}
+
 func TestProbeRegexpEngines(t *testing.T) {
 	cases := []struct{ name, pattern string }{
 		{"nested-quantifier", `/(a+)+$/`},

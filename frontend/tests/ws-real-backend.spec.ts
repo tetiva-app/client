@@ -36,7 +36,7 @@ test.describe('WebSocket against the real backend', () => {
     await envInput.press('Enter');
 
     const envList = envDialog.locator('.border-r.border-border');
-    await envList.locator('button', { hasText: 'E2E' }).locator('button[title="Set as active"]').click();
+    await envList.getByTestId('env-row').filter({ hasText: 'E2E' }).locator('button[title="Set as active"]').click();
 
     const varsPanel = envDialog.locator('.flex-1.flex.flex-col').last();
     await varsPanel.getByPlaceholder('Variable name').fill('v');

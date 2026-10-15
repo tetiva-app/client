@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/tetiva-app/client/internal/domain/entities"
+import (
+	"time"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
+)
 
 type CreateExampleRequest struct {
 	RequestID   string          `json:"requestId"`
@@ -58,8 +62,8 @@ func ExampleToResponse(e *entities.ResponseExample) ExampleResponse {
 		Protocol:    string(e.Protocol),
 		SortOrder:   e.SortOrder,
 		Version:     e.Version,
-		CreatedAt:   e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:   e.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:   e.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:   e.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

@@ -138,7 +138,7 @@ func (s *Server) handleListCollections(ctx context.Context, req mcplib.CallToolR
 			"parent_id":   uuidPtrStr(c.ParentID),
 			"version":     c.Version,
 			"is_delete":   c.IsDelete,
-			"created_at":  c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"created_at":  formatTimestamp(c.CreatedAt),
 		})
 	}
 

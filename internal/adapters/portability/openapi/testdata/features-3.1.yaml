@@ -1,0 +1,84 @@
+openapi: 3.1.0
+info:
+  title: Features
+  version: "2"
+webhooks:
+  newPet:
+    post:
+      responses:
+        "200": {description: ok}
+paths:
+  /nodes/{id}:
+    get:
+      operationId: getNode
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: [string, "null"], examples: [n-1]}
+      security:
+        - oidc: []
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Node"}
+          links:
+            parent: {operationId: getNode}
+  /mixed:
+    post:
+      operationId: mixed
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/Base"
+                - type: object
+                  properties:
+                    kind: {const: mixed}
+                    shape:
+                      oneOf:
+                        - {type: object, properties: {radius: {type: number}}}
+                        - {type: object, properties: {side: {type: number}}}
+                    labels:
+                      type: object
+                      additionalProperties: {type: string}
+                    note: {type: [string, "null"]}
+      callbacks:
+        done:
+          "{$request.body#/url}":
+            post:
+              responses:
+                "200": {description: ok}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "other.yaml#/Thing"}
+        "500":
+          description: error
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Missing"}
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://id.example.com/.well-known/openid-configuration
+  schemas:
+    Base:
+      type: object
+      properties:
+        version: {type: integer, examples: [3]}
+        created: {type: string, format: date}
+    Node:
+      type: object
+      properties:
+        name: {type: string}
+        children:
+          type: array
+          items: {$ref: "#/components/schemas/Node"}
+        parent: {$ref: "#/components/schemas/Node"}

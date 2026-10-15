@@ -74,6 +74,64 @@ function longestBacktickRun(text: string): number {
   return longest
 }
 
+function isPadded(text: string): boolean {
+  return text.startsWith(' ') && text.endsWith(' ') && /[^ ]/.test(text)
+}
+
+function escapedAt(text: string, pos: number): boolean {
+  let slashes = 0
+  while (pos - slashes > 0 && text[pos - slashes - 1] === '\\') slashes++
+  return slashes % 2 === 1
+}
+
+// CommonMark: runs pair by equal length, and a backslash escapes only an opening run.
+function enclosingCodeSpan(doc: string, from: number, to: number): { from: number; to: number; fence: number } | null {
+  const start = lineStart(doc, from)
+  const line = doc.slice(start, lineEnd(doc, to))
+  const runs = [...line.matchAll(/`+/g)]
+  for (let i = 0; i < runs.length; i++) {
+    const escaped = escapedAt(line, runs[i].index!) ? 1 : 0
+    const fence = runs[i][0].length - escaped
+    const close = runs.findIndex((r, k) => k > i && r[0].length === fence)
+    if (close === -1) continue
+    const spanFrom = start + runs[i].index! + escaped
+    const spanTo = start + runs[close].index! + fence
+    if (spanFrom <= from && to <= spanTo) return { from: spanFrom, to: spanTo, fence }
+    i = close
+  }
+  return null
+}
+
+function codeEdit(doc: string, from: number, to: number): MarkdownEdit {
+  const span = enclosingCodeSpan(doc, from, to)
+  if (span) {
+    const inner = doc.slice(span.from + span.fence, span.to - span.fence)
+    const pad = isPadded(inner) ? 1 : 0
+    const content = inner.slice(pad, inner.length - pad)
+    const shift = span.fence + pad
+    const end = span.from + content.length
+    return {
+      from: span.from,
+      to: span.to,
+      insert: content,
+      selectionFrom: clamp(from - shift, span.from, end),
+      selectionTo: clamp(to - shift, span.from, end),
+    }
+  }
+
+  const selected = doc.slice(from, to)
+  const fence = '`'.repeat(longestBacktickRun(selected) + 1)
+  const pad = fence.length > 1 || selected.startsWith('`') || selected.endsWith('`') || isPadded(selected) ? ' ' : ''
+  const selectionFrom = from + fence.length + pad.length
+  return {
+    from,
+    to,
+    insert: fence + pad + selected + pad + fence,
+    selectionFrom,
+    selectionTo: selectionFrom + selected.length,
+  }
+}
+
 function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'italic' | 'code'): MarkdownEdit {
   const { marker, placeholder } = INLINE[kind]
   const m = marker.length
@@ -87,6 +145,8 @@ function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'itali
       selectionTo: from + m + placeholder.length,
     }
   }
+
+  if (kind === 'code') return codeEdit(doc, from, to)
 
   const selected = doc.slice(from, to)
 
@@ -102,19 +162,6 @@ function inlineEdit(doc: string, from: number, to: number, kind: 'bold' | 'itali
       insert: selected,
       selectionFrom: from - m,
       selectionTo: from - m + selected.length,
-    }
-  }
-
-  if (kind === 'code') {
-    const fence = '`'.repeat(longestBacktickRun(selected) + 1)
-    const pad = fence.length > 1 || selected.startsWith('`') || selected.endsWith('`') ? ' ' : ''
-    const selectionFrom = from + fence.length + pad.length
-    return {
-      from,
-      to,
-      insert: fence + pad + selected + pad + fence,
-      selectionFrom,
-      selectionTo: selectionFrom + selected.length,
     }
   }
 

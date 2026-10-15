@@ -129,13 +129,30 @@ test.describe('Inherited auth on nested collections', () => {
     await expect(page.getByTestId('inherited-auth')).toContainText('Basic Auth');
   });
 
+  test('a long owner name without spaces wraps inside the inherited-auth note', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await page.goto('/');
+    const name = 'payments_platform_internal_api_v2_staging_'.repeat(4) + 'end';
+    const root = await createCollection(page, name);
+    await openCollectionAuth(page, root);
+    await setBearer(page, 't0ken');
+    await page.keyboard.press('Meta+s');
+
+    const child = await createSubCollection(page, root, 'Child Folder');
+    await openCollectionAuth(page, child);
+
+    const note = page.getByTestId('inherited-auth');
+    await expect(note).toContainText('Bearer Token');
+    expect(await note.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
+
   test('a top-level collection keeps No Auth', async ({ page }) => {
     await page.goto('/');
     const root = await createCollection(page, 'Lonely Root');
     await openCollectionAuth(page, root);
 
     await expect(page.getByTestId('collection-auth-type-selector')).toContainText('No Auth');
-    await expect(page.getByText('without auth headers')).toBeVisible();
+    await expect(page.getByText('Requests here go without auth unless they set their own')).toBeVisible();
   });
 
   test('a request moved to an identically configured sibling names the new owner', async ({ page }) => {
@@ -176,4 +193,23 @@ test.describe('Inherited auth on nested collections', () => {
     await expect(page.getByTestId('collection-auth-type-selector')).toContainText('Inherit');
     await expect(page.getByTestId('inherited-auth-owner')).toContainText('Host Parent');
   });
+});
+
+test('a tall collection auth form scrolls below the open tabs instead of squeezing them', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 700 });
+  await page.goto('/');
+  const root = await createCollection(page, 'Tall Auth');
+  await createRequest(page, root, 'List users');
+  await openCollectionAuth(page, root);
+
+  await pickCollectionAuth(page, 'OAuth 2.0');
+  await expect(page.locator('[aria-placeholder="openid profile"]')).toBeAttached();
+
+  const tabs = page.locator('[data-tab-id]').first().locator('xpath=..');
+  await expect(tabs.locator('[data-tab-id]')).toHaveCount(2);
+  expect((await tabs.boundingBox())?.height).toBe(36);
+  const form = page.getByRole('tabpanel', { name: 'Authorization' });
+  expect(await form.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  const box = (await form.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(700);
 });

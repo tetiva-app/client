@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createSSRApp, defineComponent } from 'vue'
+import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import { defaultAuthData } from '@/lib/auth-data'
@@ -9,6 +9,10 @@ import type { AuthType } from '@/types/request'
 const selects = vi.hoisted(() => new Map<string, (value: string) => void>())
 
 vi.mock('@/services', () => ({ isWailsEnvironment: () => false }))
+
+vi.mock('./InheritedAuth.vue', () => ({
+  default: defineComponent({ setup: (_, { slots }) => () => h('div', slots.none?.()) }),
+}))
 
 vi.mock('./auth/AuthSelect.vue', () => ({
   default: defineComponent({
@@ -72,5 +76,27 @@ describe('auth editor secrets', () => {
   it('shows a token or API key that is only {{variable}} references', async () => {
     expect(await renderAuth('bearer', { token: '{{accessToken}}' })).not.toContain('aria-label="Show Token"')
     expect(await renderAuth('api_key', { key: 'X-API-Key', value: '{{apiKey}}', addTo: 'header' })).not.toContain('aria-label="Show Value"')
+  })
+})
+
+describe('auth editor blank credentials', () => {
+  it('says an API key without a name is not sent', async () => {
+    expect(await renderAuth('api_key', { key: '', value: 'sk', addTo: 'header' }))
+      .toContain('Without a key name nothing is added to the request')
+    expect(await renderAuth('api_key', { key: 'X-Key', value: 'sk', addTo: 'header' }))
+      .not.toContain('Without a key name')
+  })
+
+  it('says a blank bearer token sends no Authorization header', async () => {
+    expect(await renderAuth('bearer', { prefix: 'Bearer', token: '  ' }))
+      .toContain('Without a token no Authorization header is sent')
+    expect(await renderAuth('bearer', { prefix: 'Bearer', token: 'abc' }))
+      .not.toContain('Without a token')
+  })
+})
+
+describe('auth editor on Inherit', () => {
+  it('says the request goes without auth when no parent collection sets any', async () => {
+    expect(await renderAuth('inherit', {})).toContain('No parent collection sets auth — this request goes without it')
   })
 })

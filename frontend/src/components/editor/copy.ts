@@ -38,6 +38,14 @@ export interface EditorCopy {
   tabs: {
     collection: string
   }
+  scripts: {
+    pre: string
+    post: string
+    preHint: string
+    postHint: string
+    preConnect: string
+    preConnectHint: string
+  }
   saveExample: {
     button: string
     buttonHint: string
@@ -98,6 +106,14 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     tabs: {
       collection: 'Collection',
     },
+    scripts: {
+      pre: 'Pre-request',
+      post: 'Post-response',
+      preHint: 'Runs before each request',
+      postHint: 'Runs after each response',
+      preConnect: 'Pre-connect',
+      preConnectHint: 'Runs before each connection',
+    },
     saveExample: {
       button: 'Save as example',
       buttonHint: 'Save this response as an example',
@@ -155,6 +171,14 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     },
     tabs: {
       collection: 'Коллекция',
+    },
+    scripts: {
+      pre: 'Перед запросом',
+      post: 'После ответа',
+      preHint: 'Выполняется перед каждым запросом',
+      postHint: 'Выполняется после каждого ответа',
+      preConnect: 'Перед подключением',
+      preConnectHint: 'Выполняется перед каждым подключением',
     },
     saveExample: {
       button: 'В примеры',

@@ -425,33 +425,35 @@ onUnmounted(() => {
           <div class="flex flex-col h-full">
             <TabBar />
 
-            <HistoryCompareView v-if="activeSection === 'history' && historyStore.comparePair" />
-            <HistoryViewer
-              v-else-if="activeSection === 'history' && historyStore.selectedId"
-              @replay="onHistoryReplay"
-            />
-            <KeepAlive v-else-if="store.activeTab">
-              <CollectionEditor
-                v-if="store.activeTab.type === 'collection'"
-                :key="store.activeTab.id"
-                :collection-id="store.activeTab.collectionId"
+            <div class="flex min-h-0 flex-1 flex-col">
+              <HistoryCompareView v-if="activeSection === 'history' && historyStore.comparePair" />
+              <HistoryViewer
+                v-else-if="activeSection === 'history' && historyStore.selectedId"
+                @replay="onHistoryReplay"
               />
-              <RequestEditor
-                v-else
-                :key="store.activeTab.id"
-                :request-id="store.activeTab.requestId"
-                @manage-environments="envModalUi.openBlank()"
-                @switch-section="(s) => activeSection = s"
-              />
-            </KeepAlive>
-            <main v-else class="flex-1 flex items-center justify-center">
-              <div class="text-center">
-                <h1 class="text-2xl font-bold text-primary">Tetiva</h1>
-                <p class="mt-2 text-sm text-muted-foreground">
-                  Select a request from the sidebar to get started.
-                </p>
-              </div>
-            </main>
+              <KeepAlive v-else-if="store.activeTab">
+                <CollectionEditor
+                  v-if="store.activeTab.type === 'collection'"
+                  :key="store.activeTab.id"
+                  :collection-id="store.activeTab.collectionId"
+                />
+                <RequestEditor
+                  v-else
+                  :key="store.activeTab.id"
+                  :request-id="store.activeTab.requestId"
+                  @manage-environments="envModalUi.openBlank()"
+                  @switch-section="(s) => activeSection = s"
+                />
+              </KeepAlive>
+              <main v-else class="flex-1 flex items-center justify-center">
+                <div class="text-center">
+                  <h1 class="text-2xl font-bold text-primary">Tetiva</h1>
+                  <p class="mt-2 text-sm text-muted-foreground">
+                    Select a request from the sidebar to get started.
+                  </p>
+                </div>
+              </main>
+            </div>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

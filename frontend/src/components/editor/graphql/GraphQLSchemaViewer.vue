@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ExternalLink, ChevronRight, Home, Code, List, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import { EditorView, drawSelection } from '@codemirror/view'
 import { EditorState, Compartment } from '@codemirror/state'
-import { search, SearchQuery, setSearchQuery, findNext as cmFindNext, findPrevious as cmFindPrev } from '@codemirror/search'
+import { applyFind, findInDocument, findStatusText, stepFind, type FindStatus } from '@/lib/cm-find'
 import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
@@ -24,8 +24,24 @@ const viewMode = ref<'browse' | 'sdl'>('browse')
 
 // Search is shared across both modes.
 const searchQuery = ref('')
+const sdlStatus = ref<FindStatus | null>(null)
+const sdlStatusText = computed(() => (viewMode.value === 'sdl' && searchQuery.value ? findStatusText(sdlStatus.value) : ''))
 const searchInput = ref<HTMLInputElement | null>(null)
 const onFindShortcut = useFindShortcut(searchInput)
+const root = ref<HTMLElement | null>(null)
+
+// A Browse row re-renders on click and drops focus to <body>, sending Cmd+F to the sidebar.
+function keepFocusInside() {
+  void nextTick(() => {
+    if (root.value && !root.value.contains(document.activeElement)) root.value.focus({ preventScroll: true })
+  })
+}
+
+function goToReturnType(returnType: string) {
+  if (!isNavigable(returnType)) return
+  goToType(baseTypeName(returnType))
+  keepFocusInside()
+}
 
 const navStack = ref<string[]>([])
 
@@ -151,11 +167,10 @@ function createEditor() {
     state: EditorState.create({
       doc: sdlContent.value,
       extensions: [
-        EditorView.editable.of(false),
         EditorState.readOnly.of(true),
         wrapCompartment.of(settings.editorWordWrap ? EditorView.lineWrapping : []),
         drawSelection(),
-        search({ top: true, createPanel: () => ({ dom: document.createElement('span') }) }),
+        findInDocument(status => { sdlStatus.value = status }),
         highlightCompartment.of(activeHighlight()),
         EditorView.theme({
           '&': {
@@ -171,7 +186,7 @@ function createEditor() {
             backgroundColor: BRAND_ACCENT_SELECTION + ' !important',
           },
           '.cm-content ::selection': { backgroundColor: BRAND_ACCENT_SELECTION },
-          '.cm-panels': { display: 'none' },
+          '.cm-panels': { height: '0', overflow: 'hidden', border: 'none' },
           '.cm-searchMatch': {
             backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent)',
           },
@@ -215,18 +230,15 @@ watch(viewMode, async (mode) => {
 })
 
 function handleSdlSearch() {
-  if (!view) return
-  view.dispatch({
-    effects: setSearchQuery.of(new SearchQuery({ search: searchQuery.value, caseSensitive: false, literal: true })),
-  })
+  if (view) applyFind(view, searchQuery.value)
 }
 
 function sdlSearchNext() {
-  if (view) cmFindNext(view)
+  if (view) stepFind(view, true)
 }
 
 function sdlSearchPrev() {
-  if (view) cmFindPrev(view)
+  if (view) stepFind(view, false)
 }
 
 function selectAll() {
@@ -276,7 +288,13 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
 </script>
 
 <template>
-  <div class="flex flex-col h-full" @keydown="onFindShortcut">
+  <div
+    ref="root"
+    tabindex="-1"
+    class="flex flex-col h-full outline-none"
+    @keydown="onFindShortcut"
+    @click="keepFocusInside"
+  >
     <div class="flex items-center h-8 px-3 border-b border-border shrink-0 gap-2">
       <div class="flex items-center bg-muted/30 rounded-md p-0.5 gap-0.5">
         <button
@@ -315,6 +333,7 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
             @keydown="handleSearchKeydown"
           />
         </div>
+        <span v-if="sdlStatusText" class="px-1 text-[10px] tabular-nums text-muted-foreground whitespace-nowrap" data-testid="schema-find-status">{{ sdlStatusText }}</span>
         <template v-if="searchQuery && viewMode === 'sdl'">
           <button
             class="size-5 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
@@ -435,7 +454,7 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
                   <span class="text-muted-foreground/50">→ </span>
                   <span
                     :class="isNavigable(op.returnType) ? 'text-[#A78BFA] hover:underline cursor-pointer' : 'text-muted-foreground'"
-                    @click.stop="isNavigable(op.returnType) && goToType(baseTypeName(op.returnType))"
+                    @click.stop="goToReturnType(op.returnType)"
                   >{{ op.returnType }}</span>
                 </div>
               </div>
@@ -460,7 +479,7 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
                   <span class="text-muted-foreground/50">→ </span>
                   <span
                     :class="isNavigable(op.returnType) ? 'text-[#A78BFA] hover:underline cursor-pointer' : 'text-muted-foreground'"
-                    @click.stop="isNavigable(op.returnType) && goToType(baseTypeName(op.returnType))"
+                    @click.stop="goToReturnType(op.returnType)"
                   >{{ op.returnType }}</span>
                 </div>
               </div>

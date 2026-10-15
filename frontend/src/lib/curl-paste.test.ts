@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isCurlCommand,
+  curlAuthAfterPaste,
   curlAuthChange,
   curlImportFields,
   curlImportIntact,
@@ -125,11 +126,23 @@ describe('curlAuthChange', () => {
     )).toBe('removed')
   })
 
-  it('treats inherited collection auth as nothing of its own', () => {
+  it('is silent when an inherited authorization survives the paste', () => {
+    const auth = { authType: 'inherit', authData: '{}' }
+    expect(curlAuthChange(auth, { ...auth })).toBeNull()
+  })
+
+  it('reports an inherited authorization the command replaced', () => {
     expect(curlAuthChange(
-      { authType: 'inherit', authData: '' },
-      { authType: 'none', authData: '' },
-    )).toBeNull()
+      { authType: 'inherit', authData: '{}' },
+      { authType: 'bearer', authData: '{"token":"t"}' },
+    )).toBe('replaced')
+  })
+
+  it('counts an Authorization header the parser kept as a replacement', () => {
+    expect(curlAuthChange(
+      { authType: 'inherit', authData: '{}' },
+      { authType: 'none', authData: '', headers: [{ key: 'authorization', value: 'Token t', enabled: true }] },
+    )).toBe('replaced')
   })
 
   it('is silent when the paste changed nothing', () => {
@@ -159,61 +172,67 @@ function blank(over: Partial<CurlImportFields> = {}): CurlImportFields {
 }
 
 describe('curlImportLosesWork', () => {
+  const noAuth = { authType: 'none', authData: '{}' }
+
   it('is false for an untouched request', () => {
-    expect(curlImportLosesWork(blank())).toBe(false)
+    expect(curlImportLosesWork(blank(), noAuth)).toBe(false)
   })
 
   it('is false when only the URL was typed', () => {
-    expect(curlImportLosesWork(blank({ url: 'https://api.example.com/users' }))).toBe(false)
+    expect(curlImportLosesWork(blank({ url: 'https://api.example.com/users' }), noAuth)).toBe(false)
   })
 
   it('is true once a header carries something', () => {
     expect(curlImportLosesWork(blank({
       headers: [{ key: 'Accept', value: 'application/json', enabled: true }],
-    }))).toBe(true)
+    }), noAuth)).toBe(true)
   })
 
   it('ignores the empty row the headers editor keeps around', () => {
     expect(curlImportLosesWork(blank({
       headers: [{ key: '  ', value: '', enabled: true }],
-    }))).toBe(false)
+    }), noAuth)).toBe(false)
   })
 
   it('ignores a disabled header', () => {
     expect(curlImportLosesWork(blank({
       headers: [{ key: 'Accept', value: 'application/json', enabled: false }],
-    }))).toBe(false)
+    }), noAuth)).toBe(false)
   })
 
   it('is true for a body alone', () => {
-    expect(curlImportLosesWork(blank({ body: '{"name":"Alice"}', bodyType: 'json' }))).toBe(true)
+    expect(curlImportLosesWork(blank({ body: '{"name":"Alice"}', bodyType: 'json' }), noAuth)).toBe(true)
   })
 
   it('ignores whitespace in the body', () => {
-    expect(curlImportLosesWork(blank({ body: '\n  ' }))).toBe(false)
+    expect(curlImportLosesWork(blank({ body: '\n  ' }), noAuth)).toBe(false)
   })
 
   it('is true once an auth type is picked', () => {
     expect(curlImportLosesWork(blank({
       authType: 'bearer',
       authData: '{"prefix":"Bearer","token":""}',
-    }))).toBe(true)
+    }), noAuth)).toBe(true)
   })
 
   it('counts credentials stored under no auth type', () => {
-    expect(curlImportLosesWork(blank({ authData: '{"token":"t"}' }))).toBe(true)
+    expect(curlImportLosesWork(blank({ authData: '{"token":"t"}' }), noAuth)).toBe(true)
   })
 
-  it('treats inherit as nothing to lose', () => {
-    expect(curlImportLosesWork(blank({ authType: 'inherit', authData: '' }))).toBe(false)
+  it('treats a kept inherit as nothing to lose', () => {
+    expect(curlImportLosesWork(blank({ authType: 'inherit', authData: '' }), { authType: 'inherit', authData: '' })).toBe(false)
+  })
+
+  it('counts an inherit the command replaced', () => {
+    expect(curlImportLosesWork(blank({ authType: 'inherit', authData: '{}' }), { authType: 'basic', authData: '{"username":"u"}' })).toBe(true)
   })
 
   it('ignores the placeholder auth payload', () => {
-    expect(curlImportLosesWork(blank({ authData: '  {}  ' }))).toBe(false)
+    expect(curlImportLosesWork(blank({ authData: '  {}  ' }), noAuth)).toBe(false)
   })
 
   it('ignores an auth payload whose fields were never filled in', () => {
-    expect(curlImportLosesWork(blank({ authData: '{"username":"","password":"  "}' }))).toBe(false)
+    expect(curlImportLosesWork(blank({ authData: '{"username":"","password":"  "}' }), noAuth)).toBe(false)
   })
 })
 
@@ -279,5 +298,33 @@ describe('curlImportFields', () => {
     expect(Object.keys(curlImportFields(req as never)).sort()).toEqual(
       ['authData', 'authType', 'body', 'bodyType', 'headers', 'method', 'url'],
     )
+  })
+})
+
+describe('curlAuthAfterPaste', () => {
+  const inherit = { authType: 'inherit', authData: '{}' }
+
+  it('keeps inherit when the command carries no authorization', () => {
+    expect(curlAuthAfterPaste(inherit, {
+      authType: 'none', authData: '{}', headers: [{ key: 'Accept', value: 'application/json', enabled: true }],
+    })).toEqual(inherit)
+  })
+
+  it('takes the auth the command mapped to a type', () => {
+    expect(curlAuthAfterPaste(inherit, { authType: 'bearer', authData: '{"token":"t"}', headers: [] }))
+      .toEqual({ authType: 'bearer', authData: '{"token":"t"}' })
+  })
+
+  it('drops inherit for an Authorization header left as a header', () => {
+    expect(curlAuthAfterPaste(inherit, {
+      authType: 'none', authData: '', headers: [{ key: 'Authorization', value: 'Token t', enabled: true }],
+    })).toEqual({ authType: 'none', authData: '' })
+  })
+
+  it('overwrites an explicit type even when the command carries nothing', () => {
+    expect(curlAuthAfterPaste(
+      { authType: 'bearer', authData: '{"token":"t"}' },
+      { authType: 'none', authData: '{}', headers: [] },
+    )).toEqual({ authType: 'none', authData: '{}' })
   })
 })

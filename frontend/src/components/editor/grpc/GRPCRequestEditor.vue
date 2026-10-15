@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { scriptBadge } from '@/lib/script-phase'
 import { Wand2, Loader2, FileUp, FolderUp, X, RefreshCw } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
@@ -299,10 +300,7 @@ const metadataBadge = computed(() => {
   return count > 0 ? String(count) : ''
 })
 
-const scriptsBadge = computed(() => {
-  const count = (props.request.preScript ? 1 : 0) + (props.request.postScript ? 1 : 0)
-  return count > 0 ? String(count) : ''
-})
+const scriptsBadge = computed(() => scriptBadge(props.request.preScript, props.request.postScript))
 
 const examplesBadge = computed(() => {
   const count = examplesStore.byRequest[props.request.id]?.length ?? 0

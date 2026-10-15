@@ -120,3 +120,17 @@ describe.each(cases)('$name', (c) => {
     expect(emitted).toEqual(['my initial'])
   })
 })
+
+describe('VariableInput on one line', () => {
+  it('hands back an external value it had to flatten, so the store sends what the field shows', async () => {
+    const { value, emitted, view } = mount(cases.find(c => c.name === 'VariableInput')!)
+
+    value.value = 'https://api.example.com/x\n'
+    await nextTick()
+    value.value = 'https://api.example.com/y'
+    await nextTick()
+
+    expect(view.state.doc.toString()).toBe('https://api.example.com/y')
+    expect(emitted).toEqual(['https://api.example.com/x'])
+  })
+})

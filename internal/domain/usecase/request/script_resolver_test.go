@@ -34,14 +34,14 @@ func TestScriptResolver_RequestHasPreScript(t *testing.T) {
 
 	script, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('request')", script)
+	assert.Equal(t, request.ResolvedScript{Body: "console.log('request')"}, script)
 }
 
 func TestScriptResolver_RequestEmpty_CollectionHasScript(t *testing.T) {
 	collID := uuid.New()
 	reader := &mockCollectionReader{
 		collections: map[uuid.UUID]*entities.Collection{
-			collID: {ID: collID, PreScript: "console.log('collection')"},
+			collID: {ID: collID, Name: "Users", PreScript: "console.log('collection')"},
 		},
 	}
 	resolver := request.NewScriptResolver(reader)
@@ -49,7 +49,7 @@ func TestScriptResolver_RequestEmpty_CollectionHasScript(t *testing.T) {
 
 	script, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('collection')", script)
+	assert.Equal(t, request.ResolvedScript{Body: "console.log('collection')", Collection: "Users"}, script)
 }
 
 func TestScriptResolver_WalksUpToParent(t *testing.T) {
@@ -58,7 +58,7 @@ func TestScriptResolver_WalksUpToParent(t *testing.T) {
 	reader := &mockCollectionReader{
 		collections: map[uuid.UUID]*entities.Collection{
 			childID: {ID: childID, ParentID: &rootID, PreScript: ""},
-			rootID:  {ID: rootID, PreScript: "console.log('root')"},
+			rootID:  {ID: rootID, Name: "Acme API", PreScript: "console.log('root')"},
 		},
 	}
 	resolver := request.NewScriptResolver(reader)
@@ -66,7 +66,7 @@ func TestScriptResolver_WalksUpToParent(t *testing.T) {
 
 	script, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('root')", script)
+	assert.Equal(t, request.ResolvedScript{Body: "console.log('root')", Collection: "Acme API"}, script)
 }
 
 func TestScriptResolver_StopsAtFirstFound(t *testing.T) {
@@ -83,7 +83,7 @@ func TestScriptResolver_StopsAtFirstFound(t *testing.T) {
 
 	script, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('child')", script)
+	assert.Equal(t, "console.log('child')", script.Body)
 }
 
 func TestScriptResolver_NoScriptAnywhere(t *testing.T) {
@@ -113,11 +113,11 @@ func TestScriptResolver_PreAndPostResolvedIndependently(t *testing.T) {
 
 	pre, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('req-pre')", pre) // request wins
+	assert.Equal(t, "console.log('req-pre')", pre.Body)
 
 	post, err := resolver.ResolvePostScript(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, "console.log('coll-post')", post) // inherited from collection
+	assert.Equal(t, "console.log('coll-post')", post.Body)
 }
 
 func TestScriptResolver_MaxDepthGuard(t *testing.T) {
@@ -141,4 +141,38 @@ func TestScriptResolver_MaxDepthGuard(t *testing.T) {
 	script, err := resolver.ResolvePreScript(context.Background(), req)
 	require.NoError(t, err)
 	assert.Empty(t, script) // must not loop forever
+}
+
+func TestScriptResolver_BlankRequestScriptFallsThroughToTheCollection(t *testing.T) {
+	collID := uuid.New()
+	reader := &mockCollectionReader{
+		collections: map[uuid.UUID]*entities.Collection{
+			collID: {ID: collID, Name: "F1", PreScript: "folder()", PostScript: "folderPost()"},
+		},
+	}
+	resolver := request.NewScriptResolver(reader)
+	req := &entities.Request{CollectionID: collID, PreScript: "\n  \n", PostScript: " \t"}
+
+	pre, err := resolver.ResolvePreScript(context.Background(), req)
+	require.NoError(t, err)
+	post, err := resolver.ResolvePostScript(context.Background(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, request.ResolvedScript{Body: "folder()", Collection: "F1"}, pre)
+	assert.Equal(t, request.ResolvedScript{Body: "folderPost()", Collection: "F1"}, post)
+}
+
+func TestScriptResolver_BlankCollectionScriptIsSkipped(t *testing.T) {
+	rootID, childID := uuid.New(), uuid.New()
+	reader := &mockCollectionReader{
+		collections: map[uuid.UUID]*entities.Collection{
+			childID: {ID: childID, Name: "Child", ParentID: &rootID, PreScript: "\n"},
+			rootID:  {ID: rootID, Name: "Root", PreScript: "root()"},
+		},
+	}
+
+	script, err := request.NewScriptResolver(reader).ResolvePreScript(context.Background(), &entities.Request{CollectionID: childID})
+	require.NoError(t, err)
+
+	assert.Equal(t, request.ResolvedScript{Body: "root()", Collection: "Root"}, script)
 }

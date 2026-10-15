@@ -28,14 +28,14 @@ type snippetScriptResolver struct {
 	calls int
 }
 
-func (r *snippetScriptResolver) ResolvePreScript(context.Context, *entities.Request) (string, error) {
+func (r *snippetScriptResolver) ResolvePreScript(context.Context, *entities.Request) (request.ResolvedScript, error) {
 	r.calls++
-	return r.pre, nil
+	return request.ResolvedScript{Body: r.pre}, nil
 }
 
-func (r *snippetScriptResolver) ResolvePostScript(context.Context, *entities.Request) (string, error) {
+func (r *snippetScriptResolver) ResolvePostScript(context.Context, *entities.Request) (request.ResolvedScript, error) {
 	r.calls++
-	return "", nil
+	return request.ResolvedScript{}, nil
 }
 
 type countingCookieReader struct {

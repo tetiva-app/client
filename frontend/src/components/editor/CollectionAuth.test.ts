@@ -56,13 +56,13 @@ describe('CollectionAuth', () => {
     expect(html).toContain('inherit auth from parent collections')
     expect(html).toContain('data-stub="inherited"')
     expect(html).toContain('No parent collection sets auth')
-    expect(html).not.toContain('without auth headers')
+    expect(html).not.toContain('Requests here go without auth')
   })
 
-  it('says a top-level collection without auth sends none', async () => {
+  it('tells a top-level collection without auth that its requests may still set their own', async () => {
     const html = await render({ authType: 'none', authData: '{}' })
 
-    expect(html).toContain('without auth headers')
+    expect(html).toContain('Requests here go without auth unless they set their own')
     expect(html).not.toContain('data-stub="inherited"')
   })
 })

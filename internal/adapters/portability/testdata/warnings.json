@@ -359,7 +359,7 @@
       "folders": "v-folders",
       "n": "1"
     },
-    "text": "requests in folder v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+    "text": "requests in folder v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to None if they must go without"
   },
   {
     "code": "hoppscotch_auth_off",
@@ -371,7 +371,7 @@
       "folders": "v-folders",
       "n": "2"
     },
-    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to None if they must go without"
   },
   {
     "code": "hoppscotch_auth_off",
@@ -383,7 +383,7 @@
       "folders": "v-folders",
       "n": "1234"
     },
-    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without"
+    "text": "requests in folders v-folders will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to None if they must go without"
   },
   {
     "code": "hoppscotch_headers_copied",

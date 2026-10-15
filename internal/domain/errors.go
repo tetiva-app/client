@@ -32,6 +32,7 @@ func (e *ConflictError) Error() string {
 type ReasonError struct {
 	Reason string
 	Err    error
+	Fields map[string]string
 }
 
 func (e *ReasonError) Error() string {

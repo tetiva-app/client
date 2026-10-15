@@ -207,8 +207,8 @@ const EN: ImportWarningCopy = {
     hoppscotch_secrets_empty: 'Hoppscotch exports secrets without their values: fill in {keys}',
     hoppscotch_headers_copied: 'headers set on Hoppscotch collections and folders were copied into their requests',
     hoppscotch_auth_off: {
-      single: "requests in folder {folders} will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without",
-      several: "requests in folders {folders} will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without",
+      single: "requests in folder {folders} will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to None if they must go without",
+      several: "requests in folders {folders} will inherit the parent's auth: Tetiva cannot turn auth off at a folder, set them to None if they must go without",
     },
 
     openapi_external_ref: 'references to "{target}" are not supported and were left empty',

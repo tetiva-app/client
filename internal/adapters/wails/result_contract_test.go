@@ -220,3 +220,14 @@ func TestContract_Empty_RoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &back))
 	require.Equal(t, Empty{}, back)
 }
+
+func TestContract_Err_ReasonCarriesItsFields(t *testing.T) {
+	rerr := fmt.Errorf("request.Execute: %w", &domain.ReasonError{
+		Reason: "pre_script_failed",
+		Err:    errors.New("pre-request script failed: boom"),
+		Fields: map[string]string{"message": "boom", "line": "3"},
+	})
+	b, err := json.Marshal(Err[string](rerr))
+	require.NoError(t, err)
+	require.Equal(t, `{"data":"","error":{"code":"internal","message":"request.Execute: pre-request script failed: boom","reason":"pre_script_failed","fields":{"line":"3","message":"boom"}}}`, string(b))
+}

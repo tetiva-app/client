@@ -4,6 +4,8 @@ import { getWebSocketService } from '@/services'
 import { useRequestStore } from '@/stores/tabs'
 import { serializeWsSettings, type WsFormat, type WsSettings } from '@/lib/ws-settings'
 import type { WsMessage, WsStatus } from '@/types/websocket'
+import { formatResultError, scriptFailure } from '@/lib/result-error'
+import { scriptPhaseLabel } from '@/lib/script-phase'
 
 interface WsConnState {
   status: WsStatus
@@ -148,10 +150,12 @@ export const useWebSocketStore = defineStore('websocket', () => {
       if (stale()) return
 
       for (const line of res.data?.script?.preConsole ?? []) system(requestId, line)
-      for (const e of res.data?.script?.errors ?? []) system(requestId, `${e.phase}: ${e.message}`, 'error')
+      for (const e of res.data?.script?.errors ?? []) system(requestId, `${scriptPhaseLabel(e.phase)}: ${e.message}`, 'error')
 
       if (res.error || !res.data) {
-        const message = res.error?.message ?? 'connect failed'
+        const failure = res.error ? scriptFailure(res.error, 'pre-connect') : null
+        for (const line of failure?.console ?? []) system(requestId, line)
+        const message = failure?.detail ?? (res.error ? formatResultError(res.error) : 'connect failed')
         set(requestId, { status: 'error', error: message })
         system(requestId, message, 'error')
         return

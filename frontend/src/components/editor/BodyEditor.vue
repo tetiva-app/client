@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue'
-import { Wand2, ChevronDown, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
+import { Wand2, ChevronDown } from 'lucide-vue-next'
 import type { BodyType } from '@/types/request'
 import { saveDraft, getDraft, isTextFamilyTransition } from '@/composables/useBodyDrafts'
 import { useFindShortcut } from '@/composables/useFindShortcut'
+import type { FindStatus } from '@/lib/cm-find'
+import FindBox from './FindBox.vue'
 
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 const FormEditor = defineAsyncComponent(() => import('./FormEditor.vue'))
@@ -98,32 +100,9 @@ function onBodyUpdate(value: string) {
 }
 
 const searchQuery = ref('')
-const searchInput = ref<HTMLInputElement | null>(null)
-const onFindShortcut = useFindShortcut(searchInput)
-
-function handleSearchInput() {
-  codeEditorRef.value?.setSearch(searchQuery.value)
-}
-
-function searchNext() {
-  codeEditorRef.value?.findNext()
-}
-
-function searchPrev() {
-  codeEditorRef.value?.findPrev()
-}
-
-function handleSearchKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    if (event.shiftKey) searchPrev()
-    else searchNext()
-  } else if (event.key === 'Escape') {
-    searchQuery.value = ''
-    handleSearchInput()
-    ;(event.target as HTMLInputElement).blur()
-  }
-}
+const findStatus = ref<FindStatus | null>(null)
+const findBox = ref<InstanceType<typeof FindBox> | null>(null)
+const onFindShortcut = useFindShortcut(computed(() => findBox.value?.input ?? null))
 
 function formatBody() {
   codeEditorRef.value?.format()
@@ -172,35 +151,15 @@ function showSearch(type: BodyType): boolean {
       </div>
 
       <div class="flex items-center gap-1.5">
-        <div v-if="showSearch(bodyType)" class="flex items-center gap-0.5">
-          <div class="relative">
-            <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
-            <input
-              ref="searchInput"
-              v-model="searchQuery"
-              class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
-              placeholder="Search..."
-              @input="handleSearchInput"
-              @keydown="handleSearchKeydown"
-            />
-          </div>
-          <button
-            v-if="searchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Previous match (Shift+Enter)"
-            @click="searchPrev"
-          >
-            <ArrowUp class="size-3" />
-          </button>
-          <button
-            v-if="searchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Next match (Enter)"
-            @click="searchNext"
-          >
-            <ArrowDown class="size-3" />
-          </button>
-        </div>
+        <FindBox
+          v-if="showSearch(bodyType)"
+          ref="findBox"
+          v-model="searchQuery"
+          :status="findStatus"
+          @next="codeEditorRef?.findNext()"
+          @prev="codeEditorRef?.findPrev()"
+          @dismiss="codeEditorRef?.focus()"
+        />
 
         <button
           v-if="showFormatButton(bodyType)"
@@ -225,7 +184,9 @@ function showSearch(type: BodyType): boolean {
         :language="codeEditorLanguage(bodyType)"
         :resolved-variables="resolvedVariables"
         :secret-keys="secretKeys"
+        :search="searchQuery"
         @update:content="onBodyUpdate"
+        @find-status="findStatus = $event"
       />
 
       <FormEditor

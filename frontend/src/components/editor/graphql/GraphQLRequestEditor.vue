@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { scriptBadge } from '@/lib/script-phase'
 import { FileUp, Loader2, RefreshCw, X } from 'lucide-vue-next'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
@@ -199,10 +200,7 @@ const queryBadge = computed(() => props.request.graphqlQuery ? '1' : '')
 const headersBadge = computed(() => props.request.headers.length > 0 ? String(props.request.headers.length) : '')
 const authBadge = computed(() => authBadgeLabel(props.request.authType))
 const schemaBadge = computed(() => schema.value ? '1' : '')
-const scriptsBadge = computed(() => {
-  const count = (props.request.preScript ? 1 : 0) + (props.request.postScript ? 1 : 0)
-  return count > 0 ? String(count) : ''
-})
+const scriptsBadge = computed(() => scriptBadge(props.request.preScript, props.request.postScript))
 
 const examplesBadge = computed(() => {
   const count = examplesStore.byRequest[props.request.id]?.length ?? 0

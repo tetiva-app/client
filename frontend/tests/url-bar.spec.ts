@@ -159,3 +159,50 @@ test('a long URL fades out instead of being cut off by the environment chip', as
   expect(edge.paddingRight).toBe('32px');
   expect(edge.maskImage).toContain('linear-gradient');
 });
+
+async function pasteIntoUrl(page: Page, text: string) {
+  await page.locator('[aria-placeholder="Enter request URL"]').evaluate((el, value) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', value);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, text);
+}
+
+test('a cURL without credentials keeps the inherited authorization', async ({ page }) => {
+  await createAndOpenRequest(page);
+  await page.locator('[aria-placeholder="Enter request URL"]').click();
+
+  await pasteIntoUrl(page, "curl 'https://api.example.com/users' -H 'Accept: application/json'");
+
+  await expect(page.locator('[aria-placeholder="Enter request URL"]')).toHaveText('https://api.example.com/users');
+  await page.locator('.border-b.border-border.px-3').locator('button', { hasText: 'Auth' }).click();
+  await expect(page.locator('button[role="combobox"]').last()).toContainText('Inherit');
+});
+
+test.describe('URL bar as a single line', () => {
+  test('a pasted trailing line break is dropped and the paste replaces the selection', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    await createAndOpenRequest(page, 'https://old.example.com');
+    const url = page.locator('[aria-placeholder="Enter request URL"]');
+    await url.click();
+    await page.keyboard.press('ControlOrMeta+a');
+
+    await pasteIntoUrl(page, 'https://api.example.com/users\n');
+
+    await expect(url).toHaveText('https://api.example.com/users');
+    expect(errors).toEqual([]);
+  });
+
+  test('Enter sends the request', async ({ page }) => {
+    await createAndOpenRequest(page, 'https://api.example.com/users');
+    const url = page.locator('[aria-placeholder="Enter request URL"]');
+    await url.click();
+
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('[data-response-body]')).toContainText('Alice');
+    await expect(url).toHaveText('https://api.example.com/users');
+  });
+});

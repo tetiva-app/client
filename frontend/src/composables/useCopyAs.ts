@@ -2,7 +2,7 @@ import type { Ref } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { warningsToastMessage } from '@/lib/auth-warnings'
 import { copyText } from '@/lib/clipboard'
-import { formatResultError } from '@/lib/result-error'
+import { formatResultError, scriptFailure } from '@/lib/result-error'
 import { copySnippetAs } from '@/lib/snippets/copy'
 import { getRequestService } from '@/services'
 import { useCodeDialogUi } from '@/stores/codeDialog'
@@ -26,6 +26,12 @@ export function useCopyAs(requestId: Ref<string>) {
       return
     }
     const result = await (await getRequestService()).generateCurl({ requestId: id, workspaceId })
+    const failure = result.error && scriptFailure(result.error)
+    if (failure) {
+      const detail = failure.detail.charAt(0).toLowerCase() + failure.detail.slice(1)
+      toast.error(`Not copied: ${detail}`, { label: 'Generate code…', onClick: () => codeDialog.open(id, 'curl') })
+      return
+    }
     if (result.error) {
       toast.error(formatResultError(result.error))
       return

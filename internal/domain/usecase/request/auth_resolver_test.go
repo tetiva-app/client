@@ -289,8 +289,6 @@ func TestResolveFirst_RequesterOnlySchemesRejectedOffHTTP(t *testing.T) {
 		protocol entities.Protocol
 		authType entities.AuthType
 	}{
-		{"grpc digest", entities.ProtocolGRPC, entities.AuthTypeDigest},
-		{"grpc sigv4", entities.ProtocolGRPC, entities.AuthTypeAWSSigV4},
 		{"graphql digest", entities.ProtocolGraphQL, entities.AuthTypeDigest},
 		{"websocket sigv4", entities.ProtocolWebSocket, entities.AuthTypeAWSSigV4},
 	} {

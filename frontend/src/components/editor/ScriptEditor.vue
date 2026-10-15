@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, defineAsyncComponent } from 'vue'
 import HelpLink from '@/components/ui/HelpLink.vue'
+import { useCopy } from '@/composables/useLocale'
+import { EDITOR_COPY } from './copy'
 
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 
@@ -11,16 +13,17 @@ const props = withDefaults(defineProps<{
   resolvedVariables?: Record<string, string>
   secretKeys?: Set<string>
   phases?: Array<'pre' | 'post'>
-  preLabel?: string
+  connection?: boolean
 }>(), {
   phases: () => ['pre', 'post'],
-  preLabel: 'Pre-request',
 })
 
 const emit = defineEmits<{
   (e: 'update:preScript', value: string): void
   (e: 'update:postScript', value: string): void
 }>()
+
+const copy = useCopy(EDITOR_COPY)
 
 const activePhase = ref<'pre' | 'post'>(props.phases[0] ?? 'pre')
 
@@ -42,7 +45,7 @@ watch(() => props.postScript, (val) => { postContent.value = val })
           : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
         @click="activePhase = 'pre'"
       >
-        {{ preLabel }}
+        {{ connection ? copy.scripts.preConnect : copy.scripts.pre }}
       </button>
       <button
         v-if="phases.includes('post')"
@@ -52,10 +55,10 @@ watch(() => props.postScript, (val) => { postContent.value = val })
           : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
         @click="activePhase = 'post'"
       >
-        Post-response
+        {{ copy.scripts.post }}
       </button>
       <span class="ml-auto text-[11px] text-muted-foreground/40">
-        {{ activePhase === 'pre' ? 'Runs before each request' : 'Runs after each response' }}
+        {{ activePhase === 'post' ? copy.scripts.postHint : connection ? copy.scripts.preConnectHint : copy.scripts.preHint }}
       </span>
       <HelpLink slug="scripting" />
     </div>

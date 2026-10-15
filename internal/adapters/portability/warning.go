@@ -247,9 +247,9 @@ var warningTexts = map[WarningCode]warningText{
 	WarnHoppscotchHeadersCopied:     {one: "headers set on Hoppscotch collections and folders were copied into their requests"},
 	WarnHoppscotchAuthOff: {
 		one: "requests in folder {folders} will inherit the parent's auth: " +
-			"Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without",
+			"Tetiva cannot turn auth off at a folder, set them to None if they must go without",
 		other: "requests in folders {folders} will inherit the parent's auth: " +
-			"Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without",
+			"Tetiva cannot turn auth off at a folder, set them to None if they must go without",
 	},
 
 	WarnOpenAPIExternalRef: {one: `references to "{target}" are not supported and were left empty`},

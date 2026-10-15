@@ -101,7 +101,9 @@ const tokens = useAuthTokenStore()
 
     <div v-if="authType === 'inherit'" class="py-6 text-center">
       <p class="text-sm text-muted-foreground">This request inherits authentication from its parent collection</p>
-      <InheritedAuth v-if="ownerKind === 'request' && ownerId" kind="request" :id="ownerId" :protocol="protocol" />
+      <InheritedAuth v-if="ownerKind === 'request' && ownerId" kind="request" :id="ownerId" :protocol="protocol">
+        <template #none>No parent collection sets auth — this request goes without it</template>
+      </InheritedAuth>
     </div>
 
     <div v-else-if="authType === 'none'" class="py-6 text-center">
@@ -135,6 +137,7 @@ const tokens = useAuthTokenStore()
         placeholder="Paste your token here"
         multiline
         :secret="hasLiteral(values.token)"
+        :hint="values.token.trim() ? undefined : 'Without a token no Authorization header is sent'"
         @update:model-value="updateField('token', $event)"
       />
     </div>
@@ -144,6 +147,7 @@ const tokens = useAuthTokenStore()
         label="Key"
         :model-value="values.key"
         placeholder="X-API-Key"
+        :hint="values.key.trim() ? undefined : 'Without a key name nothing is added to the request'"
         @update:model-value="updateField('key', $event)"
       />
       <AuthTextField

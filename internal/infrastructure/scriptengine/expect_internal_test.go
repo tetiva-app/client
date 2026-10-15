@@ -31,7 +31,7 @@ func TestChaiLoadsOnlyWhenAScriptAsksForIt(t *testing.T) {
 		vm := goja.New()
 		sctx := request.ScriptContext{ResponseStatusCode: 200, ResponseBody: "{}"}
 		loader := setupPmExpect(vm, setupPmResponse(vm, sctx), false)
-		setupPmTest(vm, &[]request.TestResult{})
+		setupPmTest(vm, &runLog{})
 
 		_, err := vm.RunString(tc.script)
 		require.NoError(t, err, tc.script)

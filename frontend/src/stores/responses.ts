@@ -2,11 +2,18 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { ExecuteResponse } from '@/types/execute'
 
+export interface ResponseError {
+  title: string
+  detail: string
+  suggestions: string[]
+  console?: string[]
+}
+
 export type ResponseState =
   | { status: 'idle' }
   | { status: 'loading'; startedAt: number }
   | { status: 'success'; data: ExecuteResponse }
-  | { status: 'error'; error: { title: string; detail: string; suggestions: string[] } }
+  | { status: 'error'; error: ResponseError }
 
 export const useResponseStore = defineStore('responses', () => {
   const responseMap = ref<Map<string, ResponseState>>(new Map())

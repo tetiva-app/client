@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { EditorState, Compartment } from '@codemirror/state'
 import { selectAll } from '@codemirror/commands'
-import { search, SearchQuery, setSearchQuery, findNext as cmFindNext, findPrevious as cmFindPrev } from '@codemirror/search'
 import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
 import { languageSupport, type ViewerLanguage } from '@/lib/codemirror-languages'
+import { applyFind, findInDocument, stepFind, type FindStatus } from '@/lib/cm-find'
 
 const props = defineProps<{
   content: string
   language?: ViewerLanguage
   label?: string
+  search?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'find-status', status: FindStatus | null): void
 }>()
 
 const editorRef = ref<HTMLDivElement>()
@@ -48,7 +53,7 @@ function createEditor() {
     keymap.of([{ key: 'Mod-a', run: selectAll }]),
     wrapCompartment.of(settings.editorWordWrap ? EditorView.lineWrapping : []),
     drawSelection(),
-    search({ top: true, createPanel: () => ({ dom: document.createElement('span') }) }),
+    findInDocument(status => emit('find-status', status)),
     highlightCompartment.of(activeHighlight()),
     languageCompartment.of(support instanceof Promise ? [] : support),
     EditorView.contentAttributes.of(props.label ? { 'aria-label': props.label } : {}),
@@ -77,8 +82,11 @@ function createEditor() {
       '.cm-content ::selection': {
         backgroundColor: BRAND_ACCENT_SELECTION,
       },
+      // display: none would zero the panel's rect, which CodeMirror reads as scroll margin.
       '.cm-panels': {
-        display: 'none',
+        height: '0',
+        overflow: 'hidden',
+        border: 'none',
       },
       '.cm-searchMatch': {
         backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent)',
@@ -96,6 +104,7 @@ function createEditor() {
     }),
     parent: editorRef.value,
   })
+  if (props.search) applyFind(view, props.search)
   if (support instanceof Promise) {
     const created = view
     support.then((ext) => {
@@ -134,22 +143,25 @@ onMounted(() => {
   createEditor()
 })
 
-function setSearch(query: string) {
-  if (!view) return
-  view.dispatch({
-    effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false, literal: true })),
-  })
-}
+watch(() => props.search, (query) => {
+  if (view) applyFind(view, query ?? '')
+})
 
 function findNext() {
-  if (view) cmFindNext(view)
+  if (view) stepFind(view, true)
 }
 
 function findPrev() {
-  if (view) cmFindPrev(view)
+  if (view) stepFind(view, false)
 }
 
-defineExpose({ setSearch, findNext, findPrev })
+function focus() {
+  view?.focus()
+}
+
+defineExpose({ findNext, findPrev, focus })
+
+onBeforeUnmount(() => emit('find-status', null))
 
 onUnmounted(() => {
   if (view) {

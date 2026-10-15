@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, ref, toRef, watch, defineAsyncComponent } from 'vue'
+import { scriptBadge } from '@/lib/script-phase'
 import { useRequestStore } from '@/stores/tabs'
 import { useResponseStore } from '@/stores/responses'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -27,6 +28,7 @@ import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import {
+  curlAuthAfterPaste,
   curlAuthChange,
   curlImportFields,
   curlImportIntact,
@@ -149,7 +151,7 @@ const tabs = computed(() => [
   { id: 'auth' as const, label: 'Auth', badge: authBadge.value },
   { id: 'headers' as const, label: 'Headers', badge: headerCount.value > 0 ? String(headerCount.value) : '' },
   { id: 'body' as const, label: 'Body', badge: bodyBadge.value },
-  { id: 'scripts' as const, label: 'Scripts', badge: (() => { const count = (request.value?.preScript ? 1 : 0) + (request.value?.postScript ? 1 : 0); return count > 0 ? String(count) : '' })() },
+  { id: 'scripts' as const, label: 'Scripts', badge: scriptBadge(request.value?.preScript, request.value?.postScript) },
   { id: 'docs' as const, label: 'Docs', badge: request.value?.description ? '•' : '' },
   { id: 'examples' as const, label: 'Examples', badge: examplesBadge.value },
 ])
@@ -229,14 +231,15 @@ async function handlePasteCurl(text: string) {
   }
   const parsed = result.data
   const before = curlImportFields(current)
+  const auth = curlAuthAfterPaste(before, parsed)
   const applied = {
     method: parsed.method as HTTPMethod,
     url: parsed.url,
     headers: parsed.headers,
     body: parsed.body,
     bodyType: parsed.bodyType as BodyType,
-    authType: parsed.authType as AuthType,
-    authData: parsed.authData,
+    authType: auth.authType as AuthType,
+    authData: auth.authData,
   }
   // One updateLocal, not updateField: the bodyType branch there rewrites
   // Content-Type from a lookup table and would flatten what curl carried.
@@ -253,7 +256,7 @@ async function handlePasteCurl(text: string) {
     curlAuthChange(before, applied),
   )
   // Nothing was overwritten, so there is nothing to take back.
-  if (!curlImportLosesWork(before)) {
+  if (!curlImportLosesWork(before, applied)) {
     toast.success(message)
     return
   }
@@ -309,7 +312,8 @@ function updateField(field: string, value: any) {
       class="mt-3 mx-3 flex items-center justify-between gap-3 px-3 py-1.5 rounded-md border border-primary/30 bg-primary/5 text-xs"
     >
       <span class="text-muted-foreground">
-        This is a draft replayed from history. Save it as a request to keep it permanently.
+        This is a draft replayed from history. Its auth and credential headers were left out, so set
+        auth on the Auth tab. Save it as a request to keep it permanently.
       </span>
       <button
         type="button"

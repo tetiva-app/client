@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
-import { AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
+import ResponseErrorCard from '../ResponseErrorCard.vue'
+import { scriptPhaseLabel } from '@/lib/script-phase'
 import { Button } from '@/components/ui/button'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
 import { useFindShortcut } from '@/composables/useFindShortcut'
+import type { FindStatus } from '@/lib/cm-find'
+import FindBox from '../FindBox.vue'
 import SaveExampleInline from '../examples/SaveExampleInline.vue'
 import CompareButton from '@/components/compare/CompareButton.vue'
 import LatencyDelta from '@/components/compare/LatencyDelta.vue'
@@ -99,34 +102,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const codeViewerRef = ref<{ setSearch: (q: string) => void; findNext: () => void; findPrev: () => void } | null>(null)
+const codeViewerRef = ref<{ findNext: () => void; findPrev: () => void; focus: () => void } | null>(null)
 const searchQuery = ref('')
-const searchInput = ref<HTMLInputElement | null>(null)
-const onFindShortcut = useFindShortcut(searchInput)
-
-function handleSearch() {
-  codeViewerRef.value?.setSearch(searchQuery.value)
-}
-
-function searchNext() {
-  codeViewerRef.value?.findNext()
-}
-
-function searchPrev() {
-  codeViewerRef.value?.findPrev()
-}
-
-function handleSearchKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    if (event.shiftKey) searchPrev()
-    else searchNext()
-  }
-  if (event.key === 'Escape') {
-    searchQuery.value = ''
-    handleSearch()
-  }
-}
+const findStatus = ref<FindStatus | null>(null)
+const findBox = ref<InstanceType<typeof FindBox> | null>(null)
+const onFindShortcut = useFindShortcut(computed(() => findBox.value?.input ?? null))
 </script>
 
 <template>
@@ -234,35 +214,16 @@ function handleSearchKeydown(event: KeyboardEvent) {
           </span>
         </button>
 
-        <div v-if="activeTab === 'data'" class="ml-auto flex items-center gap-0.5">
-          <div class="relative">
-            <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
-            <input
-              ref="searchInput"
-              v-model="searchQuery"
-              class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
-              placeholder="Search..."
-              @input="handleSearch"
-              @keydown="handleSearchKeydown"
-            />
-          </div>
-          <button
-            v-if="searchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Previous match (Shift+Enter)"
-            @click="searchPrev"
-          >
-            <ArrowUp class="size-3" />
-          </button>
-          <button
-            v-if="searchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Next match (Enter)"
-            @click="searchNext"
-          >
-            <ArrowDown class="size-3" />
-          </button>
-        </div>
+        <FindBox
+          v-if="activeTab === 'data'"
+          ref="findBox"
+          v-model="searchQuery"
+          class="ml-auto"
+          :status="findStatus"
+          @next="codeViewerRef?.findNext()"
+          @prev="codeViewerRef?.findPrev()"
+          @dismiss="codeViewerRef?.focus()"
+        />
       </div>
 
       <div v-if="activeTab === 'data'" class="flex-1 overflow-auto">
@@ -271,6 +232,8 @@ function handleSearchKeydown(event: KeyboardEvent) {
           ref="codeViewerRef"
           :content="parsedResponse.data"
           language="json"
+          :search="searchQuery"
+          @find-status="findStatus = $event"
         />
         <div v-else class="flex items-center justify-center h-full">
           <p class="text-xs text-muted-foreground">No data in response</p>
@@ -359,7 +322,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
           <div v-if="scriptResult.errors?.length > 0">
             <h4 class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Script Errors</h4>
             <div v-for="(err, i) in scriptResult.errors" :key="i" class="text-sm text-[var(--gc-error)] py-1">
-              <span class="font-medium">{{ err.phase }}:</span> {{ err.message }}
+              <span class="font-medium">{{ scriptPhaseLabel(err.phase) }}:</span> {{ err.message }}
             </div>
           </div>
         </template>
@@ -374,25 +337,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
       <div class="flex items-center h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs text-muted-foreground shrink-0">
         Response
       </div>
-      <div class="flex-1 flex items-center justify-center px-8">
-        <div class="max-w-lg w-full">
-          <div class="flex items-center gap-2 text-[var(--gc-error)]">
-            <AlertCircle class="size-5 shrink-0" />
-            <span class="font-medium text-sm">{{ state.error.title }}</span>
-          </div>
-          <p class="mt-2 text-sm text-muted-foreground">{{ state.error.detail }}</p>
-          <ul v-if="state.error.suggestions.length > 0" class="mt-3 space-y-1">
-            <li
-              v-for="(s, i) in state.error.suggestions"
-              :key="i"
-              class="text-sm text-muted-foreground flex items-start gap-1.5"
-            >
-              <span class="text-[var(--gc-info)] mt-0.5">•</span>
-              {{ s }}
-            </li>
-          </ul>
-        </div>
-      </div>
+      <ResponseErrorCard :error="state.error" />
     </div>
   </div>
 </template>

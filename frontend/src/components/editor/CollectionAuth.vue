@@ -78,7 +78,7 @@ function selectType(value: AuthType) {
         <ShieldOff class="size-7 text-muted-foreground/60" />
       </div>
       <p class="text-sm font-medium text-muted-foreground">No authorization</p>
-      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">Requests in this collection will be sent without auth headers</p>
+      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">Requests here go without auth unless they set their own</p>
     </div>
   </div>
 </template>

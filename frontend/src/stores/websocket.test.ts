@@ -92,7 +92,24 @@ describe('connect', () => {
     await store.connect('r1', 'w1')
     expect(store.stateFor('r1').messages).toEqual([
       expect.objectContaining({ dir: 'system', data: 'token refreshed', level: undefined }),
-      expect.objectContaining({ dir: 'system', data: 'variable-persist: disk full', level: 'error' }),
+      expect.objectContaining({ dir: 'system', data: 'Saving variables: disk full', level: 'error' }),
+    ])
+  })
+
+  it('shows what a failed pre-connect script logged and why it failed', async () => {
+    wsSvc.connect.mockResolvedValue({ data: null, error: {
+      code: 'internal',
+      message: 'websocket.Connect: request.ResolveWebSocket: pre-request script failed: boom',
+      reason: 'pre_script_failed',
+      fields: { message: 'Error: boom', line: '4', column: '1', console: '["step 1"]' },
+    } })
+    const store = useWebSocketStore()
+    await store.connect('r1', 'w1')
+    const failed = 'The pre-connect script of this request failed: Error: boom (line 4, column 1)'
+    expect(store.stateFor('r1')).toMatchObject({ status: 'error', error: failed })
+    expect(store.stateFor('r1').messages).toEqual([
+      expect.objectContaining({ dir: 'system', data: 'step 1', level: undefined }),
+      expect.objectContaining({ dir: 'system', data: failed, level: 'error' }),
     ])
   })
 

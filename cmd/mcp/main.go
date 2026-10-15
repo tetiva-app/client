@@ -195,11 +195,11 @@ func (n *noopScriptEngine) RunPostScript(_ context.Context, _ string, _ request.
 
 type noopScriptResolver struct{}
 
-func (n *noopScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (n *noopScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
-func (n *noopScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (n *noopScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
 
 type noopVarPersister struct{}

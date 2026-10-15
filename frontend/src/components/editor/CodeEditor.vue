@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { EditorView, keymap, drawSelection, placeholder as cmPlaceholder, ViewPlugin, Decoration } from '@codemirror/view'
 import type { ViewUpdate, DecorationSet } from '@codemirror/view'
 import { EditorState, RangeSetBuilder, Compartment } from '@codemirror/state'
@@ -7,8 +7,8 @@ import type { ChangeSpec } from '@codemirror/state'
 import { json } from '@codemirror/lang-json'
 import { xml } from '@codemirror/lang-xml'
 import { javascript } from '@codemirror/lang-javascript'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { search, SearchQuery, setSearchQuery, findNext as cmFindNext, findPrevious as cmFindPrev } from '@codemirror/search'
+import { history, historyKeymap } from '@codemirror/commands'
+import { editorKeymap } from '@/lib/cm-keymap'
 import { syntaxHighlighting, syntaxTree } from '@codemirror/language'
 import { linter, lintGutter } from '@codemirror/lint'
 import { autocompletion } from '@codemirror/autocomplete'
@@ -18,6 +18,7 @@ import { scriptHintsSource } from '@/lib/codemirror-script-hints'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
 import { externalReplace, isExternal } from '@/lib/cm-external'
+import { applyFind, findInDocument, stepFind, type FindStatus } from '@/lib/cm-find'
 
 const props = defineProps<{
   content: string
@@ -25,10 +26,12 @@ const props = defineProps<{
   resolvedVariables?: Record<string, string>
   secretKeys?: Set<string>
   placeholder?: string
+  search?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:content', value: string): void
+  (e: 'find-status', status: FindStatus | null): void
 }>()
 
 const editorRef = ref<HTMLDivElement>()
@@ -202,8 +205,8 @@ function createEditor() {
     wrapCompartment.of(settings.editorWordWrap ? EditorView.lineWrapping : []),
     drawSelection(),
     history(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
-    search({ top: true, createPanel: () => ({ dom: document.createElement('span') }) }),
+    keymap.of([...editorKeymap, ...historyKeymap]),
+    findInDocument(status => emit('find-status', status)),
     highlightCompartment.of(activeHighlight()),
     props.placeholder ? cmPlaceholder(props.placeholder) : [],
     getLanguageExtension(props.language),
@@ -265,8 +268,11 @@ function createEditor() {
       '.cm-content ::selection': {
         backgroundColor: BRAND_ACCENT_SELECTION,
       },
+      // display: none would zero the panel's rect, which CodeMirror reads as scroll margin.
       '.cm-panels': {
-        display: 'none',
+        height: '0',
+        overflow: 'hidden',
+        border: 'none',
       },
       '.cm-searchMatch': {
         backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent)',
@@ -288,6 +294,7 @@ function createEditor() {
     }),
     parent: editorRef.value,
   })
+  if (props.search) applyFind(view, props.search)
 }
 
 // Update document content without recreating the editor
@@ -343,22 +350,25 @@ function format() {
   }
 }
 
-function setSearch(query: string) {
-  if (!view) return
-  view.dispatch({
-    effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false, literal: true })),
-  })
-}
+watch(() => props.search, (query) => {
+  if (view) applyFind(view, query ?? '')
+})
 
 function findNext() {
-  if (view) cmFindNext(view)
+  if (view) stepFind(view, true)
 }
 
 function findPrev() {
-  if (view) cmFindPrev(view)
+  if (view) stepFind(view, false)
 }
 
-defineExpose({ format, setSearch, findNext, findPrev })
+function focus() {
+  view?.focus()
+}
+
+defineExpose({ format, findNext, findPrev, focus })
+
+onBeforeUnmount(() => emit('find-status', null))
 </script>
 
 <template>

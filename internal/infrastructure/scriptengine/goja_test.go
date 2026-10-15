@@ -3,6 +3,7 @@ package scriptengine_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,8 +97,9 @@ func TestPreScript_Timeout(t *testing.T) {
 		while(true) {}
 	`, newContext())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	var runErr *request.ScriptRunError
+	require.ErrorAs(t, err, &runErr)
+	assert.True(t, runErr.Timeout)
 }
 
 func TestPreScript_SyntaxError(t *testing.T) {
@@ -250,4 +252,236 @@ func TestPreScript_HeadersUpsertAndRemove(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, result.Headers["X-Custom"])
 	_, hasCT := result.Headers["Content-Type"]
 	assert.False(t, hasCT)
+}
+
+func TestPreScript_AtobIsForgivingLikeBrowsersAndPostman(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	result, err := engine.RunPreScript(context.Background(), `
+		const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.sig';
+		console.log(JSON.parse(atob(jwt.split('.')[1])).sub);
+		console.log(atob(' dXNl\ncjpw YXNz '));
+		console.log(atob('PDw_Pz8-Pg'));
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1234567890", "user:pass", "<<???>>"}, result.ConsoleOutput)
+}
+
+func TestPreScript_AtobRejectsImpossibleLength(t *testing.T) {
+	_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `atob('abcde')`, newContext())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "atob")
+}
+
+func TestPreScript_HeaderNamesAreCaseInsensitive(t *testing.T) {
+	sctx := newContext()
+	sctx.RequestHeaders = map[string][]string{"Content-Type": {"text/plain"}, "X-Keep": {"1"}}
+
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		pm.request.headers.upsert({ key: 'content-type', value: 'application/json' });
+		pm.request.headers.remove('x-keep');
+	`, sctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"Content-Type": {"application/json"}}, result.Headers)
+}
+
+func TestPreScript_HeaderCallsWithoutAValueOrKey(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		pm.request.headers.add({ key: 'X-A' });
+		pm.request.headers.upsert({ key: 'X-B' });
+	`, newContext())
+	require.NoError(t, err)
+	assert.Equal(t, []string{""}, result.Headers["X-A"])
+	assert.Equal(t, []string{""}, result.Headers["X-B"])
+
+	for _, script := range []string{`pm.request.headers.upsert({ value: '1' })`, `pm.request.headers.add()`, `pm.request.headers.upsert(null)`} {
+		_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), script, newContext())
+		require.Error(t, err, script)
+		assert.Contains(t, err.Error(), "{ key, value }", script)
+	}
+}
+
+func TestPreScript_ThrownObjectNamedSyntaxError(t *testing.T) {
+	_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `throw { name: 'SyntaxError' }`, newContext())
+
+	var runErr *request.ScriptRunError
+	require.ErrorAs(t, err, &runErr)
+	assert.Equal(t, 1, runErr.Line)
+}
+
+func TestPostScript_SeesPmVariablesFromThePreRequestScript(t *testing.T) {
+	sctx := newContext()
+	sctx.Variables = map[string]string{"id": "old"}
+	sctx.LocalVariables = map[string]string{"id": "new"}
+
+	result, err := scriptengine.NewGojaEngine().RunPostScript(context.Background(), `
+		console.log(pm.variables.get('id'), pm.environment.get('id'));
+		pm.variables.set('id', 'changed');
+	`, sctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new old"}, result.ConsoleOutput)
+	assert.Equal(t, map[string]string{"id": "new"}, sctx.LocalVariables)
+}
+
+func TestPreScript_HeadersAddAppends(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		pm.request.headers.add({ key: 'X-Added', value: '1' });
+		pm.request.headers.add({ key: 'x-added', value: '2' });
+		pm.request.headers.add({ key: 'content-type', value: 'text/plain' });
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2"}, result.Headers["X-Added"])
+	assert.Equal(t, []string{"application/json", "text/plain"}, result.Headers["Content-Type"])
+}
+
+func TestPreScript_PmVariablesAreLocalToTheRun(t *testing.T) {
+	sctx := newContext()
+
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		pm.variables.set('reqId', '42');
+		pm.variables.set('host', 'https://local.example.com');
+		console.log(pm.variables.get('reqId'), pm.variables.get('host'), pm.variables.get('token'));
+		console.log(pm.variables.has('reqId'), pm.variables.has('missing'));
+		pm.variables.unset('host');
+		console.log(pm.variables.get('host'));
+	`, sctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"42 https://local.example.com abc123",
+		"true false",
+		"https://api.example.com",
+	}, result.ConsoleOutput)
+	assert.Equal(t, map[string]string{"reqId": "42"}, result.LocalVariables)
+	assert.Equal(t, sctx.Variables, result.Variables)
+}
+
+func TestPreScript_UnsupportedPmAPIsNameTheAlternative(t *testing.T) {
+	for script, want := range map[string]string{
+		`pm.globals.set('g', '1')`:      "pm.globals is not supported in Tetiva; use pm.environment",
+		`pm.globals.get('g')`:           "pm.globals is not supported in Tetiva; use pm.environment",
+		`pm.sendRequest('https://x.y')`: "pm.sendRequest is not supported in Tetiva",
+	} {
+		_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), script, newContext())
+
+		require.Error(t, err, script)
+		assert.Contains(t, err.Error(), want, script)
+	}
+}
+
+func TestPreScript_ErrorCarriesMessageLineAndColumn(t *testing.T) {
+	_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), "var a = 1\n\nnotDefinedFn()", newContext())
+
+	var runErr *request.ScriptRunError
+	require.ErrorAs(t, err, &runErr)
+	assert.Equal(t, "ReferenceError: notDefinedFn is not defined", runErr.Message)
+	assert.Equal(t, 3, runErr.Line)
+	assert.Positive(t, runErr.Column)
+	assert.NotContains(t, err.Error(), "<eval>")
+}
+
+func TestPreScript_SyntaxErrorIsReadable(t *testing.T) {
+	_, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), "\nif (token {\n  x()\n}", newContext())
+
+	var runErr *request.ScriptRunError
+	require.ErrorAs(t, err, &runErr)
+	assert.Equal(t, request.ScriptRunError{Message: "SyntaxError: Unexpected token {", Line: 2, Column: 11}, *runErr)
+}
+
+func TestPreScript_FailureKeepsTheConsoleWrittenBeforeIt(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		console.log('step 1');
+		console.log('step 2');
+		computeSignature();
+	`, newContext())
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"step 1", "step 2"}, result.ConsoleOutput)
+}
+
+func TestPreScript_ConsoleIsCappedForRunawayLoops(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		let i = 0;
+		while (true) console.log(i++);
+	`, newContext())
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.LessOrEqual(t, len(result.ConsoleOutput), 1001)
+	assert.Contains(t, result.ConsoleOutput[len(result.ConsoleOutput)-1], "more lines not shown")
+}
+
+func TestPostScript_FailureKeepsTestsThatAlreadyRan(t *testing.T) {
+	sctx := newContext()
+	sctx.ResponseStatusCode = 200
+	sctx.ResponseBody = `{}`
+
+	result, err := scriptengine.NewGojaEngine().RunPostScript(context.Background(), `
+		pm.test('status is 200', () => pm.response.to.have.status(200));
+		console.log('before');
+		pm.response.json().items.forEach(i => console.log(i));
+	`, sctx)
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []request.TestResult{{Name: "status is 200", Passed: true}}, result.TestResults)
+	assert.Equal(t, []string{"before"}, result.ConsoleOutput)
+}
+
+func TestPreScript_PmVariablesReplaceInAndToObject(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		pm.variables.set('reqId', '42');
+		console.log(pm.variables.replaceIn('{{host}}/items/{{reqId}}?x={{missing}}'));
+		const all = pm.variables.toObject();
+		console.log(Object.keys(all).sort().join(','), all.reqId, all.token);
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"https://api.example.com/items/42?x={{missing}}",
+		"host,reqId,token 42 abc123",
+	}, result.ConsoleOutput)
+}
+
+func TestPreScript_ConsoleLogPrintsObjectsAsJSON(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		console.log('user =', 'alice', 'obj =', { a: 1 }, [1, 2], null, undefined, 3);
+		console.log(new Error('boom'), function f() {});
+		const loop = {}; loop.self = loop;
+		console.log(loop);
+	`, newContext())
+
+	require.NoError(t, err)
+	require.Len(t, result.ConsoleOutput, 3)
+	assert.Equal(t, `user = alice obj = {"a":1} [1,2] null undefined 3`, result.ConsoleOutput[0])
+	assert.Equal(t, "Error: boom function f() {}", result.ConsoleOutput[1])
+	assert.Equal(t, "[object Object]", result.ConsoleOutput[2])
+}
+
+func TestPreScript_ConsoleLogStopsOnHugeObjects(t *testing.T) {
+	start := time.Now()
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		let x = {};
+		for (let i = 0; i < 30; i++) x = { a: x, b: x };
+		console.log(x);
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"[object Object]"}, result.ConsoleOutput)
+	assert.Less(t, time.Since(start), 2*time.Second)
+}
+
+func TestPreScript_ConsoleLogIgnoresAReplacedJSONStringify(t *testing.T) {
+	result, err := scriptengine.NewGojaEngine().RunPreScript(context.Background(), `
+		JSON.stringify = null;
+		console.log({ a: 1 });
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{`{"a":1}`}, result.ConsoleOutput)
 }

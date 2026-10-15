@@ -2,7 +2,8 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { EditorView, keymap, drawSelection, placeholder as cmPlaceholder } from '@codemirror/view'
 import { EditorState, Compartment, Prec } from '@codemirror/state'
-import { defaultKeymap, history, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
+import { history, historyKeymap, indentMore, indentLess } from '@codemirror/commands'
+import { editorKeymap } from '@/lib/cm-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { syntaxHighlighting, indentUnit } from '@codemirror/language'
 import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
@@ -162,16 +163,13 @@ function createEditor() {
       { key: 'Mod-b', run: () => { runAction('bold'); return true } },
       { key: 'Mod-i', run: () => { runAction('italic'); return true } },
       { key: 'Mod-k', run: () => { runAction('link'); return true } },
-      // Mod-Enter sends the request; swallow it so defaultKeymap's
-      // insertBlankLine does not fire on the way out.
-      { key: 'Mod-Enter', run: () => true },
       // Table bindings fall through outside a table, so the list ones below still run.
       { key: 'Tab', run: tableTab, shift: tableShiftTab },
       { key: 'Enter', run: tableEnter },
       { key: 'Tab', run: indentMore, shift: indentLess },
       { key: 'Escape', run: (v) => { v.contentDOM.blur(); return true } },
     ])),
-    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),
+    keymap.of([...closeBracketsKeymap, ...editorKeymap, ...historyKeymap]),
     fenceBackticks,
     closeBrackets(),
     markdownLanguage.data.of({ closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`'] } }),

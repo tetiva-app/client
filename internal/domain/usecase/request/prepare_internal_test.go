@@ -26,11 +26,11 @@ func (internalCollectionReader) ListByWorkspace(_ context.Context, _ uuid.UUID) 
 
 type internalScriptResolver struct{}
 
-func (internalScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (internalScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (ResolvedScript, error) {
+	return ResolvedScript{}, nil
 }
-func (internalScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (internalScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (ResolvedScript, error) {
+	return ResolvedScript{}, nil
 }
 
 // ownAuth is what the resolver returns for a request carrying its own auth.
@@ -377,13 +377,13 @@ type countingScriptResolver struct {
 	calls int
 }
 
-func (r *countingScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
+func (r *countingScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (ResolvedScript, error) {
 	r.calls++
-	return r.pre, nil
+	return ResolvedScript{Body: r.pre}, nil
 }
 
-func (r *countingScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (r *countingScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (ResolvedScript, error) {
+	return ResolvedScript{}, nil
 }
 
 type countingScriptEngine struct{ calls int }
@@ -620,5 +620,63 @@ func TestHasFileField(t *testing.T) {
 				t.Errorf("hasFileField(%q) = %v, want %v", tt.body, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestApplyHeaderAuth_BlankBearerTokenSendsNoHeader(t *testing.T) {
+	for _, raw := range []string{`{"token":""}`, `{"token":" \n"}`} {
+		headers, _, _, err := applyHeaderAuth(entities.AuthTypeBearer, mustFields(t, raw),
+			map[string][]string{}, "https://api.example.com/data")
+		if err != nil {
+			t.Fatalf("applyHeaderAuth(%s): %v", raw, err)
+		}
+		if got, ok := headers["Authorization"]; ok {
+			t.Errorf("%s: Authorization = %v, want none", raw, got)
+		}
+	}
+}
+
+func TestApplyHeaderAuth_PastedTokenLosesSurroundingWhitespace(t *testing.T) {
+	headers, _, _, err := applyHeaderAuth(entities.AuthTypeBearer, mustFields(t, `{"token":"abc.def.ghi\n"}`),
+		map[string][]string{}, "https://api.example.com/data")
+	if err != nil {
+		t.Fatalf("applyHeaderAuth: %v", err)
+	}
+	if got := headers["Authorization"]; len(got) != 1 || got[0] != "Bearer abc.def.ghi" {
+		t.Errorf("Authorization = %v", got)
+	}
+
+	headers, _, _, err = applyHeaderAuth(entities.AuthTypeAPIKey, mustFields(t, `{"key":"X-Key","value":" sk_live\r\n"}`),
+		map[string][]string{}, "https://api.example.com/data")
+	if err != nil {
+		t.Fatalf("applyHeaderAuth: %v", err)
+	}
+	if got := headers["X-Key"]; len(got) != 1 || got[0] != "sk_live" {
+		t.Errorf("X-Key = %v", got)
+	}
+}
+
+func TestApplyHeaderAuth_APIKeyWithoutANameSendsNothing(t *testing.T) {
+	for _, raw := range []string{`{"key":"","value":"sk"}`, `{"key":" ","value":"sk","addTo":"query"}`} {
+		headers, rawURL, keys, err := applyHeaderAuth(entities.AuthTypeAPIKey, mustFields(t, raw),
+			map[string][]string{}, "https://api.example.com/data")
+		if err != nil {
+			t.Fatalf("applyHeaderAuth(%s): %v", raw, err)
+		}
+		if len(headers) != 0 || rawURL != "https://api.example.com/data" || keys != nil {
+			t.Errorf("%s: headers %v, url %q, keys %v — want nothing added", raw, headers, rawURL, keys)
+		}
+	}
+}
+
+func TestAuthHeaderKeys_NamesTheHeaderAsSent(t *testing.T) {
+	f := mustFields(t, `{"key":" appid ","value":"sk"}`)
+	headers, _, _, err := applyHeaderAuth(entities.AuthTypeAPIKey, f, map[string][]string{}, "https://api.example.com/data")
+	if err != nil {
+		t.Fatalf("applyHeaderAuth: %v", err)
+	}
+	keys := authHeaderKeys(entities.AuthTypeAPIKey, f)
+	if len(keys) != 1 || headers[keys[0]] == nil {
+		t.Fatalf("authHeaderKeys = %v, headers sent = %v", keys, headers)
 	}
 }

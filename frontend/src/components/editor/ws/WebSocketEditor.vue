@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch, onUnmounted, defineAsyncComponent } from 'vue'
+import { scriptBadge } from '@/lib/script-phase'
 import type { Request } from '@/types/request'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -115,7 +116,7 @@ const tabs = computed(() => [
     label: 'Headers',
     badge: props.request.headers.length > 0 ? String(props.request.headers.length) : '',
   },
-  { id: 'scripts' as const, label: 'Scripts', badge: props.request.preScript ? '1' : '' },
+  { id: 'scripts' as const, label: 'Scripts', badge: scriptBadge(props.request.preScript) },
   { id: 'docs' as const, label: 'Docs', badge: props.request.description ? '•' : '' },
 ])
 
@@ -257,7 +258,7 @@ onUnmounted(() => {
         :pre-script="request.preScript"
         :post-script="request.postScript"
         :phases="['pre']"
-        pre-label="Pre-connect"
+        connection
         :resolved-variables="envStore.resolvedVariables"
         :secret-keys="secretKeys"
         @update:pre-script="(v) => update({ preScript: v })"

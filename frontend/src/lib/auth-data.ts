@@ -115,6 +115,17 @@ export function authFormValues(type: AuthType, raw: string): Record<string, stri
   return out
 }
 
+// Mirrors applyHeaderAuth, which sends nothing for these blank fields.
+export function blankCredentialNote(type: string, raw: string): string {
+  if (type === 'api_key' && !authFormValues(type, raw).key.trim()) {
+    return 'Its key name is empty, so nothing is added to this request.'
+  }
+  if (type === 'bearer' && !authFormValues(type, raw).token.trim()) {
+    return 'Its token is empty, so no Authorization header is sent.'
+  }
+  return ''
+}
+
 export function defaultAuthData(type: AuthType): string {
   const specs = authFieldSpecs(type)
   if (specs.length === 0) return ''

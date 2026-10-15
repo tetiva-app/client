@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  blankCredentialNote,
   authFormValues,
   defaultAuthData,
   isJsonObjectText,
@@ -144,5 +145,19 @@ describe('sameJsonObject', () => {
   it('separates different content and unparseable text', () => {
     expect(sameJsonObject('{"a":1}', '{"a":2}')).toBe(false)
     expect(sameJsonObject('{"a":1}', '{"a":')).toBe(false)
+  })
+})
+
+describe('blankCredentialNote', () => {
+  it('says what a scheme with a blank credential leaves out', () => {
+    expect(blankCredentialNote('api_key', '{"key":" ","value":"sk"}')).toBe('Its key name is empty, so nothing is added to this request.')
+    expect(blankCredentialNote('api_key', '{"value":"sk"}')).toBe('Its key name is empty, so nothing is added to this request.')
+    expect(blankCredentialNote('bearer', '{"prefix":"Bearer","token":""}')).toBe('Its token is empty, so no Authorization header is sent.')
+  })
+
+  it('is empty when the credential is there', () => {
+    expect(blankCredentialNote('api_key', '{"key":"X-Key","value":"sk"}')).toBe('')
+    expect(blankCredentialNote('bearer', '{"token":"{{token}}"}')).toBe('')
+    expect(blankCredentialNote('basic', '{}')).toBe('')
   })
 })

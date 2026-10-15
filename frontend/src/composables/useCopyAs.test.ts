@@ -104,6 +104,25 @@ describe('useCopyAs', () => {
     expect(settings.setSnippetTarget).not.toHaveBeenCalled()
   })
 
+  it('says the command was not copied when the pre-request script failed, and offers Generate code', async () => {
+    generateCurl.mockResolvedValue({ data: null, error: {
+      code: 'internal',
+      message: 'request.BuildCurl: request.prepareHTTP: pre-request script failed: boom',
+      reason: 'pre_script_failed',
+      fields: { message: 'Error: boom', line: '2', column: '7' },
+    } })
+
+    await useCopyAs(ref(ID)).copy('curl')
+
+    expect(toast.error).toHaveBeenCalledWith(
+      'Not copied: the pre-request script of this request failed: Error: boom (line 2, column 7)',
+      expect.objectContaining({ label: 'Generate code…' }),
+    )
+    toast.error.mock.calls[0][1].onClick()
+    expect(codeDialog.open).toHaveBeenCalledWith(ID, 'curl')
+    expect(copyText).not.toHaveBeenCalled()
+  })
+
   it('reports a clipboard failure on the cURL path', async () => {
     copyText.mockRejectedValue(new Error('clipboard denied'))
 

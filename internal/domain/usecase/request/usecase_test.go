@@ -232,12 +232,12 @@ func (n *noopVarPersister) PersistVariableChanges(_ context.Context, _ uuid.UUID
 
 type noopScriptResolver struct{}
 
-func (n *noopScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (n *noopScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
 
-func (n *noopScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return "", nil
+func (n *noopScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
 
 func newTestUsecase() (request.Usecase, *mockRepo, *mockHistoryRepo, *mockRequester) {

@@ -55,7 +55,7 @@ function handleMousedown(e: MouseEvent, tabId: string) {
   <div
     v-if="store.openTabs.length > 0"
     ref="strip"
-    class="flex items-center h-9 border-b border-border bg-[var(--gc-surface)] overflow-x-auto scrollbar-none"
+    class="flex items-center h-9 shrink-0 border-b border-border bg-[var(--gc-surface)] overflow-x-auto scrollbar-none"
   >
     <ContextMenu v-for="tab in store.openTabs" :key="tab.id">
       <ContextMenuTrigger as-child>

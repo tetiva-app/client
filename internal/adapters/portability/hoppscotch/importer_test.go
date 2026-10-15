@@ -542,7 +542,7 @@ func TestBuild_FoldersThatTurnAuthOffAreReported(t *testing.T) {
 	b, err := parse(withAuth, "")
 	require.NoError(t, err)
 	assert.Contains(t, portability.Texts(b.tree.Warnings), `requests in folders "Public", "Health", "Status" will inherit the parent's auth: `+
-		`Tetiva cannot turn auth off at a folder, set them to No Auth if they must go without`)
+		`Tetiva cannot turn auth off at a folder, set them to None if they must go without`)
 
 	withoutAuth, err := json.Marshal(folder("API", none, folder("Public", none)))
 	require.NoError(t, err)

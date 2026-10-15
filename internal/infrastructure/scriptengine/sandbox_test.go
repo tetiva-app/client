@@ -56,7 +56,7 @@ func TestSandbox_TryCatchDoesNotSwallowInterrupt(t *testing.T) {
 	_, err := engine.RunPreScript(context.Background(), `while (true) { try { while (true) {} } catch (e) {} }`, newContext())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Less(t, time.Since(start), 10*time.Second)
 }
 
@@ -66,7 +66,7 @@ func TestSandbox_ThrownValueWithEndlessToStringTimesOut(t *testing.T) {
 	_, err := engine.RunPreScript(context.Background(), `throw { toString() { while (true) {} } }`, newContext())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Less(t, time.Since(start), 6*time.Second)
 }
 
@@ -90,7 +90,7 @@ func TestSandbox_BacktrackingRegexpDoesNotHoldCaller(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Less(t, elapsed, 10*time.Second)
 	assert.Greater(t, scriptengine.AbandonedScripts(), before)
 }

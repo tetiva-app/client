@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
-import { AlertCircle } from 'lucide-vue-next'
+import ResponseErrorCard from '../ResponseErrorCard.vue'
+import { scriptPhaseLabel } from '@/lib/script-phase'
 import { Button } from '@/components/ui/button'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
 import { grpcStatusColor, grpcStatusName } from '@/constants/grpc-status'
@@ -258,7 +259,7 @@ function formatSize(bytes: number): string {
           <div v-if="scriptResult.errors?.length > 0">
             <h4 class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Script Errors</h4>
             <div v-for="(err, i) in scriptResult.errors" :key="i" class="text-sm text-[var(--gc-error)] py-1">
-              <span class="font-medium">{{ err.phase }}:</span> {{ err.message }}
+              <span class="font-medium">{{ scriptPhaseLabel(err.phase) }}:</span> {{ err.message }}
             </div>
           </div>
         </template>
@@ -273,25 +274,7 @@ function formatSize(bytes: number): string {
       <div class="flex items-center h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs text-muted-foreground shrink-0">
         Response
       </div>
-      <div class="flex-1 flex items-center justify-center px-8">
-        <div class="max-w-lg w-full">
-          <div class="flex items-center gap-2 text-[var(--gc-error)]">
-            <AlertCircle class="size-5 shrink-0" />
-            <span class="font-medium text-sm">{{ state.error.title }}</span>
-          </div>
-          <p class="mt-2 text-sm text-muted-foreground">{{ state.error.detail }}</p>
-          <ul v-if="state.error.suggestions.length > 0" class="mt-3 space-y-1">
-            <li
-              v-for="(s, i) in state.error.suggestions"
-              :key="i"
-              class="text-sm text-muted-foreground flex items-start gap-1.5"
-            >
-              <span class="text-[var(--gc-info)] mt-0.5">•</span>
-              {{ s }}
-            </li>
-          </ul>
-        </div>
-      </div>
+      <ResponseErrorCard :error="state.error" />
     </div>
   </div>
 </template>

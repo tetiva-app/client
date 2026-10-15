@@ -15,17 +15,20 @@ type captureScriptEngine struct {
 	preCalls    int
 	preHeaders  map[string][]string
 	preVars     map[string]string
+	preLocals   map[string]string
 	preConsole  []string
 	preErr      error
 	seenHeaders map[string][]string // headers the script was given
 	postCtx     request.ScriptContext
+	postResult  *request.PostScriptResult
+	postErr     error
 }
 
 func (c *captureScriptEngine) RunPreScript(_ context.Context, _ string, sctx request.ScriptContext) (*request.PreScriptResult, error) {
 	c.preCalls++
 	c.seenHeaders = sctx.RequestHeaders
 	if c.preErr != nil {
-		return nil, c.preErr
+		return &request.PreScriptResult{ConsoleOutput: c.preConsole}, c.preErr
 	}
 	headers := c.preHeaders
 	if headers == nil {
@@ -35,22 +38,25 @@ func (c *captureScriptEngine) RunPreScript(_ context.Context, _ string, sctx req
 	if vars == nil {
 		vars = sctx.Variables
 	}
-	return &request.PreScriptResult{Headers: headers, Variables: vars, ConsoleOutput: c.preConsole}, nil
+	return &request.PreScriptResult{Headers: headers, Variables: vars, LocalVariables: c.preLocals, ConsoleOutput: c.preConsole}, nil
 }
 
 func (c *captureScriptEngine) RunPostScript(_ context.Context, _ string, sctx request.ScriptContext) (*request.PostScriptResult, error) {
 	c.postCtx = sctx
+	if c.postResult != nil || c.postErr != nil {
+		return c.postResult, c.postErr
+	}
 	return &request.PostScriptResult{}, nil
 }
 
-type scriptResolverWithPre struct{ pre, post string }
+type scriptResolverWithPre struct{ pre, post, collection string }
 
-func (s *scriptResolverWithPre) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return s.pre, nil
+func (s *scriptResolverWithPre) ResolvePreScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{Body: s.pre, Collection: s.collection}, nil
 }
 
-func (s *scriptResolverWithPre) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return s.post, nil
+func (s *scriptResolverWithPre) ResolvePostScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{Body: s.post}, nil
 }
 
 // prepareHTTP is unexported; the parity tests below exercise it via Execute.

@@ -471,15 +471,20 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
     }
   }
 
-  const body = JSON.stringify({
-    users: [
-      { id: 1, name: 'Alice', email: 'alice@example.com' },
-      { id: 2, name: 'Bob', email: 'bob@example.com' },
-    ],
-    total: 2,
+  const count = Number(url.match(/[?&]count=(\d+)/)?.[1] ?? 0)
+  const users = count > 0
+    ? Array.from({ length: count }, (_, i) => ({ id: i + 1, name: `User ${i + 1}`, email: `user${i + 1}@example.com` }))
+    : [
+        { id: 1, name: 'Alice', email: 'alice@example.com' },
+        { id: 2, name: 'Bob', email: 'bob@example.com' },
+      ]
+  const payload = {
+    users,
+    total: users.length,
     page: 1,
     send,
-  }, null, 2)
+  }
+  const body = JSON.stringify(req.protocol === 'graphql' ? { data: payload } : payload, null, 2)
 
   return {
     statusCode: 200,

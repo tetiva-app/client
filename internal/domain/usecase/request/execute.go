@@ -49,7 +49,10 @@ func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[stri
 		headers["Authorization"] = []string{"Basic " + creds}
 
 	case entities.AuthTypeBearer:
-		token := f.Str("token")
+		token := strings.TrimSpace(f.Str("token"))
+		if token == "" {
+			break
+		}
 		prefix := "Bearer"
 		if _, ok := f["prefix"]; ok {
 			prefix = f.Str("prefix")
@@ -61,8 +64,11 @@ func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[stri
 		}
 
 	case entities.AuthTypeAPIKey:
-		key := f.Str("key")
-		value := f.Str("value")
+		key := apiKeyName(f)
+		value := strings.TrimSpace(f.Str("value"))
+		if key == "" {
+			break
+		}
 		if apiKeyAddTo(f) == "query" {
 			parsed, err := url.Parse(rawURL)
 			if err != nil {
@@ -72,9 +78,7 @@ func applyHeaderAuth(authType entities.AuthType, f auth.Fields, headers map[stri
 			q.Set(key, value)
 			parsed.RawQuery = q.Encode()
 			rawURL = parsed.String()
-			if key != "" {
-				queryKeys = append(queryKeys, key)
-			}
+			queryKeys = append(queryKeys, key)
 		} else {
 			if reservedHeaders[strings.ToLower(key)] {
 				return headers, rawURL, nil, fmt.Errorf("API key header %q is reserved and cannot be overwritten", key)
@@ -96,11 +100,15 @@ func apiKeyAddTo(f auth.Fields) string {
 	return f.Str("in") // legacy key from Postman imports
 }
 
+func apiKeyName(f auth.Fields) string {
+	return strings.TrimSpace(f.Str("key"))
+}
+
 func authHeaderKeys(authType entities.AuthType, f auth.Fields) []string {
-	if authType != entities.AuthTypeAPIKey || apiKeyAddTo(f) == "query" || f.Str("key") == "" {
+	if authType != entities.AuthTypeAPIKey || apiKeyAddTo(f) == "query" || apiKeyName(f) == "" {
 		return nil
 	}
-	return []string{f.Str("key")}
+	return []string{apiKeyName(f)}
 }
 
 // formField's JSON tags describe the wire format the frontend writes into
@@ -177,7 +185,8 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, err)
 	}
-	if req.Protocol != entities.ProtocolHTTP {
+	// The gRPC path applies no auth, so an HTTP-only scheme is harmless there.
+	if req.Protocol != entities.ProtocolHTTP && req.Protocol != entities.ProtocolGRPC {
 		if authErr := rejectNonHTTPAuth(resolvedAuth.Type); authErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, authErr)
 		}
@@ -196,6 +205,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	var historyBody string
 	var historyAuthQueryKeys, historyAuthHeaderKeys []string
 	var grpcRequestMetadata map[string][]string
+	var locals map[string]string
 
 	switch req.Protocol {
 	case entities.ProtocolWebSocket:
@@ -206,8 +216,8 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		if preErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, preErr)
 		}
-		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
-		grpcMetadata := substituteMetadata(pre.Metadata, vars)
+		scriptResult, vars, execURL, locals = pre.ScriptResult, pre.Vars, pre.URL, pre.Locals
+		grpcMetadata := substituteMetadata(pre.Metadata, pre.Subst)
 		grpcReq := GRPCExecuteRequest{
 			Host:      execURL,
 			Service:   req.GRPCService,
@@ -226,20 +236,20 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		if preErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, preErr)
 		}
-		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
+		scriptResult, vars, execURL, locals = pre.ScriptResult, pre.Vars, pre.URL, pre.Locals
 		headers, body := pre.Headers, pre.Body
 		authFields, fieldsErr := auth.ParseFields(resolvedAuth.Data)
 		if fieldsErr != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, fieldsErr)
 		}
-		authFields = auth.Substitute(authFields, vars)
+		authFields = auth.Substitute(authFields, pre.Subst)
 		headers, execURL, historyAuthQueryKeys, _, err = u.applyResolvedAuth(ctx, resolvedAuth, authFields, headers, execURL, prepareOpt{UserID: opt.UserID})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", funcName, err)
 		}
 		historyAuthHeaderKeys = authHeaderKeys(resolvedAuth.Type, authFields)
-		graphqlQuery := substituteVariables(req.GraphQLQuery, vars)
-		graphqlVars := substituteVariables(req.GraphQLVariables, vars)
+		graphqlQuery := substituteVariables(req.GraphQLQuery, pre.Subst)
+		graphqlVars := substituteVariables(req.GraphQLVariables, pre.Subst)
 		graphqlReq := GraphQLExecuteRequest{
 			Endpoint:      execURL,
 			Query:         graphqlQuery,
@@ -260,7 +270,7 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			return nil, fmt.Errorf("%s: %w", funcName, prepErr)
 		}
 		scriptResult = sr
-		vars = prep.Vars
+		vars, locals = prep.Vars, prep.Locals
 		execURL = prep.URL
 		execReq := HTTPExecuteRequest{
 			Method:        prep.Method,
@@ -312,12 +322,13 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 	if postResolveErr != nil {
 		return nil, fmt.Errorf("%s: %w", funcName, postResolveErr)
 	}
-	if postScript != "" && u.scriptEngine != nil && resp != nil {
+	if postScript.Body != "" && u.scriptEngine != nil && resp != nil {
 		if scriptResult == nil {
 			scriptResult = &entities.ScriptResult{}
 		}
 		postCtx := ScriptContext{
 			Variables:          vars,
+			LocalVariables:     locals,
 			RequestMethod:      string(req.Method),
 			RequestURL:         execURL,
 			RequestHeaders:     historyHeaders,
@@ -334,22 +345,24 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 			postCtx.GRPCMethod = req.GRPCMethod
 		}
 		if req.Protocol == entities.ProtocolGraphQL {
-			postCtx.GraphQLVariables = substituteVariables(req.GraphQLVariables, vars)
+			postCtx.GraphQLVariables = substituteVariables(req.GraphQLVariables, withLocals(vars, locals))
 			postCtx.GraphQLOperation = req.GraphQLOperation
 		}
-		postResult, postErr := u.scriptEngine.RunPostScript(ctx, postScript, postCtx)
-		if postErr != nil {
-			scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
-				Phase: "post-script", Message: postErr.Error(),
-			})
-		} else {
+		postResult, postErr := u.scriptEngine.RunPostScript(ctx, postScript.Body, postCtx)
+		if postResult != nil {
 			scriptResult.PostConsole = postResult.ConsoleOutput
-			vars = postResult.Variables
 			for _, tr := range postResult.TestResults {
 				scriptResult.Tests = append(scriptResult.Tests, entities.ScriptTestResult{
 					Name: tr.Name, Passed: tr.Passed, Error: tr.Error,
 				})
 			}
+		}
+		if postErr != nil {
+			scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
+				Phase: "post-script", Message: postErr.Error(),
+			})
+		} else {
+			vars = postResult.Variables
 		}
 	}
 
@@ -463,6 +476,8 @@ func mapsEqual(a, b map[string]string) bool {
 type preScriptOutcome struct {
 	ScriptResult *entities.ScriptResult
 	Vars         map[string]string
+	Subst        map[string]string
+	Locals       map[string]string
 	URL          string
 	Body         string
 	Headers      map[string][]string
@@ -481,13 +496,13 @@ func (u *usecase) runPreScriptForNonHTTP(
 	execURL := substituteVariables(req.URL, vars)
 	body := substituteVariables(req.Body, vars)
 
-	out := preScriptOutcome{Vars: vars, URL: execURL, Body: body, Headers: substituteHeaders(rawHeaders, vars), Metadata: req.GRPCMetadata}
+	out := preScriptOutcome{Vars: vars, Subst: vars, URL: execURL, Body: body, Headers: substituteHeaders(rawHeaders, vars), Metadata: req.GRPCMetadata}
 
 	preScript, err := u.scriptResolver.ResolvePreScript(ctx, req)
 	if err != nil {
 		return preScriptOutcome{}, err
 	}
-	if preScript == "" || u.scriptEngine == nil {
+	if preScript.Body == "" || u.scriptEngine == nil {
 		return out, nil
 	}
 	preCtx := ScriptContext{
@@ -507,19 +522,21 @@ func (u *usecase) runPreScriptForNonHTTP(
 		preCtx.GraphQLVariables = substituteVariables(req.GraphQLVariables, vars)
 		preCtx.GraphQLOperation = req.GraphQLOperation
 	}
-	preResult, err := u.scriptEngine.RunPreScript(ctx, preScript, preCtx)
+	preResult, err := u.scriptEngine.RunPreScript(ctx, preScript.Body, preCtx)
 	if err != nil {
-		return preScriptOutcome{}, preScriptFailed(err)
+		return preScriptOutcome{}, preScriptFailed(err, preScript, preResult)
 	}
 	out.ScriptResult = &entities.ScriptResult{PreConsole: preResult.ConsoleOutput}
 	if req.Protocol == entities.ProtocolGRPC {
 		out.Metadata = preResult.Metadata
 	}
-	if !mapsEqual(vars, preResult.Variables) {
-		out.Vars = preResult.Variables
-		out.URL = substituteVariables(req.URL, out.Vars)
-		out.Body = substituteVariables(req.Body, out.Vars)
+	out.Vars = preResult.Variables
+	out.Locals = preResult.LocalVariables
+	out.Subst = withLocals(preResult.Variables, preResult.LocalVariables)
+	if !mapsEqual(vars, out.Subst) {
+		out.URL = substituteVariables(req.URL, out.Subst)
+		out.Body = substituteVariables(req.Body, out.Subst)
 	}
-	out.Headers = substituteHeaders(preResult.Headers, out.Vars)
+	out.Headers = substituteHeaders(preResult.Headers, out.Subst)
 	return out, nil
 }

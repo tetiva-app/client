@@ -118,7 +118,7 @@ func TestExpect_OutsideTestFailsTheScriptAtTheUsersLine(t *testing.T) {
 	_, err := engine.RunPostScript(context.Background(), "var code = pm.response.code\npm.expect(code).to.equal(201)", userResponseContext())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "script error: AssertionError: expected 200 to equal 201 at <eval>:2:")
+	assert.Contains(t, err.Error(), "AssertionError: expected 200 to equal 201 (line 2, column")
 	assert.NotContains(t, err.Error(), "chai")
 }
 
@@ -187,7 +187,7 @@ func TestExpect_TimeoutStillFiresAfterChaiLoads(t *testing.T) {
 		userResponseContext())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Less(t, time.Since(start), 10*time.Second)
 	assert.Equal(t, before, scriptengine.AbandonedScripts())
 }
@@ -213,7 +213,7 @@ func TestExpect_OkOnUndefinedIsAPlainAssertion(t *testing.T) {
 
 	_, err = engine.RunPreScript(context.Background(), `pm.expect(pm.environment.get("missing")).to.be.ok`, newContext())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "script error: AssertionError: expected undefined to be truthy at <eval>:1:")
+	assert.Contains(t, err.Error(), "AssertionError: expected undefined to be truthy (line 1, column")
 
 	res, err := engine.RunPostScript(context.Background(), `
 		pm.test("missing", function () { pm.expect(undefined).to.be.ok })
@@ -240,9 +240,9 @@ pm.test("plain object", function () { throw {} })`, userResponseContext())
 	require.NoError(t, err)
 	require.Len(t, res.TestResults, 4)
 	assert.Equal(t, "AssertionError: expected 1 to equal 2", res.TestResults[0].Error)
-	assert.Regexp(t, `^TypeError: Cannot read property 'field' of undefined at <eval>:5:`, res.TestResults[1].Error)
-	assert.Regexp(t, `^Error: Invalid Chai property: eqaul\. Did you mean "equal"\? at <eval>:8:`, res.TestResults[2].Error)
-	assert.Regexp(t, `^\[object Object\] at <eval>:10:`, res.TestResults[3].Error)
+	assert.Regexp(t, `^TypeError: Cannot read property 'field' of undefined \(line 5, column \d+\)$`, res.TestResults[1].Error)
+	assert.Regexp(t, `^Error: Invalid Chai property: eqaul\. Did you mean "equal"\? \(line 8, column \d+\)$`, res.TestResults[2].Error)
+	assert.Regexp(t, `^\[object Object\] \(line 10, column \d+\)$`, res.TestResults[3].Error)
 }
 
 func TestExpect_GRPCResponseIsOkOnCodeZero(t *testing.T) {

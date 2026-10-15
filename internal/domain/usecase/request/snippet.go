@@ -65,7 +65,7 @@ func (u *usecase) BuildSnippetInput(ctx context.Context, req *entities.Request, 
 	}
 
 	out := SnippetInput{Protocol: req.Protocol}
-	if preScript != "" {
+	if preScript.Body != "" {
 		out.Warnings = append(out.Warnings, preScriptSnippetWarning)
 	}
 	out.Warnings = append(out.Warnings, authWarnings...)

@@ -478,14 +478,24 @@ describe('executeRequest', () => {
     executeMock.mockReset()
     useWorkspaceStore().workspaces = [{ id: 'ws-1', isActive: true } as Workspace]
     useRequestStore().loadRequest(makeRequest())
-    const message = 'request.Execute: request.prepareHTTP: pre-request script failed: ReferenceError: btoa is not defined'
-    executeMock.mockResolvedValueOnce({ data: null, error: { code: 'internal', message, reason: 'pre_script_failed' } })
+    const message = 'request.Execute: request.prepareHTTP: pre-request script failed: ReferenceError: btoa is not defined (line 2, column 5)'
+    executeMock.mockResolvedValueOnce({ data: null, error: {
+      code: 'internal',
+      message,
+      reason: 'pre_script_failed',
+      fields: { message: 'ReferenceError: btoa is not defined', line: '2', column: '5', collection: 'Lola', console: '["building auth"]' },
+    } })
 
     await useRequestStore().executeRequest('r1')
 
-    expect(useResponseStore().getResponseState('r1')).toMatchObject({
+    expect(useResponseStore().getResponseState('r1')).toEqual({
       status: 'error',
-      error: { title: 'Request not sent', detail: message },
+      error: {
+        title: 'Request not sent',
+        detail: 'The pre-request script of collection “Lola” failed: ReferenceError: btoa is not defined (line 2, column 5)',
+        suggestions: ['Fix it on the Scripts tab of collection “Lola”'],
+        console: ['building auth'],
+      },
     })
   })
 

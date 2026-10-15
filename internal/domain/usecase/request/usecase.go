@@ -200,8 +200,14 @@ func (directTx) Run(ctx context.Context, fn func(ctx context.Context) error) err
 
 // ScriptResolver walks up the collection hierarchy when the request has no script of its own.
 type ScriptResolver interface {
-	ResolvePreScript(ctx context.Context, req *entities.Request) (string, error)
-	ResolvePostScript(ctx context.Context, req *entities.Request) (string, error)
+	ResolvePreScript(ctx context.Context, req *entities.Request) (ResolvedScript, error)
+	ResolvePostScript(ctx context.Context, req *entities.Request) (ResolvedScript, error)
+}
+
+// ResolvedScript is the script a request runs; Collection is empty for the request's own.
+type ResolvedScript struct {
+	Body       string
+	Collection string
 }
 
 // VariablePersister saves script-modified variables back to the active environment.

@@ -40,24 +40,39 @@ export interface CurlAuthFields {
   authData: string
 }
 
+type CurlAuthWithHeaders = CurlAuthFields & Partial<Pick<CurlImportFields, 'headers'>>
+
 export type CurlAuthChange = 'replaced' | 'removed' | null
+
+function curlCarriesAuth(parsed: CurlAuthWithHeaders): boolean {
+  if (hasAuth(parsed)) return true
+  return (parsed.headers ?? []).some(h => h.enabled && h.key.trim().toLowerCase() === 'authorization')
+}
+
+export function curlAuthAfterPaste(before: CurlAuthFields, parsed: CurlAuthWithHeaders): CurlAuthFields {
+  if (before.authType === 'inherit' && !curlCarriesAuth(parsed)) {
+    return { authType: before.authType, authData: before.authData }
+  }
+  return { authType: parsed.authType, authData: parsed.authData }
+}
 
 // What the paste did to an authorization the request already had. A request
 // without one has nothing to report: the command simply brought its own.
-export function curlAuthChange(before: CurlAuthFields, after: CurlAuthFields): CurlAuthChange {
-  if (!hasAuth(before)) return null
+export function curlAuthChange(before: CurlAuthFields, after: CurlAuthWithHeaders): CurlAuthChange {
+  if (!hasAuth(before) && before.authType !== 'inherit') return null
   if (before.authType === after.authType && before.authData === after.authData) return null
-  return hasAuth(after) ? 'replaced' : 'removed'
+  return curlCarriesAuth(after) ? 'replaced' : 'removed'
 }
 
 // Undo earns its place only when the paste buried work that cannot be retyped
 // off the screen. Method and URL are what the paste was asked for; headers,
 // body and credentials are what silently disappears with it.
-export function curlImportLosesWork(before: CurlImportFields): boolean {
+export function curlImportLosesWork(before: CurlImportFields, after: CurlAuthFields): boolean {
   const headers = (before.headers ?? []).some(
     h => h.enabled && (h.key.trim() !== '' || h.value.trim() !== ''),
   )
-  return headers || (before.body ?? '').trim() !== '' || hasAuth(before)
+  const droppedInherit = before.authType === 'inherit' && after.authType !== 'inherit'
+  return headers || (before.body ?? '').trim() !== '' || hasAuth(before) || droppedInherit
 }
 
 // 'inherit' keeps no credentials of its own — they stay on the collection.

@@ -58,6 +58,10 @@ func OK[T any](data T) Result[T] {
 func Err[T any](err error) Result[T] {
 	res := resultError(err)
 	res.Reason = errorReason(err)
+	var reasonErr *domain.ReasonError
+	if res.Fields == nil && errors.As(err, &reasonErr) {
+		res.Fields = reasonErr.Fields
+	}
 	var zero T
 	return Result[T]{Data: zero, Error: res}
 }

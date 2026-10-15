@@ -116,12 +116,12 @@ func (s *authEnvStub) ActiveVariables(context.Context, uuid.UUID) ([]*entities.V
 
 type authScriptResolverStub struct{}
 
-func (authScriptResolverStub) ResolvePreScript(context.Context, *entities.Request) (string, error) {
-	return "", nil
+func (authScriptResolverStub) ResolvePreScript(context.Context, *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
 
-func (authScriptResolverStub) ResolvePostScript(context.Context, *entities.Request) (string, error) {
-	return "", nil
+func (authScriptResolverStub) ResolvePostScript(context.Context, *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{}, nil
 }
 
 const authFixtureData = `{"grant":"client_credentials","tokenUrl":"{{idp}}/token","clientId":"cid","clientSecret":"sec","scope":"read"}`

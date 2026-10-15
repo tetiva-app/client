@@ -3,6 +3,7 @@ package request_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -74,5 +75,57 @@ func TestBuildCurl_FailedPreScriptIsAnError(t *testing.T) {
 	assertPreScriptFailed(t, err)
 	if res.Command != "" {
 		t.Fatalf("command = %q, want none", res.Command)
+	}
+}
+
+func TestExecute_FailedPreScriptSaysWhatFailedWhereAndWhatItLogged(t *testing.T) {
+	for _, protocol := range []entities.Protocol{entities.ProtocolHTTP, entities.ProtocolGraphQL, entities.ProtocolGRPC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			repo := newMockRepo()
+			r := snippetRequest(protocol, entities.MethodGET, "https://api.example.com/x")
+			repo.requests[r.ID] = r
+			engine := &captureScriptEngine{
+				preErr:     &request.ScriptRunError{Message: "ReferenceError: computeSignature is not defined", Line: 3, Column: 13},
+				preConsole: []string{"step 1", `step 2 {"id":7}`},
+			}
+			uc := request.NewUsecase(repo, &mockHistoryRepo{}, &mockRequester{}, &captureGRPCRequester{}, &mockGraphQLRequester{}, &mockEnvResolver{},
+				engine, &scriptResolverWithPre{pre: "computeSignature()", collection: "F1 Folder"},
+				&noopVarPersister{}, request.NewAuthResolver(fixtureCollections()), nil, nil, nil, nil, nil, nil)
+
+			_, err := uc.Execute(context.Background(), r.ID, request.ExecuteOpt{WorkspaceID: testWorkspaceID})
+
+			var reasonErr *domain.ReasonError
+			if !errors.As(err, &reasonErr) || reasonErr.Reason != request.ReasonPreScriptFailed {
+				t.Fatalf("err = %v, want %s", err, request.ReasonPreScriptFailed)
+			}
+			want := map[string]string{
+				"message":    "ReferenceError: computeSignature is not defined",
+				"line":       "3",
+				"column":     "13",
+				"collection": "F1 Folder",
+				"console":    `["step 1","step 2 {\"id\":7}"]`,
+			}
+			if !reflect.DeepEqual(reasonErr.Fields, want) {
+				t.Fatalf("fields = %#v, want %#v", reasonErr.Fields, want)
+			}
+		})
+	}
+}
+
+func TestResolveWebSocket_FailedPreScriptMarksATimeout(t *testing.T) {
+	repo := newMockRepo()
+	r := wsRequest(uuid.New(), "wss://example.com/ws")
+	repo.requests[r.ID] = r
+	engine := &captureScriptEngine{preErr: &request.ScriptRunError{Message: "Script timed out after 5s", Timeout: true}}
+	uc := newWSUsecase(t, repo, wsDeps{engine: engine, preHook: "while(true){}"})
+
+	_, err := uc.ResolveWebSocket(context.Background(), r.ID, testWorkspaceID, "user-1")
+
+	var reasonErr *domain.ReasonError
+	if !errors.As(err, &reasonErr) {
+		t.Fatalf("err = %v, want a ReasonError", err)
+	}
+	if want := map[string]string{"message": "Script timed out after 5s", "timeout": "true"}; !reflect.DeepEqual(reasonErr.Fields, want) {
+		t.Fatalf("fields = %#v, want %#v", reasonErr.Fields, want)
 	}
 }

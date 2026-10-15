@@ -75,7 +75,7 @@ func (u *usecase) ResolveWebSocket(ctx context.Context, requestID, workspaceID u
 		dial.Failed = fieldsErr.Error()
 		return dial, nil
 	}
-	authFields = auth.Substitute(authFields, pre.Vars)
+	authFields = auth.Substitute(authFields, pre.Subst)
 	headers, execURL, queryKeys, _, err := u.applyResolvedAuth(
 		ctx, resolvedAuth, authFields, dial.Headers, dial.URL, prepareOpt{UserID: userID},
 	)

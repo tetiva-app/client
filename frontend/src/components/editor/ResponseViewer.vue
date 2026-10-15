@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue'
-import { AlertCircle, Copy, Check, TextSelect, Search, ArrowUp, ArrowDown, FileDown, Download } from 'lucide-vue-next'
+import { Copy, Check, TextSelect, FileDown, Download } from 'lucide-vue-next'
+import ResponseErrorCard from './ResponseErrorCard.vue'
+import { scriptPhaseLabel } from '@/lib/script-phase'
 import { Button } from '@/components/ui/button'
 import { getRequestService } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import CookiesTab from './CookiesTab.vue'
+import FindBox from './FindBox.vue'
 import SaveExampleInline from './examples/SaveExampleInline.vue'
 import CompareButton from '@/components/compare/CompareButton.vue'
 import LatencyDelta from '@/components/compare/LatencyDelta.vue'
@@ -17,6 +20,7 @@ import {
 import { useResponseStore, type ResponseState } from '@/stores/responses'
 import { isMac } from '@/lib/platform'
 import { useFindShortcut } from '@/composables/useFindShortcut'
+import type { FindStatus } from '@/lib/cm-find'
 
 const CodeViewer = defineAsyncComponent(() => import('./CodeViewer.vue'))
 
@@ -24,8 +28,9 @@ const sendShortcut = isMac() ? '⌘ Enter' : 'Ctrl Enter'
 const bodyContainer = ref<HTMLElement | null>(null)
 const codeViewerRef = ref<InstanceType<typeof CodeViewer> | null>(null)
 const responseSearchQuery = ref('')
-const responseSearchInput = ref<HTMLInputElement | null>(null)
-const onFindShortcut = useFindShortcut(responseSearchInput)
+const findStatus = ref<FindStatus | null>(null)
+const findBox = ref<InstanceType<typeof FindBox> | null>(null)
+const onFindShortcut = useFindShortcut(computed(() => findBox.value?.input ?? null))
 
 const props = defineProps<{
   state: ResponseState
@@ -157,30 +162,6 @@ const headerEntries = computed(() => {
     values.map(value => ({ key, value }))
   )
 })
-
-function handleResponseSearch() {
-  codeViewerRef.value?.setSearch(responseSearchQuery.value)
-}
-
-function responseSearchNext() {
-  codeViewerRef.value?.findNext()
-}
-
-function responseSearchPrev() {
-  codeViewerRef.value?.findPrev()
-}
-
-function handleResponseSearchKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    if (event.shiftKey) responseSearchPrev()
-    else responseSearchNext()
-  } else if (event.key === 'Escape') {
-    responseSearchQuery.value = ''
-    handleResponseSearch()
-    ;(event.target as HTMLInputElement).blur()
-  }
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -334,33 +315,14 @@ async function saveResponseToFile() {
         </button>
 
         <div v-if="activeResponseTab === 'body' && !isBinary" class="ml-auto flex items-center gap-0.5">
-          <div class="relative">
-            <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
-            <input
-              ref="responseSearchInput"
-              v-model="responseSearchQuery"
-              class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
-              placeholder="Search..."
-              @input="handleResponseSearch"
-              @keydown="handleResponseSearchKeydown"
-            />
-          </div>
-          <button
-            v-if="responseSearchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Previous match (Shift+Enter)"
-            @click="responseSearchPrev"
-          >
-            <ArrowUp class="size-3" />
-          </button>
-          <button
-            v-if="responseSearchQuery"
-            class="size-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Next match (Enter)"
-            @click="responseSearchNext"
-          >
-            <ArrowDown class="size-3" />
-          </button>
+          <FindBox
+            ref="findBox"
+            v-model="responseSearchQuery"
+            :status="findStatus"
+            @next="codeViewerRef?.findNext()"
+            @prev="codeViewerRef?.findPrev()"
+            @dismiss="codeViewerRef?.focus()"
+          />
           <button
             class="size-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
             :title="copied ? 'Copied!' : 'Copy body'"
@@ -400,6 +362,8 @@ async function saveResponseToFile() {
                 ref="codeViewerRef"
                 :content="formattedBody"
                 :language="responseLanguage"
+                :search="responseSearchQuery"
+                @find-status="findStatus = $event"
               />
             </div>
           </ContextMenuTrigger>
@@ -478,7 +442,7 @@ async function saveResponseToFile() {
           <div v-if="scriptResult.errors?.length > 0">
             <h4 class="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Script Errors</h4>
             <div v-for="(err, i) in scriptResult.errors" :key="i" class="text-sm text-[var(--gc-error)] py-1">
-              <span class="font-medium">{{ err.phase }}:</span> {{ err.message }}
+              <span class="font-medium">{{ scriptPhaseLabel(err.phase) }}:</span> {{ err.message }}
             </div>
           </div>
         </template>
@@ -493,25 +457,7 @@ async function saveResponseToFile() {
       <div class="flex items-center h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs text-muted-foreground shrink-0">
         Response
       </div>
-      <div class="flex-1 flex items-center justify-center px-8">
-        <div class="max-w-lg w-full">
-          <div class="flex items-center gap-2 text-[var(--gc-error)]">
-            <AlertCircle class="size-5 shrink-0" />
-            <span class="font-medium text-sm">{{ state.error.title }}</span>
-          </div>
-          <p class="mt-2 text-sm text-muted-foreground">{{ state.error.detail }}</p>
-          <ul v-if="state.error.suggestions.length > 0" class="mt-3 space-y-1">
-            <li
-              v-for="(s, i) in state.error.suggestions"
-              :key="i"
-              class="text-sm text-muted-foreground flex items-start gap-1.5"
-            >
-              <span class="text-[var(--gc-info)] mt-0.5">•</span>
-              {{ s }}
-            </li>
-          </ul>
-        </div>
-      </div>
+      <ResponseErrorCard :error="state.error" />
     </div>
   </div>
 </template>

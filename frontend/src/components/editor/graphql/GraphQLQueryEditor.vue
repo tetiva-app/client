@@ -4,7 +4,8 @@ import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { EditorState, Compartment } from '@codemirror/state'
 import { json } from '@codemirror/lang-json'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { history, historyKeymap } from '@codemirror/commands'
+import { editorKeymap } from '@/lib/cm-keymap'
 import { syntaxHighlighting } from '@codemirror/language'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
@@ -115,7 +116,7 @@ function createQueryEditor() {
         queryWrapCompartment.of(settings.editorWordWrap ? EditorView.lineWrapping : []),
         drawSelection(),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([...editorKeymap, ...historyKeymap]),
         queryHighlightCompartment.of(activeHighlight()),
         autocompletion(),
         graphql(gqlJsSchema ?? undefined, {
@@ -160,7 +161,7 @@ function createVariablesEditor() {
         varsWrapCompartment.of(settings.editorWordWrap ? EditorView.lineWrapping : []),
         drawSelection(),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([...editorKeymap, ...historyKeymap]),
         json(),
         varsHighlightCompartment.of(activeHighlight()),
         baseTheme,

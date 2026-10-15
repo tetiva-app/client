@@ -931,12 +931,12 @@ func (r *stubScriptEngine) RunPostScript(_ context.Context, _ string, _ request.
 
 type stubScriptResolver struct{ pre, post string }
 
-func (r *stubScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (string, error) {
-	return r.pre, nil
+func (r *stubScriptResolver) ResolvePreScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{Body: r.pre}, nil
 }
 
-func (r *stubScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (string, error) {
-	return r.post, nil
+func (r *stubScriptResolver) ResolvePostScript(_ context.Context, _ *entities.Request) (request.ResolvedScript, error) {
+	return request.ResolvedScript{Body: r.post}, nil
 }
 
 type stubVarPersister struct{}

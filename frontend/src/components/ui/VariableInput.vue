@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { EditorView, keymap, placeholder as cmPlaceholder, drawSelection } from '@codemirror/view'
-import { EditorState, Compartment } from '@codemirror/state'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { EditorState, Compartment, Prec } from '@codemirror/state'
+import { history, historyKeymap } from '@codemirror/commands'
+import { editorKeymap } from '@/lib/cm-keymap'
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import {
   variableHighlightPlugin,
@@ -14,6 +15,7 @@ import {
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { isCurlCommand } from '@/lib/curl-paste'
 import { externalReplace, isExternal } from '@/lib/cm-external'
+import { singleLine } from '@/lib/cm-single-line'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -92,7 +94,7 @@ function createExtensions() {
   const extensions = [
     drawSelection(),
     history(),
-    keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+    keymap.of([...completionKeymap, ...editorKeymap, ...historyKeymap]),
     variableHighlightPlugin(getVars),
     variableHoverTooltip(getVars, getSecrets),
     autocompletion({
@@ -101,9 +103,10 @@ function createExtensions() {
     variableHighlightTheme,
     cmPlaceholder(props.placeholder),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged && !update.transactions.some(isExternal)) {
-        emit('update:modelValue', update.state.doc.toString())
-      }
+      if (!update.docChanged) return
+      const value = update.state.doc.toString()
+      if (update.transactions.some(isExternal) && value === props.modelValue) return
+      emit('update:modelValue', value)
     }),
     EditorView.domEventHandlers({
       focus: () => { emit('focus'); return false },
@@ -147,27 +150,13 @@ function createExtensions() {
   ]
 
   if (!props.multiline) {
-    // Single-line: replace newlines with spaces (handles paste, drag-drop)
+    extensions.push(singleLine)
+    // Above defaultKeymap's insertNewline; an open completion list still takes Enter first.
     extensions.push(
-      EditorState.transactionFilter.of(tr => {
-        if (!tr.docChanged) return tr
-        const newDoc = tr.newDoc.toString()
-        if (/[\r\n]/.test(newDoc)) {
-          const flat = newDoc.replace(/\r\n|\r|\n/g, ' ')
-          return [{
-            changes: { from: 0, to: tr.newDoc.length, insert: flat },
-            selection: { anchor: flat.length },
-          }]
-        }
-        return tr
-      }),
-    )
-    // Enter → submit (AFTER autocompletion for correct precedence)
-    extensions.push(
-      keymap.of([{
+      Prec.high(keymap.of([{
         key: 'Enter',
         run: () => { emit('submit'); return true },
-      }]),
+      }])),
     )
     extensions.push(
       EditorView.theme({

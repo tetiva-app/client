@@ -3,6 +3,7 @@ package request
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -19,47 +20,47 @@ func NewScriptResolver(cr CollectionReader) ScriptResolver {
 	return &scriptResolver{collectionReader: cr}
 }
 
-func (r *scriptResolver) ResolvePreScript(ctx context.Context, req *entities.Request) (string, error) {
-	if req.PreScript != "" {
-		return req.PreScript, nil
+func (r *scriptResolver) ResolvePreScript(ctx context.Context, req *entities.Request) (ResolvedScript, error) {
+	if strings.TrimSpace(req.PreScript) != "" {
+		return ResolvedScript{Body: req.PreScript}, nil
 	}
 	return r.walkChain(ctx, req.CollectionID, func(c *entities.Collection) string {
 		return c.PreScript
 	})
 }
 
-func (r *scriptResolver) ResolvePostScript(ctx context.Context, req *entities.Request) (string, error) {
-	if req.PostScript != "" {
-		return req.PostScript, nil
+func (r *scriptResolver) ResolvePostScript(ctx context.Context, req *entities.Request) (ResolvedScript, error) {
+	if strings.TrimSpace(req.PostScript) != "" {
+		return ResolvedScript{Body: req.PostScript}, nil
 	}
 	return r.walkChain(ctx, req.CollectionID, func(c *entities.Collection) string {
 		return c.PostScript
 	})
 }
 
-// walkChain returns the first non-empty script the getter finds walking up the hierarchy.
-func (r *scriptResolver) walkChain(ctx context.Context, collectionID uuid.UUID, getter func(*entities.Collection) string) (string, error) {
+// walkChain returns the first non-blank script the getter finds walking up the hierarchy.
+func (r *scriptResolver) walkChain(ctx context.Context, collectionID uuid.UUID, getter func(*entities.Collection) string) (ResolvedScript, error) {
 	const funcName = "scriptResolver.walkChain"
 
 	currentID := collectionID
 	for depth := 0; depth < maxCollectionDepth; depth++ {
 		coll, err := r.collectionReader.GetByID(ctx, currentID)
 		if err != nil {
-			return "", fmt.Errorf("%s: %w", funcName, err)
+			return ResolvedScript{}, fmt.Errorf("%s: %w", funcName, err)
 		}
 		if coll == nil {
-			return "", nil
+			return ResolvedScript{}, nil
 		}
 
-		if script := getter(coll); script != "" {
-			return script, nil
+		if script := getter(coll); strings.TrimSpace(script) != "" {
+			return ResolvedScript{Body: script, Collection: coll.Name}, nil
 		}
 
 		if coll.ParentID == nil {
-			return "", nil
+			return ResolvedScript{}, nil
 		}
 		currentID = *coll.ParentID
 	}
 
-	return "", nil
+	return ResolvedScript{}, nil
 }

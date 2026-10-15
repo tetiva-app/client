@@ -3,7 +3,6 @@ package request
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -23,6 +22,7 @@ type preparedHTTP struct {
 	FormFields []formField    // for multipart, when curl needs -F flags
 	BinaryPath string         // absolute path for BodyTypeBinary; as typed under SkipFileRead
 	Vars       map[string]string
+	Locals     map[string]string
 
 	// Auth is set for the schemes the requester applies itself (digest, aws_sigv4).
 	Auth *RequestAuth
@@ -62,7 +62,7 @@ func (u *usecase) prepareHTTP(
 	headers := substituteHeaders(rawHeaders, vars)
 
 	var scriptResult *entities.ScriptResult
-	var preScript string
+	var preScript ResolvedScript
 	if !opt.SkipScripts {
 		resolved, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
 		if preResolveErr != nil {
@@ -70,7 +70,9 @@ func (u *usecase) prepareHTTP(
 		}
 		preScript = resolved
 	}
-	if preScript != "" && u.scriptEngine != nil {
+	subst := vars
+	var locals map[string]string
+	if preScript.Body != "" && u.scriptEngine != nil {
 		preCtx := ScriptContext{
 			Variables:      vars,
 			RequestMethod:  string(req.Method),
@@ -78,24 +80,26 @@ func (u *usecase) prepareHTTP(
 			RequestHeaders: rawHeaders,
 			Protocol:       string(req.Protocol),
 		}
-		preResult, preErr := u.scriptEngine.RunPreScript(ctx, preScript, preCtx)
+		preResult, preErr := u.scriptEngine.RunPreScript(ctx, preScript.Body, preCtx)
 		if preErr != nil {
-			return preparedHTTP{}, nil, fmt.Errorf("%s: %w", funcName, preScriptFailed(preErr))
+			return preparedHTTP{}, nil, fmt.Errorf("%s: %w", funcName, preScriptFailed(preErr, preScript, preResult))
 		}
 		scriptResult = &entities.ScriptResult{PreConsole: preResult.ConsoleOutput}
-		if !mapsEqual(vars, preResult.Variables) {
-			vars = preResult.Variables
-			execURL = substituteVariables(req.URL, vars)
-			body = substituteVariables(req.Body, vars)
+		subst = withLocals(preResult.Variables, preResult.LocalVariables)
+		if !mapsEqual(vars, subst) {
+			execURL = substituteVariables(req.URL, subst)
+			body = substituteVariables(req.Body, subst)
 		}
-		headers = substituteHeaders(preResult.Headers, vars)
+		vars = preResult.Variables
+		locals = preResult.LocalVariables
+		headers = substituteHeaders(preResult.Headers, subst)
 	}
 
 	authFields, authErr := auth.ParseFields(ra.Data)
 	if authErr != nil {
 		return preparedHTTP{}, scriptResult, fmt.Errorf("%s: %w", funcName, authErr)
 	}
-	fields := auth.Substitute(authFields, vars)
+	fields := auth.Substitute(authFields, subst)
 
 	var reqAuth *RequestAuth
 	var authQueryKeys, authWarnings []string
@@ -110,7 +114,7 @@ func (u *usecase) prepareHTTP(
 	}
 
 	if ct := autoContentType(req.BodyType); ct != "" {
-		if http.Header(headers).Get("Content-Type") == "" {
+		if firstHeader(headers, "Content-Type") == "" {
 			headers["Content-Type"] = []string{ct}
 		}
 	}
@@ -122,6 +126,7 @@ func (u *usecase) prepareHTTP(
 		BodyType:       req.BodyType,
 		RawBody:        body,
 		Vars:           vars,
+		Locals:         locals,
 		Auth:           reqAuth,
 		AuthQueryKeys:  authQueryKeys,
 		AuthHeaderKeys: authHeaderKeys(ra.Type, fields),

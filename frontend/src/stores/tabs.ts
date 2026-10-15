@@ -10,7 +10,7 @@ import { descriptionSaveBlocked } from '@/lib/description'
 import { useResponseStore } from '@/stores/responses'
 import { useExamplesStore } from '@/stores/examples'
 import { runMutation } from '@/stores/runMutation'
-import { formatResultError } from '@/lib/result-error'
+import { formatResultError, scriptFailure } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
 import { contentSaved } from '@/lib/content-saved'
 
@@ -646,15 +646,17 @@ export const useRequestStore = defineStore('requests', () => {
       // Check if request still exists (may have been deleted during execution)
       if (!requestsMap.value.has(id) || superseded()) return
 
+      const failure = result.error ? scriptFailure(result.error) : null
       if (result.error?.code === 'cancelled') {
         responses.cancelRequest(id)
-      } else if (result.error?.reason === 'pre_script_failed') {
+      } else if (failure) {
         responses.setResponse(id, {
           status: 'error',
           error: {
             title: 'Request not sent',
-            detail: result.error.message,
-            suggestions: ['Fix the pre-request script on the Scripts tab of the request or one of its collections'],
+            detail: failure.detail,
+            suggestions: [failure.suggestion],
+            console: failure.console,
           },
         })
       } else if (result.error) {
@@ -662,7 +664,7 @@ export const useRequestStore = defineStore('requests', () => {
           status: 'error',
           error: {
             title: result.error.code === 'request_error' ? 'Request Failed' : 'Error',
-            detail: result.error.message,
+            detail: formatResultError(result.error),
             suggestions: getSuggestions(result.error.message),
           },
         })

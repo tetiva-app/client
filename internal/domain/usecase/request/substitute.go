@@ -21,6 +21,10 @@ func substituteVariables(text string, vars map[string]string) string {
 	})
 }
 
+func SubstituteVariables(text string, vars map[string]string) string {
+	return substituteVariables(text, vars)
+}
+
 // substituteMetadata applies variable substitution to gRPC metadata values.
 var substituteMetadata = substituteHeaders
 

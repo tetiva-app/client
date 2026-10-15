@@ -13,6 +13,8 @@ import { makeError } from './makeError'
 import { parseAuthData } from '@/lib/auth-data'
 import type { Collection } from '@/types/collection'
 
+const MAX_COLLECTION_DEPTH = 50
+
 const TOKEN_TTL_MS = 3600_000
 const MOCK_FLOW_MS = 300
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -231,47 +233,44 @@ export class MockAuthService implements AuthServiceAPI {
     return { data: info }
   }
 
-  // Same walk as the Go resolver: the request's own auth wins, otherwise the
-  // first ancestor collection that configures one; none keeps walking up.
   async resolveOwner(requestId: string): Promise<Result<ResolvedOwner>> {
-    const { getRequestService, getCollectionService } = await import('./index')
-    const requests = await getRequestService()
-    const reqResult = await requests.getById(requestId)
-    if (reqResult.error) return makeError<ResolvedOwner>(reqResult.error.code, reqResult.error.message)
+    const { getRequestService } = await import('./index')
+    const req = await (await getRequestService()).getById(requestId)
+    if (req.error) return makeError<ResolvedOwner>(req.error.code, req.error.message)
+    return this.inherited(req.data.collectionId, false)
+  }
 
-    const request = reqResult.data
-    if (request.authType !== 'inherit') {
-      return {
-        data: {
-          ownerKind: 'request',
-          ownerId: request.id,
-          authType: request.authType,
-          authData: request.authData,
-        },
-      }
-    }
+  async resolveCollectionOwner(collectionId: string): Promise<Result<ResolvedOwner>> {
+    return this.inherited(collectionId, true)
+  }
 
+  // Mirrors authResolver.walk.
+  private async inherited(startId: string, skipStart: boolean): Promise<Result<ResolvedOwner>> {
+    const { getCollectionService } = await import('./index')
     const collections = await getCollectionService()
-    let id: string | null = request.collectionId
+    const start = await collections.getById(startId)
+    if (start.error) return makeError<ResolvedOwner>(start.error.code, start.error.message)
+
+    let current: Collection = start.data
     const seen = new Set<string>()
-    while (id && !seen.has(id)) {
-      seen.add(id)
-      const res: Result<Collection> = await collections.getById(id)
-      if (res.error) break
-      const collection: Collection = res.data
-      if (collection.authType !== 'inherit' && collection.authType !== 'none') {
+    for (let depth = 0; depth < MAX_COLLECTION_DEPTH && !seen.has(current.id); depth++) {
+      seen.add(current.id)
+      if ((depth > 0 || !skipStart) && current.authType !== 'none') {
+        if (current.workspaceId !== start.data.workspaceId) {
+          return makeError<ResolvedOwner>('validation', 'validation failed', {
+            workspace: 'the inherited auth belongs to another workspace',
+          })
+        }
         return {
-          data: {
-            ownerKind: 'collection',
-            ownerId: collection.id,
-            authType: collection.authType,
-            authData: collection.authData,
-          },
+          data: { ownerKind: 'collection', ownerId: current.id, authType: current.authType, authData: current.authData },
         }
       }
-      id = collection.parentId
+      if (!current.parentId) break
+      const parent: Result<Collection> = await collections.getById(current.parentId)
+      if (parent.error?.code === 'not_found') break
+      if (parent.error) return makeError<ResolvedOwner>(parent.error.code, parent.error.message)
+      current = parent.data
     }
-
-    return { data: { ownerKind: '', ownerId: '', authType: 'none', authData: '' } }
+    return { data: { ownerKind: '', ownerId: '', authType: 'none', authData: '{}' } }
   }
 }

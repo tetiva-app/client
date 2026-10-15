@@ -14,7 +14,7 @@ export const AUTH_TYPES: AuthType[] = [
   'aws_sigv4',
 ]
 
-// A collection is the top of the inherit chain, so it never inherits itself.
+// No inherit for collections: none on a nested one already passes the parent's auth.
 export const COLLECTION_AUTH_TYPES: AuthType[] = AUTH_TYPES.filter(t => t !== 'inherit')
 
 export const AUTH_TYPE_LABELS: Record<AuthType, string> = {
@@ -27,11 +27,6 @@ export const AUTH_TYPE_LABELS: Record<AuthType, string> = {
   jwt: 'JWT Bearer',
   digest: 'Digest',
   aws_sigv4: 'AWS Signature',
-}
-
-// Collections speak about themselves, not about a request.
-const COLLECTION_LABEL_OVERRIDES: Partial<Record<AuthType, string>> = {
-  none: 'No Auth',
 }
 
 export const AUTH_BADGE_LABELS: Partial<Record<AuthType, string>> = {
@@ -68,10 +63,13 @@ export const REQUEST_AUTH_OPTIONS: AuthTypeOption[] = SELECTOR_ORDER.map(value =
   label: AUTH_TYPE_LABELS[value],
 }))
 
-export function collectionAuthOptions(): AuthTypeOption[] {
+export function collectionAuthOptions(nested: boolean): AuthTypeOption[] {
   return SELECTOR_ORDER
     .filter(value => COLLECTION_AUTH_TYPES.includes(value))
-    .map(value => ({ value, label: COLLECTION_LABEL_OVERRIDES[value] ?? AUTH_TYPE_LABELS[value] }))
+    .map(value => ({
+      value,
+      label: value === 'none' ? (nested ? AUTH_TYPE_LABELS.inherit : 'No Auth') : AUTH_TYPE_LABELS[value],
+    }))
 }
 
 export function authBadgeLabel(type: string | undefined): string {

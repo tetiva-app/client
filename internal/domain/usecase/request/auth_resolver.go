@@ -21,6 +21,7 @@ type ResolvedAuth struct {
 // AuthResolver walks up the collection hierarchy when the request uses inherit.
 type AuthResolver interface {
 	ResolveAuth(ctx context.Context, req *entities.Request) (ResolvedAuth, error)
+	ResolveInherited(ctx context.Context, collectionID uuid.UUID) (ResolvedAuth, error)
 }
 
 type authResolver struct {
@@ -36,26 +37,56 @@ func NewAuthResolver(cr CollectionReader) AuthResolver {
 func (r *authResolver) ResolveAuth(ctx context.Context, req *entities.Request) (ResolvedAuth, error) {
 	const funcName = "authResolver.ResolveAuth"
 
-	coll, err := r.collectionReader.GetByID(ctx, req.CollectionID)
+	coll, err := r.collection(ctx, req.CollectionID)
 	if err != nil {
 		return ResolvedAuth{}, fmt.Errorf("%s: %w", funcName, err)
 	}
-	if coll == nil {
-		return ResolvedAuth{}, &domain.NotFoundError{Entity: "collection", ID: req.CollectionID.String()}
-	}
-	// Workspace of the request itself; an inherited owner carries its own.
-	workspaceID := coll.WorkspaceID
-
 	if req.AuthType != entities.AuthTypeInherit {
 		return ResolvedAuth{
 			Type:  req.AuthType,
 			Data:  req.AuthData,
-			Owner: entities.AuthOwner{WorkspaceID: workspaceID, Kind: entities.AuthOwnerKindRequest, ID: req.ID},
+			Owner: entities.AuthOwner{WorkspaceID: coll.WorkspaceID, Kind: entities.AuthOwnerKindRequest, ID: req.ID},
 		}, nil
 	}
+	ra, err := r.walk(ctx, coll, false)
+	if err != nil {
+		return ResolvedAuth{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return ra, nil
+}
 
-	for depth := 0; depth < maxCollectionDepth; depth++ {
-		if coll.AuthType != entities.AuthTypeNone {
+func (r *authResolver) ResolveInherited(ctx context.Context, collectionID uuid.UUID) (ResolvedAuth, error) {
+	const funcName = "authResolver.ResolveInherited"
+
+	coll, err := r.collection(ctx, collectionID)
+	if err != nil {
+		return ResolvedAuth{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+	ra, err := r.walk(ctx, coll, true)
+	if err != nil {
+		return ResolvedAuth{}, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return ra, nil
+}
+
+func (r *authResolver) collection(ctx context.Context, id uuid.UUID) (*entities.Collection, error) {
+	coll, err := r.collectionReader.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if coll == nil {
+		return nil, &domain.NotFoundError{Entity: "collection", ID: id.String()}
+	}
+	return coll, nil
+}
+
+// walk counts a skipped start as level 0, so send and preview share the depth limit.
+func (r *authResolver) walk(ctx context.Context, coll *entities.Collection, skipStart bool) (ResolvedAuth, error) {
+	workspaceID := coll.WorkspaceID
+	seen := make(map[uuid.UUID]bool, 4)
+	for depth := 0; depth < maxCollectionDepth && !seen[coll.ID]; depth++ {
+		seen[coll.ID] = true
+		if (depth > 0 || !skipStart) && coll.AuthType != entities.AuthTypeNone {
 			return ResolvedAuth{
 				Type:  coll.AuthType,
 				Data:  coll.AuthData,
@@ -65,18 +96,16 @@ func (r *authResolver) ResolveAuth(ctx context.Context, req *entities.Request) (
 		if coll.ParentID == nil {
 			break
 		}
-		parent, parentErr := r.collectionReader.GetByID(ctx, *coll.ParentID)
-		if parentErr != nil {
-			return ResolvedAuth{}, fmt.Errorf("%s: %w", funcName, parentErr)
+		parent, err := r.collectionReader.GetByID(ctx, *coll.ParentID)
+		if err != nil {
+			return ResolvedAuth{}, err
 		}
-		// A broken parent link ends the chain; only the request's own collection
-		// is a hard requirement.
+		// A broken parent link ends the chain; only the start collection must exist.
 		if parent == nil {
 			break
 		}
 		coll = parent
 	}
-
 	return ResolvedAuth{Type: entities.AuthTypeNone, Data: "{}", Owner: entities.AuthOwner{WorkspaceID: workspaceID}}, nil
 }
 

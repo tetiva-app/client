@@ -648,6 +648,15 @@ export const useRequestStore = defineStore('requests', () => {
 
       if (result.error?.code === 'cancelled') {
         responses.cancelRequest(id)
+      } else if (result.error?.reason === 'pre_script_failed') {
+        responses.setResponse(id, {
+          status: 'error',
+          error: {
+            title: 'Request not sent',
+            detail: result.error.message,
+            suggestions: ['Fix the pre-request script on the Scripts tab of the request or one of its collections'],
+          },
+        })
       } else if (result.error) {
         responses.setResponse(id, {
           status: 'error',

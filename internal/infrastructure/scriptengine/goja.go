@@ -3,6 +3,7 @@ package scriptengine
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -43,6 +44,7 @@ func (e *GojaEngine) RunPreScript(ctx context.Context, script string, sctx reque
 	var consoleOutput []string
 
 	setupConsole(vm, &consoleOutput)
+	setupBase64(vm)
 	setupPmEnvironment(vm, vars)
 	setupPmRequestPreScript(vm, sctx, headers)
 	setupPmExpect(vm, nil, false)
@@ -70,6 +72,7 @@ func (e *GojaEngine) RunPostScript(ctx context.Context, script string, sctx requ
 	var testResults []request.TestResult
 
 	setupConsole(vm, &consoleOutput)
+	setupBase64(vm)
 	setupPmEnvironment(vm, vars)
 	setupPmRequestPreScript(vm, sctx, headers)
 	setupPmExpect(vm, setupPmResponse(vm, sctx), sctx.Protocol == "grpc")
@@ -102,6 +105,32 @@ func setupConsole(vm *goja.Runtime, output *[]string) {
 	_ = console.Set("error", logFn)
 	_ = console.Set("info", logFn)
 	_ = vm.Set("console", console)
+}
+
+// btoa and atob follow the browser contract: one byte per Latin1 character.
+func setupBase64(vm *goja.Runtime) {
+	_ = vm.Set("btoa", func(call goja.FunctionCall) goja.Value {
+		s := call.Argument(0).String()
+		b := make([]byte, 0, len(s))
+		for _, r := range s {
+			if r > 0xFF {
+				panic(vm.NewTypeError("btoa: the string contains characters outside of the Latin1 range"))
+			}
+			b = append(b, byte(r))
+		}
+		return vm.ToValue(base64.StdEncoding.EncodeToString(b))
+	})
+	_ = vm.Set("atob", func(call goja.FunctionCall) goja.Value {
+		b, err := base64.StdEncoding.DecodeString(call.Argument(0).String())
+		if err != nil {
+			panic(vm.NewTypeError("atob: the string is not valid base64"))
+		}
+		r := make([]rune, len(b))
+		for i, c := range b {
+			r[i] = rune(c)
+		}
+		return vm.ToValue(string(r))
+	})
 }
 
 func setupPmEnvironment(vm *goja.Runtime, vars map[string]string) {

@@ -341,3 +341,107 @@ func TestResolveFirst_InheritedOwnerInAnotherWorkspaceRejected(t *testing.T) {
 	assert.Contains(t, valErr.Fields, "workspace")
 	assert.Zero(t, env.calls)
 }
+
+func inheritedChain(t *testing.T) (*mockCollectionReader, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	rootID, midID, leafID := uuid.New(), uuid.New(), uuid.New()
+	ws := uuid.New()
+	return &mockCollectionReader{collections: map[uuid.UUID]*entities.Collection{
+		rootID: {ID: rootID, WorkspaceID: ws, AuthType: entities.AuthTypeBearer, AuthData: `{"token":"t"}`},
+		midID:  {ID: midID, WorkspaceID: ws, ParentID: &rootID, AuthType: entities.AuthTypeNone, AuthData: "{}"},
+		leafID: {ID: leafID, WorkspaceID: ws, ParentID: &midID, AuthType: entities.AuthTypeBasic, AuthData: `{"username":"own"}`},
+	}}, rootID, leafID
+}
+
+func TestAuthResolver_ResolveInheritedSkipsTheCollectionsOwnScheme(t *testing.T) {
+	reader, rootID, leafID := inheritedChain(t)
+
+	ra, err := request.NewAuthResolver(reader).ResolveInherited(context.Background(), leafID)
+
+	require.NoError(t, err)
+	assert.Equal(t, entities.AuthTypeBearer, ra.Type)
+	assert.Equal(t, rootID, ra.Owner.ID)
+	assert.Equal(t, entities.AuthOwnerKindCollection, ra.Owner.Kind)
+}
+
+func TestAuthResolver_ResolveInheritedOnARootIsEmpty(t *testing.T) {
+	reader, rootID, _ := inheritedChain(t)
+
+	ra, err := request.NewAuthResolver(reader).ResolveInherited(context.Background(), rootID)
+
+	require.NoError(t, err)
+	assert.Equal(t, entities.AuthTypeNone, ra.Type)
+	assert.Empty(t, ra.Owner.Kind)
+	assert.Equal(t, reader.collections[rootID].WorkspaceID, ra.Owner.WorkspaceID)
+}
+
+func TestAuthResolver_ResolveInheritedUnknownCollection(t *testing.T) {
+	reader, _, _ := inheritedChain(t)
+
+	_, err := request.NewAuthResolver(reader).ResolveInherited(context.Background(), uuid.New())
+
+	var nf *domain.NotFoundError
+	require.ErrorAs(t, err, &nf)
+}
+
+func TestAuthResolver_DepthLimitIsTheSameForSendAndPreview(t *testing.T) {
+	for _, tc := range []struct {
+		levels int
+		found  bool
+	}{{49, true}, {50, false}} {
+		ws := uuid.New()
+		ownerID := uuid.New()
+		reader := &mockCollectionReader{collections: map[uuid.UUID]*entities.Collection{
+			ownerID: {ID: ownerID, WorkspaceID: ws, AuthType: entities.AuthTypeBearer, AuthData: "{}"},
+		}}
+		parent := ownerID
+		var leaf uuid.UUID
+		for i := 0; i < tc.levels; i++ {
+			id := uuid.New()
+			p := parent
+			reader.collections[id] = &entities.Collection{ID: id, WorkspaceID: ws, ParentID: &p, AuthType: entities.AuthTypeNone, AuthData: "{}"}
+			parent, leaf = id, id
+		}
+		resolver := request.NewAuthResolver(reader)
+
+		sent, err := resolver.ResolveAuth(context.Background(), &entities.Request{ID: uuid.New(), CollectionID: leaf, AuthType: entities.AuthTypeInherit})
+		require.NoError(t, err)
+		preview, err := resolver.ResolveInherited(context.Background(), leaf)
+		require.NoError(t, err)
+
+		assert.Equal(t, tc.found, sent.Owner.ID == ownerID, "send, %d levels", tc.levels)
+		assert.Equal(t, sent, preview, "%d levels", tc.levels)
+	}
+}
+
+func TestAuthResolver_ResolveInheritedStopsOnAParentCycle(t *testing.T) {
+	aID, bID := uuid.New(), uuid.New()
+	ws := uuid.New()
+	for name, reader := range map[string]*mockCollectionReader{
+		"two nodes": {collections: map[uuid.UUID]*entities.Collection{
+			aID: {ID: aID, WorkspaceID: ws, ParentID: &bID, AuthType: entities.AuthTypeBearer, AuthData: `{"token":"own"}`},
+			bID: {ID: bID, WorkspaceID: ws, ParentID: &aID, AuthType: entities.AuthTypeNone, AuthData: "{}"},
+		}},
+		"self": {collections: map[uuid.UUID]*entities.Collection{
+			aID: {ID: aID, WorkspaceID: ws, ParentID: &aID, AuthType: entities.AuthTypeBearer, AuthData: `{"token":"own"}`},
+		}},
+	} {
+		ra, err := request.NewAuthResolver(reader).ResolveInherited(context.Background(), aID)
+
+		require.NoError(t, err, name)
+		assert.Equal(t, entities.AuthTypeNone, ra.Type, name)
+		assert.Empty(t, ra.Owner.Kind, name)
+		assert.Equal(t, ws, ra.Owner.WorkspaceID, name)
+	}
+}
+
+func TestAuthResolver_ResolveInheritedTreatsAMissingParentAsNoAuth(t *testing.T) {
+	reader, rootID, leafID := inheritedChain(t)
+	delete(reader.collections, rootID)
+
+	ra, err := request.NewAuthResolver(reader).ResolveInherited(context.Background(), leafID)
+
+	require.NoError(t, err)
+	assert.Equal(t, entities.AuthTypeNone, ra.Type)
+	assert.Empty(t, ra.Owner.Kind)
+}

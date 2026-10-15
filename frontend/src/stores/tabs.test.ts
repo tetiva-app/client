@@ -474,6 +474,21 @@ describe('executeRequest', () => {
     expect(store.isRequestDirty('r1')).toBe(false)
   })
 
+  it('says the request was not sent when its pre-request script failed', async () => {
+    executeMock.mockReset()
+    useWorkspaceStore().workspaces = [{ id: 'ws-1', isActive: true } as Workspace]
+    useRequestStore().loadRequest(makeRequest())
+    const message = 'request.Execute: request.prepareHTTP: pre-request script failed: ReferenceError: btoa is not defined'
+    executeMock.mockResolvedValueOnce({ data: null, error: { code: 'internal', message, reason: 'pre_script_failed' } })
+
+    await useRequestStore().executeRequest('r1')
+
+    expect(useResponseStore().getResponseState('r1')).toMatchObject({
+      status: 'error',
+      error: { title: 'Request not sent', detail: message },
+    })
+  })
+
   describe('after Cancel', () => {
     function deferred<T>() {
       let resolve!: (v: T) => void

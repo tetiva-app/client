@@ -3,7 +3,7 @@ import { isWailsEnvironment } from '@/services'
 import { onContentSaved } from '@/lib/content-saved'
 
 interface WindowEventsConfig {
-  mode: 'main' | 'detached-request' | 'schema-viewer'
+  mode?: 'main' | 'detached-request' | 'schema-viewer'
   requestId?: string
   onEnvChanged?: () => void
   onCollectionUpdated?: () => void

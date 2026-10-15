@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { MockAuthService } from './mock-auth'
+import { getCollectionService, getRequestService } from './index'
 import type { StartFlowReq } from './auth-api'
 
 const codeData = JSON.stringify({
@@ -174,5 +175,80 @@ describe('MockAuthService browser flows', () => {
     for (const good of ['', '0', '21830', '65535']) {
       expect((await svc.startAuthCodeFlow(withPort(good))).error).toBeUndefined()
     }
+  })
+})
+
+async function chain() {
+  const collections = await getCollectionService()
+  const ws = crypto.randomUUID()
+  const root = (await collections.create({ workspaceId: ws, name: 'Root', authType: 'bearer', authData: '{"token":"t"}' })).data!
+  const mid = (await collections.create({ workspaceId: ws, name: 'Mid', parentId: root.id })).data!
+  const leaf = (await collections.create({ workspaceId: ws, name: 'Leaf', parentId: mid.id, authType: 'basic', authData: '{}' })).data!
+  return { root, mid, leaf }
+}
+
+async function requestWithOwnAuth(collectionId: string) {
+  const res = await (await getRequestService()).create({
+    collectionId, name: 'r', description: '', protocol: 'http', method: 'GET', url: '', headers: [],
+    body: '', bodyType: 'none', authType: 'basic', authData: '{}', preScript: '', postScript: '',
+  })
+  return res.data!
+}
+
+describe('MockAuthService inherited owner', () => {
+  it('resolves a collection from its parent, ignoring its own scheme', async () => {
+    const { root, leaf } = await chain()
+
+    const res = await new MockAuthService().resolveCollectionOwner(leaf.id)
+
+    expect(res.data).toEqual({ ownerKind: 'collection', ownerId: root.id, authType: 'bearer', authData: '{"token":"t"}' })
+  })
+
+  it('answers a root and a broken parent link with an empty owner and {}', async () => {
+    const { root } = await chain()
+    const collections = await getCollectionService()
+    const orphan = (await collections.create({ workspaceId: root.workspaceId, name: 'Orphan', parentId: crypto.randomUUID() })).data!
+    const empty = { ownerKind: '', ownerId: '', authType: 'none', authData: '{}' }
+
+    expect((await new MockAuthService().resolveCollectionOwner(root.id)).data).toEqual(empty)
+    expect((await new MockAuthService().resolveCollectionOwner(orphan.id)).data).toEqual(empty)
+  })
+
+  it('stops on a parent cycle instead of naming the collection its own owner', async () => {
+    const collections = await getCollectionService()
+    const ws = crypto.randomUUID()
+    const a = (await collections.create({ workspaceId: ws, name: 'A', authType: 'bearer', authData: '{}' })).data!
+    const b = (await collections.create({ workspaceId: ws, name: 'B', parentId: a.id })).data!
+    a.parentId = b.id
+    const self = (await collections.create({ workspaceId: ws, name: 'S', authType: 'bearer', authData: '{}' })).data!
+    self.parentId = self.id
+
+    expect((await new MockAuthService().resolveCollectionOwner(a.id)).data?.ownerId).toBe('')
+    expect((await new MockAuthService().resolveCollectionOwner(self.id)).data?.ownerId).toBe('')
+  })
+
+  it('answers an unknown collection with not_found', async () => {
+    const res = await new MockAuthService().resolveCollectionOwner(crypto.randomUUID())
+
+    expect(res.error?.code).toBe('not_found')
+  })
+
+  it('refuses an owner from another workspace in both previews', async () => {
+    const collections = await getCollectionService()
+    const foreign = (await collections.create({ workspaceId: crypto.randomUUID(), name: 'F', authType: 'bearer', authData: '{}' })).data!
+    const child = (await collections.create({ workspaceId: crypto.randomUUID(), name: 'C', parentId: foreign.id })).data!
+    const req = await requestWithOwnAuth(child.id)
+
+    expect((await new MockAuthService().resolveCollectionOwner(child.id)).error?.code).toBe('validation')
+    expect((await new MockAuthService().resolveOwner(req.id)).error?.code).toBe('validation')
+  })
+
+  it('resolves a request from its collection whatever scheme it has saved', async () => {
+    const { mid, root } = await chain()
+    const req = await requestWithOwnAuth(mid.id)
+
+    const res = await new MockAuthService().resolveOwner(req.id)
+
+    expect(res.data?.ownerId).toBe(root.id)
   })
 })

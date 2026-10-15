@@ -64,6 +64,7 @@ export interface AuthServiceAPI {
   fetchToken(req: AuthConfigReq): Promise<Result<TokenStatus>>
   clearToken(req: AuthConfigReq): Promise<Result<Record<string, never>>>
   resolveOwner(requestId: string): Promise<Result<ResolvedOwner>>
+  resolveCollectionOwner(collectionId: string): Promise<Result<ResolvedOwner>>
   startAuthCodeFlow(req: StartFlowReq): Promise<Result<FlowInfo>>
   startDeviceFlow(req: StartFlowReq): Promise<Result<FlowInfo>>
   flowStatus(flowId: string): Promise<Result<FlowStatus>>

@@ -397,16 +397,58 @@ func TestAuthService_ClearToken_InvalidOwnerID(t *testing.T) {
 	assert.Empty(t, f.provider.cleared)
 }
 
-func TestAuthService_ResolveOwner_OwnAuth(t *testing.T) {
+func TestAuthService_ResolveOwner_IgnoresTheRequestsOwnScheme(t *testing.T) {
 	f := newAuthFixture(t)
 
 	res := f.svc.ResolveOwner(dto.ResolveOwnerRequest{RequestID: f.req.ID.String()})
 
 	require.Nil(t, res.Error)
-	assert.Equal(t, entities.AuthOwnerKindRequest, res.Data.OwnerKind)
-	assert.Equal(t, f.req.ID.String(), res.Data.OwnerID)
-	assert.Equal(t, string(entities.AuthTypeOAuth2), res.Data.AuthType)
+	assert.Empty(t, res.Data.OwnerKind)
+	assert.Equal(t, string(entities.AuthTypeNone), res.Data.AuthType)
+}
+
+func TestAuthService_ResolveOwner_RefusesAnOwnerFromAnotherWorkspace(t *testing.T) {
+	f := newAuthFixture(t)
+	root := fixtureCollection("foreign", 1)
+	root.WorkspaceID = uuid.New()
+	root.AuthType = entities.AuthTypeBearer
+	f.coll.ParentID = &root.ID
+	f.colls.byID[root.ID] = root
+
+	res := f.svc.ResolveOwner(dto.ResolveOwnerRequest{RequestID: f.req.ID.String()})
+
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+}
+
+func TestAuthService_ResolveCollectionOwner(t *testing.T) {
+	f := newAuthFixture(t)
+	root := fixtureCollection("root", 1)
+	root.WorkspaceID = f.coll.WorkspaceID
+	root.AuthType = entities.AuthTypeOAuth2
+	root.AuthData = authFixtureData
+	f.coll.ParentID = &root.ID
+	f.coll.AuthType = entities.AuthTypeBasic
+	f.colls.byID[root.ID] = root
+
+	res := f.svc.ResolveCollectionOwner(dto.ResolveCollectionOwnerRequest{CollectionID: f.coll.ID.String()})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, entities.AuthOwnerKindCollection, res.Data.OwnerKind)
+	assert.Equal(t, root.ID.String(), res.Data.OwnerID)
 	assert.Equal(t, authFixtureData, res.Data.AuthData)
+}
+
+func TestAuthService_ResolveCollectionOwner_BadInput(t *testing.T) {
+	f := newAuthFixture(t)
+
+	res := f.svc.ResolveCollectionOwner(dto.ResolveCollectionOwnerRequest{CollectionID: "nope"})
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeValidation, res.Error.Code)
+
+	res = f.svc.ResolveCollectionOwner(dto.ResolveCollectionOwnerRequest{CollectionID: uuid.New().String()})
+	require.NotNil(t, res.Error)
+	assert.Equal(t, ErrCodeNotFound, res.Error.Code)
 }
 
 func TestAuthService_ResolveOwner_InheritFindsAncestor(t *testing.T) {

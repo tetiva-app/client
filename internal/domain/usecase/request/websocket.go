@@ -42,7 +42,10 @@ func (u *usecase) ResolveWebSocket(ctx context.Context, requestID, workspaceID u
 		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
-	pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+	pre, err := u.runPreScriptForNonHTTP(ctx, req, vars)
+	if err != nil {
+		return websocket.ResolvedDial{}, fmt.Errorf("%s: %w", funcName, err)
+	}
 	settings := websocket.ParseSettings(req.Body)
 	dial := websocket.ResolvedDial{
 		URL:          pre.URL,

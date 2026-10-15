@@ -15,7 +15,7 @@ import (
 )
 
 // BuildCurl reuses the Execute prep pipeline but sends nothing and never acquires a token: an oauth2
-// request renders from the cached one or without credentials. HTTP only; a pre-script error does not abort.
+// request renders from the cached one or without credentials. HTTP only.
 func (u *usecase) BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error) {
 	const funcName = "request.BuildCurl"
 
@@ -44,7 +44,7 @@ func (u *usecase) BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt)
 
 	prep, scriptResult, err := u.prepareHTTP(ctx, req, vars, resolvedAuth, prepareOpt{TokenFromCacheOnly: true, SkipFileRead: true})
 	if err != nil {
-		return CurlResult{ScriptResult: scriptResult}, fmt.Errorf("%s: %w", funcName, err)
+		return CurlResult{}, fmt.Errorf("%s: %w", funcName, err)
 	}
 
 	var cookies []*http.Cookie

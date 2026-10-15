@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { ShieldOff } from 'lucide-vue-next'
 import AuthEditor from './AuthEditor.vue'
 import AuthSelect from './auth/AuthSelect.vue'
+import InheritedAuth from './InheritedAuth.vue'
 import type { AuthType } from '@/types/request'
 import { collectionAuthOptions } from '@/constants/auth'
 import { switchAuthDraft } from '@/composables/useAuthDrafts'
@@ -21,7 +22,7 @@ const emit = defineEmits<{
   'update:authData': [value: string]
 }>()
 
-const authTypeOptions = computed(() => collectionAuthOptions())
+const authTypeOptions = computed(() => collectionAuthOptions(!!props.nested))
 
 const tokens = useAuthTokenStore()
 
@@ -65,15 +66,19 @@ function selectType(value: AuthType) {
       @update:auth-data="emit('update:authData', $event)"
     />
 
-    <div v-if="authType === 'none'" class="flex flex-col items-center justify-center py-16 text-center">
+    <div v-if="authType === 'none' && nested" class="py-10 text-center">
+      <p class="text-sm text-muted-foreground">Requests in this collection inherit auth from parent collections</p>
+      <InheritedAuth kind="collection" :id="collectionId">
+        <template #none>No parent collection sets auth — requests here go without it unless they set their own</template>
+      </InheritedAuth>
+    </div>
+
+    <div v-else-if="authType === 'none'" class="flex flex-col items-center justify-center py-16 text-center">
       <div class="rounded-lg bg-muted/20 p-4 mb-4 border border-border/50">
         <ShieldOff class="size-7 text-muted-foreground/60" />
       </div>
       <p class="text-sm font-medium text-muted-foreground">No authorization</p>
-      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">
-        <template v-if="nested">Requests in this collection use the parent collection's auth, if it has one</template>
-        <template v-else>Requests in this collection will be sent without auth headers</template>
-      </p>
+      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">Requests in this collection will be sent without auth headers</p>
     </div>
   </div>
 </template>

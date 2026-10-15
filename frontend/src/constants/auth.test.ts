@@ -31,16 +31,17 @@ describe('auth type registry', () => {
 })
 
 describe('collectionAuthOptions', () => {
-  it('never offers inherit', () => {
-    expect(collectionAuthOptions().map(o => o.value)).not.toContain('inherit')
+  it('never offers inherit as a value', () => {
+    expect(collectionAuthOptions(true).map(o => o.value)).not.toContain('inherit')
   })
 
-  it('renames none for collections', () => {
-    expect(collectionAuthOptions().find(o => o.value === 'none')?.label).toBe('No Auth')
+  it('names none Inherit on a nested collection and No Auth on a root', () => {
+    expect(collectionAuthOptions(true).find(o => o.value === 'none')?.label).toBe('Inherit')
+    expect(collectionAuthOptions(false).find(o => o.value === 'none')?.label).toBe('No Auth')
   })
 
   it('lists every collection type', () => {
-    expect(collectionAuthOptions().map(o => o.value).sort()).toEqual([...COLLECTION_AUTH_TYPES].sort())
+    expect(collectionAuthOptions(false).map(o => o.value).sort()).toEqual([...COLLECTION_AUTH_TYPES].sort())
   })
 })
 

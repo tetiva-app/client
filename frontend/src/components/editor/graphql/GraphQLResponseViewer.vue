@@ -3,6 +3,7 @@ import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
+import { useFindShortcut } from '@/composables/useFindShortcut'
 import SaveExampleInline from '../examples/SaveExampleInline.vue'
 import CompareButton from '@/components/compare/CompareButton.vue'
 import LatencyDelta from '@/components/compare/LatencyDelta.vue'
@@ -100,6 +101,8 @@ function formatSize(bytes: number): string {
 
 const codeViewerRef = ref<{ setSearch: (q: string) => void; findNext: () => void; findPrev: () => void } | null>(null)
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const onFindShortcut = useFindShortcut(searchInput)
 
 function handleSearch() {
   codeViewerRef.value?.setSearch(searchQuery.value)
@@ -127,7 +130,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full" @keydown="onFindShortcut">
     <div v-if="state.status === 'idle'" class="flex flex-col h-full">
       <div class="flex items-center h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs text-muted-foreground shrink-0">
         Response
@@ -235,6 +238,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
           <div class="relative">
             <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
             <input
+              ref="searchInput"
               v-model="searchQuery"
               class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
               placeholder="Search..."

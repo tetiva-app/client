@@ -109,6 +109,26 @@ func TestPreScript_SyntaxError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPreScript_BtoaAtob(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	result, err := engine.RunPreScript(context.Background(), `
+		pm.request.headers.upsert({key: 'Authorization', value: 'Basic ' + btoa('user:pass')});
+		pm.request.headers.upsert({key: 'X-Decoded', value: atob('dXNlcjpwYXNz')});
+	`, newContext())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Basic dXNlcjpwYXNz"}, result.Headers["Authorization"])
+	assert.Equal(t, []string{"user:pass"}, result.Headers["X-Decoded"])
+}
+
+func TestPreScript_BtoaRejectsNonLatin1(t *testing.T) {
+	engine := scriptengine.NewGojaEngine()
+	_, err := engine.RunPreScript(context.Background(), `btoa('пароль')`, newContext())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Latin1")
+}
+
 func TestPreScript_HeadersPassthrough(t *testing.T) {
 	engine := scriptengine.NewGojaEngine()
 	sctx := newContext()

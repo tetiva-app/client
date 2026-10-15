@@ -2,8 +2,17 @@ package request
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/tetiva-app/client/internal/domain"
 )
+
+const ReasonPreScriptFailed = "pre_script_failed"
+
+func preScriptFailed(err error) error {
+	return &domain.ReasonError{Reason: ReasonPreScriptFailed, Err: fmt.Errorf("pre-request script failed: %w", err)}
+}
 
 type ScriptContext struct {
 	Variables          map[string]string

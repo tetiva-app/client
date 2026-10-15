@@ -62,7 +62,7 @@ function handleSearchEsc() { search.reset() }
 
 function handleGlobalCmdF(e: KeyboardEvent) {
   const isCmdF = isModShortcut(e, 'KeyF', 'f')
-  if (!isCmdF) return
+  if (!isCmdF || e.defaultPrevented) return
   const active = document.activeElement as HTMLElement | null
   if (active?.closest('.cm-editor')) return
   e.preventDefault()

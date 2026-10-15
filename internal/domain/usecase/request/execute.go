@@ -202,7 +202,10 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		return nil, &domain.ValidationError{Fields: map[string]string{"protocol": "use Connect for websocket, not Execute"}}
 
 	case entities.ProtocolGRPC:
-		pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+		pre, preErr := u.runPreScriptForNonHTTP(ctx, req, vars)
+		if preErr != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, preErr)
+		}
 		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
 		grpcMetadata := substituteMetadata(pre.Metadata, vars)
 		grpcReq := GRPCExecuteRequest{
@@ -219,7 +222,10 @@ func (u *usecase) Execute(ctx context.Context, id uuid.UUID, opt ExecuteOpt) (*e
 		grpcRequestMetadata = grpcMetadata
 
 	case entities.ProtocolGraphQL:
-		pre := u.runPreScriptForNonHTTP(ctx, req, vars)
+		pre, preErr := u.runPreScriptForNonHTTP(ctx, req, vars)
+		if preErr != nil {
+			return nil, fmt.Errorf("%s: %w", funcName, preErr)
+		}
 		scriptResult, vars, execURL = pre.ScriptResult, pre.Vars, pre.URL
 		headers, body := pre.Headers, pre.Body
 		authFields, fieldsErr := auth.ParseFields(resolvedAuth.Data)
@@ -468,7 +474,7 @@ func (u *usecase) runPreScriptForNonHTTP(
 	ctx context.Context,
 	req *entities.Request,
 	vars map[string]string,
-) preScriptOutcome {
+) (preScriptOutcome, error) {
 	// The script sees the raw placeholders; its header map is substituted once
 	// afterwards, with whatever variables the script left behind.
 	rawHeaders := entities.EnabledHeadersToMap(req.Headers)
@@ -477,18 +483,13 @@ func (u *usecase) runPreScriptForNonHTTP(
 
 	out := preScriptOutcome{Vars: vars, URL: execURL, Body: body, Headers: substituteHeaders(rawHeaders, vars), Metadata: req.GRPCMetadata}
 
-	preScript, preResolveErr := u.scriptResolver.ResolvePreScript(ctx, req)
-	if preResolveErr != nil {
-		out.ScriptResult = &entities.ScriptResult{
-			Errors: []entities.ScriptError{{Phase: "pre-script", Message: preResolveErr.Error()}},
-		}
-		return out
+	preScript, err := u.scriptResolver.ResolvePreScript(ctx, req)
+	if err != nil {
+		return preScriptOutcome{}, err
 	}
 	if preScript == "" || u.scriptEngine == nil {
-		return out
+		return out, nil
 	}
-	scriptResult := &entities.ScriptResult{}
-	out.ScriptResult = scriptResult
 	preCtx := ScriptContext{
 		Variables:      vars,
 		RequestMethod:  string(req.Method),
@@ -506,14 +507,11 @@ func (u *usecase) runPreScriptForNonHTTP(
 		preCtx.GraphQLVariables = substituteVariables(req.GraphQLVariables, vars)
 		preCtx.GraphQLOperation = req.GraphQLOperation
 	}
-	preResult, preErr := u.scriptEngine.RunPreScript(ctx, preScript, preCtx)
-	if preErr != nil {
-		scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
-			Phase: "pre-script", Message: preErr.Error(),
-		})
-		return out
+	preResult, err := u.scriptEngine.RunPreScript(ctx, preScript, preCtx)
+	if err != nil {
+		return preScriptOutcome{}, preScriptFailed(err)
 	}
-	scriptResult.PreConsole = preResult.ConsoleOutput
+	out.ScriptResult = &entities.ScriptResult{PreConsole: preResult.ConsoleOutput}
 	if req.Protocol == entities.ProtocolGRPC {
 		out.Metadata = preResult.Metadata
 	}
@@ -523,5 +521,5 @@ func (u *usecase) runPreScriptForNonHTTP(
 		out.Body = substituteVariables(req.Body, out.Vars)
 	}
 	out.Headers = substituteHeaders(preResult.Headers, out.Vars)
-	return out
+	return out, nil
 }

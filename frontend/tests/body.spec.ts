@@ -70,6 +70,20 @@ test.describe('Body Editor', () => {
     await expect(editor).toContainText('"name"');
   });
 
+  test('Cmd+F in the body editor focuses the body search', async ({ page }) => {
+    await createAndOpenRequest(page);
+
+    const typeSelector = page.locator('button[role="combobox"]').last();
+    await typeSelector.click();
+    await page.locator('[role="listbox"] [role="option"]', { hasText: 'JSON' }).click();
+
+    const editor = page.locator('.cm-content:not([aria-placeholder*="request URL"])');
+    await editor.click();
+    await editor.press('ControlOrMeta+f');
+
+    await expect(page.getByPlaceholder('Search...', { exact: true })).toBeFocused();
+  });
+
   test('should format JSON body', async ({ page }) => {
     await createAndOpenRequest(page);
 

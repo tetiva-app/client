@@ -16,9 +16,14 @@ type TokenStatusDTO struct {
 	ExpiresAt string `json:"expiresAt"`
 }
 
-// ResolveOwnerRequest asks which entity holds the auth a request effectively uses.
+// ResolveOwnerRequest asks what a request set to Inherit would use.
 type ResolveOwnerRequest struct {
 	RequestID string `json:"requestId"`
+}
+
+// ResolveCollectionOwnerRequest asks what a collection's ancestors pass down to it.
+type ResolveCollectionOwnerRequest struct {
+	CollectionID string `json:"collectionId"`
 }
 
 // OwnerKind and OwnerID are empty when the inherit chain ends without a configured

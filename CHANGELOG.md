@@ -4,6 +4,7 @@
 
 ### Added
 
+- `btoa` and `atob` in scripts, so a Postman pre-request script that builds a Basic header with `btoa(...)` runs as it is
 - gRPC over TLS: an address starting with `grpcs://` or `https://` dials TLS 1.2+ against the system's trusted certificates, on port 443 when none is given; `grpc://`, `http://` and a bare `host:port` stay plaintext. A lock before the address shows which one a call uses and switches it with a click; when the whole address is one `{{variable}}`, the variable decides and the lock is disabled. A TLS mismatch error names the scheme to add or drop, `grpcs://` or `https://` after the one you typed, and Copy as gRPCurl follows the address. Version 1.2.1 and older can't call an address with a scheme synced to them ("too many colons in address"), so update every device
 - `pm.expect` and `pm.response.to` in scripts, on chai 4.5 like Postman's: chai's `expect` assertions (`equal`, `eql`, `include`, `property`, `lengthOf` and the rest), `pm.response.to.have.status(code or reason)`, `header`, `body` and `jsonBody`, `pm.response.to.be.json` and the status classes (`ok`, `success`, `clientError`, `serverError`, `notFound` and others); on a gRPC response `to.be.ok` means status 0. They work in pre-request scripts too, `pm.response` gains `headers.get`, `headers.has` and `responseTime`, and the script editor completes them
 - The bearer token and the API key value are masked like the basic-auth password, with a show/hide toggle; a value made only of `{{variable}}` references stays readable
@@ -17,6 +18,7 @@
 
 ### Changed
 
+- A pre-request script that fails stops the send, as in Postman: the request does not go out and the response pane says Request not sent with the script's error. It used to go out without anything the script would have added, the error showing only on the Tests tab. Copy as cURL fails with the same error instead of copying a command without the script's headers, and a WebSocket does not connect
 - The app platform moved to Wails v3 beta.28 (from beta.16): on Windows a crashed WebView2 renderer is recovered instead of leaving a blank window, a malformed asset request no longer takes the app down and aborted requests are cancelled; a memory leak on macOS and Linux is gone; the server build stops cleanly on Ctrl+C and SIGTERM
 - MCP `get_request` returns headers as `{key, value, enabled}`, the shape `create_request` and `update_request` take; `update_request` still accepts `{Key, Value, Enabled}`
 - MCP leaves a credential header readable when its value is only `{{variable}}` references, also behind an auth scheme: `Bearer {{token}}` or `{{a}}{{b}}`. A value with any literal text in it is still masked whole
@@ -33,13 +35,14 @@
 
 ### Fixed
 
+- Cmd+F (Ctrl+F on Windows and Linux) after clicking into a response body, a request body or a GraphQL response or schema focuses that panel's search box; it did nothing there. Elsewhere it still focuses the sidebar search
 - The authorization type menu shows all nine schemes; JWT Bearer, Digest and AWS Signature hid behind a scrollbar macOS does not draw
 - A GraphQL request with both a URL and an attached schema file loads the schema from the file instead of failing with "got both", and a request with only a file loads it on open. When the file is not on this computer, such as a teammate's synced path, the schema comes from the URL and a hint says so; the path stays attached
 - A replay draft from History drops every credential header (`X-API-Key`, `X-Auth-Token` and the like, not only `Authorization` and `Cookie`), every query parameter named like a credential and, in history recorded from this version on, the header an API key went out in under a custom name such as `appid`, whether the request set the key or inherited it
 - The error of a failed send masks credentials in the URL it quotes: query parameters named like credentials and the ones auth added under a name of its own, such as an API key in `appid=`
 - MCP `send_request` masks the active environment's secret values, the response headers it masks and the secrets of the request's own or inherited auth, the encoded basic-auth value and a cached OAuth 2.0 token included, when a failed test or `console.log` in the script output quotes them. It masks what the request actually went out with too: a signed JWT, a token a pre-request script swapped in, the URL-encoded form of a query API key and a sent `Cookie` header, whole and each cookie value on its own
 - Auth settings typed for one scheme come back when you switch back to it after leaving the Auth tab, in requests and collections alike
-- A nested collection without auth says its requests use the parent collection's auth, if it has one, instead of "sent without auth headers"
+- A nested collection's Auth tab offers Inherit instead of No Auth and shows the scheme it inherits and the collection it comes from, with that collection's token status for OAuth 2.0; a request switched to Inherit no longer shows its own unsaved scheme as the inherited one
 - An environment row in Manage Environments no longer nests its set-active button inside another button, which screen readers announced as two overlapping controls
 - Loading a schema resolves the active environment's `{{variables}}` the way sending does: gRPC reflection on an address like `{{grpcUrl}}`, over TLS when it holds `grpcs://…`, and GraphQL introspection of `{{baseUrl}}/graphql` with its headers, the example and definition lookups included
 - Cancel on an HTTP, GraphQL or gRPC request stops the call itself instead of only the wait for it: the request is aborted, so the server sees the client go away, the post-response script does not run, and the cancelled run leaves nothing in History and keeps no variables its pre-request script changed

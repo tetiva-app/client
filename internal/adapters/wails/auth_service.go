@@ -118,8 +118,7 @@ func (s *AuthService) ClearToken(req dto.AuthConfigRequest) Result[Empty] {
 	return OK(Empty{})
 }
 
-// ResolveOwner walks the inherit chain so a request set to inherit can show the
-// collection's auth read-only, and address its token by the same owner key.
+// ResolveOwner ignores the saved scheme: a switch to Inherit may not be saved yet.
 func (s *AuthService) ResolveOwner(req dto.ResolveOwnerRequest) Result[dto.ResolvedOwnerDTO] {
 	const funcName = "AuthService.ResolveOwner"
 	ctx := context.Background()
@@ -138,16 +137,55 @@ func (s *AuthService) ResolveOwner(req dto.ResolveOwnerRequest) Result[dto.Resol
 		return Err[dto.ResolvedOwnerDTO](&domain.NotFoundError{Entity: "request", ID: req.RequestID})
 	}
 
-	ra, err := s.resolver.ResolveAuth(ctx, r)
+	inherit := *r
+	inherit.AuthType = entities.AuthTypeInherit
+	ra, err := s.resolver.ResolveAuth(ctx, &inherit)
 	if err != nil {
 		return Err[dto.ResolvedOwnerDTO](fmt.Errorf("%s: %w", funcName, err))
 	}
 
-	out := dto.ResolvedOwnerDTO{AuthType: string(ra.Type), AuthData: ra.Data}
-	if ra.Owner.Kind != "" {
-		out.OwnerKind = ra.Owner.Kind
-		out.OwnerID = ra.Owner.ID.String()
+	return s.inheritedOwner(ctx, r.CollectionID, ra)
+}
+
+func (s *AuthService) ResolveCollectionOwner(req dto.ResolveCollectionOwnerRequest) Result[dto.ResolvedOwnerDTO] {
+	const funcName = "AuthService.ResolveCollectionOwner"
+	ctx := context.Background()
+
+	id, err := uuid.Parse(req.CollectionID)
+	if err != nil {
+		return Err[dto.ResolvedOwnerDTO](&domain.ValidationError{Fields: map[string]string{
+			"collectionId": "invalid UUID",
+		}})
 	}
+	ra, err := s.resolver.ResolveInherited(ctx, id)
+	if err != nil {
+		return Err[dto.ResolvedOwnerDTO](fmt.Errorf("%s: %w", funcName, err))
+	}
+
+	return s.inheritedOwner(ctx, id, ra)
+}
+
+func (s *AuthService) inheritedOwner(ctx context.Context, startID uuid.UUID, ra request.ResolvedAuth) Result[dto.ResolvedOwnerDTO] {
+	const funcName = "AuthService.inheritedOwner"
+
+	out := dto.ResolvedOwnerDTO{AuthType: string(ra.Type), AuthData: ra.Data}
+	if ra.Owner.Kind == "" {
+		return OK(out)
+	}
+	start, err := s.collections.GetByID(ctx, startID)
+	if err != nil {
+		return Err[dto.ResolvedOwnerDTO](fmt.Errorf("%s: %w", funcName, err))
+	}
+	if start == nil {
+		return Err[dto.ResolvedOwnerDTO](&domain.NotFoundError{Entity: "collection", ID: startID.String()})
+	}
+	if ra.Owner.WorkspaceID != start.WorkspaceID {
+		return Err[dto.ResolvedOwnerDTO](&domain.ValidationError{Fields: map[string]string{
+			"workspace": "the inherited auth belongs to another workspace",
+		}})
+	}
+	out.OwnerKind = ra.Owner.Kind
+	out.OwnerID = ra.Owner.ID.String()
 
 	return OK(out)
 }

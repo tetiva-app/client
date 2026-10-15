@@ -21,7 +21,7 @@ func TestSandbox_GlobalsVisibleToScripts(t *testing.T) {
 	require.Len(t, res.ConsoleOutput, 1)
 
 	globals := strings.Split(res.ConsoleOutput[0], ",")
-	assert.Subset(t, globals, []string{"pm", "console", "JSON", "Math", "Promise"})
+	assert.Subset(t, globals, []string{"pm", "console", "JSON", "Math", "Promise", "btoa", "atob"})
 
 	for _, forbidden := range []string{"process", "require", "module", "exports", "Buffer",
 		"fetch", "XMLHttpRequest", "WebSocket", "setTimeout", "setInterval", "__dirname"} {

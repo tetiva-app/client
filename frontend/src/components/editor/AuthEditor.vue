@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onActivated, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import type { AuthType } from '@/types/request'
 import AuthSelect from './auth/AuthSelect.vue'
 import AuthTextField from './auth/AuthTextField.vue'
-import { useCollectionStore } from '@/stores/collections'
-import { useRequestStore } from '@/stores/tabs'
+import InheritedAuth from './InheritedAuth.vue'
 import { AUTH_TYPE_LABELS, REQUEST_AUTH_OPTIONS } from '@/constants/auth'
 import { authFormValues, setAuthField } from '@/lib/auth-data'
 import { switchAuthDraft } from '@/composables/useAuthDrafts'
 import { hasLiteral } from '@/lib/secrets'
-import { tokenStatusLabel, useAuthTokenStore } from '@/stores/auth-tokens'
-import { getAuthService } from '@/services'
-import type { AuthOwnerKind, ResolvedOwner } from '@/services/auth-api'
+import { useAuthTokenStore } from '@/stores/auth-tokens'
+import type { AuthOwnerKind } from '@/services/auth-api'
 
 // The new forms carry CodeMirror (JWT claims) and a token panel; the tab opens
 // on basic/bearer far more often than on those.
@@ -82,79 +80,7 @@ function updateField(field: string, value: string) {
   emit('update:authData', setAuthField(props.authData, field, value))
 }
 
-// Inherit shows what the request will actually send, read-only; the owner also
-// addresses the token, so an inherited OAuth 2.0 status is the collection's.
 const tokens = useAuthTokenStore()
-const collections = useCollectionStore()
-const tabs = useRequestStore()
-const inherited = ref<ResolvedOwner | null>(null)
-
-const inheritedType = computed(() => inherited.value?.authType as AuthType | undefined)
-
-const inheritedLabel = computed(() => {
-  const type = inheritedType.value
-  return type ? AUTH_TYPE_LABELS[type] ?? type : ''
-})
-
-// An inherited digest/aws_sigv4 fails on send just as a directly chosen one
-// does, and the selector says nothing about it — the inherit block must.
-const inheritedHttpOnlyBlocked = computed(() =>
-  !httpOnly.value && props.authType === 'inherit' && !!inheritedType.value && HTTP_ONLY_TYPES.includes(inheritedType.value),
-)
-
-const inheritedOwnerName = computed(() => {
-  const owner = inherited.value
-  if (!owner || owner.ownerKind !== 'collection') return ''
-  return collections.collectionsMap.get(owner.ownerId)?.name ?? ''
-})
-
-const inheritedStatus = computed(() => {
-  const owner = inherited.value
-  if (!owner || owner.authType !== 'oauth2') return ''
-  return tokenStatusLabel(tokens.entry(owner.ownerKind, owner.ownerId))
-})
-
-// The flow buttons live on the owning collection, so the name is the way there.
-function openOwnerCollection() {
-  const owner = inherited.value
-  if (!owner || owner.ownerKind !== 'collection' || !inheritedOwnerName.value) return
-  tabs.openCollectionTab(owner.ownerId, inheritedOwnerName.value, { initialSection: 'authorization' })
-}
-
-// Three triggers can overlap, so the newest answer wins.
-let load = 0
-
-async function loadInherited() {
-  const generation = ++load
-  if (props.authType !== 'inherit' || props.ownerKind !== 'request' || !props.ownerId) {
-    inherited.value = null
-    return
-  }
-
-  const service = await getAuthService()
-  const result = await service.resolveOwner(props.ownerId)
-  if (generation !== load) return
-  if (result.error || !result.data.ownerId) {
-    inherited.value = null
-    return
-  }
-
-  inherited.value = result.data
-  if (result.data.authType === 'oauth2') {
-    await tokens.refresh({
-      ownerKind: result.data.ownerKind as AuthOwnerKind,
-      ownerId: result.data.ownerId,
-      authType: result.data.authType,
-      authData: result.data.authData,
-    })
-  }
-}
-
-watch(() => [props.authType, props.ownerId], () => { void loadInherited() })
-onMounted(() => { void loadInherited() })
-// The tab stays alive under KeepAlive: editing the owning collection and coming
-// back would otherwise leave the scheme, the owner and the warning as they were.
-onActivated(() => { void loadInherited() })
 </script>
 
 <template>
@@ -175,25 +101,7 @@ onActivated(() => { void loadInherited() })
 
     <div v-if="authType === 'inherit'" class="py-6 text-center">
       <p class="text-sm text-muted-foreground">This request inherits authentication from its parent collection</p>
-      <template v-if="inherited">
-        <p class="mt-2 text-xs text-muted-foreground" data-testid="inherited-auth">
-          {{ inheritedLabel }} configured on
-          <button
-            v-if="inheritedOwnerName"
-            class="text-primary hover:underline cursor-pointer"
-            type="button"
-            data-testid="inherited-auth-owner"
-            @click="openOwnerCollection"
-          >collection “{{ inheritedOwnerName }}”</button>
-          <template v-else>the parent collection</template>
-        </p>
-        <p v-if="inheritedHttpOnlyBlocked" class="mt-2 text-[11px] text-amber-500" data-testid="auth-http-only">
-          {{ inheritedLabel }} is supported for HTTP requests only; this request will fail to send.
-        </p>
-        <p v-if="inheritedStatus" class="mt-1 text-xs text-muted-foreground/70" data-testid="inherited-token-status">
-          {{ inheritedStatus }} — manage the token on that collection's Auth tab
-        </p>
-      </template>
+      <InheritedAuth v-if="ownerKind === 'request' && ownerId" kind="request" :id="ownerId" :protocol="protocol" />
     </div>
 
     <div v-else-if="authType === 'none'" class="py-6 text-center">

@@ -9,6 +9,7 @@ import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
 import { isModShortcut } from '@/lib/shortcut-guards'
+import { useFindShortcut } from '@/composables/useFindShortcut'
 import { isWailsEnvironment, getWindowService } from '@/services'
 import type { GraphQLSchema, GraphQLType } from '@/types/graphql'
 
@@ -23,6 +24,8 @@ const viewMode = ref<'browse' | 'sdl'>('browse')
 
 // Search is shared across both modes.
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const onFindShortcut = useFindShortcut(searchInput)
 
 const navStack = ref<string[]>([])
 
@@ -273,7 +276,7 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full" @keydown="onFindShortcut">
     <div class="flex items-center h-8 px-3 border-b border-border shrink-0 gap-2">
       <div class="flex items-center bg-muted/30 rounded-md p-0.5 gap-0.5">
         <button
@@ -304,6 +307,7 @@ onUnmounted(() => { if (view) { view.destroy(); view = null } })
         <div class="relative">
           <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
           <input
+            ref="searchInput"
             v-model="searchQuery"
             class="h-6 w-32 pl-7 pr-2 text-[11px] bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
             placeholder="Search..."

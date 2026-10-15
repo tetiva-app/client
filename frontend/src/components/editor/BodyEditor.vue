@@ -3,6 +3,7 @@ import { ref, computed, defineAsyncComponent } from 'vue'
 import { Wand2, ChevronDown, Search, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import type { BodyType } from '@/types/request'
 import { saveDraft, getDraft, isTextFamilyTransition } from '@/composables/useBodyDrafts'
+import { useFindShortcut } from '@/composables/useFindShortcut'
 
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 const FormEditor = defineAsyncComponent(() => import('./FormEditor.vue'))
@@ -97,6 +98,8 @@ function onBodyUpdate(value: string) {
 }
 
 const searchQuery = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const onFindShortcut = useFindShortcut(searchInput)
 
 function handleSearchInput() {
   codeEditorRef.value?.setSearch(searchQuery.value)
@@ -132,7 +135,7 @@ function showSearch(type: BodyType): boolean {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full" @keydown="onFindShortcut">
     <div class="flex items-center justify-between px-3 py-2 border-b border-border">
       <div class="relative">
         <button
@@ -173,6 +176,7 @@ function showSearch(type: BodyType): boolean {
           <div class="relative">
             <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
             <input
+              ref="searchInput"
               v-model="searchQuery"
               class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
               placeholder="Search..."

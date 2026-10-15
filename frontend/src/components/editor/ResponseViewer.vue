@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/context-menu'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
 import { isMac } from '@/lib/platform'
+import { useFindShortcut } from '@/composables/useFindShortcut'
 
 const CodeViewer = defineAsyncComponent(() => import('./CodeViewer.vue'))
 
@@ -23,6 +24,8 @@ const sendShortcut = isMac() ? '⌘ Enter' : 'Ctrl Enter'
 const bodyContainer = ref<HTMLElement | null>(null)
 const codeViewerRef = ref<InstanceType<typeof CodeViewer> | null>(null)
 const responseSearchQuery = ref('')
+const responseSearchInput = ref<HTMLInputElement | null>(null)
+const onFindShortcut = useFindShortcut(responseSearchInput)
 
 const props = defineProps<{
   state: ResponseState
@@ -225,7 +228,7 @@ async function saveResponseToFile() {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full" @keydown="onFindShortcut">
     <div v-if="state.status === 'idle'" class="flex flex-col h-full">
       <div class="flex items-center h-9 px-3 border-b border-border bg-[var(--gc-surface)] text-xs text-muted-foreground shrink-0">
         Response
@@ -334,6 +337,7 @@ async function saveResponseToFile() {
           <div class="relative">
             <Search class="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
             <input
+              ref="responseSearchInput"
               v-model="responseSearchQuery"
               class="h-7 w-36 pl-7 pr-2 text-xs bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
               placeholder="Search..."

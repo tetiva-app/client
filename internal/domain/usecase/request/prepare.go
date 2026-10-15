@@ -44,7 +44,7 @@ type prepareOpt struct {
 }
 
 // prepareHTTP runs env vars → pre-script → auth → auto Content-Type → body encoding; ra is applied
-// here so pre-script headers keep their place, and script errors are appended rather than fatal.
+// here so pre-script headers keep their place.
 func (u *usecase) prepareHTTP(
 	ctx context.Context,
 	req *entities.Request,
@@ -71,7 +71,6 @@ func (u *usecase) prepareHTTP(
 		preScript = resolved
 	}
 	if preScript != "" && u.scriptEngine != nil {
-		scriptResult = &entities.ScriptResult{}
 		preCtx := ScriptContext{
 			Variables:      vars,
 			RequestMethod:  string(req.Method),
@@ -81,18 +80,15 @@ func (u *usecase) prepareHTTP(
 		}
 		preResult, preErr := u.scriptEngine.RunPreScript(ctx, preScript, preCtx)
 		if preErr != nil {
-			scriptResult.Errors = append(scriptResult.Errors, entities.ScriptError{
-				Phase: "pre-script", Message: preErr.Error(),
-			})
-		} else {
-			scriptResult.PreConsole = preResult.ConsoleOutput
-			if !mapsEqual(vars, preResult.Variables) {
-				vars = preResult.Variables
-				execURL = substituteVariables(req.URL, vars)
-				body = substituteVariables(req.Body, vars)
-			}
-			headers = substituteHeaders(preResult.Headers, vars)
+			return preparedHTTP{}, nil, fmt.Errorf("%s: %w", funcName, preScriptFailed(preErr))
 		}
+		scriptResult = &entities.ScriptResult{PreConsole: preResult.ConsoleOutput}
+		if !mapsEqual(vars, preResult.Variables) {
+			vars = preResult.Variables
+			execURL = substituteVariables(req.URL, vars)
+			body = substituteVariables(req.Body, vars)
+		}
+		headers = substituteHeaders(preResult.Headers, vars)
 	}
 
 	authFields, authErr := auth.ParseFields(ra.Data)

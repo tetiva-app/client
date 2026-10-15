@@ -14,6 +14,7 @@ import { AuthService } from '../../bindings/github.com/tetiva-app/client/interna
 import {
   AuthConfigRequest,
   FlowRequest,
+  ResolveCollectionOwnerRequest,
   ResolveOwnerRequest,
   StartFlowRequest,
 } from '../../bindings/github.com/tetiva-app/client/internal/adapters/wails/dto'
@@ -40,6 +41,12 @@ export class WailsAuthService implements AuthServiceAPI {
   async resolveOwner(requestId: string): Promise<Result<ResolvedOwner>> {
     return unwrap<ResolvedOwner>(
       await AuthService.ResolveOwner(new ResolveOwnerRequest({ requestId })) as unknown as BindingResult<ResolvedOwner>,
+    )
+  }
+
+  async resolveCollectionOwner(collectionId: string): Promise<Result<ResolvedOwner>> {
+    return unwrap<ResolvedOwner>(
+      await AuthService.ResolveCollectionOwner(new ResolveCollectionOwnerRequest({ collectionId })) as unknown as BindingResult<ResolvedOwner>,
     )
   }
 

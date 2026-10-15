@@ -44,6 +44,10 @@ func (failingAuthResolver) ResolveAuth(_ context.Context, _ *entities.Request) (
 	return request.ResolvedAuth{}, errors.New("auth backend down")
 }
 
+func (failingAuthResolver) ResolveInherited(_ context.Context, _ uuid.UUID) (request.ResolvedAuth, error) {
+	return request.ResolvedAuth{}, errors.New("auth backend down")
+}
+
 func newWSUsecase(t *testing.T, repo *mockRepo, d wsDeps) request.Usecase {
 	t.Helper()
 	var engine request.ScriptEngine = &noopScriptEngine{}

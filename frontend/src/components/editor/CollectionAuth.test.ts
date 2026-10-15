@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createSSRApp, defineComponent } from 'vue'
+import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import { defaultAuthData } from '@/lib/auth-data'
@@ -18,6 +18,9 @@ vi.mock('./auth/AuthSelect.vue', () => ({
   }),
 }))
 vi.mock('./AuthEditor.vue', () => ({ default: { render: () => null } }))
+vi.mock('./InheritedAuth.vue', () => ({
+  default: defineComponent({ setup: (_, { slots }) => () => h('div', { 'data-stub': 'inherited' }, slots.none?.()) }),
+}))
 
 import CollectionAuth from './CollectionAuth.vue'
 
@@ -47,10 +50,12 @@ describe('CollectionAuth', () => {
     expect(sent).toEqual([defaultAuthData('basic'), '{"token":"abc"}'])
   })
 
-  it('says a nested collection without auth falls back to its parent', async () => {
+  it('shows what a nested collection without auth inherits', async () => {
     const html = await render({ authType: 'none', authData: '{}', nested: true })
 
-    expect(html).toContain('use the parent collection')
+    expect(html).toContain('inherit auth from parent collections')
+    expect(html).toContain('data-stub="inherited"')
+    expect(html).toContain('No parent collection sets auth')
     expect(html).not.toContain('without auth headers')
   })
 
@@ -58,5 +63,6 @@ describe('CollectionAuth', () => {
     const html = await render({ authType: 'none', authData: '{}' })
 
     expect(html).toContain('without auth headers')
+    expect(html).not.toContain('data-stub="inherited"')
   })
 })

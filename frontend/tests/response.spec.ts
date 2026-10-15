@@ -46,6 +46,18 @@ test.describe('Response Viewer', () => {
     await expect(page.locator('[data-response-body]')).toContainText('Bob');
   });
 
+  test('Cmd+F in the response body focuses the response search', async ({ page }) => {
+    await createAndOpenRequest(page, 'https://api.example.com/users');
+    await sendRequest(page);
+    const body = page.locator('[data-response-body] .cm-content');
+    await expect(body).toContainText('Alice');
+
+    await body.click();
+    await body.press('ControlOrMeta+f');
+
+    await expect(page.getByPlaceholder('Search...', { exact: true })).toBeFocused();
+  });
+
   test('should show response headers tab', async ({ page }) => {
     await createAndOpenRequest(page, 'https://api.example.com/users');
     await sendRequest(page);

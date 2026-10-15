@@ -11,6 +11,50 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.3.0',
+    date: '2026-10-15',
+    en: {
+      added: [
+        'Compare responses: Compare in the response status bar shows what changed since the previous send, and its menu compares with any of the last ten sends or a saved example, side by side or in one column. In History, select two records to compare them. Secret headers show only whether they were sent.',
+        'Import File… in the sidebar reads Insomnia, Hoppscotch, OpenAPI / Swagger and HAR files as well as Postman ones. Before anything is saved, a preview shows what comes in, which hosts the requests call and what stays behind.',
+        'Postman scripts more often run as they are: pm.expect and pm.response.to work as in Postman, and so do btoa, atob and pm.variables. pm.response.status is now the reason phrase, "OK"; the number is in pm.response.code.',
+        'The Auth tab of a sub-collection says Inherit instead of No Auth and shows which scheme it inherits and from which collection. A request on Inherit with no auth above it says it goes out without auth.',
+        'gRPC over TLS: start the address with grpcs:// or https://; the lock before the address switches the mode. Update Tetiva on every device: older versions cannot call such an address.',
+        'GraphQL: Attach schema loads the schema from a .graphql file or a saved introspection JSON when the server does not answer introspection.',
+        'Russian (beta) now covers importing, environments, history, the collection overview and the script tabs.',
+      ],
+      fixed: [
+        'A pre-request script that fails stops the send, as in Postman: the response pane says Request not sent and shows the error, its line, whose script it was and what it logged. The request used to go out without what the script would have added.',
+        'Cancel stops the request itself: the server sees the client go away, and the cancelled send leaves nothing in History.',
+        'Search in a response or request body highlights every match and counts them, and Cmd+F (Ctrl+F on Windows and Linux) in a body opens its search.',
+        'A file in a form is sent straight from disk, so a large upload no longer takes its size in memory.',
+        'Credentials no longer end up in History replay drafts, in send error messages or in the script output that AI agents see over MCP.',
+        'Pasting a cURL command into the URL bar keeps Inherit auth unless the command has credentials of its own.',
+        'Windows open on the background of your theme instead of flashing navy, and on Windows a crashed page renderer recovers instead of leaving a blank window.',
+      ],
+    },
+    ru: {
+      added: [
+        'Сравнение ответов: кнопка «Сравнить» в строке статуса ответа показывает, что изменилось с прошлой отправки, а её меню сравнивает с любой из десяти последних отправок или с сохранённым примером, рядом или в одну колонку. В истории можно выделить две записи и сравнить их. У секретных заголовков видно только, были ли они отправлены.',
+        '«Импорт из файла…» в боковой панели читает файлы Insomnia, Hoppscotch, OpenAPI / Swagger и HAR, а не только Postman. До сохранения видно, что придёт, на какие хосты пойдут запросы и что не перенесётся.',
+        'Скрипты из Postman чаще работают без правок: есть pm.expect и pm.response.to, как в Postman, а ещё btoa, atob и pm.variables. pm.response.status теперь текст статуса, «OK»; число — в pm.response.code.',
+        'Вкладка Auth у вложенной коллекции показывает Inherit вместо No Auth, а под ним — какую схему она наследует и от какой коллекции. Запрос с Inherit, над которым никто не задал авторизацию, прямо говорит, что уйдёт без неё.',
+        'gRPC через TLS: начните адрес с grpcs:// или https://, замок перед адресом переключает режим. Обновите Tetiva на всех устройствах: старые версии такой адрес не поймут.',
+        'GraphQL: Attach schema загружает схему из файла .graphql или сохранённого JSON интроспекции, если сервер не отвечает на интроспекцию.',
+        'Русский (бета) теперь охватывает импорт, окружения, историю, обзор коллекции и вкладки скриптов.',
+      ],
+      fixed: [
+        'Если скрипт «Перед запросом» упал, запрос не уходит, как в Postman: в панели ответа появляется Request not sent с ошибкой, номером строки, тем, чей это скрипт, и тем, что он успел вывести в консоль. Раньше запрос уходил без того, что должен был добавить скрипт.',
+        'Cancel останавливает сам запрос: сервер видит, что клиент ушёл, а отменённая отправка не остаётся в истории.',
+        'Поиск в теле ответа и запроса подсвечивает все совпадения и показывает их число, а Cmd+F (Ctrl+F в Windows и Linux) в теле открывает его поиск.',
+        'Файл в форме отправляется прямо с диска, и большой файл больше не занимает столько же памяти.',
+        'Учётные данные больше не попадают в черновики повтора из истории, в тексты ошибок отправки и в вывод скриптов, который видят ИИ-агенты через MCP.',
+        'Вставка команды cURL в адресную строку оставляет Inherit, если в команде нет своих учётных данных.',
+        'Окна открываются сразу на фоне вашей темы, без тёмно-синей вспышки. В Windows после сбоя движка страницы окно восстанавливается, а не остаётся пустым.',
+      ],
+    },
+  },
+  {
     version: '1.2.1',
     date: '2026-10-03',
     en: {

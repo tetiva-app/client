@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v1.3.0] — 2026-10-15 — Compare responses
+
 ### Added
 
 - `btoa` and `atob` in scripts, so a Postman pre-request script that builds a Basic header with `btoa(...)` runs as it is. `atob` takes base64 without padding, with whitespace or in base64url, so `JSON.parse(atob(jwt.split('.')[1]))` reads a JWT payload

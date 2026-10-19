@@ -11,6 +11,30 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.3.1',
+    date: '2026-10-19',
+    en: {
+      added: [
+        'AI agents over MCP: what an agent changes shows up in the open app right away. New collections and requests appear in the sidebar, edits in an open tab or window, and a deleted request closes its tab.',
+        'An agent can switch the active environment itself (set_active_environment), and send_request says which environment the request went out with.',
+      ],
+      fixed: [
+        'Saving a tab no longer wipes what an agent or a teammate changed in the request meanwhile. Your unsaved edits stay where you changed other parts of the request; where you both changed the same part, theirs wins.',
+        'Agents no longer refuse to edit a request next to a masked secret: the tool descriptions say a [redacted] value can be sent back as it is.',
+      ],
+    },
+    ru: {
+      added: [
+        'ИИ-агенты через MCP: всё, что агент меняет, сразу видно в открытом приложении. Новые коллекции и запросы появляются в боковой панели, правки — в открытой вкладке или отдельном окне, а вкладка удалённого запроса закрывается.',
+        'Агент может сам переключить активное окружение (set_active_environment), а send_request сообщает, с каким окружением ушёл запрос.',
+      ],
+      fixed: [
+        'Сохранение вкладки больше не затирает то, что агент или коллега поменяли в запросе тем временем. Ваши несохранённые правки остаются, если вы правили разные части запроса; если одну и ту же — остаётся их версия.',
+        'Агенты больше не отказываются править запрос рядом с замаскированным секретом: в описаниях инструментов сказано, что [redacted] можно отправить обратно как есть.',
+      ],
+    },
+  },
+  {
     version: '1.3.0',
     date: '2026-10-15',
     en: {

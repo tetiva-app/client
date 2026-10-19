@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v1.3.1] — 2026-10-19 — MCP agents in the open app
+
 ### Added
 
 - MCP `set_active_environment` makes an environment the active one in its workspace, and the environment picker in the app follows. `send_request` says which environment it ran with under `environment`, `null` when none is active

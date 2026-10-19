@@ -16,7 +16,7 @@ func (s *Server) registerCollectionTools() {
 		mcplib.NewTool("list_collections",
 			mcplib.WithDescription("List all collections in a workspace"),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID ("+workspaceDefaultDoc+")"),
 			),
 		),
 		s.handleListCollections,
@@ -42,7 +42,7 @@ func (s *Server) registerCollectionTools() {
 				mcplib.Description("Collection description"),
 			),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID ("+workspaceDefaultDoc+")"),
 			),
 			mcplib.WithString("parent_id",
 				mcplib.Description("Parent collection UUID (omit for top-level)"),
@@ -57,7 +57,7 @@ func (s *Server) registerCollectionTools() {
 				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidCollectionAuthTypes())+" (default: none; on a nested collection none passes the parent's auth through). 'inherit' is not valid for collections."),
 			),
 			mcplib.WithString("auth_data",
-				mcplib.Description("Auth data as JSON string (shape depends on auth_type)"),
+				mcplib.Description(authDataDoc),
 			),
 		),
 		s.handleCreateCollection,
@@ -65,7 +65,7 @@ func (s *Server) registerCollectionTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("update_collection",
-			mcplib.WithDescription("Update an existing collection (name, description, scripts, auth). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking — pass the current version."),
+			mcplib.WithDescription("Update an existing collection (name, description, scripts, auth). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking — pass the current version. "+redactedEchoDoc+" Restored secrets are listed in kept_secrets."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Collection UUID"),
 			),
@@ -88,7 +88,7 @@ func (s *Server) registerCollectionTools() {
 				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidCollectionAuthTypes())+" (on a nested collection none passes the parent's auth through)"),
 			),
 			mcplib.WithString("auth_data",
-				mcplib.Description("Auth data as JSON string"),
+				mcplib.Description(authDataDoc+" "+redactedEchoDoc),
 			),
 		),
 		s.handleUpdateCollection,
@@ -167,7 +167,7 @@ func (s *Server) handleCreateCollection(ctx context.Context, req mcplib.CallTool
 
 	parentID, err := uuidPtrArg(req, "parent_id")
 	if err != nil {
-		return errResult(fmt.Errorf("parent_id: %w", err)), nil
+		return errResult(err), nil
 	}
 
 	authType := entities.AuthType(stringArg(req, "auth_type", ""))
@@ -195,6 +195,7 @@ func (s *Server) handleCreateCollection(ctx context.Context, req mcplib.CallTool
 	if err != nil {
 		return errResult(err), nil
 	}
+	s.emitCollectionsChanged(c.WorkspaceID)
 
 	result := serializeCollection(c)
 	result["message"] = "collection created"
@@ -242,7 +243,7 @@ func (s *Server) handleUpdateCollection(ctx context.Context, req mcplib.CallTool
 			input.AuthType = at
 		}
 	}
-	restoredAuth, err := restoreAuthData(input.AuthData, current.AuthData)
+	restoredAuth, authKept, err := restoreAuthData(input.AuthData, current.AuthData)
 	if err != nil {
 		return errResult(err), nil
 	}
@@ -254,11 +255,15 @@ func (s *Server) handleUpdateCollection(ctx context.Context, req mcplib.CallTool
 		Version:      version,
 	})
 	if err != nil {
-		return errResult(err), nil
+		return errResult(conflictWithVersion(err, s.collectionVersion(ctx, id))), nil
 	}
+	s.emitCollectionsChanged(c.WorkspaceID)
 
 	result := serializeCollection(c)
 	result["message"] = "collection updated"
+	if authKept {
+		result["kept_secrets"] = []string{"auth_data"}
+	}
 	return jsonResult(result)
 }
 
@@ -275,7 +280,7 @@ func (s *Server) handleMoveCollection(ctx context.Context, req mcplib.CallToolRe
 
 	parentID, err := uuidPtrArg(req, "parent_id")
 	if err != nil {
-		return errResult(fmt.Errorf("parent_id: %w", err)), nil
+		return errResult(err), nil
 	}
 
 	c, err := s.colUC.Move(ctx, collection.MoveOpt{
@@ -285,8 +290,9 @@ func (s *Server) handleMoveCollection(ctx context.Context, req mcplib.CallToolRe
 		Version:        version,
 	})
 	if err != nil {
-		return errResult(err), nil
+		return errResult(conflictWithVersion(err, s.collectionVersion(ctx, id))), nil
 	}
+	s.emitCollectionsChanged(c.WorkspaceID)
 
 	result := serializeCollection(c)
 	result["message"] = "collection moved"
@@ -311,11 +317,22 @@ func (s *Server) handleDeleteCollection(ctx context.Context, req mcplib.CallTool
 	}); err != nil {
 		return errResult(err), nil
 	}
+	s.emitCollectionsChanged(c.WorkspaceID)
 
 	return jsonResult(map[string]any{
 		"id":      id.String(),
 		"deleted": true,
 	})
+}
+
+func (s *Server) collectionVersion(ctx context.Context, id uuid.UUID) func() (int, error) {
+	return func() (int, error) {
+		c, err := s.colUC.GetByID(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		return c.Version, nil
+	}
 }
 
 func uuidArg(req mcplib.CallToolRequest, name, fallback string) uuid.UUID {
@@ -332,7 +349,11 @@ func uuidArgRequired(req mcplib.CallToolRequest, name string) (uuid.UUID, error)
 	if s == "" {
 		return uuid.Nil, fmt.Errorf("%s is required", name)
 	}
-	return uuid.Parse(s)
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil, notUUIDErr(name)
+	}
+	return id, nil
 }
 
 func uuidPtrStr(id *uuid.UUID) string {

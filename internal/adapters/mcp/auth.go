@@ -10,7 +10,7 @@ import (
 // unauthorizedBody is read by a human staring at a failing MCP client, so it
 // names the exact place the working config comes from.
 const unauthorizedBody = "Tetiva MCP: invalid or missing token. " +
-	"Open the app, go to Settings -> MCP / DevTools and use \"Copy config\", " +
+	"Open the app, go to Settings -> AI agents (MCP) / ИИ-агенты (MCP) and use \"Copy config\", " +
 	"or pass the token as Authorization: Bearer <token> or ?token=<token>."
 
 // TokenAuth guards the MCP HTTP endpoints. It is mutable at runtime so that

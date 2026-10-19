@@ -3,11 +3,13 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -27,6 +29,8 @@ const (
 	defaultWorkspaceID = "00000000-0000-4000-a000-000000000001"
 	mcpUserID          = "mcp-devtools"
 
+	workspaceDefaultDoc = "defaults to the Default Workspace, not necessarily the one open in the app; list_workspaces shows is_active"
+
 	// shutdownTimeout caps the graceful phase even when the caller passes a
 	// context without a deadline, so quitting the app never waits on a client.
 	shutdownTimeout = 5 * time.Second
@@ -45,6 +49,8 @@ type Server struct {
 	wsUC      workspace.Usecase
 	auth      *TokenAuth
 	httpSrv   *http.Server
+	emitMu    sync.RWMutex
+	emitFn    func(name string, data any)
 }
 
 func NewServer(
@@ -203,6 +209,18 @@ func errText(err error) string {
 		parts = append(parts, name+": "+valErr.Fields[name])
 	}
 	return valErr.Error() + " (" + strings.Join(parts, "; ") + ")"
+}
+
+func conflictWithVersion(err error, reread func() (int, error)) error {
+	var ce *domain.ConflictError
+	if !errors.As(err, &ce) {
+		return err
+	}
+	v, rereadErr := reread()
+	if rereadErr != nil {
+		return err
+	}
+	return fmt.Errorf("%s version conflict: current version is %d; re-read it and retry", ce.Entity, v)
 }
 
 func textResult(text string) *mcplib.CallToolResult {

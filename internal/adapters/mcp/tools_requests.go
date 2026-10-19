@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -17,6 +18,8 @@ const wsSettingsSchemaDoc = `the connection settings document ` +
 	`{"version":1,"pingIntervalSec":0,"subprotocols":[],` +
 	`"messages":[{"id":"uuid","name":"Login","format":"json|text|binary","data":"payload"}]}` +
 	` (binary data is base64); an empty body means default settings, anything else is rejected`
+
+const varSyntaxDoc = "Use {{name}} for environment variables; path parameters use the same {{name}} syntax (:id and {id} are sent literally)."
 
 func (s *Server) registerRequestTools() {
 	s.mcp.AddTool(
@@ -58,22 +61,22 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS (default: GET, ignored for non-HTTP)"),
 			),
 			mcplib.WithString("url",
-				mcplib.Description("Request URL (HTTP/GraphQL), host:port or grpcs://host[:port] for TLS (gRPC), or ws:// / wss:// endpoint (WebSocket)"),
+				mcplib.Description("Request URL (HTTP/GraphQL), host:port or grpcs://host[:port] for TLS (gRPC), or ws:// / wss:// endpoint (WebSocket). "+varSyntaxDoc),
 			),
 			mcplib.WithString("body",
-				mcplib.Description("Request body (HTTP/gRPC message). For websocket: "+wsSettingsSchemaDoc),
+				mcplib.Description("Request body (HTTP/gRPC message). "+varSyntaxDoc+" For websocket: "+wsSettingsSchemaDoc),
 			),
 			mcplib.WithString("body_type",
 				mcplib.Description("Body type: none, json, xml, form, binary, raw (default: none; forced to raw for websocket)"),
 			),
 			mcplib.WithArray("headers",
-				mcplib.Description("Array of {key, value, enabled} header items"),
+				mcplib.Description("Array of {key, value, enabled} header items. "+varSyntaxDoc),
 			),
 			mcplib.WithString("auth_type",
 				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidAuthTypes())+" (default: inherit)"),
 			),
 			mcplib.WithString("auth_data",
-				mcplib.Description("Auth payload as JSON string (shape depends on auth_type)"),
+				mcplib.Description(authDataDoc),
 			),
 			mcplib.WithString("pre_script",
 				mcplib.Description("JavaScript pre-request script"),
@@ -111,7 +114,7 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("update_request",
-			mcplib.WithDescription("Update an existing request (name, description, url, method, body, headers, auth, scripts, grpc, graphql). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking."),
+			mcplib.WithDescription("Update an existing request (name, description, url, method, body, headers, auth, scripts, grpc, graphql). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking. "+redactedEchoDoc+" Restored secrets are listed in kept_secrets."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Request UUID"),
 			),
@@ -128,22 +131,22 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("HTTP method"),
 			),
 			mcplib.WithString("url",
-				mcplib.Description("Request URL / gRPC host:port (grpcs://host[:port] for TLS)"),
+				mcplib.Description("Request URL / gRPC host:port (grpcs://host[:port] for TLS). "+varSyntaxDoc+" "+redactedEchoDoc),
 			),
 			mcplib.WithString("body",
-				mcplib.Description("Request body. For websocket: "+wsSettingsSchemaDoc),
+				mcplib.Description("Request body. "+varSyntaxDoc+" For websocket: "+wsSettingsSchemaDoc),
 			),
 			mcplib.WithString("body_type",
 				mcplib.Description("Body type (forced to raw for websocket)"),
 			),
 			mcplib.WithArray("headers",
-				mcplib.Description("Array of {key, value, enabled}"),
+				mcplib.Description("Array of {key, value, enabled}. "+varSyntaxDoc+" "+redactedEchoDoc),
 			),
 			mcplib.WithString("auth_type",
 				mcplib.Description("Auth type: "+authTypeDoc(entities.ValidAuthTypes())),
 			),
 			mcplib.WithString("auth_data",
-				mcplib.Description("Auth payload as JSON string"),
+				mcplib.Description(authDataDoc+" "+redactedEchoDoc),
 			),
 			mcplib.WithString("pre_script",
 				mcplib.Description("JavaScript pre-request script"),
@@ -161,7 +164,7 @@ func (s *Server) registerRequestTools() {
 				mcplib.Description("Path to .proto file or directory"),
 			),
 			mcplib.WithObject("grpc_metadata",
-				mcplib.Description("gRPC metadata"),
+				mcplib.Description("gRPC metadata. "+redactedEchoDoc),
 			),
 			mcplib.WithString("graphql_query",
 				mcplib.Description("GraphQL query"),
@@ -197,12 +200,12 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("send_request",
-			mcplib.WithDescription("Execute a stored request (HTTP/gRPC/GraphQL): resolves env vars, runs scripts, returns status/headers/body and appends history"),
+			mcplib.WithDescription("Execute a stored request (HTTP/gRPC/GraphQL): resolves env vars, runs scripts, returns status/headers/body and appends history. Uses the active environment of the workspace; switch it with set_active_environment (this also switches it in the app)."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Request UUID"),
 			),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID of the request's collection, used for env-variable resolution; must match it, otherwise the call is rejected (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID of the request's collection, used for env-variable resolution; must match it, otherwise the call is rejected ("+workspaceDefaultDoc+")"),
 			),
 		),
 		s.handleSendRequest,
@@ -324,6 +327,7 @@ func (s *Server) handleCreateRequest(ctx context.Context, req mcplib.CallToolReq
 	if err != nil {
 		return errResult(err), nil
 	}
+	s.emitRequestsChanged(r.CollectionID)
 
 	result := serializeRequest(r)
 	result["message"] = "request created"
@@ -411,29 +415,42 @@ func (s *Server) handleUpdateRequest(ctx context.Context, req mcplib.CallToolReq
 
 	// The agent only ever saw the masked request, and changing one header means
 	// resending the whole array — so a mask coming back means "keep what is stored".
-	restoredAuth, err := restoreAuthData(input.AuthData, current.AuthData)
+	var kept []string
+	restoredAuth, authKept, err := restoreAuthData(input.AuthData, current.AuthData)
 	if err != nil {
 		return errResult(err), nil
 	}
 	input.AuthData = restoredAuth
+	if authKept {
+		kept = append(kept, "auth_data")
+	}
 
-	restoredURL, err := restoreURLSecrets(input.URL, current.URL)
+	restoredURL, params, err := restoreURLSecrets(input.URL, current.URL)
 	if err != nil {
 		return errResult(err), nil
 	}
 	input.URL = restoredURL
+	for _, name := range params {
+		kept = append(kept, "url.query."+name)
+	}
 
-	restoredHeaders, err := restoreHeaderSecrets(input.Headers, current.Headers)
+	restoredHeaders, headerKeys, err := restoreHeaderSecrets(input.Headers, current.Headers)
 	if err != nil {
 		return errResult(err), nil
 	}
 	input.Headers = restoredHeaders
+	for _, key := range headerKeys {
+		kept = append(kept, "headers."+key)
+	}
 
-	restoredMetadata, err := restoreMetadataSecrets(input.GRPCMetadata, current.GRPCMetadata)
+	restoredMetadata, metadataKeys, err := restoreMetadataSecrets(input.GRPCMetadata, current.GRPCMetadata)
 	if err != nil {
 		return errResult(err), nil
 	}
 	input.GRPCMetadata = restoredMetadata
+	for _, key := range metadataKeys {
+		kept = append(kept, "grpc_metadata."+key)
+	}
 
 	r, err := s.reqUC.Edit(ctx, input, request.EditOpt{
 		RequestID: id,
@@ -441,11 +458,16 @@ func (s *Server) handleUpdateRequest(ctx context.Context, req mcplib.CallToolReq
 		Version:   version,
 	})
 	if err != nil {
-		return errResult(err), nil
+		return errResult(conflictWithVersion(err, s.requestVersion(ctx, id))), nil
 	}
+	s.emitRequestsChanged(r.CollectionID)
+	s.emit("request:updated:"+id.String(), nil)
 
 	result := serializeRequest(r)
 	result["message"] = "request updated"
+	if len(kept) > 0 {
+		result["kept_secrets"] = kept
+	}
 	return jsonResult(result)
 }
 
@@ -465,6 +487,11 @@ func (s *Server) handleMoveRequest(ctx context.Context, req mcplib.CallToolReque
 		return errResult(err), nil
 	}
 
+	current, err := s.reqUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
+	}
+
 	r, err := s.reqUC.Move(ctx, request.MoveOpt{
 		RequestID:          id,
 		TargetCollectionID: targetID,
@@ -472,8 +499,10 @@ func (s *Server) handleMoveRequest(ctx context.Context, req mcplib.CallToolReque
 		Version:            version,
 	})
 	if err != nil {
-		return errResult(err), nil
+		return errResult(conflictWithVersion(err, s.requestVersion(ctx, id))), nil
 	}
+	s.emitRequestsChanged(r.CollectionID, current.CollectionID)
+	s.emit("request:updated:"+id.String(), nil)
 
 	result := serializeRequest(r)
 	result["message"] = "request moved"
@@ -486,7 +515,20 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 		return errResult(err), nil
 	}
 
+	stored, err := s.reqUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
+	}
+	if stored.Protocol == entities.ProtocolWebSocket {
+		return errResult(errors.New("send_request does not run WebSocket requests; open the request in the app")), nil
+	}
+
 	wsID := uuidArg(req, "workspace_id", defaultWorkspaceID)
+
+	env, err := s.activeEnvironment(ctx, wsID)
+	if err != nil {
+		return errResult(err), nil
+	}
 
 	resp, err := s.reqUC.Execute(ctx, id, request.ExecuteOpt{
 		UserID:      mcpUserID,
@@ -498,9 +540,10 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 
 	if resp == nil {
 		return jsonResult(map[string]any{
-			"request_id": id.String(),
-			"executed":   true,
-			"response":   nil,
+			"request_id":  id.String(),
+			"executed":    true,
+			"response":    nil,
+			"environment": env,
 		})
 	}
 
@@ -517,6 +560,7 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 		"is_binary":          resp.IsBinary,
 		"binary_path":        resp.BinaryPath,
 		"suggested_filename": resp.SuggestedFilename,
+		"environment":        env,
 	}
 	if resp.ScriptResult != nil {
 		values, err := s.maskedScriptValues(ctx, wsID, resp.Headers)
@@ -531,6 +575,16 @@ func (s *Server) handleSendRequest(ctx context.Context, req mcplib.CallToolReque
 		out["script_result"] = redactScriptResult(resp.ScriptResult, values)
 	}
 	return jsonResult(out)
+}
+
+func (s *Server) requestVersion(ctx context.Context, id uuid.UUID) func() (int, error) {
+	return func() (int, error) {
+		r, err := s.reqUC.GetByID(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		return r.Version, nil
+	}
 }
 
 func (s *Server) maskedScriptValues(ctx context.Context, wsID uuid.UUID, headers map[string][]string) ([]string, error) {
@@ -572,6 +626,8 @@ func (s *Server) handleDeleteRequest(ctx context.Context, req mcplib.CallToolReq
 	}); err != nil {
 		return errResult(err), nil
 	}
+	s.emitRequestsChanged(r.CollectionID)
+	s.emit("request:deleted:"+id.String(), nil)
 
 	return jsonResult(map[string]any{
 		"id":      id.String(),

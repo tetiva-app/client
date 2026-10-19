@@ -40,7 +40,7 @@ func (s *Server) registerVariableTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("delete_variable",
-			mcplib.WithDescription("Delete a variable by ID"),
+			mcplib.WithDescription("Delete a variable by ID. This is permanent, unlike the other delete_* tools, which soft-delete."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Variable UUID"),
 			),
@@ -102,6 +102,7 @@ func (s *Server) handleCreateVariable(ctx context.Context, req mcplib.CallToolRe
 	if err != nil {
 		return errResult(err), nil
 	}
+	s.emit("env:changed", map[string]any{})
 
 	return jsonResult(map[string]any{
 		"id":        v.ID.String(),
@@ -124,6 +125,7 @@ func (s *Server) handleDeleteVariable(ctx context.Context, req mcplib.CallToolRe
 	}); err != nil {
 		return errResult(err), nil
 	}
+	s.emit("env:changed", map[string]any{})
 
 	return jsonResult(map[string]any{
 		"id":      id.String(),

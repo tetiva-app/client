@@ -18,6 +18,10 @@ import (
 // Tool results reach the MCP client verbatim, so stored credentials are masked in them.
 const redactedValue = "[redacted]"
 
+const redactedEchoDoc = "Values returned as [redacted] may be sent back unchanged: the stored secret is kept. To change a secret, pass the new value."
+
+const authDataDoc = "Auth payload as JSON string. Shapes: bearer {\"token\":\"...\",\"prefix\":\"Bearer\"}; basic and digest {\"username\":\"...\",\"password\":\"...\"}; api_key {\"key\":\"X-Api-Key\",\"value\":\"...\",\"addTo\":\"header\"|\"query\"}; oauth2 {\"grant\":\"client_credentials\",\"tokenUrl\":\"...\",\"clientId\":\"...\",\"clientSecret\":\"...\",\"scope\":\"...\"}; jwt {\"alg\":\"HS256\",\"secret\":\"...\",\"claims\":{}}; aws_sigv4 {\"accessKeyId\":\"...\",\"secretAccessKey\":\"...\",\"region\":\"...\",\"service\":\"...\",\"sessionToken\":\"...\" (optional)}. Values may use {{name}}."
+
 // maskAuthData keeps the "auth is configured" signal without the credentials.
 func maskAuthData(data string) string {
 	trimmed := strings.TrimSpace(data)
@@ -239,14 +243,14 @@ func rejectMask(field, value string) error {
 
 // restoreAuthData answers an auth_data echoed back from a masked read: only the
 // whole field is ever masked, so a marker inside JSON is a corrupted write.
-func restoreAuthData(input, current string) (string, error) {
+func restoreAuthData(input, current string) (string, bool, error) {
 	if input == redactedValue {
-		return current, nil
+		return current, true, nil
 	}
 	if strings.Contains(input, redactedValue) {
-		return "", redactedEmbeddedErr("auth_data")
+		return "", false, redactedEmbeddedErr("auth_data")
 	}
-	return input, nil
+	return input, false, nil
 }
 
 // queryValues indexes a URL's query by lowercased parameter name.
@@ -267,17 +271,18 @@ func queryValues(raw string) map[string][]string {
 
 // restoreURLSecrets puts the stored value back under every query parameter the
 // agent echoed as a mask, so a read-then-write keeps the secret.
-func restoreURLSecrets(input, current string) (string, error) {
+func restoreURLSecrets(input, current string) (string, []string, error) {
 	if !strings.Contains(input, redactedValue) {
-		return input, nil
+		return input, nil, nil
 	}
 	prefix, query, suffix, ok := secrets.SplitQuery(input)
 	if !ok {
-		return "", redactedEchoErr("url")
+		return "", nil, redactedEchoErr("url")
 	}
 
 	stored := queryValues(current)
 	seen := make(map[string]int)
+	var kept []string
 	parts := strings.Split(query, "&")
 	for i, part := range parts {
 		eq := strings.IndexByte(part, '=')
@@ -292,21 +297,22 @@ func restoreURLSecrets(input, current string) (string, error) {
 			continue
 		}
 		if idx >= len(stored[key]) {
-			return "", redactedEchoErr("url parameter " + name)
+			return "", nil, redactedEchoErr("url parameter " + name)
 		}
 		parts[i] = name + "=" + stored[key][idx]
+		kept = append(kept, name)
 	}
 	joined := prefix + strings.Join(parts, "&") + suffix
 	if strings.Contains(joined, redactedValue) {
-		return "", redactedEchoErr("url")
+		return "", nil, redactedEchoErr("url")
 	}
-	return joined, nil
+	return joined, kept, nil
 }
 
 // restoreHeaderSecrets is restoreURLSecrets for header items, matched by key.
-func restoreHeaderSecrets(input, current []entities.HeaderItem) ([]entities.HeaderItem, error) {
+func restoreHeaderSecrets(input, current []entities.HeaderItem) ([]entities.HeaderItem, []string, error) {
 	if input == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	stored := make(map[string][]string, len(current))
 	for _, h := range current {
@@ -317,28 +323,30 @@ func restoreHeaderSecrets(input, current []entities.HeaderItem) ([]entities.Head
 	out := make([]entities.HeaderItem, len(input))
 	copy(out, input)
 	seen := make(map[string]int, len(out))
+	var kept []string
 	for i := range out {
 		key := strings.ToLower(strings.TrimSpace(out[i].Key))
 		idx := seen[key]
 		seen[key]++
 		if out[i].Value != redactedValue {
 			if strings.Contains(out[i].Value, redactedValue) {
-				return nil, redactedEmbeddedErr("header " + out[i].Key)
+				return nil, nil, redactedEmbeddedErr("header " + out[i].Key)
 			}
 			continue
 		}
 		if idx >= len(stored[key]) {
-			return nil, redactedEchoErr("header " + out[i].Key)
+			return nil, nil, redactedEchoErr("header " + out[i].Key)
 		}
 		out[i].Value = stored[key][idx]
+		kept = append(kept, out[i].Key)
 	}
-	return out, nil
+	return out, kept, nil
 }
 
 // restoreMetadataSecrets is restoreHeaderSecrets for the map form gRPC uses.
-func restoreMetadataSecrets(input, current map[string][]string) (map[string][]string, error) {
+func restoreMetadataSecrets(input, current map[string][]string) (map[string][]string, []string, error) {
 	if input == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	stored := make(map[string][]string, len(current))
 	for k, values := range current {
@@ -347,25 +355,32 @@ func restoreMetadataSecrets(input, current map[string][]string) (map[string][]st
 	}
 
 	out := make(map[string][]string, len(input))
+	var kept []string
 	for k, values := range input {
 		key := strings.ToLower(strings.TrimSpace(k))
 		restored := make([]string, len(values))
 		copy(restored, values)
+		keptKey := false
 		for i, v := range restored {
 			if v != redactedValue {
 				if strings.Contains(v, redactedValue) {
-					return nil, redactedEmbeddedErr("grpc_metadata " + k)
+					return nil, nil, redactedEmbeddedErr("grpc_metadata " + k)
 				}
 				continue
 			}
 			if i >= len(stored[key]) {
-				return nil, redactedEchoErr("grpc_metadata " + k)
+				return nil, nil, redactedEchoErr("grpc_metadata " + k)
 			}
 			restored[i] = stored[key][i]
+			keptKey = true
 		}
 		out[k] = restored
+		if keptKey {
+			kept = append(kept, k)
+		}
 	}
-	return out, nil
+	slices.Sort(kept)
+	return out, kept, nil
 }
 
 // rejectRedactedValues guards the create path, where nothing is stored yet to
@@ -420,9 +435,13 @@ func uuidPtrArg(req mcplib.CallToolRequest, name string) (*uuid.UUID, error) {
 	}
 	id, err := uuid.Parse(raw)
 	if err != nil {
-		return nil, err
+		return nil, notUUIDErr(name)
 	}
 	return &id, nil
+}
+
+func notUUIDErr(name string) error {
+	return fmt.Errorf("%s must be a UUID; get it from the list_* tools", name)
 }
 
 // Expected format: [{"key": "X-Foo", "value": "bar", "enabled": true}, ...]

@@ -11,7 +11,7 @@ vi.mock('@wailsio/runtime', async () => {
 
 vi.mock('@/services', () => ({ isWailsEnvironment: () => true }))
 
-import { eventPayload, useWindowEvents } from './useWindowEvents'
+import { collectionIdsOf, eventPayload, useWindowEvents } from './useWindowEvents'
 import { contentSaved } from '@/lib/content-saved'
 
 describe('eventPayload', () => {
@@ -21,6 +21,17 @@ describe('eventPayload', () => {
 
   it('accepts a bare payload', () => {
     expect(eventPayload({ requestId: 'r1' })).toEqual({ requestId: 'r1' })
+  })
+})
+
+describe('collectionIdsOf', () => {
+  it('reads string ids from the payload', () => {
+    expect(collectionIdsOf({ data: { collectionIds: ['a', 1, 'b'] } })).toEqual(['a', 'b'])
+  })
+
+  it('is empty without the key', () => {
+    expect(collectionIdsOf({ data: { workspaceId: 'w1' } })).toEqual([])
+    expect(collectionIdsOf(undefined)).toEqual([])
   })
 })
 

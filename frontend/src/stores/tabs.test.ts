@@ -68,6 +68,22 @@ function editDraft(id: string, requestId: string) {
   examples.updateDraft(id, { body: 'edited' })
 }
 
+function deferred<T>() {
+  let resolve!: (v: T) => void
+  let reject!: (e: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+function tabOf(requestId: string) {
+  return { id: `request:${requestId}`, type: 'request' as const, requestId, name: 'Req', method: 'GET', protocol: 'http' }
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+
+const notFound = { error: { code: 'not_found', message: 'request not found' } }
+const conflict = { error: { code: 'conflict', message: 'version conflict' } }
+
 describe('saveToBackend', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -91,6 +107,23 @@ describe('saveToBackend', () => {
     await expect(store.saveToBackend('r1')).resolves.toBe(false)
     expect(getByIdMock).not.toHaveBeenCalled()
     expect(store.isRequestDirty('r1')).toBe(true)
+  })
+
+  it('a save of a request deleted on the server closes its tab without a toast', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.openTabs.push(tabOf('r1'))
+    store.activeTabId = 'request:r1'
+    store.updateLocal('r1', { url: '/changed' })
+    editMock.mockResolvedValue(notFound)
+    getByIdMock.mockResolvedValue(notFound)
+    const toasts = useToast().toasts.value.length
+
+    await expect(store.saveToBackend('r1')).resolves.toBe(false)
+
+    await vi.waitFor(() => expect(store.openTabs).toHaveLength(0))
+    expect(store.getById('r1')).toBeUndefined()
+    expect(useToast().toasts.value).toHaveLength(toasts)
   })
 
   it('deduplicates concurrent saves into one edit call', async () => {
@@ -122,20 +155,48 @@ describe('saveToBackend', () => {
     expect(store.isRequestDirty('r1')).toBe(true)  // still dirty → next save persists it
   })
 
-  it('refetches the version after a conflict and retries once', async () => {
+  it('a conflict merges and retries with the server fields', async () => {
     const store = useRequestStore()
     store.loadRequest(makeRequest({ description: 'saved' }))
-    store.updateLocal('r1', { description: 'mine' })
-    store.cancelAutosave('r1')
-    editMock.mockResolvedValueOnce({ error: { code: 'conflict', message: 'version conflict' } })
+    store.updateLocal('r1', { url: '/mine' })
+    editMock.mockResolvedValueOnce(conflict)
     getByIdMock.mockResolvedValue({ data: makeRequest({ description: 'theirs', version: 7, updatedAt: '2026-02-02' }) })
-    editMock.mockResolvedValueOnce({ data: makeRequest({ description: 'mine', version: 8 }) })
+    editMock.mockResolvedValueOnce({ data: makeRequest({ url: '/mine', description: 'theirs', version: 8 }) })
 
     await expect(store.saveToBackend('r1')).resolves.toBe(true)
     expect(editMock).toHaveBeenCalledTimes(2)
-    expect(editMock.mock.calls[1][0].version).toBe(7)
-    expect(editMock.mock.calls[1][0].description).toBe('mine')
+    expect(editMock.mock.calls[1][0]).toMatchObject({ url: '/mine', description: 'theirs', version: 7 })
     expect(store.isRequestDirty('r1')).toBe(false)
+  })
+
+  it('a conflict on the same field takes the server and does not resave', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.updateLocal('r1', { name: 'mine' })
+    editMock.mockResolvedValueOnce(conflict)
+    getByIdMock.mockResolvedValue({ data: makeRequest({ name: 'theirs', version: 7 }) })
+
+    await expect(store.saveToBackend('r1')).resolves.toBe(true)
+    expect(editMock).toHaveBeenCalledTimes(1)
+    expect(store.getById('r1')?.name).toBe('theirs')
+    expect(store.isRequestDirty('r1')).toBe(false)
+  })
+
+  it('a save that lands after the request was purged does not bring it back', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.updateLocal('r1', { url: '/mine' })
+    const edit = deferred<unknown>()
+    editMock.mockReturnValue(edit.promise)
+    const saving = store.saveToBackend('r1')
+    await vi.waitFor(() => expect(editMock).toHaveBeenCalled())
+
+    await store.purgeCollectionSubtree(['c1'])
+    expect(store.getById('r1')).toBeUndefined()
+    edit.resolve({ data: makeRequest({ url: '/mine', version: 2 }) })
+
+    await expect(saving).resolves.toBe(true)
+    expect(store.getById('r1')).toBeUndefined()
   })
 
   it('gives up after one retry when the conflict persists', async () => {
@@ -253,7 +314,41 @@ describe('rename', () => {
     setActivePinia(createPinia())
     editMock.mockReset()
     getByIdMock.mockReset()
+    listMock.mockReset()
     vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('a late rename response does not roll back a newer version', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.openTabs.push(tabOf('r1'))
+    const edit = deferred<unknown>()
+    editMock.mockReturnValueOnce(edit.promise)
+    const renaming = store.rename('r1', 'Renamed', 1)
+    await vi.waitFor(() => expect(editMock).toHaveBeenCalled())
+
+    listMock.mockResolvedValue({ data: [makeRequest({ name: 'Renamed', description: 'from the agent', version: 3 })] })
+    await store.fetchByCollection('c1')
+    edit.resolve({ data: makeRequest({ name: 'Renamed', version: 2 }) })
+
+    await expect(renaming).resolves.toBe(true)
+    expect(store.getById('r1')).toMatchObject({ version: 3, description: 'from the agent' })
+    expect(store.isRequestDirty('r1')).toBe(false)
+  })
+
+  it('a rename response after the request was purged does not bring it back', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    const edit = deferred<unknown>()
+    editMock.mockReturnValueOnce(edit.promise)
+    const renaming = store.rename('r1', 'Renamed', 1)
+    await vi.waitFor(() => expect(editMock).toHaveBeenCalled())
+
+    await store.purgeCollectionSubtree(['c1'])
+    edit.resolve({ data: makeRequest({ name: 'Renamed', version: 2 }) })
+
+    await expect(renaming).resolves.toBe(true)
+    expect(store.getById('r1')).toBeUndefined()
   })
 
   it('keeps the description — edit assigns every field it receives', async () => {
@@ -500,13 +595,6 @@ describe('executeRequest', () => {
   })
 
   describe('after Cancel', () => {
-    function deferred<T>() {
-      let resolve!: (v: T) => void
-      let reject!: (e: unknown) => void
-      const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
-      return { promise, resolve, reject }
-    }
-
     function response(body: string): ExecuteResponse {
       return { statusCode: 200, statusText: '200 OK', url: '/x', headers: {}, body, size: body.length, durationMs: 1 }
     }
@@ -862,9 +950,15 @@ describe('fetchByCollection', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     listMock.mockReset()
+    editMock.mockReset()
+    getByIdMock.mockReset()
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
+
+  function listMovedTo(target: string, moved: Request) {
+    listMock.mockImplementation(async (collectionId: string) => ({ data: collectionId === target ? [moved] : [] }))
+  }
 
   it('replaces the collection requests but keeps an open replay draft', async () => {
     const store = useRequestStore()
@@ -878,20 +972,226 @@ describe('fetchByCollection', () => {
     expect(store.getById('draft')?.isDraft).toBe(true)
   })
 
-  it('keeps a dirty request and adopts only the server version', async () => {
+  it('merges a server change into a dirty tab', async () => {
     const store = useRequestStore()
-    store.loadRequest(makeRequest({ id: 'r1', description: 'saved' }))
-    store.updateLocal('r1', { description: 'still typing' })
-    store.cancelAutosave('r1')
-    listMock.mockResolvedValue({ data: [makeRequest({ id: 'r1', description: 'from another device', version: 5, updatedAt: '2026-02-02' })] })
+    store.loadRequest(makeRequest({ description: 'saved' }))
+    store.updateLocal('r1', { url: '/mine' })
+    listMock.mockResolvedValue({ data: [makeRequest({ description: 'from another device', version: 5, updatedAt: '2026-02-02' })] })
 
     await store.fetchByCollection('c1')
 
-    const after = store.getById('r1')!
-    expect(after.description).toBe('still typing')
-    expect(after.version).toBe(5)
-    expect(after.updatedAt).toBe('2026-02-02')
+    expect(store.getById('r1')).toMatchObject({ url: '/mine', description: 'from another device', version: 5, updatedAt: '2026-02-02' })
     expect(store.isRequestDirty('r1')).toBe(true)
+    store.updateLocal('r1', { url: '/x' })
+    expect(store.isRequestDirty('r1')).toBe(false)
+  })
+
+  it('lets the server win a field both changed', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.openTabs.push(tabOf('r1'))
+    store.updateLocal('r1', { name: 'mine' })
+    listMock.mockResolvedValue({ data: [makeRequest({ name: 'theirs', version: 2 })] })
+
+    await store.fetchByCollection('c1')
+
+    expect(store.getById('r1')?.name).toBe('theirs')
+    expect(store.isRequestDirty('r1')).toBe(false)
+    expect(store.openTabs[0].name).toBe('theirs')
+  })
+
+  it('leaves a request alone while its save is in flight', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.updateLocal('r1', { url: '/saved' })
+    const edit = deferred<unknown>()
+    editMock.mockReturnValue(edit.promise)
+    const saving = store.saveToBackend('r1')
+    store.updateLocal('r1', { url: '/typed' })
+    const server = makeRequest({ url: '/saved', description: 'from the agent', version: 3 })
+    listMock.mockResolvedValue({ data: [server] })
+
+    await store.fetchByCollection('c1')
+
+    expect(store.getById('r1')?.url).toBe('/typed')
+    expect(store.getById('r1')?.description).toBeUndefined()
+    getByIdMock.mockResolvedValue({ data: server })
+    edit.resolve({ data: makeRequest({ url: '/saved', version: 2 }) })
+    await saving
+    await vi.waitFor(() => expect(store.getById('r1')?.version).toBe(3))
+    expect(getByIdMock).toHaveBeenCalledTimes(1)
+    expect(store.getById('r1')).toMatchObject({ url: '/typed', description: 'from the agent' })
+    expect(store.isRequestDirty('r1')).toBe(true)
+  })
+
+  it('a stale list response is dropped', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    const first = deferred<unknown>()
+    listMock
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ data: [makeRequest(), makeRequest({ id: 'r2', sortOrder: 1 })] })
+
+    const stale = store.fetchByCollection('c1')
+    await store.fetchByCollection('c1')
+    first.resolve({ data: [makeRequest()] })
+    await stale
+
+    expect(store.getById('r2')).toBeDefined()
+  })
+
+  it('a dropped list still waits for the newer one', async () => {
+    const store = useRequestStore()
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
+    listMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    let firstDone = false
+
+    const dropped = store.fetchByCollection('c1').then(() => { firstDone = true })
+    const newer = store.fetchByCollection('c1')
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+    first.resolve({ data: [] })
+    await settle()
+    expect(firstDone).toBe(false)
+
+    second.resolve({ data: [makeRequest()] })
+    await dropped
+    expect(store.getById('r1')).toBeDefined()
+    await newer
+  })
+
+  it('a list started before a purge does not resurrect the request', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    const list = deferred<unknown>()
+    listMock.mockReturnValueOnce(list.promise).mockResolvedValue({ data: [makeRequest()] })
+
+    const loading = store.fetchByCollection('c1')
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled())
+    await store.purgeCollectionSubtree(['c1'])
+    list.resolve({ data: [makeRequest()] })
+    await loading
+
+    expect(store.getById('r1')).toBeUndefined()
+    expect(listMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a first list of a collection purged meanwhile loads nothing', async () => {
+    const store = useRequestStore()
+    const list = deferred<unknown>()
+    listMock.mockReturnValueOnce(list.promise)
+
+    const loading = store.fetchByCollection('c1')
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled())
+    await store.purgeCollectionSubtree(['c1'])
+    list.resolve({ data: [makeRequest()] })
+    await loading
+
+    expect(store.getById('r1')).toBeUndefined()
+  })
+
+  it('a list dropped by a purge still loads the rest of the collection', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    deleteMock.mockResolvedValueOnce({ data: true })
+    const list = deferred<unknown>()
+    const rest = [makeRequest({ id: 'r2', sortOrder: 1 }), makeRequest({ id: 'r3', sortOrder: 2 })]
+    listMock.mockReturnValueOnce(list.promise).mockResolvedValue({ data: rest })
+
+    const loading = store.fetchByCollection('c1')
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled())
+    await store.remove('r1', 1)
+    list.resolve({ data: [makeRequest(), ...rest] })
+    await loading
+
+    expect(store.byCollection('c1').map(r => r.id)).toEqual(['r2', 'r3'])
+  })
+
+  it('a request moved while saving keeps its tab', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ collectionId: 's' }))
+    store.openTabs.push(tabOf('r1'))
+    store.activeTabId = 'request:r1'
+    store.updateLocal('r1', { url: '/mine' })
+    const edit = deferred<unknown>()
+    editMock.mockReturnValue(edit.promise)
+    const saving = store.saveToBackend('r1')
+    store.updateLocal('r1', { url: '/typed' })
+    const moved = makeRequest({ collectionId: 't', url: '/mine', version: 3 })
+    listMovedTo('t', moved)
+    getByIdMock.mockResolvedValue({ data: moved })
+
+    await store.refreshCollections(['t', 's'])
+
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:r1'])
+    expect(store.getById('r1')).toMatchObject({ collectionId: 's', url: '/typed' })
+    expect(getByIdMock).not.toHaveBeenCalled()
+    edit.resolve({ data: makeRequest({ collectionId: 's', url: '/mine', version: 2 }) })
+    await saving
+    await vi.waitFor(() => expect(store.getById('r1')?.collectionId).toBe('t'))
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:r1'])
+    expect(store.getById('r1')).toMatchObject({ url: '/typed', version: 3 })
+  })
+
+  it('a request moved while idle keeps its tab', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ collectionId: 's' }))
+    store.openTabs.push(tabOf('r1'))
+    listMovedTo('t', makeRequest({ collectionId: 't', version: 2 }))
+
+    await store.refreshCollections(['t', 's'])
+
+    expect(store.openTabs.map(t => t.id)).toEqual(['request:r1'])
+    expect(store.getById('r1')?.collectionId).toBe('t')
+  })
+
+  it.each(['request:r1', 'request:r2'])('a request deleted on the server closes its tab (active %s)', async active => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ id: 'r1' }))
+    store.loadRequest(makeRequest({ id: 'r2', sortOrder: 1 }))
+    store.openTabs.push(tabOf('r1'), tabOf('r2'))
+    store.activeTabId = active
+    editDraft('e1', 'r1')
+    const responses = useResponseStore()
+    responses.setResponse('r1', { status: 'success', data: { statusCode: 200, statusText: '200 OK', url: '/x', headers: {}, body: '', size: 0, durationMs: 1 } })
+    listMock.mockResolvedValue({ data: [makeRequest({ id: 'r2', sortOrder: 1 })] })
+    getByIdMock.mockResolvedValue(notFound)
+
+    await store.fetchByCollection('c1')
+
+    await vi.waitFor(() => expect(store.openTabs.map(t => t.id)).toEqual(['request:r2']))
+    expect(store.activeTabId).toBe('request:r2')
+    expect(store.getById('r1')).toBeUndefined()
+    expect(useExamplesStore().hasUnsaved('r1')).toBe(false)
+    expect(responses.getResponseState('r1')).toEqual({ status: 'idle' })
+    expect(editMock).not.toHaveBeenCalled()
+  })
+
+  it('not_found during a save is checked again after the save', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.openTabs.push(tabOf('r1'))
+    store.activeTabId = 'request:r1'
+    store.updateLocal('r1', { url: '/mine' })
+    const firstRead = deferred<unknown>()
+    getByIdMock.mockReturnValueOnce(firstRead.promise).mockResolvedValue(notFound)
+    listMock.mockResolvedValue({ data: [] })
+
+    await store.fetchByCollection('c1')
+    await vi.waitFor(() => expect(getByIdMock).toHaveBeenCalledTimes(1))
+    const edit = deferred<unknown>()
+    editMock.mockReturnValue(edit.promise)
+    const saving = store.saveToBackend('r1')
+    await vi.waitFor(() => expect(editMock).toHaveBeenCalled())
+    firstRead.resolve(notFound)
+    await settle()
+    expect(store.openTabs).toHaveLength(1)
+
+    edit.resolve(notFound)
+    await saving
+    await vi.waitFor(() => expect(store.openTabs).toHaveLength(0))
+    expect(getByIdMock).toHaveBeenCalledTimes(2)
+    expect(store.getById('r1')).toBeUndefined()
   })
 
   it('still drops requests that disappeared from the collection', async () => {
@@ -927,6 +1227,53 @@ describe('fetchByCollection', () => {
 
     expect(store.getById('r1')).toBeUndefined()
     expect(console.warn).toHaveBeenCalled()
+  })
+})
+
+describe('refreshRequest', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    getByIdMock.mockReset()
+  })
+
+  it('ignores a request that is not loaded', async () => {
+    await useRequestStore().refreshRequest('r1')
+
+    expect(getByIdMock).not.toHaveBeenCalled()
+  })
+
+  it('applies a newer version to a clean tab', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest())
+    store.openTabs.push(tabOf('r1'))
+    getByIdMock.mockResolvedValue({ data: makeRequest({ name: 'From the agent', url: '/agent', version: 2 }) })
+
+    await store.refreshRequest('r1')
+
+    expect(store.getById('r1')).toMatchObject({ name: 'From the agent', url: '/agent', version: 2 })
+    expect(store.isRequestDirty('r1')).toBe(false)
+    expect(store.openTabs[0].name).toBe('From the agent')
+  })
+})
+
+describe('refreshCollections', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    listMock.mockReset()
+  })
+
+  it('fetches each collection in order', async () => {
+    const first = deferred<unknown>()
+    listMock.mockReturnValueOnce(first.promise).mockResolvedValue({ data: [] })
+
+    const refreshing = useRequestStore().refreshCollections(['a', 'b'])
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(1))
+    await settle()
+    expect(listMock).toHaveBeenCalledTimes(1)
+    first.resolve({ data: [] })
+    await refreshing
+
+    expect(listMock.mock.calls.map(c => c[0])).toEqual(['a', 'b'])
   })
 })
 

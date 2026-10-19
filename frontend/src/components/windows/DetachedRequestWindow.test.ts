@@ -5,7 +5,7 @@ import type { CreateExampleInput } from '@/types/example'
 import type { MockExampleService } from '@/services/mock-example'
 import { mountWindow, wailsBus } from '@/test-utils/windows'
 
-const backend = vi.hoisted(() => ({ log: [] as string[] }))
+const backend = vi.hoisted(() => ({ log: [] as string[], reads: 0 }))
 
 vi.mock('@wailsio/runtime', async () => {
   const { wailsBus } = await import('@/test-utils/windows')
@@ -20,7 +20,10 @@ vi.mock('@/services', async () => {
     isWailsEnvironment: () => true,
     getWorkspaceService: async () => ({ list: async () => ({ data: [] }) }),
     getRequestService: async () => ({
-      getById: async () => ({ data: request }),
+      getById: async () => {
+        backend.reads++
+        return { data: request }
+      },
       edit: async (req: Request) => {
         backend.log.push(`request ${req.url}`)
         request = { ...request!, ...req, version: req.version + 1 }
@@ -36,6 +39,7 @@ vi.mock('@/services', async () => {
     }),
     getAuthService: async () => ({ cancelFlow: async () => ({ data: true }) }),
     __reset: (r: Request) => { examples = new MockExampleService(); request = r },
+    __serve: (r: Request) => { request = r },
     __examples: () => examples,
   }
 })
@@ -66,12 +70,18 @@ function input(over: Partial<CreateExampleInput> = {}): CreateExampleInput {
   }
 }
 
+async function serve(r: Request) {
+  const mod = (await import('@/services')) as unknown as { __serve: (r: Request) => void }
+  mod.__serve(r)
+}
+
 async function examplesService(): Promise<MockExampleService> {
   const mod = (await import('@/services')) as unknown as { __examples: () => MockExampleService }
   return mod.__examples()
 }
 
 let app: App | null = null
+const unloadHandlers: (() => unknown)[] = []
 
 async function openDetached() {
   app = mountWindow(DetachedRequestWindow, { requestId: 'r1' })
@@ -89,7 +99,11 @@ describe('DetachedRequestWindow', () => {
     const mod = (await import('@/services')) as unknown as { __reset: (r: Request) => void }
     mod.__reset(makeRequest())
     backend.log.length = 0
-    vi.stubGlobal('window', { addEventListener: () => {}, removeEventListener: () => {} })
+    unloadHandlers.length = 0
+    vi.stubGlobal('window', {
+      addEventListener: (name: string, cb: () => unknown) => { if (name === 'beforeunload') unloadHandlers.push(cb) },
+      removeEventListener: () => {},
+    })
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -134,5 +148,28 @@ describe('DetachedRequestWindow', () => {
     await wailsBus.Emit('request:deleted:r1')
 
     await vi.waitFor(() => expect(backend.log).toEqual(['close r1']))
+  })
+
+  it('a deleted request is dropped before the window unloads', async () => {
+    const { requests } = await openDetached()
+    requests.updateLocal('r1', { url: '/edited' })
+
+    await wailsBus.Emit('request:deleted:r1')
+    await vi.waitFor(() => expect(backend.log).toEqual(['close r1']))
+    expect(requests.getById('r1')).toBeUndefined()
+
+    await Promise.all(unloadHandlers.map(cb => cb()))
+    expect(backend.log).toEqual(['close r1'])
+  })
+
+  it('a request updated elsewhere is re-read into the window', async () => {
+    const { requests } = await openDetached()
+    const reads = backend.reads
+    await serve({ ...makeRequest(), name: 'Renamed by the agent', version: 2 })
+
+    await wailsBus.Emit('request:updated:r1')
+
+    await vi.waitFor(() => expect(requests.getById('r1')?.name).toBe('Renamed by the agent'))
+    expect(backend.reads).toBe(reads + 1)
   })
 })

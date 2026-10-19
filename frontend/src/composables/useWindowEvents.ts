@@ -22,6 +22,11 @@ export function eventPayload(evt: unknown): Record<string, unknown> {
   return ((wrapped ?? evt) as Record<string, unknown>) ?? {}
 }
 
+export function collectionIdsOf(evt: unknown): string[] {
+  const ids = eventPayload(evt).collectionIds
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+}
+
 export function useWindowEvents(config: WindowEventsConfig) {
   if (!isWailsEnvironment()) return
 

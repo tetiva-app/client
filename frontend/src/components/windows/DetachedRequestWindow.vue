@@ -113,7 +113,10 @@ useWindowEvents({
   },
   onWorkspaceSwitched: saveAndClose,
   onRequestDeleted: () => {
-    void closeWindow()
+    void store.purgeRequests([props.requestId]).finally(closeWindow)
+  },
+  onRequestUpdated: () => {
+    void store.refreshRequest(props.requestId)
   },
   onSaveAndClose: saveAndClose,
   ...exampleWindowEvents(examplesStore),

@@ -744,3 +744,96 @@ func TestRedactScriptResult_LargeSecretStaysCheap(t *testing.T) {
 	assert.Less(t, elapsed, time.Second*race.Slowdown)
 	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(8<<20))
 }
+
+func TestUpdateRequest_KeptSecretsListsRestored(t *testing.T) {
+	srv := setupTestServer(t)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "Kept"})
+
+	created := callToolJSON(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"],
+		"name":          "Secretive",
+		"method":        "GET",
+		"url":           "https://api.example.com/u?token=tok_1&page=2",
+		"auth_type":     "bearer",
+		"auth_data":     `{"token":"bearer_1"}`,
+		"headers": []map[string]any{
+			{"key": "X-Api-Key", "value": "key_1", "enabled": true},
+		},
+	})
+
+	read := callToolJSON(t, srv, "get_request", map[string]any{"id": created["id"]})
+	echoed := append(read["headers"].([]any),
+		map[string]any{"key": "X-Trace", "value": "1", "enabled": true})
+	updated := callToolJSON(t, srv, "update_request", map[string]any{
+		"id":        created["id"],
+		"version":   created["version"],
+		"url":       read["url"],
+		"auth_data": read["auth_data"],
+		"headers":   echoed,
+	})
+
+	assert.Equal(t, []any{"auth_data", "url.query.token", "headers.X-Api-Key"}, updated["kept_secrets"])
+}
+
+func TestUpdateRequest_NoKeptSecretsKey(t *testing.T) {
+	srv := setupTestServer(t)
+	col := callToolJSON(t, srv, "create_collection", map[string]any{"name": "Plain"})
+
+	created := callToolJSON(t, srv, "create_request", map[string]any{
+		"collection_id": col["id"],
+		"name":          "Secretive",
+		"method":        "GET",
+		"url":           "https://api.example.com/u?token=tok_1",
+		"auth_type":     "bearer",
+		"auth_data":     `{"token":"bearer_1"}`,
+		"headers": []map[string]any{
+			{"key": "X-Api-Key", "value": "key_1", "enabled": true},
+		},
+	})
+
+	updated := callToolJSON(t, srv, "update_request", map[string]any{
+		"id":      created["id"],
+		"version": created["version"],
+		"name":    "Renamed",
+	})
+
+	assert.NotContains(t, updated, "kept_secrets")
+}
+
+func TestUpdateCollection_KeptSecrets(t *testing.T) {
+	srv := setupTestServer(t)
+	created := callToolJSON(t, srv, "create_collection", map[string]any{
+		"name":      "Kept",
+		"auth_type": "bearer",
+		"auth_data": `{"token":"bearer_1"}`,
+	})
+
+	updated := callToolJSON(t, srv, "update_collection", map[string]any{
+		"id":        created["id"],
+		"version":   created["version"],
+		"auth_data": created["auth_data"],
+	})
+
+	assert.Equal(t, []any{"auth_data"}, updated["kept_secrets"])
+}
+
+func TestUpdateTools_DescribeRedactedEcho(t *testing.T) {
+	srv := setupTestServer(t)
+	tools := srv.mcp.ListTools()
+
+	fields := map[string][]string{
+		"update_request":    {"auth_data", "headers", "url", "grpc_metadata"},
+		"update_collection": {"auth_data"},
+	}
+	for name, props := range fields {
+		tool, ok := tools[name]
+		require.True(t, ok, name)
+		assert.Contains(t, tool.Tool.Description, "may be sent back unchanged", name)
+		assert.Contains(t, tool.Tool.Description, "kept_secrets", name)
+		for _, prop := range props {
+			schema, ok := tool.Tool.InputSchema.Properties[prop].(map[string]any)
+			require.True(t, ok, "%s.%s", name, prop)
+			assert.Contains(t, schema["description"], "may be sent back unchanged", "%s.%s", name, prop)
+		}
+	}
+}

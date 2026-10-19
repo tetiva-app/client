@@ -26,7 +26,7 @@ import { openExternal } from '@/lib/open-external'
 import { PRICING_URL } from '@/constants/pricing'
 import { getUpdateService, isWailsEnvironment } from '@/services'
 import { restoreTabs } from '@/lib/restore-tabs'
-import { eventPayload, useWindowEvents } from '@/composables/useWindowEvents'
+import { collectionIdsOf, eventPayload, useWindowEvents } from '@/composables/useWindowEvents'
 import ActivityBar from '@/components/ActivityBar.vue'
 import AppSidebar from '@/components/sidebar/AppSidebar.vue'
 import TabBar from '@/components/editor/TabBar.vue'
@@ -281,9 +281,12 @@ async function setupSyncEvents() {
   syncUnsubscribers.push(Events.On('sync:rejected', (evt: unknown) => {
     showSyncNotice(rejectNotice(String(eventPayload(evt).reason ?? '')))
   }))
-  // Local edits made in other windows (e.g. a detached request window).
+  // Local edits made in other windows (e.g. a detached request window) or through MCP.
   syncUnsubscribers.push(Events.On('env:changed', refresh))
-  syncUnsubscribers.push(Events.On('collection:updated', refresh))
+  syncUnsubscribers.push(Events.On('collection:updated', (evt: unknown) => {
+    refresh()
+    void store.refreshCollections(collectionIdsOf(evt))
+  }))
 
   // Menu-driven Cmd+W
   syncUnsubscribers.push(Events.On('app:close-tab', () => {

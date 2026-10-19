@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- MCP `set_active_environment` makes an environment the active one in its workspace, and the environment picker in the app follows. `send_request` says which environment it ran with under `environment`, `null` when none is active
+- MCP `update_request` and `update_collection` say in their descriptions that a `[redacted]` value can be sent back as it is to keep the stored secret, and their answer lists what was kept under `kept_secrets`: `auth_data`, `headers.<Key>`, `url.query.<name>` or `grpc_metadata.<key>`
+
+### Changed
+
+- What an MCP agent changes shows up in the open app right away: collections and requests it creates, edits, moves or deletes appear in the sidebar, inside an expanded collection too; an open tab or detached window shows its edits and closes when it deletes the request; environments it creates, deletes or makes active reach the environment picker. A request created in an expanded collection used to appear only after a restart
+- Saving a request tab no longer writes over a change made to the request in the meantime by an MCP agent or a teammate through sync. The tab takes their changes and keeps your unsaved edits to the rest; where both of you changed the same part of the request (name, description, method, URL, headers, body, auth, a script, the gRPC or GraphQL settings), theirs wins. The save used to send the whole tab over it without a word
+- MCP errors and descriptions say what to do next: an id that is not a UUID gets "must be a UUID; get it from the list_* tools", a version conflict names the current version, `send_request` on a WebSocket request says to open it in the app, and a missing token points to Settings → AI agents (MCP). Tool descriptions show how to write `{{variables}}` in a URL, headers and body, the `auth_data` shape of each auth type, that `delete_variable` can't be undone and that an omitted `workspace_id` means the Default Workspace
+
 ## [v1.3.0] — 2026-10-15 — Compare responses
 
 ### Added

@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 
+	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/environment"
 )
 
@@ -13,7 +15,7 @@ func (s *Server) registerEnvironmentTools() {
 		mcplib.NewTool("list_environments",
 			mcplib.WithDescription("List all environments in a workspace"),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID ("+workspaceDefaultDoc+")"),
 			),
 		),
 		s.handleListEnvironments,
@@ -36,7 +38,7 @@ func (s *Server) registerEnvironmentTools() {
 				mcplib.Description("Environment name"),
 			),
 			mcplib.WithString("workspace_id",
-				mcplib.Description("Workspace UUID (defaults to default workspace)"),
+				mcplib.Description("Workspace UUID ("+workspaceDefaultDoc+")"),
 			),
 		),
 		s.handleCreateEnvironment,
@@ -50,6 +52,16 @@ func (s *Server) registerEnvironmentTools() {
 			),
 		),
 		s.handleDeleteEnvironment,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("set_active_environment",
+			mcplib.WithDescription("Make an environment the active one for its workspace. send_request resolves variables from the active environment, and the app switches to it too."),
+			mcplib.WithString("environment_id", mcplib.Required(),
+				mcplib.Description("Environment UUID"),
+			),
+		),
+		s.handleSetActiveEnvironment,
 	)
 }
 
@@ -129,6 +141,7 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, req mcplib.CallToo
 	if err != nil {
 		return errResult(err), nil
 	}
+	s.emitEnvChanged(e.WorkspaceID)
 
 	return jsonResult(map[string]any{
 		"id":      e.ID.String(),
@@ -156,9 +169,56 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, req mcplib.CallToo
 	}); err != nil {
 		return errResult(err), nil
 	}
+	s.emitEnvChanged(e.WorkspaceID)
 
 	return jsonResult(map[string]any{
 		"id":      id.String(),
 		"deleted": true,
 	})
+}
+
+func (s *Server) handleSetActiveEnvironment(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	id, err := uuidArgRequired(req, "environment_id")
+	if err != nil {
+		return errResult(err), nil
+	}
+
+	// SetActive with an id outside the workspace deactivates every environment in it.
+	e, err := s.envUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
+	}
+
+	if err := s.envUC.SetActive(ctx, environment.SetActiveOpt{
+		WorkspaceID:   e.WorkspaceID,
+		EnvironmentID: e.ID,
+	}); err != nil {
+		return errResult(err), nil
+	}
+	s.emitEnvChanged(e.WorkspaceID)
+
+	return jsonResult(map[string]any{
+		"environment":  environmentRef(e),
+		"workspace_id": e.WorkspaceID.String(),
+	})
+}
+
+func (s *Server) activeEnvironment(ctx context.Context, workspaceID uuid.UUID) (map[string]any, error) {
+	envs, err := s.envUC.List(ctx, environment.ListOpt{WorkspaceID: workspaceID})
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range envs {
+		if e.IsActive {
+			return environmentRef(e), nil
+		}
+	}
+	return nil, nil
+}
+
+func environmentRef(e *entities.Environment) map[string]any {
+	return map[string]any{
+		"id":   e.ID.String(),
+		"name": e.Name,
+	}
 }

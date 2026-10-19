@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"go.uber.org/fx"
 
+	mcpadapter "github.com/tetiva-app/client/internal/adapters/mcp"
 	wailsadapter "github.com/tetiva-app/client/internal/adapters/wails"
 	appmodule "github.com/tetiva-app/client/internal/app"
 	"github.com/tetiva-app/client/internal/app/deeplink"
@@ -76,10 +77,11 @@ func main() {
 	var publicationService *wailsadapter.PublicationService
 	var deepLinkService *wailsadapter.DeepLinkService
 	var updateService *wailsadapter.UpdateService
+	var mcpServer *mcpadapter.Server
 
 	fxApp := fx.New(
 		appmodule.NewApp(migrations.FS, links, sqlite.DataDir(dataDir)),
-		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService, &updateService),
+		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService, &updateService, &mcpServer),
 		fx.NopLogger,
 	)
 
@@ -149,6 +151,10 @@ func main() {
 	})
 
 	updateService.SetEventEmitter(func(name string, data any) {
+		wailsApp.Event.Emit(name, data)
+	})
+
+	mcpServer.SetEventEmitter(func(name string, data any) {
 		wailsApp.Event.Emit(name, data)
 	})
 

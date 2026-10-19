@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { clearDrafts } from '@/composables/useBodyDrafts'
 import { clearAuthDrafts } from '@/composables/useAuthDrafts'
 import { descriptionSaveBlocked } from '@/lib/description'
+import { mergeServerRequest } from '@/lib/request-merge'
 import { useResponseStore } from '@/stores/responses'
 import { useExamplesStore } from '@/stores/examples'
 import { runMutation } from '@/stores/runMutation'
@@ -71,23 +72,51 @@ export const useRequestStore = defineStore('requests', () => {
     return requestsMap.value.get(id)
   }
 
-  async function fetchByCollection(collectionId: string) {
+  const listSeq = new Map<string, number>()
+  const listInFlight = new Map<string, Promise<void>>()
+
+  function fetchByCollection(collectionId: string): Promise<void> {
+    const seq = (listSeq.get(collectionId) ?? 0) + 1
+    listSeq.set(collectionId, seq)
+    const load: Promise<void> = listCollection(collectionId, seq).then(async applied => {
+      const current = listInFlight.get(collectionId)
+      if (applied) {
+        if (current === load) listInFlight.delete(collectionId)
+        return
+      }
+      if (current === load) await fetchByCollection(collectionId)
+      else if (current) await current
+    })
+    listInFlight.set(collectionId, load)
+    return load
+  }
+
+  async function listCollection(collectionId: string, seq: number): Promise<boolean> {
     loading.value = true
     try {
       const service = await getRequestService()
       const result = await service.list(collectionId)
+      if (listSeq.get(collectionId) !== seq) return false
       if (result.error) {
         console.error('Failed to fetch requests:', result.error.message)
-        return
+        return true
       }
-      const dirty = new Set(Array.from(requestsMap.value.keys()).filter(isRequestDirty))
-      const incoming = new Map(result.data.map(item => [item.id, item]))
+      const incoming = new Set(result.data.map(item => item.id))
+      const recheck: string[] = []
       // Replay drafts are hidden from list() (is_draft = 1), so a refresh must
       // not evict them: the open replay tab would render nothing and the close
       // path could no longer find the draft to hard-delete it.
       for (const [id, req] of requestsMap.value) {
         if (req.collectionId !== collectionId || req.isDraft || incoming.has(id)) continue
-        if (dirty.has(id)) {
+        if (savesInFlight.has(id)) {
+          refreshAfterSave.add(id)
+          continue
+        }
+        if (openTabs.value.some(t => t.id === `request:${id}`)) {
+          recheck.push(id)
+          continue
+        }
+        if (isRequestDirty(id)) {
           cancelAutosave(id)
           console.warn(`Request ${id} is gone from the server; dropping its unsaved edits`)
         }
@@ -95,11 +124,8 @@ export const useRequestStore = defineStore('requests', () => {
         savedSnapshots.value.delete(id)
       }
       for (const item of result.data) {
-        const existing = requestsMap.value.get(item.id)
-        // A list that started before the last save carries the version that save replaced.
-        if (existing && existing.version >= item.version) continue
-        if (dirty.has(item.id)) {
-          adoptServerVersion(item.id, item.version, item.updatedAt)
+        if (requestsMap.value.has(item.id)) {
+          applyServerVersion(item, false)
           continue
         }
         requestsMap.value.set(item.id, item)
@@ -107,10 +133,68 @@ export const useRequestStore = defineStore('requests', () => {
       }
       requestsMap.value = new Map(requestsMap.value)
       savedSnapshots.value = new Map(savedSnapshots.value)
+      for (const id of recheck) void refreshRequest(id)
+      return true
     } catch (err) {
       console.error('Failed to fetch requests:', err)
+      return listSeq.get(collectionId) === seq
     } finally {
       loading.value = false
+    }
+  }
+
+  async function refreshCollections(ids: string[]): Promise<void> {
+    for (const id of ids) await fetchByCollection(id)
+  }
+
+  function applyServerVersion(server: Request, publish = true) {
+    const existing = requestsMap.value.get(server.id)
+    // A list that started before the last save carries the version that save replaced.
+    if (!existing || existing.version >= server.version) return
+    if (savesInFlight.has(server.id)) {
+      refreshAfterSave.add(server.id)
+      return
+    }
+    if (isRequestDirty(server.id)) {
+      mergeIntoStore(server.id, server, publish)
+      return
+    }
+    requestsMap.value.set(server.id, server)
+    savedSnapshots.value.set(server.id, { ...server })
+    if (publish) {
+      requestsMap.value = new Map(requestsMap.value)
+      savedSnapshots.value = new Map(savedSnapshots.value)
+    }
+    syncTabMeta(server.id)
+  }
+
+  function mergeIntoStore(id: string, server: Request, publish = true) {
+    const local = requestsMap.value.get(id)
+    const base = savedSnapshots.value.get(id)
+    if (!local || !base) return
+    requestsMap.value.set(id, mergeServerRequest(local, base, server))
+    savedSnapshots.value.set(id, { ...server })
+    if (publish) {
+      requestsMap.value = new Map(requestsMap.value)
+      savedSnapshots.value = new Map(savedSnapshots.value)
+    }
+    syncTabMeta(id)
+  }
+
+  async function refreshRequest(id: string): Promise<void> {
+    if (!requestsMap.value.has(id)) return
+    try {
+      const service = await getRequestService()
+      const result = await service.getById(id)
+      if (!result.error) {
+        applyServerVersion(result.data)
+        return
+      }
+      if (result.error.code !== 'not_found') return
+      if (savesInFlight.has(id)) refreshAfterSave.add(id)
+      else if (requestsMap.value.has(id)) await purgeRequests([id])
+    } catch (err) {
+      console.error('Failed to refresh request:', err)
     }
   }
 
@@ -183,6 +267,7 @@ export const useRequestStore = defineStore('requests', () => {
 
   // Dedupe concurrent saves — a parallel edit would lose the version race
   const savesInFlight = new Map<string, Promise<boolean>>()
+  const refreshAfterSave = new Set<string>()
 
   const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -254,18 +339,12 @@ export const useRequestStore = defineStore('requests', () => {
   function saveToBackend(id: string): Promise<boolean> {
     const inFlight = savesInFlight.get(id)
     if (inFlight) return inFlight
-    const promise = doSave(id).finally(() => savesInFlight.delete(id))
+    const promise = doSave(id).finally(() => {
+      savesInFlight.delete(id)
+      if (refreshAfterSave.delete(id)) void refreshRequest(id)
+    })
     savesInFlight.set(id, promise)
     return promise
-  }
-
-  function adoptServerVersion(id: string, version: number, updatedAt: string) {
-    const current = requestsMap.value.get(id)
-    if (current) requestsMap.value.set(id, { ...current, version, updatedAt })
-    const snapshot = savedSnapshots.value.get(id)
-    if (snapshot) savedSnapshots.value.set(id, { ...snapshot, version, updatedAt })
-    requestsMap.value = new Map(requestsMap.value)
-    savedSnapshots.value = new Map(savedSnapshots.value)
   }
 
   async function doSave(id: string, retried = false): Promise<boolean> {
@@ -302,16 +381,26 @@ export const useRequestStore = defineStore('requests', () => {
         if (result.error.code === 'conflict' && !retried) {
           const fresh = await service.getById(id)
           if (!fresh.error) {
-            adoptServerVersion(id, fresh.data.version, fresh.data.updatedAt)
+            if (!requestsMap.value.has(id)) return false
+            mergeIntoStore(id, fresh.data)
+            if (!isRequestDirty(id)) return true
             return doSave(id, true)
           }
+        }
+        if (result.error.code === 'not_found') {
+          refreshAfterSave.add(id)
+          return false
         }
         console.error('Failed to save request:', result.error.message)
         useToast().error(`Failed to save request: ${formatResultError(result.error)}`)
         return false
       }
       const latest = requestsMap.value.get(id)
-      if (latest && latest !== current) {
+      if (!latest || latest.version > result.data.version) {
+        contentSaved()
+        return true
+      }
+      if (latest !== current) {
         // User typed during the save: keep local edits, adopt only the server version
         requestsMap.value.set(id, { ...latest, version: result.data.version, updatedAt: result.data.updatedAt })
       } else {
@@ -386,7 +475,11 @@ export const useRequestStore = defineStore('requests', () => {
         return false
       }
       const latest = requestsMap.value.get(id)
-      if (latest && latest !== current) {
+      if (!latest || latest.version > result.data.version) {
+        contentSaved()
+        return true
+      }
+      if (latest !== current) {
         requestsMap.value.set(id, {
           ...latest,
           name: result.data.name,
@@ -426,29 +519,7 @@ export const useRequestStore = defineStore('requests', () => {
       if (hadAutosave) scheduleAutosave(id)
       return false
     }
-    // Close tab before removing data (closeTab calls saveToBackend, but the request is already deleted)
-    const tabId = `request:${id}`
-    if (openTabs.value.some(t => t.id === tabId)) {
-      const idx = openTabs.value.findIndex(t => t.id === tabId)
-      openTabs.value = openTabs.value.filter(t => t.id !== tabId)
-      if (activeTabId.value === tabId) {
-        if (openTabs.value.length === 0) {
-          activeTabId.value = null
-        } else {
-          const newIdx = Math.min(idx, openTabs.value.length - 1)
-          activeTabId.value = openTabs.value[newIdx].id
-        }
-      }
-    }
-    requestsMap.value.delete(id)
-    savedSnapshots.value.delete(id)
-    useResponseStore().deleteResponse(id)
-    clearDrafts(id)
-    clearAuthDrafts(id)
-    useExamplesStore().dropDrafts(id)
-    await forgetTokenStatus([{ kind: 'request', id }])
-    requestsMap.value = new Map(requestsMap.value)
-    savedSnapshots.value = new Map(savedSnapshots.value)
+    await purgeRequests([id])
     contentSaved()
     return true
   }
@@ -771,38 +842,50 @@ export const useRequestStore = defineStore('requests', () => {
     for (const owner of owners) tokens.forget(owner.kind, owner.id)
   }
 
-  // Close tabs and drop cached data for backend-deleted collections. Never saves.
-  async function purgeCollectionSubtree(collectionIds: string[]) {
-    const idSet = new Set(collectionIds)
-    const doomed = Array.from(requestsMap.value.values()).filter(r => idSet.has(r.collectionId))
-    for (const req of doomed) cancelAutosave(req.id)
-    for (const req of doomed) {
-      if (req.protocol === 'websocket') {
-        const { useWebSocketStore } = await import('./websocket')
-        await useWebSocketStore().teardown(req.id)
-      }
-      requestsMap.value.delete(req.id)
-      savedSnapshots.value.delete(req.id)
-      useResponseStore().deleteResponse(req.id)
-      clearDrafts(req.id)
-      clearAuthDrafts(req.id)
-      useExamplesStore().dropDrafts(req.id)
+  async function purgeRequests(ids: string[]): Promise<void> {
+    const purged = new Set(ids)
+    const sockets: string[] = []
+    for (const id of ids) {
+      cancelAutosave(id)
+      const req = requestsMap.value.get(id)
+      if (req) listSeq.set(req.collectionId, (listSeq.get(req.collectionId) ?? 0) + 1)
+      if (req?.protocol === 'websocket') sockets.push(id)
+      requestsMap.value.delete(id)
+      savedSnapshots.value.delete(id)
+      useResponseStore().deleteResponse(id)
+      clearDrafts(id)
+      clearAuthDrafts(id)
+      useExamplesStore().dropDrafts(id)
     }
-    collectionIds.forEach(clearAuthDrafts)
-    const doomedRequestIds = new Set(doomed.map(r => r.id))
-    await forgetTokenStatus([
-      ...collectionIds.map(id => ({ kind: 'collection', id })),
-      ...doomed.map(r => ({ kind: 'request', id: r.id })),
-    ])
-    openTabs.value = openTabs.value.filter(t => {
-      if (t.type === 'request') return !doomedRequestIds.has(t.requestId)
-      return !idSet.has(t.collectionId)
-    })
+    const activeIdx = openTabs.value.findIndex(t => t.id === activeTabId.value)
+    openTabs.value = openTabs.value.filter(t => t.type !== 'request' || !purged.has(t.requestId))
     if (activeTabId.value && !openTabs.value.some(t => t.id === activeTabId.value)) {
-      activeTabId.value = openTabs.value[0]?.id ?? null
+      activeTabId.value = openTabs.value[Math.min(activeIdx, openTabs.value.length - 1)]?.id ?? null
     }
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    if (sockets.length > 0) {
+      const { useWebSocketStore } = await import('./websocket')
+      for (const id of sockets) await useWebSocketStore().teardown(id)
+    }
+    await forgetTokenStatus(ids.map(id => ({ kind: 'request', id })))
+  }
+
+  // Close tabs and drop cached data for backend-deleted collections. Never saves.
+  async function purgeCollectionSubtree(collectionIds: string[]) {
+    const idSet = new Set(collectionIds)
+    // A deleted collection's requests keep is_delete = 0 and would come back with a pending list.
+    for (const id of collectionIds) {
+      listSeq.set(id, (listSeq.get(id) ?? 0) + 1)
+      listInFlight.delete(id)
+    }
+    await purgeRequests(Array.from(requestsMap.value.values()).filter(r => idSet.has(r.collectionId)).map(r => r.id))
+    collectionIds.forEach(clearAuthDrafts)
+    await forgetTokenStatus(collectionIds.map(id => ({ kind: 'collection', id })))
+    openTabs.value = openTabs.value.filter(t => t.type === 'request' || !idSet.has(t.collectionId))
+    if (activeTabId.value && !openTabs.value.some(t => t.id === activeTabId.value)) {
+      activeTabId.value = openTabs.value[0]?.id ?? null
+    }
   }
 
   function consumeInitialSection(collectionId: string): string | undefined {
@@ -825,6 +908,8 @@ export const useRequestStore = defineStore('requests', () => {
     isDirty,
     getById,
     fetchByCollection,
+    refreshCollections,
+    refreshRequest,
     create,
     loadRequest,
     updateLocal,
@@ -858,6 +943,7 @@ export const useRequestStore = defineStore('requests', () => {
     syncCollectionTabName,
     closeCollectionTab,
     purgeCollectionSubtree,
+    purgeRequests,
     forgetTokenStatus,
   }
 })

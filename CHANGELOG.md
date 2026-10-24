@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Duplicate in a request's context menu makes a copy of the saved request with its response examples, named "<name> (copy)", adds it to the end of the collection and opens it in a tab
+
 ### Fixed
 
 - Quitting the app stops sync and closes the local database cleanly. Before, macOS skipped the shutdown steps entirely, and on every platform a write-ahead journal (`data.db-wal`) stayed next to the database

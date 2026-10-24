@@ -235,6 +235,16 @@ export const useRequestStore = defineStore('requests', () => {
     return data
   }
 
+  async function duplicate(id: string, name: string): Promise<Request | null> {
+    const data = await runMutation('Failed to duplicate request', () =>
+      getRequestService().then(s => s.duplicate({ id, name }))
+    )
+    if (!data) return null
+    loadRequest(data)
+    contentSaved()
+    return data
+  }
+
   function loadRequest(request: Request) {
     requestsMap.value.set(request.id, request)
     savedSnapshots.value.set(request.id, { ...request })
@@ -911,6 +921,7 @@ export const useRequestStore = defineStore('requests', () => {
     refreshCollections,
     refreshRequest,
     create,
+    duplicate,
     loadRequest,
     updateLocal,
     isRequestDirty,

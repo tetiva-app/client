@@ -40,6 +40,7 @@ const emit = defineEmits<{
   (e: 'create-request', collectionId: string): void
   (e: 'select-request', request: Request): void
   (e: 'rename-request', request: Request): void
+  (e: 'duplicate-request', request: Request): void
   (e: 'delete-request', id: string): void
   (e: 'import-file', collectionId: string): void
   (e: 'export-postman', collectionId: string): void
@@ -244,6 +245,7 @@ function handleMoreClick(e: MouseEvent) {
         @create-request="(collectionId: string) => emit('create-request', collectionId)"
         @select-request="(request: Request) => emit('select-request', request)"
         @rename-request="(request: Request) => emit('rename-request', request)"
+        @duplicate-request="(request: Request) => emit('duplicate-request', request)"
         @delete-request="(id: string) => emit('delete-request', id)"
         @import-file="(id: string) => emit('import-file', id)"
         @export-postman="(id: string) => emit('export-postman', id)"
@@ -261,6 +263,7 @@ function handleMoreClick(e: MouseEvent) {
         :depth="depth + 1"
         @select="(request: Request) => emit('select-request', request)"
         @rename="(request: Request) => emit('rename-request', request)"
+        @duplicate="(request: Request) => emit('duplicate-request', request)"
         @delete="(id: string) => emit('delete-request', id)"
         @move="(id: string) => emit('move', id)"
         @move-selected="emit('move-selected')"

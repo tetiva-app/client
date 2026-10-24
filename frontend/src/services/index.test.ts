@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 // Detection is computed once at module load, so each case must stub `window`
 // before a fresh dynamic import.
@@ -57,5 +57,52 @@ describe('getSyncService', () => {
     const [a, b, c] = await Promise.all([getSyncService(), getSyncService(), getSyncService()])
     expect(a).toBe(b)
     expect(b).toBe(c)
+  })
+})
+
+describe('browser-mode request duplicate', () => {
+  async function seed() {
+    vi.resetModules()
+    const services = await import('./index')
+    const requests = await services.getRequestService()
+    const examples = await services.getExampleService()
+    const { data: original } = await requests.create({
+      collectionId: 'c1', name: 'Create pet', description: '', protocol: 'http', method: 'POST', url: '/pets',
+      headers: [], body: '{}', bodyType: 'json', authType: 'none', authData: '{}', preScript: '', postScript: '',
+    })
+    for (const [statusCode, name] of [[201, '201 Created'], [409, '409 Conflict']] as const) {
+      await examples.create({
+        requestId: original.id, name, statusCode, statusText: name.slice(4), headers: [],
+        body: '{}', contentType: 'application/json', protocol: 'http',
+      })
+    }
+    return { requests, examples, original }
+  }
+
+  it('copies the examples onto the copy', async () => {
+    const { requests, examples, original } = await seed()
+
+    const { data: dup } = await requests.duplicate({ id: original.id, name: 'Create pet (copy)' })
+
+    expect((await examples.list(dup.id)).data.map(e => e.name)).toEqual(['201 Created', '409 Conflict'])
+  })
+
+  it.each([
+    ['returns an error', (s: MockInstance) => s.mockResolvedValueOnce({ data: null, error: { code: 'internal', message: 'disk full' } })],
+    ['throws', (s: MockInstance) => s.mockRejectedValueOnce(new Error('disk full'))],
+  ])('rolls back the copy and its examples when the second example %s', async (_, failSecond) => {
+    const { requests, examples, original } = await seed()
+    const create = examples.create.bind(examples)
+    let copyId = ''
+    failSecond(vi.spyOn(examples, 'create').mockImplementationOnce(req => {
+      copyId = req.requestId
+      return create(req)
+    }))
+
+    const res = await requests.duplicate({ id: original.id, name: 'Create pet (copy)' })
+
+    expect(res.error?.message).toBe('disk full')
+    expect((await examples.list(copyId)).data).toEqual([])
+    expect((await requests.list('c1')).data.map(r => r.id)).toEqual([original.id])
   })
 })

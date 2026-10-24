@@ -1,5 +1,5 @@
-import type { Request } from '@/types/request'
-import type { Result } from '@/types/common'
+import type { HeaderItem, Request } from '@/types/request'
+import type { Result, ResultError } from '@/types/common'
 import type { ExecuteResponse } from '@/types/execute'
 import type { HistoryRecord } from '@/types/history'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
@@ -13,15 +13,24 @@ import type {
   DeleteRequestReq,
   ReorderRequestReq,
   MoveRequestReq,
+  DuplicateRequestReq,
   PromoteDraftReq,
 } from './request-api'
 import { makeError } from './makeError'
 import { appendMockHistory } from './mock-history'
 
+export type MockExampleCopier = (sourceId: string, targetId: string) => Promise<ResultError | undefined>
+
 export class MockRequestService implements RequestServiceAPI {
   private requests = new Map<string, Request>()
   private sends = new Map<string, number>()
   private runs = new Map<string, () => void>()
+
+  constructor(private readonly copyExamples?: MockExampleCopier) {}
+
+  private newSortOrder(collectionId: string): number {
+    return Array.from(this.requests.values()).filter((r) => r.collectionId === collectionId).length
+  }
 
   async list(collectionId: string): Promise<Result<Request[]>> {
     const items = Array.from(this.requests.values())
@@ -44,9 +53,6 @@ export class MockRequestService implements RequestServiceAPI {
     }
 
     const now = new Date().toISOString()
-    const collectionRequests = Array.from(this.requests.values())
-      .filter((r) => r.collectionId === req.collectionId)
-
     const request: Request = {
       id: crypto.randomUUID(),
       collectionId: req.collectionId,
@@ -55,7 +61,7 @@ export class MockRequestService implements RequestServiceAPI {
       protocol: (req.protocol as Request['protocol']) || 'http',
       method: (req.method as Request['method']) || 'GET',
       url: req.url || '',
-      headers: req.headers || [],
+      headers: copyHeaders(req.headers || []),
       body: req.body || '',
       bodyType: (req.bodyType as Request['bodyType']) || 'none',
       authType: (req.authType as Request['authType']) || 'none',
@@ -65,12 +71,12 @@ export class MockRequestService implements RequestServiceAPI {
       grpcService: req.grpcService || '',
       grpcMethod: req.grpcMethod || '',
       grpcProtoPath: req.grpcProtoPath || '',
-      grpcMetadata: req.grpcMetadata || {},
+      grpcMetadata: copyMetadata(req.grpcMetadata || {}),
       graphqlQuery: req.graphqlQuery || '',
       graphqlVariables: req.graphqlVariables || '',
       graphqlSchemaPath: req.graphqlSchemaPath || '',
       graphqlOperation: req.graphqlOperation || '',
-      sortOrder: collectionRequests.length,
+      sortOrder: this.newSortOrder(req.collectionId),
       version: 1,
       createdAt: now,
       updatedAt: now,
@@ -98,7 +104,7 @@ export class MockRequestService implements RequestServiceAPI {
       description: req.description,
       method: (req.method as Request['method']) || existing.method,
       url: req.url,
-      headers: req.headers,
+      headers: copyHeaders(req.headers),
       body: req.body,
       bodyType: (req.bodyType as Request['bodyType']) || existing.bodyType,
       authType: (req.authType as Request['authType']) || existing.authType,
@@ -108,7 +114,7 @@ export class MockRequestService implements RequestServiceAPI {
       grpcService: req.grpcService ?? existing.grpcService,
       grpcMethod: req.grpcMethod ?? existing.grpcMethod,
       grpcProtoPath: req.grpcProtoPath ?? existing.grpcProtoPath,
-      grpcMetadata: req.grpcMetadata ?? existing.grpcMetadata,
+      grpcMetadata: copyMetadata(req.grpcMetadata ?? existing.grpcMetadata),
       graphqlQuery: req.graphqlQuery ?? existing.graphqlQuery,
       graphqlVariables: req.graphqlVariables ?? existing.graphqlVariables,
       graphqlSchemaPath: req.graphqlSchemaPath ?? existing.graphqlSchemaPath,
@@ -161,6 +167,38 @@ export class MockRequestService implements RequestServiceAPI {
     }
     this.requests.set(req.id, updated)
     return { data: updated }
+  }
+
+  async duplicate(req: DuplicateRequestReq): Promise<Result<Request>> {
+    if (!req.name) {
+      return makeError<Request>('validation', 'validation failed', { name: 'required' })
+    }
+    const source = this.requests.get(req.id)
+    if (!source) {
+      return makeError<Request>('not_found', `request not found: ${req.id}`)
+    }
+    if (source.isDraft) {
+      return makeError<Request>('validation', 'validation failed', { request: 'save the request before duplicating it' })
+    }
+    const now = new Date().toISOString()
+    const copy: Request = {
+      ...source,
+      headers: copyHeaders(source.headers),
+      grpcMetadata: copyMetadata(source.grpcMetadata),
+      id: crypto.randomUUID(),
+      name: req.name,
+      sortOrder: this.newSortOrder(source.collectionId),
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.requests.set(copy.id, copy)
+    const failed = await this.copyExamples?.(source.id, copy.id)
+    if (failed) {
+      this.requests.delete(copy.id)
+      return { data: null as unknown as Request, error: failed }
+    }
+    return { data: copy }
   }
 
   async promoteDraft(req: PromoteDraftReq): Promise<Result<Request>> {
@@ -396,6 +434,15 @@ export class MockRequestService implements RequestServiceAPI {
     }
     return { data: '' }
   }
+}
+
+// Saves pass reactive editor state; the mock keeps plain copies, never Vue proxies.
+function copyHeaders(headers: HeaderItem[]): HeaderItem[] {
+  return headers.map(h => ({ key: h.key, value: h.value, enabled: h.enabled }))
+}
+
+function copyMetadata(md: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(md).map(([k, v]) => [k, [...v]]))
 }
 
 const MOCK_MIME: Record<string, string> = { json: 'application/json', xml: 'application/xml', raw: 'text/plain' }

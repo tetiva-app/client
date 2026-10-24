@@ -67,6 +67,10 @@ func (s *stubExampleUsecase) MoveToWorkspace(ctx context.Context, requestID, new
 	return s.moveFn(ctx, requestID, newWorkspaceID, userID)
 }
 
+func (s *stubExampleUsecase) CopyToRequest(context.Context, uuid.UUID, uuid.UUID, string) error {
+	panic("not implemented")
+}
+
 func fixtureExample(requestID uuid.UUID, name string, version int) *entities.ResponseExample {
 	now := time.Date(2026, 9, 25, 10, 11, 12, 0, time.UTC)
 	return &entities.ResponseExample{

@@ -165,6 +165,11 @@ function handleRenameRequest(request: Request) {
   renameRequestDialogOpen.value = true
 }
 
+async function handleDuplicateRequest(request: Request) {
+  const dup = await requestStore.duplicate(request.id, fill(copy.value.menu.copyName, { name: request.name }))
+  if (dup) emit('select-request', dup)
+}
+
 async function handleCollectionRenameSave(newName: string) {
   if (!renameTarget.value) return
   await store.edit(renameTarget.value.id, { name: newName }, renameTarget.value.version)
@@ -421,6 +426,7 @@ async function handleExportPostman(collectionId: string) {
         @create-request="handleCreateRequest"
         @select-request="handleSelectRequest"
         @rename-request="handleRenameRequest"
+        @duplicate-request="handleDuplicateRequest"
         @delete-request="handleDeleteRequest"
         @import-file="handleImportFile"
         @export-postman="handleExportPostman"

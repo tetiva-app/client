@@ -215,6 +215,30 @@ func (s *RequestService) Move(req dto.MoveRequestRequest) Result[dto.RequestResp
 	return OK(dto.RequestToResponse(r))
 }
 
+func (s *RequestService) Duplicate(req dto.DuplicateRequestRequest) Result[dto.RequestResponse] {
+	ctx := context.Background()
+
+	requestID, err := uuid.Parse(req.ID)
+	if err != nil {
+		return Err[dto.RequestResponse](&domain.ValidationError{
+			Fields: map[string]string{"id": "invalid UUID"},
+		})
+	}
+
+	opt := request.DuplicateOpt{
+		RequestID: requestID,
+		Name:      req.Name,
+		UserID:    defaultUserID,
+	}
+
+	r, err := s.uc.Duplicate(ctx, opt)
+	if err != nil {
+		return Err[dto.RequestResponse](err)
+	}
+
+	return OK(dto.RequestToResponse(r))
+}
+
 func (s *RequestService) Reorder(req dto.ReorderRequestRequest) Result[Empty] {
 	ctx := context.Background()
 

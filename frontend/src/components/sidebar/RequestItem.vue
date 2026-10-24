@@ -26,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', request: Request): void
   (e: 'rename', request: Request): void
+  (e: 'duplicate', request: Request): void
   (e: 'delete', id: string): void
   (e: 'move', id: string): void
   (e: 'move-selected'): void
@@ -49,6 +50,7 @@ const parentCollectionId = computed(() => {
 const visible = computed(() => search.isVisible(props.request.id, 'request', parentCollectionId.value))
 const isContextOnly = computed(() => search.isContextOnly(props.request.id, 'request', parentCollectionId.value))
 const isSearchOnly = computed(() => search.isSearchOnly(props.request.id))
+const isDraft = computed(() => 'isDraft' in props.request && !!props.request.isDraft)
 const highlightedName = useHighlight(() => props.request.name, () => search.query)
 
 async function handleClick(event: MouseEvent) {
@@ -92,6 +94,11 @@ async function handleClick(event: MouseEvent) {
 async function triggerRename() {
   const full = await search.ensureFullyLoaded(props.request.id)
   if (full) emit('rename', full)
+}
+
+async function triggerDuplicate() {
+  const full = await search.ensureFullyLoaded(props.request.id)
+  if (full) emit('duplicate', full)
 }
 
 async function triggerDelete() {
@@ -146,6 +153,9 @@ function handleMoreClick(e: MouseEvent) {
     <ContextMenuContent v-if="!isMultiSelected" class="min-w-48">
       <ContextMenuItem @click="triggerRename">
         {{ copy.menu.rename }}
+      </ContextMenuItem>
+      <ContextMenuItem v-if="!isDraft" @click="triggerDuplicate">
+        {{ copy.menu.duplicate }}
       </ContextMenuItem>
       <ContextMenuItem @click="triggerMove">
         {{ copy.menu.moveTo }}

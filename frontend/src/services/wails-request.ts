@@ -12,6 +12,7 @@ import type {
   DeleteRequestReq,
   ReorderRequestReq,
   MoveRequestReq,
+  DuplicateRequestReq,
   PromoteDraftReq,
 } from './request-api'
 import { RequestService } from '../../bindings/github.com/tetiva-app/client/internal/adapters/wails'
@@ -22,6 +23,7 @@ import {
   DeleteDraftRequest as BindingDeleteDraftRequest,
   ReorderRequestRequest as BindingReorderRequestRequest,
   MoveRequestRequest as BindingMoveRequestRequest,
+  DuplicateRequestRequest as BindingDuplicateRequestRequest,
   PromoteDraftRequest as BindingPromoteDraftRequest,
   ExecuteRequestRequest as BindingExecuteRequestRequest,
   CancelExecuteRequest as BindingCancelExecuteRequest,
@@ -179,6 +181,13 @@ export class WailsRequestService implements RequestServiceAPI {
       id: req.id,
       targetCollectionId: req.targetCollectionId,
       version: req.version,
+    })) as unknown as BindingResult<Request>)
+  }
+
+  async duplicate(req: DuplicateRequestReq): Promise<Result<Request>> {
+    return unwrap<Request>(await RequestService.Duplicate(new BindingDuplicateRequestRequest({
+      id: req.id,
+      name: req.name,
     })) as unknown as BindingResult<Request>)
   }
 

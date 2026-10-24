@@ -94,6 +94,11 @@ type MoveRequestRequest struct {
 	Version            int    `json:"version"`
 }
 
+type DuplicateRequestRequest struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type ExecuteRequestRequest struct {
 	RequestID   string `json:"requestId"`
 	WorkspaceID string `json:"workspaceId"`

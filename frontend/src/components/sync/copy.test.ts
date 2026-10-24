@@ -69,6 +69,13 @@ describe('SYNC_COPY', () => {
     expect(plural('ru', 2, tooLarge)).toBe('2 элемента слишком велики для сервера — измените их, чтобы отправить снова.')
   })
 
+  it('promises the kept changes when the session ends', () => {
+    expect(SYNC_COPY.en.reauth.notice).toBe(
+      'Your session has ended. Sign in again — changes on this device are kept and will sync after you sign in.')
+    expect(SYNC_COPY.ru.reauth.notice).toBe(
+      'Сессия завершилась. Войдите снова — изменения на этом устройстве сохранены и отправятся после входа.')
+  })
+
   it('keeps the English notices word for word', () => {
     const { parkedQuota, parkedTooLarge } = SYNC_COPY.en.notices
     expect(plural('en', 1, parkedQuota)).toBe(

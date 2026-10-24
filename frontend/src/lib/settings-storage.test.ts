@@ -3,7 +3,10 @@ import {
   hasStoredOnboardingFlag,
   loadSettings,
   saveSettings,
+  takeLegacySidebar,
   DEFAULT_SETTINGS,
+  LEGACY_LAYOUT_KEY,
+  LEGACY_LAYOUT_PANELS,
   SETTINGS_STORAGE_KEY,
 } from './settings-storage'
 
@@ -75,6 +78,7 @@ describe('settings-storage', () => {
       publishingEnabled: false,
       downloadUpdatesAutomatically: false,
       updateCard: { version: '1.2.2', shownAt: '2026-10-20T12:00:00.000Z', collapsed: true, dismissed: false, escalated: true },
+      sidebar: { width: 312, collapsed: true },
     }
     saveSettings(settings)
     expect(loadSettings()).toEqual(settings)
@@ -128,6 +132,35 @@ describe('settings-storage', () => {
     for (const bad of ['nope', { ...card, version: 122 }, { ...card, collapsed: 'no' }, { version: '1.2.2' }]) {
       store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ updateCard: bad }))
       expect(loadSettings().updateCard).toBeNull()
+    }
+  })
+
+  it('drops a malformed sidebar to null', () => {
+    for (const bad of [300, { width: '300', collapsed: false }, { width: 300 }]) {
+      store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ sidebar: bad }))
+      expect(loadSettings().sidebar).toBeNull()
+    }
+  })
+
+  it('converts the legacy sidebar percent to clamped px once', () => {
+    const cases: [number[], { width: number, collapsed: boolean }][] = [
+      [[25, 75], { width: 320, collapsed: false }],
+      [[35, 65], { width: 400, collapsed: false }],
+      [[0, 100], { width: 256, collapsed: true }],
+    ]
+    for (const [layout, want] of cases) {
+      store.set(LEGACY_LAYOUT_KEY, JSON.stringify({ [LEGACY_LAYOUT_PANELS]: { expandToSizes: {}, layout } }))
+      expect(takeLegacySidebar(1280)).toEqual(want)
+      expect(store.has(LEGACY_LAYOUT_KEY)).toBe(false)
+    }
+    expect(takeLegacySidebar(1280)).toBeNull()
+  })
+
+  it('drops an unreadable legacy layout', () => {
+    for (const raw of ['{', JSON.stringify({ other: { layout: [25, 75] } })]) {
+      store.set(LEGACY_LAYOUT_KEY, raw)
+      expect(takeLegacySidebar(1280)).toBeNull()
+      expect(store.has(LEGACY_LAYOUT_KEY)).toBe(false)
     }
   })
 

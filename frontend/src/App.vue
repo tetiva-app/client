@@ -49,11 +49,13 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { isEditingTarget, isInsideOverlay, isModShortcut } from '@/lib/shortcut-guards'
 import { isLinux } from '@/lib/platform'
 import { closeCurrentWindow } from '@/lib/close-window'
+import { clampSidebarWidth, SIDEBAR_MAX_PX, SIDEBAR_MIN_PX, takeLegacySidebar } from '@/lib/settings-storage'
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable'
+import type { SplitterPanel } from 'reka-ui'
 
 const params = new URLSearchParams(window.location.search)
 const windowMode = params.get('mode') // null = main, 'detached-request', 'schema-viewer'
@@ -106,6 +108,39 @@ const syncStatus = windowMode ? null : useSyncStatus()
 const toast = useToast()
 const replayHistory = useHistoryReplay()
 const linux = isLinux()
+// Keeps the sidebar within its former 35 % cap: an 840 px window still leaves the editor 514 px.
+const EDITOR_MIN_PERCENT = 65
+if (!windowMode && !settingsStore.sidebar) {
+  const legacy = takeLegacySidebar(window.innerWidth)
+  if (legacy) settingsStore.setSidebar(legacy)
+}
+const sidebarWidth = clampSidebarWidth(settingsStore.sidebar?.width ?? window.innerWidth * 0.2)
+const sidebarDefaultPx = settingsStore.sidebar?.collapsed ? 0 : sidebarWidth
+const sidebarPanel = ref<InstanceType<typeof SplitterPanel> | null>(null)
+
+// Saved on handle input only: narrow windows squeeze it too.
+function saveSidebar() {
+  const el = sidebarPanel.value?.$el as HTMLElement | undefined
+  const px = Math.round(el?.getBoundingClientRect().width ?? 0)
+  settingsStore.setSidebar(px > 0
+    ? { width: px, collapsed: false }
+    : { width: settingsStore.sidebar?.width ?? sidebarWidth, collapsed: true })
+}
+
+// reka's own Enter toggle leaves its internal layout stale, which breaks later px resizes.
+function toggleSidebar() {
+  const panel = sidebarPanel.value
+  if (!panel) return
+  const width = settingsStore.sidebar?.width ?? sidebarWidth
+  const collapse = !panel.isCollapsed
+  if (collapse) {
+    panel.collapse()
+  } else {
+    panel.expand()
+    panel.resize(width)
+  }
+  settingsStore.setSidebar({ width, collapsed: collapse })
+}
 const stopPublicationList = windowMode ? null : publications.trackList()
 
 let resolveStartup!: () => void
@@ -407,11 +442,13 @@ onUnmounted(() => {
         @open-settings="(section) => settingsModalUi.show(section)"
       />
 
-      <ResizablePanelGroup direction="horizontal" auto-save-id="main-layout">
+      <ResizablePanelGroup direction="horizontal">
         <ResizablePanel
-          :default-size="20"
-          :min-size="15"
-          :max-size="35"
+          ref="sidebarPanel"
+          size-unit="px"
+          :default-size="sidebarDefaultPx"
+          :min-size="SIDEBAR_MIN_PX"
+          :max-size="SIDEBAR_MAX_PX"
           collapsible
           :collapsed-size="0"
         >
@@ -422,9 +459,14 @@ onUnmounted(() => {
           />
         </ResizablePanel>
 
-        <ResizableHandle with-handle />
+        <ResizableHandle
+          with-handle
+          @dragging="(on) => on || saveSidebar()"
+          @keydown.enter.prevent="toggleSidebar"
+          @keyup.left.right.home.end="saveSidebar"
+        />
 
-        <ResizablePanel :default-size="80">
+        <ResizablePanel :min-size="EDITOR_MIN_PERCENT">
           <div class="flex flex-col h-full">
             <TabBar />
 

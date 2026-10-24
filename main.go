@@ -189,6 +189,7 @@ func main() {
 		Title:            constants.AppTitle(),
 		Width:            1280,
 		Height:           800,
+		MinWidth:         840, // activity bar + 240 px sidebar + widest request tab strip (~550 px)
 		BackgroundColour: application.NewRGB(255, 255, 255),
 		URL:              "/",
 	})

@@ -1,4 +1,6 @@
 import type { AuthType } from '@/types/request'
+import type { Locale } from '@/lib/locale'
+import { AUTH_COPY } from '@/components/editor/auth/copy'
 
 // auth_data is an opaque JSON object of string leaves plus, for JWT, the nested
 // claims/header objects. These builders are the only place the frontend shapes
@@ -116,12 +118,12 @@ export function authFormValues(type: AuthType, raw: string): Record<string, stri
 }
 
 // Mirrors applyHeaderAuth, which sends nothing for these blank fields.
-export function blankCredentialNote(type: string, raw: string): string {
+export function blankCredentialNote(type: string, raw: string, locale: Locale): string {
   if (type === 'api_key' && !authFormValues(type, raw).key.trim()) {
-    return 'Its key name is empty, so nothing is added to this request.'
+    return AUTH_COPY[locale].inherited.emptyKey
   }
   if (type === 'bearer' && !authFormValues(type, raw).token.trim()) {
-    return 'Its token is empty, so no Authorization header is sent.'
+    return AUTH_COPY[locale].inherited.emptyToken
   }
   return ''
 }

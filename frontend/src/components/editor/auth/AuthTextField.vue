@@ -9,6 +9,9 @@ import { computed, ref } from 'vue'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import VariableInput from '@/components/ui/VariableInput.vue'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useScreenCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { AUTH_COPY } from './copy'
 
 const props = defineProps<{
   label: string
@@ -25,6 +28,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
+const copy = useScreenCopy(AUTH_COPY)
 const envStore = useEnvironmentStore()
 const resolvedVars = computed(() => envStore.resolvedVariables)
 const secretKeys = computed(() => {
@@ -65,7 +69,7 @@ const revealed = ref(false)
         v-if="props.secret"
         class="absolute right-1 top-1/2 -translate-y-1/2 flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors cursor-pointer z-30"
         type="button"
-        :aria-label="revealed ? `Hide ${props.label}` : `Show ${props.label}`"
+        :aria-label="fill(revealed ? copy.fields.hide : copy.fields.show, { label: props.label })"
         @click="revealed = !revealed"
       >
         <EyeOff v-if="revealed" class="size-3.5" />

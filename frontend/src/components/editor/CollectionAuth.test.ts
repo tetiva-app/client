@@ -1,23 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import { defaultAuthData } from '@/lib/auth-data'
 import { clearAuthDrafts } from '@/composables/useAuthDrafts'
+import { setCurrentLocale } from '@/lib/locale'
 
 const selects = vi.hoisted(() => new Map<string, (value: string) => void>())
 
+vi.mock('@/services', () => ({ isWailsEnvironment: () => false }))
+
 vi.mock('./auth/AuthSelect.vue', () => ({
   default: defineComponent({
-    props: { testId: String },
+    props: { testId: String, label: String, options: Array as () => { label: string }[] },
     emits: ['update:modelValue'],
     setup(props, { emit }) {
       if (props.testId) selects.set(props.testId, value => emit('update:modelValue', value))
-      return () => null
+      return () => h('div', [props.label, ...(props.options ?? []).map(o => o.label)].join(' | '))
     },
   }),
 }))
-vi.mock('./AuthEditor.vue', () => ({ default: { render: () => null } }))
 vi.mock('./InheritedAuth.vue', () => ({
   default: defineComponent({ setup: (_, { slots }) => () => h('div', { 'data-stub': 'inherited' }, slots.none?.()) }),
 }))
@@ -35,6 +37,7 @@ beforeEach(() => {
   selects.clear()
   clearAuthDrafts('c1')
 })
+afterEach(() => setCurrentLocale('en'))
 
 describe('CollectionAuth', () => {
   it('hands the bearer token back after the Auth tab was left and reopened', async () => {
@@ -64,5 +67,21 @@ describe('CollectionAuth', () => {
 
     expect(html).toContain('Requests here go without auth unless they set their own')
     expect(html).not.toContain('data-stub="inherited"')
+  })
+})
+
+describe('CollectionAuth language', () => {
+  it('follows the app language down to the fields of the chosen scheme', async () => {
+    setCurrentLocale('ru')
+
+    const inherit = await render({ authType: 'none', authData: '{}', nested: true })
+    expect(inherit).toContain('Тип авторизации | Наследовать | Basic Auth')
+    expect(inherit).toContain('Запросы этой коллекции наследуют авторизацию родительских коллекций')
+    expect(inherit).toContain('В родительских коллекциях авторизация не задана')
+
+    const basic = await render({ authType: 'basic', authData: '{"username":"u","password":"p"}' })
+    expect(basic).toContain('Имя пользователя')
+    expect(basic).toContain('aria-label="Показать: Пароль"')
+    expect(basic).not.toContain('Username')
   })
 })

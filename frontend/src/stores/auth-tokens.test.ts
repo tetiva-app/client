@@ -187,27 +187,32 @@ describe('tokenStatusLabel', () => {
   const now = new Date(2026, 8, 5, 9, 0)
 
   it('names the four states', () => {
-    expect(tokenStatusLabel(emptyTokenEntry(), now)).toBe('No token')
-    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'expired' }, now)).toBe('Expired')
-    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'expired-refreshable' }, now)).toBe('Expired, will refresh')
+    expect(tokenStatusLabel(emptyTokenEntry(), 'en', now)).toBe('No token')
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'expired' }, 'en', now)).toBe('Expired')
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'expired-refreshable' }, 'en', now)).toBe('Expired, will refresh')
   })
 
   it('shows the local clock time for a token that expires today', () => {
     const expiresAt = new Date(2026, 8, 5, 14, 5).toISOString()
-    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt }, now)).toBe('Valid until 14:05')
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt }, 'en', now)).toBe('Valid until 14:05')
   })
 
   it('adds the day when the token outlives today', () => {
     const expiresAt = new Date(2026, 8, 7, 14, 5).toISOString()
-    const label = tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt }, now)
+    const label = tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt }, 'en', now)
     expect(label.startsWith('Valid until ')).toBe(true)
     expect(label.endsWith('14:05')).toBe(true)
     expect(label).not.toBe('Valid until 14:05')
   })
 
+  it('speaks Russian on a Russian screen, the day included', () => {
+    const expiresAt = new Date(2026, 8, 7, 14, 5).toISOString()
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt }, 'ru', now)).toBe('Действует до 7 сент., 14:05')
+  })
+
   it('falls back when the endpoint reported no expiry', () => {
-    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid' }, now)).toBe('Valid')
-    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt: 'nonsense' }, now)).toBe('Valid')
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid' }, 'en', now)).toBe('Valid')
+    expect(tokenStatusLabel({ ...emptyTokenEntry(), state: 'valid', expiresAt: 'nonsense' }, 'en', now)).toBe('Valid')
   })
 })
 

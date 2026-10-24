@@ -1,4 +1,6 @@
 import type { AuthType } from '@/types/request'
+import type { Locale } from '@/lib/locale'
+import { AUTH_COPY } from '@/components/editor/auth/copy'
 
 // Mirrors entities.ValidAuthTypes(); constants/auth.test.ts holds both lists
 // against the Go fixture so a new scheme cannot land on one side only.
@@ -63,12 +65,13 @@ export const REQUEST_AUTH_OPTIONS: AuthTypeOption[] = SELECTOR_ORDER.map(value =
   label: AUTH_TYPE_LABELS[value],
 }))
 
-export function collectionAuthOptions(nested: boolean): AuthTypeOption[] {
+export function collectionAuthOptions(nested: boolean, locale: Locale): AuthTypeOption[] {
+  const copy = AUTH_COPY[locale]
   return SELECTOR_ORDER
     .filter(value => COLLECTION_AUTH_TYPES.includes(value))
     .map(value => ({
       value,
-      label: value === 'none' ? (nested ? AUTH_TYPE_LABELS.inherit : 'No Auth') : AUTH_TYPE_LABELS[value],
+      label: value === 'none' ? (nested ? copy.inheritOption : copy.noAuthOption) : AUTH_TYPE_LABELS[value],
     }))
 }
 

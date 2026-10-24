@@ -4,6 +4,8 @@ import AuthTextField from './AuthTextField.vue'
 import AuthSelect from './AuthSelect.vue'
 import JsonField from './JsonField.vue'
 import { authFormValues, objectFieldText, setAuthField, setObjectField } from '@/lib/auth-data'
+import { useScreenCopy } from '@/composables/useLocale'
+import { AUTH_COPY } from './copy'
 
 const props = defineProps<{
   authData: string
@@ -22,15 +24,17 @@ const algorithms = [
   'EdDSA',
 ].map(value => ({ value, label: value }))
 
-const secretBase64Options = [
-  { value: 'false', label: 'Plain text' },
-  { value: 'true', label: 'Base64 encoded' },
-]
+const copy = useScreenCopy(AUTH_COPY)
 
-const addToOptions = [
-  { value: 'header', label: 'Header' },
-  { value: 'query', label: 'Query Params' },
-]
+const secretBase64Options = computed(() => [
+  { value: 'false', label: copy.value.jwt.plainText },
+  { value: 'true', label: copy.value.jwt.base64 },
+])
+
+const addToOptions = computed(() => [
+  { value: 'header', label: copy.value.fields.inHeader },
+  { value: 'query', label: copy.value.fields.inQuery },
+])
 
 const values = computed(() => authFormValues('jwt', props.authData))
 const symmetric = computed(() => values.value.alg.startsWith('HS'))
@@ -51,7 +55,7 @@ function updateObject(key: string, text: string) {
 <template>
   <div class="space-y-3 max-w-md">
     <AuthSelect
-      label="Algorithm"
+      :label="copy.jwt.algorithm"
       :model-value="values.alg"
       :options="algorithms"
       @update:model-value="update('alg', $event)"
@@ -59,13 +63,13 @@ function updateObject(key: string, text: string) {
 
     <template v-if="symmetric">
       <AuthTextField
-        label="Secret"
+        :label="copy.jwt.secret"
         :model-value="values.secret"
         secret
         @update:model-value="update('secret', $event)"
       />
       <AuthSelect
-        label="Secret Encoding"
+        :label="copy.jwt.secretEncoding"
         :model-value="values.secretBase64"
         :options="secretBase64Options"
         @update:model-value="update('secretBase64', $event)"
@@ -74,7 +78,7 @@ function updateObject(key: string, text: string) {
 
     <AuthTextField
       v-else
-      label="Private Key"
+      :label="copy.jwt.privateKey"
       :model-value="values.privateKey"
       placeholder="-----BEGIN PRIVATE KEY-----"
       multiline
@@ -83,30 +87,30 @@ function updateObject(key: string, text: string) {
     />
 
     <JsonField
-      label="Payload (claims)"
+      :label="copy.jwt.claims"
       :value="claimsText"
       placeholder='{ "sub": "1234567890" }'
-      hint="iat and exp are added at send time unless the claims set them."
+      :hint="copy.jwt.claimsHint"
       @update:value="updateObject('claims', $event)"
     />
 
     <AuthTextField
-      label="Expires In (seconds)"
+      :label="copy.jwt.expiresIn"
       :model-value="values.expiresIn"
-      hint="0 signs a token without exp."
+      :hint="copy.jwt.expiresHint"
       @update:model-value="update('expiresIn', $event)"
     />
 
     <JsonField
-      label="JOSE Header"
+      :label="copy.jwt.joseHeader"
       :value="headerText"
       placeholder='{ "kid": "key-1" }'
-      hint="kid, typ, cty, x5t, x5u and jku only — alg comes from the algorithm above."
+      :hint="copy.jwt.joseHint"
       @update:value="updateObject('header', $event)"
     />
 
     <AuthSelect
-      label="Add token to"
+      :label="copy.fields.addTokenTo"
       :model-value="values.addTo"
       :options="addToOptions"
       @update:model-value="update('addTo', $event)"
@@ -114,13 +118,13 @@ function updateObject(key: string, text: string) {
 
     <AuthTextField
       v-if="values.addTo === 'query'"
-      label="Query Parameter"
+      :label="copy.fields.queryParam"
       :model-value="values.queryParam"
       @update:model-value="update('queryParam', $event)"
     />
     <AuthTextField
       v-else
-      label="Header Prefix"
+      :label="copy.fields.headerPrefix"
       :model-value="values.headerPrefix"
       @update:model-value="update('headerPrefix', $event)"
     />

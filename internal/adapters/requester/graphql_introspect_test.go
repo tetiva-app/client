@@ -477,6 +477,100 @@ func TestGraphQL_Introspect_JSONFileWithoutSchema(t *testing.T) {
 	}
 }
 
+func TestGraphQL_Introspect_DefinitionsKeepDescriptions(t *testing.T) {
+	const sdl = `
+type Query {
+  """Find a product."""
+  product(id: ID!): Product
+}
+
+"""A product."""
+type Product {
+  """
+  Price in cents.
+  Never negative.
+  """
+  price(currency: String = "EUR"): Int!
+}
+
+input ProductFilter {
+  """Exact name."""
+  name: String
+}
+`
+	const introspection = `{"__schema": {"queryType": {"name": "Query"}, "types": [
+  {"kind": "OBJECT", "name": "Query", "fields": [
+    {"name": "product", "description": "Find a product.", "type": {"kind": "OBJECT", "name": "Product"},
+     "args": [{"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}]}]},
+  {"kind": "OBJECT", "name": "Product", "description": "A product.", "fields": [
+    {"name": "price", "description": "Price in cents.\nNever negative.", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "Int"}},
+     "args": [{"name": "currency", "type": {"kind": "SCALAR", "name": "String"}, "defaultValue": "\"EUR\""}]}]},
+  {"kind": "INPUT_OBJECT", "name": "ProductFilter", "inputFields": [
+    {"name": "name", "description": "Exact name.", "type": {"kind": "SCALAR", "name": "String"}}]}
+]}}`
+
+	wantTypes := map[string]string{
+		"Product": `"""A product."""
+type Product {
+  """
+  Price in cents.
+  Never negative.
+  """
+  price(currency: String = "EUR"): Int!
+}`,
+		"ProductFilter": `input ProductFilter {
+  """Exact name."""
+  name: String
+}`,
+	}
+
+	for name, file := range map[string]string{"schema.graphql": sdl, "schema.json": introspection} {
+		t.Run(name, func(t *testing.T) {
+			schemaPath := filepath.Join(t.TempDir(), name)
+			if err := os.WriteFile(schemaPath, []byte(file), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			schema, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("", schemaPath))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(schema.Queries) != 1 || schema.Queries[0].Definition != "\"\"\"Find a product.\"\"\"\nproduct(id: ID!): Product" {
+				t.Errorf("queries = %+v", schema.Queries)
+			}
+			for _, ty := range schema.Types {
+				if want, ok := wantTypes[ty.Name]; ok && ty.Definition != want {
+					t.Errorf("%s definition:\n%s\nwant:\n%s", ty.Name, ty.Definition, want)
+				}
+			}
+		})
+	}
+}
+
+func TestGraphQL_Introspect_DefinitionsQuoteWhatBlockStringsWouldChange(t *testing.T) {
+	const sdl = `
+type Query {
+  "\n  indented first\nsecond"
+  search(term: String = "esc\u001b", tags: [String] = ["a\u001b"]): String
+}
+`
+	schemaPath := filepath.Join(t.TempDir(), "schema.graphql")
+	if err := os.WriteFile(schemaPath, []byte(sdl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	schema, err := requester.NewGraphQLRequester(nil).Introspect(t.Context(), newIntrospectReq("", schemaPath))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := `"\n  indented first\nsecond"` + "\n" + `search(term: String = "esc\u001b", tags: [String] = ["a\u001b"]): String`
+	if len(schema.Queries) != 1 || schema.Queries[0].Definition != want {
+		t.Errorf("queries = %+v\nwant definition:\n%s", schema.Queries, want)
+	}
+}
+
 func introspectionServer(t *testing.T) (*httptest.Server, *int) {
 	t.Helper()
 	calls := 0

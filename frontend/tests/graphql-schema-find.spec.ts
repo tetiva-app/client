@@ -71,3 +71,18 @@ test('SDL search highlights every match and counts them', async ({ page }) => {
   await schemaSearch(page).fill('zzz-nothing');
   await expect(page.getByTestId('schema-find-status')).toHaveText('No matches');
 });
+
+test('Escape clears the SDL search and returns to the SDL text', async ({ page }) => {
+  await openSchema(page);
+  await page.getByRole('button', { name: 'SDL', exact: true }).click();
+  const sdl = page.locator('.cm-content', { hasText: 'type User' });
+  await expect(sdl).toBeVisible();
+
+  await schemaSearch(page).click();
+  await schemaSearch(page).pressSequentially('User');
+  await schemaSearch(page).press('Escape');
+
+  await expect(schemaSearch(page)).toHaveValue('');
+  await expect(page.getByTestId('schema-find-status')).toHaveCount(0);
+  await expect(sdl).toBeFocused();
+});

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import ResponseErrorCard from '../ResponseErrorCard.vue'
+import TestsBadge from '../TestsBadge.vue'
 import { scriptPhaseLabel } from '@/lib/script-phase'
 import { Button } from '@/components/ui/button'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
@@ -80,20 +81,6 @@ const headerEntries = computed(() => {
 const scriptResult = computed(() => {
   if (props.state.status !== 'success') return null
   return props.state.data.scriptResult ?? null
-})
-
-const testsBadge = computed(() => {
-  if (!scriptResult.value) return ''
-  const hasTests = scriptResult.value.tests?.length > 0
-  const hasConsole = (scriptResult.value.preConsole?.length || 0) + (scriptResult.value.postConsole?.length || 0) > 0
-  const hasScriptErrors = scriptResult.value.errors?.length > 0
-  if (hasTests) {
-    const passed = scriptResult.value.tests.filter((t: any) => t.passed).length
-    const total = scriptResult.value.tests.length
-    return `${passed}/${total}`
-  }
-  if (hasConsole || hasScriptErrors) return '\u25CF'
-  return ''
 })
 
 function formatSize(bytes: number): string {
@@ -209,9 +196,7 @@ const onFindShortcut = useFindShortcut(computed(() => findBox.value?.input ?? nu
           @click="activeTab = 'tests'"
         >
           Tests
-          <span v-if="testsBadge" class="ml-1" :class="scriptResult?.errors?.length ? 'text-[var(--gc-error)]' : scriptResult?.tests?.length ? (scriptResult.tests.every((t: any) => t.passed) ? 'text-[var(--gc-success)]' : 'text-[var(--gc-error)]') : 'text-muted-foreground'">
-            ({{ testsBadge }})
-          </span>
+          <TestsBadge :result="scriptResult" />
         </button>
 
         <FindBox

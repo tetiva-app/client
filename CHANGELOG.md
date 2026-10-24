@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Quitting the app stops sync and closes the local database cleanly. Before, macOS skipped the shutdown steps entirely, and on every platform a write-ahead journal (`data.db-wal`) stayed next to the database
+
 ## [v1.3.1] — 2026-10-19 — MCP agents in the open app
 
 ### Added

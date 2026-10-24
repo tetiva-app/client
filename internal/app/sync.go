@@ -31,13 +31,17 @@ func SyncModule() fx.Option {
 			return auth.NewSignInManager(sink, auth.FlowOptions{JoinCap: 10 * time.Second})
 		}),
 		fx.Provide(wailsadapter.NewSyncService),
-		fx.Invoke(func(lc fx.Lifecycle, svc *wailsadapter.SyncService) {
+		fx.Invoke(func(lc fx.Lifecycle, svc *wailsadapter.SyncService, engine *syncsvc.SyncEngine) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					if err := svc.ResumeOnStartup(ctx); err != nil {
 						slog.Warn("sync: resume on startup failed", "err", err)
 					}
 					return nil // non-fatal
+				},
+				OnStop: func(context.Context) error {
+					engine.StopAll()
+					return nil
 				},
 			})
 		}),

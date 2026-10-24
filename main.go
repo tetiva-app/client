@@ -88,7 +88,12 @@ func main() {
 	if err := fxApp.Start(context.Background()); err != nil {
 		log.Fatalf("fx start: %v", err)
 	}
-	defer func() { _ = fxApp.Stop(context.Background()) }()
+	stopFx := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), fxApp.StopTimeout())
+		defer cancel()
+		_ = fxApp.Stop(ctx)
+	}
+	defer stopFx()
 
 	slog.Info("dependencies initialized, starting wails app")
 
@@ -121,8 +126,9 @@ func main() {
 		},
 	})
 
-	// macOS exits inside Run and never reaches the deferred Close.
+	// macOS never returns from Run, and Windows skips these tasks when its last window closes.
 	wailsApp.OnShutdown(func() { _ = inst.StopServing() })
+	wailsApp.OnShutdown(stopFx)
 
 	// Elsewhere Wails raises this event from the argv links.Deliver already took.
 	if runtime.GOOS == "darwin" {

@@ -111,10 +111,11 @@ type GraphQLSchema struct {
 }
 
 type GraphQLOperation struct {
-	Name       string
-	Args       []GraphQLArg
-	ReturnType string
-	Definition string // SDL snippet for schema viewer
+	Name        string
+	Description string
+	Args        []GraphQLArg
+	ReturnType  string
+	Definition  string // SDL snippet for schema viewer
 }
 
 type GraphQLArg struct {
@@ -125,6 +126,7 @@ type GraphQLArg struct {
 
 type GraphQLType struct {
 	Name          string
+	Description   string
 	Kind          string // OBJECT, INPUT_OBJECT, ENUM, INTERFACE, UNION, SCALAR
 	Fields        []GraphQLField
 	EnumValues    []string
@@ -133,9 +135,10 @@ type GraphQLType struct {
 }
 
 type GraphQLField struct {
-	Name string
-	Type string // e.g. "String!", "[Order!]"
-	Args []GraphQLArg
+	Name        string
+	Description string
+	Type        string // e.g. "String!", "[Order!]"
+	Args        []GraphQLArg
 }
 
 type GraphQLExampleResponse struct {

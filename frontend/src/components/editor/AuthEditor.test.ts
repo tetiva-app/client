@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createSSRApp, defineComponent, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia, setActivePinia } from 'pinia'
 import { defaultAuthData } from '@/lib/auth-data'
 import { clearAuthDrafts } from '@/composables/useAuthDrafts'
 import type { AuthType } from '@/types/request'
+import { setCurrentLocale } from '@/lib/locale'
 
 const selects = vi.hoisted(() => new Map<string, (value: string) => void>())
 
@@ -42,6 +43,7 @@ beforeEach(() => {
   selects.clear()
   clearAuthDrafts('r1')
 })
+afterEach(() => setCurrentLocale('en'))
 
 describe('AuthEditor', () => {
   it('hands the bearer token back after the Auth tab was left and reopened', async () => {
@@ -98,5 +100,20 @@ describe('auth editor blank credentials', () => {
 describe('auth editor on Inherit', () => {
   it('says the request goes without auth when no parent collection sets any', async () => {
     expect(await renderAuth('inherit', {})).toContain('No parent collection sets auth — this request goes without it')
+  })
+})
+
+describe('auth editor language', () => {
+  it('keeps a request in English when the app is in Russian', async () => {
+    setCurrentLocale('ru')
+
+    const html = await renderAuth('basic', { username: 'u', password: 'p' })
+
+    expect(html).toContain('Username')
+    expect(html).toContain('aria-label="Show Password"')
+    expect(html).not.toContain('Имя пользователя')
+    expect(await renderAuth('inherit', {})).toContain('This request inherits authentication')
+    expect(await render({ authType: 'oauth2', authData: defaultAuthData('oauth2') })).toContain('Token URL')
+    expect(await render({ authType: 'jwt', authData: defaultAuthData('jwt') })).toContain('Payload (claims)')
   })
 })

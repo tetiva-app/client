@@ -8,6 +8,9 @@ let instances = 0
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { dropdownPlacement, placementStyle } from '@/lib/dropdown-position'
+import { useScreenCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { AUTH_COPY } from './copy'
 
 interface Option {
   value: string
@@ -37,6 +40,8 @@ const buttonRef = ref<HTMLButtonElement>()
 const listRef = ref<HTMLDivElement>()
 const menuStyle = ref<Record<string, string>>({})
 
+const copy = useScreenCopy(AUTH_COPY)
+
 const known = computed(() => props.options.find(o => o.value === props.modelValue))
 
 // An import can store a value we cannot offer (an OAuth 2.0 grant, a JWT alg):
@@ -45,7 +50,7 @@ const unsupported = computed(() => !known.value && props.modelValue !== '')
 
 const currentLabel = computed(() => {
   if (known.value) return known.value.label
-  if (unsupported.value) return `${props.modelValue} (unsupported)`
+  if (unsupported.value) return fill(copy.value.fields.unsupported, { value: props.modelValue })
   return props.options[0]?.label ?? ''
 })
 
@@ -166,7 +171,7 @@ function handleKeydown(event: KeyboardEvent) {
       </Teleport>
     </div>
     <p v-if="unsupported" class="mt-1 text-[11px] text-amber-500" data-testid="auth-select-unsupported">
-      Stored as “{{ props.modelValue }}”, which this client cannot send — pick a supported value.
+      {{ fill(copy.fields.unsupportedHint, { value: props.modelValue }) }}
     </p>
     <p
       v-if="props.error"

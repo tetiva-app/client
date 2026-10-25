@@ -10,6 +10,9 @@ import { switchAuthDraft } from '@/composables/useAuthDrafts'
 import { hasLiteral } from '@/lib/secrets'
 import { useAuthTokenStore } from '@/stores/auth-tokens'
 import type { AuthOwnerKind } from '@/services/auth-api'
+import { useScreenCopy } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { AUTH_COPY } from './auth/copy'
 
 // The new forms carry CodeMirror (JWT claims) and a token panel; the tab opens
 // on basic/bearer far more often than on those.
@@ -47,10 +50,12 @@ const authTypes = computed(() => {
 })
 const httpOnlyBlocked = computed(() => !httpOnly.value && HTTP_ONLY_TYPES.includes(props.authType))
 
-const addToOptions: { value: string; label: string }[] = [
-  { value: 'header', label: 'Header' },
-  { value: 'query', label: 'Query Params' },
-]
+const copy = useScreenCopy(AUTH_COPY)
+
+const addToOptions = computed(() => [
+  { value: 'header', label: copy.value.fields.inHeader },
+  { value: 'query', label: copy.value.fields.inQuery },
+])
 
 const values = computed(() => authFormValues(props.authType, props.authData))
 
@@ -88,36 +93,36 @@ const tokens = useAuthTokenStore()
     <div v-if="!hideTypeSelector">
       <AuthSelect
         class="max-w-[240px]"
-        label="Authorization Type"
+        :label="copy.typeLabel"
         test-id="auth-type-selector"
         :model-value="authType"
         :options="authTypes"
         @update:model-value="selectAuthType($event as AuthType)"
       />
       <p v-if="httpOnlyBlocked" class="mt-1 text-[11px] text-amber-500" data-testid="auth-http-only">
-        {{ currentAuthLabel }} is supported for HTTP requests only; this request will fail to send.
+        {{ fill(copy.httpOnly, { label: currentAuthLabel }) }}
       </p>
     </div>
 
     <div v-if="authType === 'inherit'" class="py-6 text-center">
-      <p class="text-sm text-muted-foreground">This request inherits authentication from its parent collection</p>
+      <p class="text-sm text-muted-foreground">{{ copy.request.inherits }}</p>
       <InheritedAuth v-if="ownerKind === 'request' && ownerId" kind="request" :id="ownerId" :protocol="protocol">
-        <template #none>No parent collection sets auth — this request goes without it</template>
+        <template #none>{{ copy.request.noParent }}</template>
       </InheritedAuth>
     </div>
 
     <div v-else-if="authType === 'none'" class="py-6 text-center">
-      <p class="text-sm text-muted-foreground">No authentication configured for this request</p>
+      <p class="text-sm text-muted-foreground">{{ copy.request.none }}</p>
     </div>
 
     <div v-else-if="authType === 'basic'" class="space-y-3 max-w-md">
       <AuthTextField
-        label="Username"
+        :label="copy.fields.username"
         :model-value="values.username"
         @update:model-value="updateField('username', $event)"
       />
       <AuthTextField
-        label="Password"
+        :label="copy.fields.password"
         :model-value="values.password"
         secret
         @update:model-value="updateField('password', $event)"
@@ -126,39 +131,39 @@ const tokens = useAuthTokenStore()
 
     <div v-else-if="authType === 'bearer'" class="space-y-3 max-w-md">
       <AuthTextField
-        label="Prefix"
+        :label="copy.fields.prefix"
         :model-value="values.prefix"
         placeholder="Bearer"
         @update:model-value="updateField('prefix', $event)"
       />
       <AuthTextField
-        label="Token"
+        :label="copy.fields.token"
         :model-value="values.token"
-        placeholder="Paste your token here"
+        :placeholder="copy.fields.tokenPlaceholder"
         multiline
         :secret="hasLiteral(values.token)"
-        :hint="values.token.trim() ? undefined : 'Without a token no Authorization header is sent'"
+        :hint="values.token.trim() ? undefined : copy.fields.tokenMissing"
         @update:model-value="updateField('token', $event)"
       />
     </div>
 
     <div v-else-if="authType === 'api_key'" class="space-y-3 max-w-md">
       <AuthTextField
-        label="Key"
+        :label="copy.fields.key"
         :model-value="values.key"
         placeholder="X-API-Key"
-        :hint="values.key.trim() ? undefined : 'Without a key name nothing is added to the request'"
+        :hint="values.key.trim() ? undefined : copy.fields.keyMissing"
         @update:model-value="updateField('key', $event)"
       />
       <AuthTextField
-        label="Value"
+        :label="copy.fields.value"
         :model-value="values.value"
-        placeholder="Your API key value"
+        :placeholder="copy.fields.valuePlaceholder"
         :secret="hasLiteral(values.value)"
         @update:model-value="updateField('value', $event)"
       />
       <AuthSelect
-        label="Add to"
+        :label="copy.fields.addTo"
         :model-value="values.addTo"
         :options="addToOptions"
         @update:model-value="updateField('addTo', $event)"

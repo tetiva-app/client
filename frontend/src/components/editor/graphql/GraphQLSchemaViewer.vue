@@ -11,6 +11,7 @@ import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highli
 import { isModShortcut } from '@/lib/shortcut-guards'
 import { useFindShortcut } from '@/composables/useFindShortcut'
 import { isWailsEnvironment, getWindowService } from '@/services'
+import { printSchemaSdl } from '@/lib/graphql-schema-builder'
 import type { GraphQLSchema, GraphQLType } from '@/types/graphql'
 
 const props = withDefaults(defineProps<{
@@ -144,20 +145,7 @@ function activeHighlight() {
   return syntaxHighlighting(settings.effectiveTheme === 'dark' ? darkHighlightStyle : lightHighlightStyle)
 }
 
-const sdlContent = computed(() => {
-  if (!props.schema) return ''
-  const parts: string[] = []
-  for (const op of props.schema.queries) {
-    if (op.definition) parts.push(op.definition)
-  }
-  for (const op of props.schema.mutations) {
-    if (op.definition) parts.push(op.definition)
-  }
-  for (const type of props.schema.types) {
-    if (type.definition) parts.push(type.definition)
-  }
-  return parts.join('\n\n')
-})
+const sdlContent = computed(() => (props.schema ? printSchemaSdl(props.schema) : ''))
 
 function createEditor() {
   if (!editorRef.value) return
@@ -265,7 +253,10 @@ function handleSearchKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Escape') {
     searchQuery.value = ''
-    if (viewMode.value === 'sdl') handleSdlSearch()
+    if (viewMode.value === 'sdl') {
+      handleSdlSearch()
+      view?.focus()
+    }
   }
 }
 

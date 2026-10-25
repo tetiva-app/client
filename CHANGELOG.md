@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Quitting the app stops sync and closes the local database cleanly. Before, macOS skipped the shutdown steps entirely, and on every platform a write-ahead journal (`data.db-wal`) stayed next to the database
+- The SDL view of a GraphQL schema is valid SDL: root fields sit inside `type Query` / `type Mutation`, built-in scalars are left out, and type, field and operation descriptions are kept. Escape in its search returns to the schema text
+- The Tests tab badge stays green when every test passed and only a script failed; the failed script shows as a separate red dot instead of turning the count red
+- With the app in Russian, a collection's Authorization tab is in Russian throughout, not just its title
+- In a narrow window the sidebar keeps a usable width: the search field and the History selection count are no longer cut off, the sidebar width you set is kept between launches, and editor tabs stay on one line. The window cannot be made narrower than 840 px
+
 ## [v1.3.1] — 2026-10-19 — MCP agents in the open app
 
 ### Added

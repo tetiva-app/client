@@ -18,6 +18,18 @@ export interface SnippetTargets {
 
 export type SnippetFamily = keyof SnippetTargets
 
+export interface SidebarPrefs {
+  width: number
+  collapsed: boolean
+}
+
+export const SIDEBAR_MIN_PX = 240
+export const SIDEBAR_MAX_PX = 400
+
+export function clampSidebarWidth(px: number): number {
+  return Math.round(Math.min(SIDEBAR_MAX_PX, Math.max(SIDEBAR_MIN_PX, px)))
+}
+
 export interface AppSettings {
   theme: ThemePreference
   editorFontSize: number
@@ -31,10 +43,16 @@ export interface AppSettings {
   snippetTargets: SnippetTargets
   language: LanguagePreference
   publishingEnabled: boolean
+  sidebar: SidebarPrefs | null
 }
 
 // Legacy pre-rebrand key — existing installs already store settings under it.
 export const SETTINGS_STORAGE_KEY = 'gophercourier.settings'
+
+// reka-ui's autoSaveId="main-layout" entry up to 1.3.1, keyed by the panels' constraints.
+export const LEGACY_LAYOUT_KEY = 'reka:main-layout'
+export const LEGACY_LAYOUT_PANELS = '{"collapsedSize":0,"collapsible":true,"defaultSize":20,"maxSize":35,"minSize":15,"sizeUnit":"%"},'
+  + '{"collapsible":false,"defaultSize":80,"sizeUnit":"%"}'
 
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 16] as const
 
@@ -51,6 +69,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snippetTargets: { http: 'curl', grpc: 'grpcurl', websocket: 'websocat' },
   language: 'system',
   publishingEnabled: true,
+  sidebar: null,
 }
 
 function normalizeTheme(value: unknown): ThemePreference {
@@ -83,6 +102,13 @@ function normalizeUpdateCard(value: unknown): UpdateCardPrefs | null {
   if (typeof v.version !== 'string' || typeof v.shownAt !== 'string') return null
   if (typeof v.collapsed !== 'boolean' || typeof v.dismissed !== 'boolean' || typeof v.escalated !== 'boolean') return null
   return { version: v.version, shownAt: v.shownAt, collapsed: v.collapsed, dismissed: v.dismissed, escalated: v.escalated }
+}
+
+function normalizeSidebar(value: unknown): SidebarPrefs | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (typeof v.width !== 'number' || typeof v.collapsed !== 'boolean') return null
+  return { width: v.width, collapsed: v.collapsed }
 }
 
 // No registry check: an unknown key falls back to the first offered target.
@@ -127,9 +153,25 @@ export function loadSettings(): AppSettings {
       publishingEnabled: typeof parsed.publishingEnabled === 'boolean'
         ? parsed.publishingEnabled
         : DEFAULT_SETTINGS.publishingEnabled,
+      sidebar: normalizeSidebar(parsed.sidebar),
     }
   } catch {
     return defaultSettings()
+  }
+}
+
+// A collapsed legacy sidebar kept no width to expand to, so it gets the old 20 % default.
+export function takeLegacySidebar(windowWidth: number): SidebarPrefs | null {
+  try {
+    const raw = localStorage.getItem(LEGACY_LAYOUT_KEY)
+    if (!raw) return null
+    localStorage.removeItem(LEGACY_LAYOUT_KEY)
+    const percent: unknown = JSON.parse(raw)?.[LEGACY_LAYOUT_PANELS]?.layout?.[0]
+    if (typeof percent !== 'number') return null
+    const collapsed = percent < 1
+    return { width: clampSidebarWidth((collapsed ? 20 : percent) / 100 * windowWidth), collapsed }
+  } catch {
+    return null
   }
 }
 

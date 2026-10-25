@@ -164,6 +164,13 @@
   }
 }
 
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Dark scrollbar for dark theme */
 .dark {
   color-scheme: dark;

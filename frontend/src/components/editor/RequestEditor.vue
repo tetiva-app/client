@@ -372,11 +372,11 @@ function updateField(field: string, value: any) {
         >
           <ResizablePanel :default-size="40" :min-size="25">
             <div class="flex flex-col h-full">
-              <div class="flex border-b border-border px-3">
+              <div class="flex overflow-x-auto scrollbar-none border-b border-border px-3">
                 <button
                   v-for="tab in tabs"
                   :key="tab.id"
-                  class="px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                  class="shrink-0 whitespace-nowrap px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                   :class="activeTab === tab.id
                     ? 'border-b-[3px] border-primary text-foreground'
                     : 'text-muted-foreground hover:text-foreground'"

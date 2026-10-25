@@ -6,6 +6,7 @@ import {
   saveSettings,
   SETTINGS_STORAGE_KEY,
   type AppSettings,
+  type SidebarPrefs,
   type SnippetFamily,
   type SnippetTargets,
   type ThemePreference,
@@ -42,6 +43,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const snippetTargets = ref<SnippetTargets>(initial.snippetTargets)
   const language = ref<LanguagePreference>(initial.language)
   const publishingEnabled = ref<boolean>(initial.publishingEnabled)
+  const sidebar = ref<SidebarPrefs | null>(initial.sidebar)
 
   // Track the OS color scheme so `system` resolves reactively.
   const systemPrefersDark = ref<boolean>(prefersDark())
@@ -93,6 +95,7 @@ export const useSettingsStore = defineStore('settings', () => {
       snippetTargets: snippetTargets.value,
       language: language.value,
       publishingEnabled: publishingEnabled.value,
+      sidebar: sidebar.value,
     }
   }
 
@@ -116,6 +119,7 @@ export const useSettingsStore = defineStore('settings', () => {
     snippetTargets,
     language,
     publishingEnabled,
+    sidebar,
   ], () => {
     if (applyingRemote) return
     saveSettings(snapshot())
@@ -138,6 +142,7 @@ export const useSettingsStore = defineStore('settings', () => {
       snippetTargets.value = next.snippetTargets
       language.value = next.language
       publishingEnabled.value = next.publishingEnabled
+      sidebar.value = next.sidebar
       applyingRemote = false
     })
   }
@@ -169,6 +174,9 @@ export const useSettingsStore = defineStore('settings', () => {
   }
   function setPublishingEnabled(v: boolean) {
     publishingEnabled.value = v
+  }
+  function setSidebar(v: SidebarPrefs) {
+    sidebar.value = v
   }
 
   // Backfill for installs upgraded from a build without the flag. Runs here and
@@ -203,6 +211,7 @@ export const useSettingsStore = defineStore('settings', () => {
     effectiveLocale,
     osLocale,
     publishingEnabled,
+    sidebar,
     setCheckUpdatesAutomatically,
     setDownloadUpdatesAutomatically,
     setLastUpdateCheckAt,
@@ -212,5 +221,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setSnippetTarget,
     setLanguage,
     setPublishingEnabled,
+    setSidebar,
   }
 })

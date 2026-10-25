@@ -10,6 +10,9 @@ import type { AuthOwnerKind, ResolvedOwner } from '@/services/auth-api'
 import { useWindowEvents } from '@/composables/useWindowEvents'
 import { chainSignature } from '@/lib/inherited-auth'
 import { blankCredentialNote } from '@/lib/auth-data'
+import { useScreenCopy, useScreenLocale } from '@/composables/useLocale'
+import { fill } from '@/lib/locale'
+import { AUTH_COPY } from './auth/copy'
 
 const props = defineProps<{
   kind: 'request' | 'collection'
@@ -22,6 +25,8 @@ const HTTP_ONLY_TYPES: AuthType[] = ['digest', 'aws_sigv4']
 const tokens = useAuthTokenStore()
 const collections = useCollectionStore()
 const tabs = useRequestStore()
+const locale = useScreenLocale()
+const copy = useScreenCopy(AUTH_COPY)
 
 type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; owner: ResolvedOwner | null }
 const state = ref<State>({ status: 'loading' })
@@ -29,7 +34,7 @@ const state = ref<State>({ status: 'loading' })
 const owner = computed(() => (state.value.status === 'ready' ? state.value.owner : null))
 const ownerType = computed(() => owner.value?.authType as AuthType | undefined)
 const ownerLabel = computed(() => (ownerType.value ? AUTH_TYPE_LABELS[ownerType.value] ?? ownerType.value : ''))
-const blankNote = computed(() => (owner.value ? blankCredentialNote(owner.value.authType, owner.value.authData) : ''))
+const blankNote = computed(() => (owner.value ? blankCredentialNote(owner.value.authType, owner.value.authData, locale.value) : ''))
 const ownerName = computed(() => (owner.value ? collections.collectionsMap.get(owner.value.ownerId)?.name ?? '' : ''))
 const httpOnlyBlocked = computed(() =>
   !!props.protocol && props.protocol !== 'http' && !!ownerType.value && HTTP_ONLY_TYPES.includes(ownerType.value),
@@ -37,7 +42,7 @@ const httpOnlyBlocked = computed(() =>
 const tokenStatus = computed(() => {
   const o = owner.value
   if (!o || o.authType !== 'oauth2') return ''
-  return tokenStatusLabel(tokens.entry(o.ownerKind, o.ownerId))
+  return tokenStatusLabel(tokens.entry(o.ownerKind, o.ownerId), locale.value)
 })
 
 const startCollectionId = computed(() =>
@@ -100,22 +105,22 @@ function openOwner() {
 <template>
   <template v-if="owner">
     <p class="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-testid="inherited-auth">
-      {{ ownerLabel }} configured on
+      {{ fill(copy.inherited.configuredOn, { label: ownerLabel }) }}
       <button
         v-if="ownerName"
         class="text-primary hover:underline cursor-pointer"
         type="button"
         data-testid="inherited-auth-owner"
         @click="openOwner"
-      >collection “{{ ownerName }}”</button>
-      <template v-else>the parent collection</template>
+      >{{ fill(copy.inherited.onCollection, { name: ownerName }) }}</button>
+      <template v-else>{{ copy.inherited.onParent }}</template>
     </p>
     <p v-if="blankNote" class="mt-1 text-[11px] text-amber-500" data-testid="inherited-auth-blank">{{ blankNote }}</p>
     <p v-if="httpOnlyBlocked" class="mt-2 text-[11px] text-amber-500" data-testid="auth-http-only">
-      {{ ownerLabel }} is supported for HTTP requests only; this request will fail to send.
+      {{ fill(copy.httpOnly, { label: ownerLabel }) }}
     </p>
     <p v-if="tokenStatus" class="mt-1 text-xs text-muted-foreground/70" data-testid="inherited-token-status">
-      {{ tokenStatus }} — manage the token on that collection's Auth tab
+      {{ fill(copy.inherited.manageToken, { status: tokenStatus }) }}
     </p>
   </template>
   <p
@@ -126,6 +131,6 @@ function openOwner() {
     <slot name="none" />
   </p>
   <p v-else-if="state.status === 'error'" class="mt-2 text-xs text-muted-foreground" data-testid="inherited-auth-error">
-    Couldn't resolve inherited auth
+    {{ copy.inherited.resolveFailed }}
   </p>
 </template>

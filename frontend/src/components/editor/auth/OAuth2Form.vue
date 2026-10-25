@@ -7,6 +7,9 @@ import { authFormValues, setAuthField } from '@/lib/auth-data'
 import { openExternal } from '@/lib/open-external'
 import { tokenStatusLabel, useAuthTokenStore } from '@/stores/auth-tokens'
 import type { AuthOwnerKind } from '@/services/auth-api'
+import { useScreenCopy, useScreenLocale } from '@/composables/useLocale'
+import { plural } from '@/lib/locale'
+import { AUTH_COPY } from './copy'
 
 const props = defineProps<{
   authData: string
@@ -26,16 +29,19 @@ const grants = [
   { value: 'device_code', label: 'Device Code' },
 ]
 
-const clientAuthOptions = [
-  { value: 'basic', label: 'Basic header' },
-  { value: 'body', label: 'Request body' },
-  { value: 'none', label: 'None (public client)' },
-]
+const locale = useScreenLocale()
+const copy = useScreenCopy(AUTH_COPY)
 
-const addToOptions = [
-  { value: 'header', label: 'Header' },
-  { value: 'query', label: 'Query Params' },
-]
+const clientAuthOptions = computed(() => [
+  { value: 'basic', label: copy.value.oauth2.clientAuthBasic },
+  { value: 'body', label: copy.value.oauth2.clientAuthBody },
+  { value: 'none', label: copy.value.oauth2.clientAuthNone },
+])
+
+const addToOptions = computed(() => [
+  { value: 'header', label: copy.value.fields.inHeader },
+  { value: 'query', label: copy.value.fields.inQuery },
+])
 
 const tokens = useAuthTokenStore()
 
@@ -48,7 +54,7 @@ const interactive = computed(() => grant.value === 'authorization_code' || grant
 const supportedGrant = computed(() => grants.some(g => g.value === grant.value))
 
 const entry = computed(() => tokens.entry(props.ownerKind, props.ownerId))
-const statusLabel = computed(() => tokenStatusLabel(entry.value))
+const statusLabel = computed(() => tokenStatusLabel(entry.value, locale.value))
 const pending = computed(() => entry.value.flowState === 'pending')
 // An adopted flow need not match the grant in the buffer — a reload restores the
 // saved config, so the panel follows what the flow itself reported.
@@ -59,20 +65,20 @@ const deviceFlow = computed(() => {
 })
 
 // Backend field keys are JSON names; the form shows labels.
-const fieldLabels: Record<string, string> = {
-  grant: 'Grant Type',
-  tokenUrl: 'Token URL',
-  authUrl: 'Authorization URL',
-  deviceAuthUrl: 'Device Authorization URL',
+const fieldLabels = computed<Record<string, string>>(() => ({
+  grant: copy.value.oauth2.grant,
+  tokenUrl: copy.value.oauth2.tokenUrl,
+  authUrl: copy.value.oauth2.authUrl,
+  deviceAuthUrl: copy.value.oauth2.deviceAuthUrl,
   clientId: 'Client ID',
   clientSecret: 'Client Secret',
-  clientAuth: 'Client Authentication',
-  username: 'Username',
-  password: 'Password',
+  clientAuth: copy.value.oauth2.clientAuth,
+  username: copy.value.fields.username,
+  password: copy.value.fields.password,
   scope: 'Scope',
   audience: 'Audience',
-  redirectPort: 'Redirect Port',
-}
+  redirectPort: copy.value.oauth2.redirectPort,
+}))
 
 // The inputs on screen for the current grant: a message about any of them is
 // shown under the input it belongs to, not in the status block.
@@ -99,11 +105,9 @@ const errorText = computed(() => {
   const all = entry.value.fields ?? {}
   const parts = Object.entries(all)
     .filter(([key]) => !(key in fieldErrors.value))
-    .map(([key, msg]) => (fieldLabels[key] ? `${fieldLabels[key]}: ${msg}` : msg))
+    .map(([key, msg]) => (fieldLabels.value[key] ? `${fieldLabels.value[key]}: ${msg}` : msg))
   const count = Object.keys(fieldErrors.value).length
-  if (count > 0) {
-    parts.push(count === 1 ? 'one field below needs attention' : `${count} fields below need attention`)
-  }
+  if (count > 0) parts.push(plural(locale.value, count, copy.value.oauth2.fieldsNeedAttention))
   const message = entry.value.error
   if (parts.length === 0) return message
   if (message && message !== 'validation failed') parts.unshift(message)
@@ -151,8 +155,7 @@ watch(acquisition, () => {
   // stored under a hash the editor no longer shows. Say so — the user may be
   // sitting in the browser tab this just abandoned.
   if (pending.value) {
-    void tokens.cancelFlow(config(),
-      'Token request cancelled: the configuration changed. Press Get token to start again.')
+    void tokens.cancelFlow(config(), copy.value.oauth2.configChanged)
   }
   scheduleRefresh()
 })
@@ -224,7 +227,7 @@ async function cancelFlow() {
 const copied = ref<'' | 'code' | 'url'>('')
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-async function copy(text: string, what: 'code' | 'url') {
+async function copyText(text: string, what: 'code' | 'url') {
   if (!text) return
   try {
     // navigator.clipboard is unreliable in the Wails WebView after awaited
@@ -255,7 +258,7 @@ async function openAuthorize() {
 <template>
   <div class="space-y-3 max-w-md">
     <AuthSelect
-      label="Grant Type"
+      :label="copy.oauth2.grant"
       :model-value="grant"
       :options="grants"
       :error="fieldErrors.grant"
@@ -278,7 +281,7 @@ async function openAuthorize() {
           :disabled="entry.loading || !supportedGrant"
           @click="getToken"
         >
-          Get token
+          {{ copy.oauth2.getToken }}
         </button>
         <button
           class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
@@ -287,7 +290,7 @@ async function openAuthorize() {
           :disabled="entry.loading && !pending"
           @click="clearToken"
         >
-          Clear
+          {{ copy.oauth2.clear }}
         </button>
       </div>
 
@@ -299,18 +302,18 @@ async function openAuthorize() {
         :data-authorize-url="entry.authorizeUrl"
       >
         <p v-if="!deviceFlow" class="text-[11px] text-muted-foreground">
-          Waiting for the browser — approve the request there, then come back.
+          {{ copy.oauth2.waitingBrowser }}
         </p>
         <template v-else>
-          <p class="text-[11px] text-muted-foreground">Enter this code on the verification page:</p>
+          <p class="text-[11px] text-muted-foreground">{{ copy.oauth2.enterCode }}</p>
           <div class="flex items-center gap-2">
             <code class="text-sm tracking-widest" data-testid="oauth2-user-code">{{ entry.userCode }}</code>
             <button
               class="size-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
               type="button"
-              title="Copy code"
+              :title="copy.oauth2.copyCode"
               data-testid="oauth2-copy-user-code"
-              @click="copy(entry.userCode, 'code')"
+              @click="copyText(entry.userCode, 'code')"
             >
               <Check v-if="copied === 'code'" class="size-3" />
               <Copy v-else class="size-3" />
@@ -327,7 +330,7 @@ async function openAuthorize() {
             @click="openVerification"
           >
             <ExternalLink class="size-3" />
-            Open
+            {{ copy.oauth2.open }}
           </button>
           <template v-if="!deviceFlow">
             <button
@@ -337,17 +340,17 @@ async function openAuthorize() {
               @click="openAuthorize"
             >
               <ExternalLink class="size-3" />
-              Open again
+              {{ copy.oauth2.openAgain }}
             </button>
             <button
               class="h-7 px-2.5 text-xs rounded-md border border-border hover:bg-muted/30 transition-colors cursor-pointer inline-flex items-center gap-1.5"
               type="button"
               data-testid="oauth2-copy-authorize-url"
-              @click="copy(entry.authorizeUrl, 'url')"
+              @click="copyText(entry.authorizeUrl, 'url')"
             >
               <Check v-if="copied === 'url'" class="size-3" />
               <Link v-else class="size-3" />
-              Copy link
+              {{ copy.oauth2.copyLink }}
             </button>
           </template>
           <button
@@ -357,7 +360,7 @@ async function openAuthorize() {
             data-testid="oauth2-flow-cancel"
             @click="cancelFlow"
           >
-            Cancel
+            {{ copy.oauth2.cancel }}
           </button>
         </div>
       </div>
@@ -375,7 +378,7 @@ async function openAuthorize() {
     </div>
 
     <AuthTextField
-      label="Token URL"
+      :label="copy.oauth2.tokenUrl"
       :model-value="values.tokenUrl"
       placeholder="https://idp.example.com/oauth2/token"
       :error="fieldErrors.tokenUrl"
@@ -385,7 +388,7 @@ async function openAuthorize() {
 
     <AuthTextField
       v-if="grant === 'authorization_code'"
-      label="Authorization URL"
+      :label="copy.oauth2.authUrl"
       :model-value="values.authUrl"
       placeholder="https://idp.example.com/oauth2/authorize"
       :error="fieldErrors.authUrl"
@@ -395,7 +398,7 @@ async function openAuthorize() {
 
     <AuthTextField
       v-if="grant === 'device_code'"
-      label="Device Authorization URL"
+      :label="copy.oauth2.deviceAuthUrl"
       :model-value="values.deviceAuthUrl"
       placeholder="https://idp.example.com/oauth2/device"
       :error="fieldErrors.deviceAuthUrl"
@@ -421,7 +424,7 @@ async function openAuthorize() {
     />
 
     <AuthSelect
-      label="Client Authentication"
+      :label="copy.oauth2.clientAuth"
       :model-value="values.clientAuth"
       :options="clientAuthOptions"
       :error="fieldErrors.clientAuth"
@@ -431,14 +434,14 @@ async function openAuthorize() {
 
     <template v-if="grant === 'password'">
       <AuthTextField
-        label="Username"
+        :label="copy.fields.username"
         :model-value="values.username"
         :error="fieldErrors.username"
         error-test-id="oauth2-error-username"
         @update:model-value="update('username', $event)"
       />
       <AuthTextField
-        label="Password"
+        :label="copy.fields.password"
         :model-value="values.password"
         secret
         :error="fieldErrors.password"
@@ -467,16 +470,16 @@ async function openAuthorize() {
 
     <AuthTextField
       v-if="grant === 'authorization_code'"
-      label="Redirect Port"
+      :label="copy.oauth2.redirectPort"
       :model-value="values.redirectPort"
-      hint="Loopback port for the callback; 0 picks a free one."
+      :hint="copy.oauth2.redirectHint"
       :error="fieldErrors.redirectPort"
       error-test-id="oauth2-error-redirectPort"
       @update:model-value="update('redirectPort', $event)"
     />
 
     <AuthSelect
-      label="Add token to"
+      :label="copy.fields.addTokenTo"
       :model-value="values.addTo"
       :options="addToOptions"
       @update:model-value="update('addTo', $event)"
@@ -484,13 +487,13 @@ async function openAuthorize() {
 
     <AuthTextField
       v-if="values.addTo === 'query'"
-      label="Query Parameter"
+      :label="copy.fields.queryParam"
       :model-value="values.queryParam"
       @update:model-value="update('queryParam', $event)"
     />
     <AuthTextField
       v-else
-      label="Header Prefix"
+      :label="copy.fields.headerPrefix"
       :model-value="values.headerPrefix"
       @update:model-value="update('headerPrefix', $event)"
     />

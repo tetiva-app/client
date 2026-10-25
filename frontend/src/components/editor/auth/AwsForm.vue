@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import AuthTextField from './AuthTextField.vue'
 import { authFormValues, setAuthField } from '@/lib/auth-data'
+import { useScreenCopy } from '@/composables/useLocale'
+import { AUTH_COPY } from './copy'
 
 const props = defineProps<{
   authData: string
@@ -11,6 +13,7 @@ const emit = defineEmits<{
   (e: 'update:authData', value: string): void
 }>()
 
+const copy = useScreenCopy(AUTH_COPY)
 const values = computed(() => authFormValues('aws_sigv4', props.authData))
 
 function update(key: string, value: string) {
@@ -36,17 +39,17 @@ function update(key: string, value: string) {
       label="Session Token"
       :model-value="values.sessionToken"
       secret
-      hint="Only for temporary STS credentials."
+      :hint="copy.aws.sessionTokenHint"
       @update:model-value="update('sessionToken', $event)"
     />
     <AuthTextField
-      label="Region"
+      :label="copy.aws.region"
       :model-value="values.region"
       placeholder="us-east-1"
       @update:model-value="update('region', $event)"
     />
     <AuthTextField
-      label="Service"
+      :label="copy.aws.service"
       :model-value="values.service"
       placeholder="execute-api"
       @update:model-value="update('service', $event)"

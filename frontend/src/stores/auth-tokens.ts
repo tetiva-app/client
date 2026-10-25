@@ -2,7 +2,8 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getAuthService } from '@/services'
 import { openExternal } from '@/lib/open-external'
-import { currentLocale } from '@/lib/locale'
+import { currentLocale, fill, type Locale } from '@/lib/locale'
+import { AUTH_COPY } from '@/components/editor/auth/copy'
 import type { Result } from '@/types/common'
 import type {
   AuthConfigReq,
@@ -64,21 +65,23 @@ function clockTime(date: Date): string {
 }
 
 // "Valid until 14:05" for today, with the day added when the token outlives it.
-export function tokenStatusLabel(entry: TokenEntry, now: Date = new Date()): string {
+export function tokenStatusLabel(entry: TokenEntry, locale: Locale, now: Date = new Date()): string {
+  const copy = AUTH_COPY[locale].tokenStatus
   switch (entry.state) {
     case 'valid': {
       const until = new Date(entry.expiresAt)
-      if (!entry.expiresAt || Number.isNaN(until.getTime())) return 'Valid'
-      const sameDay = until.toDateString() === now.toDateString()
-      const day = until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      return sameDay ? `Valid until ${clockTime(until)}` : `Valid until ${day}, ${clockTime(until)}`
+      if (!entry.expiresAt || Number.isNaN(until.getTime())) return copy.valid
+      const time = clockTime(until)
+      if (until.toDateString() === now.toDateString()) return fill(copy.validUntil, { time })
+      const day = until.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+      return fill(copy.validUntilDay, { day, time })
     }
     case 'expired-refreshable':
-      return 'Expired, will refresh'
+      return copy.refreshable
     case 'expired':
-      return 'Expired'
+      return copy.expired
     default:
-      return 'No token'
+      return copy.none
   }
 }
 

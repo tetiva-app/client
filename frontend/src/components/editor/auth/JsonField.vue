@@ -2,6 +2,8 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { isJsonObjectText, sameJsonObject } from '@/lib/auth-data'
 import { useEnvironmentStore } from '@/stores/environments'
+import { useScreenCopy } from '@/composables/useLocale'
+import { AUTH_COPY } from './copy'
 
 // CodeMirror is heavy and the Auth tab rarely needs it.
 const CodeEditor = defineAsyncComponent(() => import('../CodeEditor.vue'))
@@ -17,6 +19,7 @@ const emit = defineEmits<{
   (e: 'update:value', value: string): void
 }>()
 
+const copy = useScreenCopy(AUTH_COPY)
 const envStore = useEnvironmentStore()
 const resolvedVars = computed(() => envStore.resolvedVariables)
 const secretKeys = computed(() => {
@@ -57,7 +60,7 @@ function onInput(next: string) {
         @update:content="onInput"
       />
     </div>
-    <p v-if="!valid" class="mt-1 text-[11px] text-red-500">Not a JSON object — the last valid value is used.</p>
+    <p v-if="!valid" class="mt-1 text-[11px] text-red-500">{{ copy.fields.invalidJson }}</p>
     <p v-else-if="props.hint" class="mt-1 text-[11px] text-muted-foreground/60">{{ props.hint }}</p>
   </div>
 </template>

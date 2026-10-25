@@ -2,6 +2,7 @@
 import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue'
 import { Copy, Check, TextSelect, FileDown, Download } from 'lucide-vue-next'
 import ResponseErrorCard from './ResponseErrorCard.vue'
+import TestsBadge from './TestsBadge.vue'
 import { scriptPhaseLabel } from '@/lib/script-phase'
 import { Button } from '@/components/ui/button'
 import { getRequestService } from '@/services'
@@ -114,20 +115,6 @@ const cookiesBadge = computed(() => setCookieHeaders.value.length)
 const scriptResult = computed(() => {
   if (props.state.status !== 'success') return null
   return props.state.data.scriptResult ?? null
-})
-
-const testsBadge = computed(() => {
-  if (!scriptResult.value) return ''
-  const hasTests = scriptResult.value.tests?.length > 0
-  const hasConsole = (scriptResult.value.preConsole?.length || 0) + (scriptResult.value.postConsole?.length || 0) > 0
-  const hasErrors = scriptResult.value.errors?.length > 0
-  if (hasTests) {
-    const passed = scriptResult.value.tests.filter(t => t.passed).length
-    const total = scriptResult.value.tests.length
-    return `${passed}/${total}`
-  }
-  if (hasConsole || hasErrors) return '\u25CF'
-  return ''
 })
 
 const copied = ref(false)
@@ -309,9 +296,7 @@ async function saveResponseToFile() {
           @click="activeResponseTab = 'tests'"
         >
           Tests
-          <span v-if="testsBadge" class="ml-1" :class="scriptResult?.errors?.length ? 'text-[var(--gc-error)]' : scriptResult?.tests?.length ? (scriptResult.tests.every(t => t.passed) ? 'text-[var(--gc-success)]' : 'text-[var(--gc-error)]') : 'text-muted-foreground'">
-            ({{ testsBadge }})
-          </span>
+          <TestsBadge :result="scriptResult" />
         </button>
 
         <div v-if="activeResponseTab === 'body' && !isBinary" class="ml-auto flex items-center gap-0.5">

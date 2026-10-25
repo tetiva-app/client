@@ -28,6 +28,7 @@ query IntrospectionQuery {
       description
       fields(includeDeprecated: true) {
         name
+        description
         args {
           name
           type { ...TypeRef }
@@ -37,6 +38,7 @@ query IntrospectionQuery {
       }
       inputFields {
         name
+        description
         type { ...TypeRef }
         defaultValue
       }
@@ -102,13 +104,15 @@ type introspectionType struct {
 }
 
 type introspectionField struct {
-	Name string                   `json:"name"`
-	Type introspectionTypeRefFull `json:"type"`
-	Args []introspectionArg       `json:"args"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Type        introspectionTypeRefFull `json:"type"`
+	Args        []introspectionArg       `json:"args"`
 }
 
 type introspectionArg struct {
 	Name         string                   `json:"name"`
+	Description  string                   `json:"description"`
 	Type         introspectionTypeRefFull `json:"type"`
 	DefaultValue *string                  `json:"defaultValue"`
 }
@@ -309,22 +313,21 @@ func convertIntrospectionFieldToOperation(f introspectionField) request.GraphQLO
 		args = append(args, arg)
 	}
 
-	returnType := flattenTypeRef(&f.Type)
-
-	def := buildOperationSDL(f.Name, args, returnType)
-
-	return request.GraphQLOperation{
-		Name:       f.Name,
-		Args:       args,
-		ReturnType: returnType,
-		Definition: def,
+	op := request.GraphQLOperation{
+		Name:        f.Name,
+		Description: f.Description,
+		Args:        args,
+		ReturnType:  flattenTypeRef(&f.Type),
 	}
+	op.Definition = buildOperationSDL(op)
+	return op
 }
 
 func convertIntrospectionType(t introspectionType) request.GraphQLType {
 	gt := request.GraphQLType{
-		Name: t.Name,
-		Kind: t.Kind,
+		Name:        t.Name,
+		Description: t.Description,
+		Kind:        t.Kind,
 	}
 
 	switch t.Kind {
@@ -342,9 +345,10 @@ func convertIntrospectionType(t introspectionType) request.GraphQLType {
 				args = append(args, arg)
 			}
 			gt.Fields = append(gt.Fields, request.GraphQLField{
-				Name: f.Name,
-				Type: flattenTypeRef(&f.Type),
-				Args: args,
+				Name:        f.Name,
+				Description: f.Description,
+				Type:        flattenTypeRef(&f.Type),
+				Args:        args,
 			})
 		}
 		for _, pt := range t.PossibleTypes {
@@ -356,8 +360,9 @@ func convertIntrospectionType(t introspectionType) request.GraphQLType {
 	case "INPUT_OBJECT":
 		for _, f := range t.InputFields {
 			gt.Fields = append(gt.Fields, request.GraphQLField{
-				Name: f.Name,
-				Type: flattenTypeRef(&f.Type),
+				Name:        f.Name,
+				Description: f.Description,
+				Type:        flattenTypeRef(&f.Type),
 			})
 		}
 
@@ -420,6 +425,10 @@ func convertASTSchema(schema *ast.Schema) *request.GraphQLSchema {
 		switch name {
 		case queryTypeName:
 			for _, f := range def.Fields {
+				// gqlparser adds __schema and __type to the query root.
+				if strings.HasPrefix(f.Name, "__") {
+					continue
+				}
 				op := convertASTFieldToOperation(f)
 				result.Queries = append(result.Queries, op)
 			}
@@ -445,26 +454,26 @@ func convertASTFieldToOperation(f *ast.FieldDefinition) request.GraphQLOperation
 			Type: a.Type.String(),
 		}
 		if a.DefaultValue != nil {
-			arg.DefaultValue = a.DefaultValue.String()
+			arg.DefaultValue = sdlValue(a.DefaultValue)
 		}
 		args = append(args, arg)
 	}
 
-	returnType := f.Type.String()
-	def := buildOperationSDL(f.Name, args, returnType)
-
-	return request.GraphQLOperation{
-		Name:       f.Name,
-		Args:       args,
-		ReturnType: returnType,
-		Definition: def,
+	op := request.GraphQLOperation{
+		Name:        f.Name,
+		Description: f.Description,
+		Args:        args,
+		ReturnType:  f.Type.String(),
 	}
+	op.Definition = buildOperationSDL(op)
+	return op
 }
 
 func convertASTDefinition(def *ast.Definition) request.GraphQLType {
 	gt := request.GraphQLType{
-		Name: def.Name,
-		Kind: string(def.Kind),
+		Name:        def.Name,
+		Description: def.Description,
+		Kind:        string(def.Kind),
 	}
 
 	switch def.Kind {
@@ -477,22 +486,24 @@ func convertASTDefinition(def *ast.Definition) request.GraphQLType {
 					Type: a.Type.String(),
 				}
 				if a.DefaultValue != nil {
-					arg.DefaultValue = a.DefaultValue.String()
+					arg.DefaultValue = sdlValue(a.DefaultValue)
 				}
 				args = append(args, arg)
 			}
 			gt.Fields = append(gt.Fields, request.GraphQLField{
-				Name: f.Name,
-				Type: f.Type.String(),
-				Args: args,
+				Name:        f.Name,
+				Description: f.Description,
+				Type:        f.Type.String(),
+				Args:        args,
 			})
 		}
 
 	case ast.InputObject:
 		for _, f := range def.Fields {
 			gt.Fields = append(gt.Fields, request.GraphQLField{
-				Name: f.Name,
-				Type: f.Type.String(),
+				Name:        f.Name,
+				Description: f.Description,
+				Type:        f.Type.String(),
 			})
 		}
 
@@ -510,32 +521,110 @@ func convertASTDefinition(def *ast.Definition) request.GraphQLType {
 }
 
 // e.g. "users(limit: Int, offset: Int): [User!]!"
-func buildOperationSDL(name string, args []request.GraphQLArg, returnType string) string {
+func buildOperationSDL(op request.GraphQLOperation) string {
 	var sb strings.Builder
-	sb.WriteString(name)
-	if len(args) > 0 {
-		sb.WriteString("(")
-		for i, arg := range args {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(arg.Name)
-			sb.WriteString(": ")
-			sb.WriteString(arg.Type)
-			if arg.DefaultValue != "" {
-				sb.WriteString(" = ")
-				sb.WriteString(arg.DefaultValue)
-			}
-		}
-		sb.WriteString(")")
-	}
+	writeDescription(&sb, op.Description, "")
+	sb.WriteString(op.Name)
+	writeArgs(&sb, op.Args)
 	sb.WriteString(": ")
-	sb.WriteString(returnType)
+	sb.WriteString(op.ReturnType)
 	return sb.String()
+}
+
+func writeArgs(sb *strings.Builder, args []request.GraphQLArg) {
+	if len(args) == 0 {
+		return
+	}
+	sb.WriteString("(")
+	for i, arg := range args {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.Name)
+		sb.WriteString(": ")
+		sb.WriteString(arg.Type)
+		if arg.DefaultValue != "" {
+			sb.WriteString(" = ")
+			sb.WriteString(arg.DefaultValue)
+		}
+	}
+	sb.WriteString(")")
+}
+
+// A trailing " or \ would run into the closing """, so such text gets its own lines.
+func writeDescription(sb *strings.Builder, desc, indent string) {
+	if desc == "" {
+		return
+	}
+	if !blockStringKeeps(desc) {
+		sb.WriteString(indent + quoteGraphQL(desc) + "\n")
+		return
+	}
+	desc = strings.ReplaceAll(desc, `"""`, `\"""`)
+	if !strings.Contains(desc, "\n") && !strings.HasSuffix(desc, `"`) && !strings.HasSuffix(desc, `\`) {
+		sb.WriteString(indent + `"""` + desc + `"""` + "\n")
+		return
+	}
+	sb.WriteString(indent + `"""` + "\n")
+	for _, line := range strings.Split(desc, "\n") {
+		if line != "" {
+			sb.WriteString(indent + line)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(indent + `"""` + "\n")
+}
+
+// Block strings drop edge blank lines and common indentation and fold \r into \n.
+func blockStringKeeps(desc string) bool {
+	if strings.Contains(desc, "\r") {
+		return false
+	}
+	lines := strings.Split(desc, "\n")
+	if strings.TrimSpace(lines[0]) == "" || strings.TrimSpace(lines[len(lines)-1]) == "" {
+		return false
+	}
+	for _, line := range lines {
+		if line != "" && strings.TrimLeft(line, " \t") == line {
+			return true
+		}
+	}
+	return false
+}
+
+// JSON string escapes are a subset of GraphQL's; Go's %q (\x1b) is not.
+func quoteGraphQL(s string) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	return strings.TrimSuffix(buf.String(), "\n")
+}
+
+func sdlValue(v *ast.Value) string {
+	switch v.Kind {
+	case ast.StringValue, ast.BlockValue:
+		return quoteGraphQL(v.Raw)
+	case ast.ListValue:
+		items := make([]string, len(v.Children))
+		for i, c := range v.Children {
+			items[i] = sdlValue(c.Value)
+		}
+		return "[" + strings.Join(items, ", ") + "]"
+	case ast.ObjectValue:
+		fields := make([]string, len(v.Children))
+		for i, c := range v.Children {
+			fields[i] = c.Name + ": " + sdlValue(c.Value)
+		}
+		return "{" + strings.Join(fields, ", ") + "}"
+	default:
+		return v.String()
+	}
 }
 
 func buildTypeSDL(t request.GraphQLType) string {
 	var sb strings.Builder
+	writeDescription(&sb, t.Description, "")
 
 	switch t.Kind {
 	case "OBJECT", "INTERFACE":
@@ -548,20 +637,10 @@ func buildTypeSDL(t request.GraphQLType) string {
 		sb.WriteString(t.Name)
 		sb.WriteString(" {\n")
 		for _, f := range t.Fields {
+			writeDescription(&sb, f.Description, "  ")
 			sb.WriteString("  ")
 			sb.WriteString(f.Name)
-			if len(f.Args) > 0 {
-				sb.WriteString("(")
-				for i, a := range f.Args {
-					if i > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(a.Name)
-					sb.WriteString(": ")
-					sb.WriteString(a.Type)
-				}
-				sb.WriteString(")")
-			}
+			writeArgs(&sb, f.Args)
 			sb.WriteString(": ")
 			sb.WriteString(f.Type)
 			sb.WriteString("\n")
@@ -573,6 +652,7 @@ func buildTypeSDL(t request.GraphQLType) string {
 		sb.WriteString(t.Name)
 		sb.WriteString(" {\n")
 		for _, f := range t.Fields {
+			writeDescription(&sb, f.Description, "  ")
 			sb.WriteString("  ")
 			sb.WriteString(f.Name)
 			sb.WriteString(": ")

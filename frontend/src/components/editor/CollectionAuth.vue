@@ -8,6 +8,8 @@ import type { AuthType } from '@/types/request'
 import { collectionAuthOptions } from '@/constants/auth'
 import { switchAuthDraft } from '@/composables/useAuthDrafts'
 import { useAuthTokenStore } from '@/stores/auth-tokens'
+import { provideScreenLocale, useCopy, useLocale } from '@/composables/useLocale'
+import { AUTH_COPY } from './auth/copy'
 
 const props = defineProps<{
   collectionId: string
@@ -22,7 +24,11 @@ const emit = defineEmits<{
   'update:authData': [value: string]
 }>()
 
-const authTypeOptions = computed(() => collectionAuthOptions(!!props.nested))
+provideScreenLocale()
+const locale = useLocale()
+const copy = useCopy(AUTH_COPY)
+
+const authTypeOptions = computed(() => collectionAuthOptions(!!props.nested, locale.value))
 
 const tokens = useAuthTokenStore()
 
@@ -47,7 +53,7 @@ function selectType(value: AuthType) {
   <div class="p-4 space-y-4">
     <AuthSelect
       class="max-w-[240px]"
-      label="Authorization Type"
+      :label="copy.typeLabel"
       test-id="collection-auth-type-selector"
       :model-value="authType"
       :options="authTypeOptions"
@@ -67,9 +73,9 @@ function selectType(value: AuthType) {
     />
 
     <div v-if="authType === 'none' && nested" class="py-10 text-center">
-      <p class="text-sm text-muted-foreground">Requests in this collection inherit auth from parent collections</p>
+      <p class="text-sm text-muted-foreground">{{ copy.collection.inherits }}</p>
       <InheritedAuth kind="collection" :id="collectionId">
-        <template #none>No parent collection sets auth — requests here go without it unless they set their own</template>
+        <template #none>{{ copy.collection.noParent }}</template>
       </InheritedAuth>
     </div>
 
@@ -77,8 +83,8 @@ function selectType(value: AuthType) {
       <div class="rounded-lg bg-muted/20 p-4 mb-4 border border-border/50">
         <ShieldOff class="size-7 text-muted-foreground/60" />
       </div>
-      <p class="text-sm font-medium text-muted-foreground">No authorization</p>
-      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">Requests here go without auth unless they set their own</p>
+      <p class="text-sm font-medium text-muted-foreground">{{ copy.collection.noneTitle }}</p>
+      <p class="text-xs text-muted-foreground/50 mt-1.5 max-w-[280px]">{{ copy.collection.noneText }}</p>
     </div>
   </div>
 </template>

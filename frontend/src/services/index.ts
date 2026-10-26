@@ -14,6 +14,8 @@ import type { ExampleServiceAPI } from './example-api'
 import type { PublicationServiceAPI } from './publication-api'
 import type { DeepLinkServiceAPI } from './deeplink-api'
 import type { UpdateServiceAPI } from './update-api'
+import type { ResultError } from '@/types/common'
+import type { Example } from '@/types/example'
 
 export type { CollectionServiceAPI }
 export type {
@@ -179,7 +181,27 @@ export const getRequestService = memoize<RequestServiceAPI>(async () => {
     return new WailsRequestService()
   }
   const { MockRequestService } = await import('./mock-request')
-  return new MockRequestService()
+  return new MockRequestService(async (sourceId, targetId): Promise<ResultError | undefined> => {
+    const examples = await getExampleService()
+    const copied: Example[] = []
+    let failure: ResultError | undefined
+    try {
+      const listed = await examples.list(sourceId)
+      if (listed.error) return listed.error
+      for (const e of listed.data) {
+        const created = await examples.create({ ...e, requestId: targetId })
+        if (created.error) {
+          failure = created.error
+          break
+        }
+        copied.push(created.data)
+      }
+    } catch (err) {
+      failure = { code: 'internal', message: err instanceof Error ? err.message : String(err) }
+    }
+    if (failure) await Promise.all(copied.map(e => examples.delete({ id: e.id, version: e.version })))
+    return failure
+  })
 })
 
 export const getEnvironmentService = memoize<EnvironmentServiceAPI>(async () => {

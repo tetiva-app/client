@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Duplicate in a request's context menu makes a copy of the saved request with its response examples, named "<name> (copy)", places it below the original and opens it in a tab
+
+### Changed
+
+- Collections, folders and requests in the sidebar are sorted by name, ignoring case and with numbers in order ("Request 2" before "Request 10"); items with the same name keep the order they were created in. A published collection page and a Postman export list them the same way. Before, the sidebar followed creation order
+
 ### Fixed
 
 - Quitting the app stops sync and closes the local database cleanly. Before, macOS skipped the shutdown steps entirely, and on every platform a write-ahead journal (`data.db-wal`) stayed next to the database

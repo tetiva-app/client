@@ -30,6 +30,7 @@ type Usecase interface {
 	Edit(ctx context.Context, in Edit, opt EditOpt) (*entities.ResponseExample, error)
 	Delete(ctx context.Context, opt DeleteOpt) error
 	ListByRequest(ctx context.Context, requestID uuid.UUID) ([]*entities.ResponseExample, error)
+	CopyToRequest(ctx context.Context, sourceID, targetID uuid.UUID, userID string) error
 	// DeleteByRequest, MoveToWorkspace: inside the request's transaction, no liveness check.
 	DeleteByRequest(ctx context.Context, requestID uuid.UUID, userID string) error
 	MoveToWorkspace(ctx context.Context, requestID, newWorkspaceID uuid.UUID, userID string) error

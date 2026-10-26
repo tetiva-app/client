@@ -288,25 +288,25 @@ func TestExportCollection_GraphQL(t *testing.T) {
 
 	require.Equal(t, 2, len(pc.Item))
 
-	item0 := pc.Item[0]
-	assert.Equal(t, "Get Users", item0.Name)
-	require.NotNil(t, item0.Request)
-	assert.Equal(t, "POST", item0.Request.Method)
-	assert.Equal(t, "https://api.example.com/graphql", item0.Request.URL.Raw)
+	getUsers := pc.Item[1]
+	assert.Equal(t, "Get Users", getUsers.Name)
+	require.NotNil(t, getUsers.Request)
+	assert.Equal(t, "POST", getUsers.Request.Method)
+	assert.Equal(t, "https://api.example.com/graphql", getUsers.Request.URL.Raw)
 
-	body0 := item0.Request.Body
+	body0 := getUsers.Request.Body
 	require.NotNil(t, body0)
 	assert.Equal(t, "graphql", body0.Mode)
 	require.NotNil(t, body0.Graphql)
 	assert.Equal(t, "query GetUsers { users { id name } }", body0.Graphql.Query)
 	assert.Equal(t, `{"limit":10}`, body0.Graphql.Variables)
 
-	item1 := pc.Item[1]
-	assert.Equal(t, "Create User", item1.Name)
-	require.NotNil(t, item1.Request)
-	assert.Equal(t, "POST", item1.Request.Method)
+	createUser := pc.Item[0]
+	assert.Equal(t, "Create User", createUser.Name)
+	require.NotNil(t, createUser.Request)
+	assert.Equal(t, "POST", createUser.Request.Method)
 
-	body1 := item1.Request.Body
+	body1 := createUser.Request.Body
 	require.NotNil(t, body1)
 	assert.Equal(t, "graphql", body1.Mode)
 	require.NotNil(t, body1.Graphql)
@@ -342,10 +342,10 @@ func TestExportCollection_RequestDescriptionAndAPIKeyLocation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &pc))
 
 	require.Len(t, pc.Item, 2)
-	assert.Equal(t, "# Ping\nReturns pong.", pc.Item[0].Request.Description.Text())
-	assert.Nil(t, pc.Item[0].Description, "the description is written at request level only")
-	assert.Equal(t, "query", findKV(t, pc.Item[0].Request.Auth.APIKey, "in"))
-	assert.Equal(t, "query", findKV(t, pc.Item[1].Request.Auth.APIKey, "in"),
+	assert.Equal(t, "# Ping\nReturns pong.", pc.Item[1].Request.Description.Text())
+	assert.Nil(t, pc.Item[1].Description, "the description is written at request level only")
+	assert.Equal(t, "query", findKV(t, pc.Item[1].Request.Auth.APIKey, "in"))
+	assert.Equal(t, "query", findKV(t, pc.Item[0].Request.Auth.APIKey, "in"),
 		"collections imported before the addTo rename must still export their location")
 }
 
@@ -525,8 +525,8 @@ func TestExportCollection_RequestAuthNoneAndInherit(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(data, &raw))
 	require.Len(t, raw.Item, 2)
-	assert.JSONEq(t, `{"type":"noauth"}`, string(raw.Item[0].Request["auth"]))
-	assert.NotContains(t, raw.Item[1].Request, "auth")
+	assert.JSONEq(t, `{"type":"noauth"}`, string(raw.Item[1].Request["auth"]))
+	assert.NotContains(t, raw.Item[0].Request, "auth")
 }
 
 func TestExportImportRoundTrip_ScriptsAndRequestAuth(t *testing.T) {
@@ -557,9 +557,9 @@ func TestExportImportRoundTrip_ScriptsAndRequestAuth(t *testing.T) {
 	require.Len(t, collUC.created, 1)
 	assert.Equal(t, "pm.test('root', () => {});", collUC.created[0].PostScript)
 	require.Len(t, reqUC.created, 2)
-	assert.Equal(t, entities.AuthTypeNone, reqUC.created[0].AuthType)
-	assert.Equal(t, "a();\nb();", reqUC.created[0].PreScript)
-	assert.Equal(t, entities.AuthTypeInherit, reqUC.created[1].AuthType)
-	assert.Equal(t, "c();", reqUC.created[1].PostScript)
+	assert.Equal(t, entities.AuthTypeNone, reqUC.created[1].AuthType)
+	assert.Equal(t, "a();\nb();", reqUC.created[1].PreScript)
+	assert.Equal(t, entities.AuthTypeInherit, reqUC.created[0].AuthType)
+	assert.Equal(t, "c();", reqUC.created[0].PostScript)
 	require.Len(t, res.Warnings, 1, "only the pm.* notice")
 }

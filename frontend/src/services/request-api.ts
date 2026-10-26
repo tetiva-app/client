@@ -72,6 +72,11 @@ export interface MoveRequestReq {
   version: number
 }
 
+export interface DuplicateRequestReq {
+  id: string
+  name: string
+}
+
 export interface PromoteDraftReq {
   id: string
   name: string
@@ -93,6 +98,7 @@ export interface RequestServiceAPI {
   parseCurl(req: { text: string }): Promise<Result<ParseCurlResponse>>
   buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>>
   move(req: MoveRequestReq): Promise<Result<Request>>
+  duplicate(req: DuplicateRequestReq): Promise<Result<Request>>
   promoteDraft(req: PromoteDraftReq): Promise<Result<Request>>
   saveResponseToFile(tempPath: string, destPath: string): Promise<Result<string>>
   grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>>

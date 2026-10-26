@@ -87,6 +87,23 @@ describe('stashed locals', () => {
   })
 })
 
+describe('tree', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('orders collections and their folders by name', () => {
+    const store = useCollectionStore()
+    store.collectionsMap = new Map([
+      coll({ id: 'p', name: 'payments' }),
+      coll({ id: 'a', name: 'Auth' }),
+      coll({ id: 'r', name: 'Refunds', parentId: 'p' }),
+      coll({ id: 'c', name: 'cards', parentId: 'p' }),
+    ].map(c => [c.id, c]))
+
+    expect(store.tree.map(n => n.name)).toEqual(['Auth', 'payments'])
+    expect(store.tree[1].children.map(n => n.name)).toEqual(['cards', 'Refunds'])
+  })
+})
+
 describe('edit', () => {
   beforeEach(() => {
     setActivePinia(createPinia())

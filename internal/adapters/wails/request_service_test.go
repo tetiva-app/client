@@ -36,6 +36,7 @@ type stubRequestUsecase struct {
 	buildCurlFn                func(context.Context, uuid.UUID, request.BuildCurlOpt) (request.CurlResult, error)
 	buildSnippetInputFn        func(context.Context, *entities.Request, request.BuildSnippetOpt) (request.SnippetInput, error)
 	moveFn                     func(context.Context, request.MoveOpt) (*entities.Request, error)
+	duplicateFn                func(context.Context, request.DuplicateOpt) (*entities.Request, error)
 	grpcListServicesFn         func(context.Context, request.GRPCConnectRequest) (*request.GRPCSchema, error)
 	grpcGenerateExampleFn      func(context.Context, request.GRPCConnectRequest, string, string) (string, error)
 	grpcGetProtoDefinitionFn   func(context.Context, request.GRPCConnectRequest, string, string) (string, error)
@@ -119,6 +120,13 @@ func (s *stubRequestUsecase) Move(ctx context.Context, opt request.MoveOpt) (*en
 		panic("moveFn not set")
 	}
 	return s.moveFn(ctx, opt)
+}
+
+func (s *stubRequestUsecase) Duplicate(ctx context.Context, opt request.DuplicateOpt) (*entities.Request, error) {
+	if s.duplicateFn == nil {
+		panic("duplicateFn not set")
+	}
+	return s.duplicateFn(ctx, opt)
 }
 
 func (s *stubRequestUsecase) GRPCListServices(ctx context.Context, req request.GRPCConnectRequest) (*request.GRPCSchema, error) {
@@ -707,6 +715,42 @@ func TestRequestService_Move_Error_BadUUID(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, ErrCodeValidation, res.Error.Code)
 	assert.Contains(t, res.Error.Fields, "id")
+}
+
+func TestRequestService_Duplicate_Happy(t *testing.T) {
+	id := uuid.New()
+	dup := fixtureRequest("List pets (copy)", 1)
+	dup.SortOrder = 3
+	stub := &stubRequestUsecase{
+		duplicateFn: func(_ context.Context, opt request.DuplicateOpt) (*entities.Request, error) {
+			assert.Equal(t, request.DuplicateOpt{RequestID: id, Name: "List pets (copy)", UserID: defaultUserID}, opt)
+			return dup, nil
+		},
+	}
+	svc := NewRequestService(stub)
+
+	res := svc.Duplicate(dto.DuplicateRequestRequest{ID: id.String(), Name: "List pets (copy)"})
+
+	require.Nil(t, res.Error)
+	assert.Equal(t, dup.ID.String(), res.Data.ID)
+	assert.Equal(t, "List pets (copy)", res.Data.Name)
+	assert.Equal(t, 3, res.Data.SortOrder)
+}
+
+func TestRequestService_Duplicate_Errors(t *testing.T) {
+	notFound := &domain.NotFoundError{Entity: "request", ID: "x"}
+	svc := NewRequestService(&stubRequestUsecase{
+		duplicateFn: func(context.Context, request.DuplicateOpt) (*entities.Request, error) { return nil, notFound },
+	})
+
+	bad := svc.Duplicate(dto.DuplicateRequestRequest{ID: "not-a-uuid", Name: "x"})
+	require.NotNil(t, bad.Error)
+	assert.Equal(t, ErrCodeValidation, bad.Error.Code)
+	assert.Contains(t, bad.Error.Fields, "id")
+
+	missing := svc.Duplicate(dto.DuplicateRequestRequest{ID: uuid.New().String(), Name: "x"})
+	require.NotNil(t, missing.Error)
+	assert.Equal(t, ErrCodeNotFound, missing.Error.Code)
 }
 
 func TestRequestService_Reorder_Happy(t *testing.T) {

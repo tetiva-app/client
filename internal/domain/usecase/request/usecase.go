@@ -191,6 +191,7 @@ func (noopTokenCleaner) DeleteOrphans(context.Context) (int, error) { return 0, 
 type ExampleCleaner interface {
 	DeleteByRequest(ctx context.Context, requestID uuid.UUID, userID string) error
 	MoveToWorkspace(ctx context.Context, requestID, newWorkspaceID uuid.UUID, userID string) error
+	CopyToRequest(ctx context.Context, sourceID, targetID uuid.UUID, userID string) error
 }
 
 type TxRunner interface {
@@ -295,6 +296,7 @@ type Usecase interface {
 	BuildCurl(ctx context.Context, id uuid.UUID, opt BuildCurlOpt) (CurlResult, error)
 	BuildSnippetInput(ctx context.Context, req *entities.Request, opt BuildSnippetOpt) (SnippetInput, error)
 	Move(ctx context.Context, opt MoveOpt) (*entities.Request, error)
+	Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.Request, error)
 	GRPCListServices(ctx context.Context, req GRPCConnectRequest) (*GRPCSchema, error)
 	GRPCGenerateExample(ctx context.Context, req GRPCConnectRequest, service, method string) (string, error)
 	GRPCGetProtoDefinition(ctx context.Context, req GRPCConnectRequest, service, method string) (string, error)

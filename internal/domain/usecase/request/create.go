@@ -12,6 +12,8 @@ import (
 	"github.com/tetiva-app/client/internal/domain/usecase/websocket"
 )
 
+const newRequestSortOrder = 0
+
 type Create struct {
 	CollectionID      uuid.UUID
 	Name              string
@@ -125,7 +127,7 @@ func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*ent
 		GraphQLVariables:  input.GraphQLVariables,
 		GraphQLSchemaPath: input.GraphQLSchemaPath,
 		GraphQLOperation:  input.GraphQLOperation,
-		SortOrder:         0,
+		SortOrder:         newRequestSortOrder,
 		Version:           1,
 		IsDelete:          false,
 		CreatedBy:         opt.UserID,

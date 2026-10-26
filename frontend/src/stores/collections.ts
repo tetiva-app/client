@@ -9,6 +9,7 @@ import { runMutation } from '@/stores/runMutation'
 import { useToast } from '@/composables/useToast'
 import { adoptStashedValue } from '@/lib/description'
 import { contentSaved } from '@/lib/content-saved'
+import { compareSiblings } from '@/lib/collections'
 
 export interface CollectionLocals {
   preScript: string
@@ -70,7 +71,7 @@ export const useCollectionStore = defineStore('collections', () => {
     }
 
     const sortNodes = (nodes: CollectionTreeNode[]) => {
-      nodes.sort((a, b) => a.sortOrder - b.sortOrder)
+      nodes.sort(compareSiblings)
       for (const node of nodes) {
         sortNodes(node.children)
       }

@@ -53,14 +53,10 @@ func newTree(in BuildInput) *tree {
 	}
 
 	for _, list := range t.children {
-		slices.SortFunc(list, func(a, b *entities.Collection) int {
-			return compareEntity(a.SortOrder, a.CreatedAt, a.ID, b.SortOrder, b.CreatedAt, b.ID)
-		})
+		entities.SortCollections(list)
 	}
 	for _, list := range t.requests {
-		slices.SortFunc(list, func(a, b *entities.Request) int {
-			return compareEntity(a.SortOrder, a.CreatedAt, a.ID, b.SortOrder, b.CreatedAt, b.ID)
-		})
+		entities.SortRequests(list)
 	}
 	for _, list := range t.examples {
 		slices.SortFunc(list, func(a, b *entities.ResponseExample) int {

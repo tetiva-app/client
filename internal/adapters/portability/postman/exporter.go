@@ -51,10 +51,8 @@ func ExportCollection(
 		}
 	}
 
-	for k := range childrenMap {
-		sort.Slice(childrenMap[k], func(i, j int) bool {
-			return childrenMap[k][i].SortOrder < childrenMap[k][j].SortOrder
-		})
+	for _, list := range childrenMap {
+		entities.SortCollections(list)
 	}
 
 	requestsMap := make(map[uuid.UUID][]*entities.Request)
@@ -62,10 +60,8 @@ func ExportCollection(
 		requestsMap[r.CollectionID] = append(requestsMap[r.CollectionID], r)
 	}
 
-	for k := range requestsMap {
-		sort.Slice(requestsMap[k], func(i, j int) bool {
-			return requestsMap[k][i].SortOrder < requestsMap[k][j].SortOrder
-		})
+	for _, list := range requestsMap {
+		entities.SortRequests(list)
 	}
 
 	b := &itemBuilder{children: childrenMap, requests: requestsMap, examples: examples}

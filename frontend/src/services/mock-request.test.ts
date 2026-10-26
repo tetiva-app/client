@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { reactive } from 'vue'
 import { MockRequestService } from './mock-request'
 import { MockHistoryService, appendMockHistory } from './mock-history'
 import type { SnippetRequest } from '@/types/snippet'
@@ -188,5 +189,18 @@ describe('MockRequestService.cancelExecute', () => {
     await svc.cancelExecute('run-1')
 
     expect((await run).error?.code).toBe('cancelled')
+  })
+})
+
+describe('MockRequestService.duplicate', () => {
+  it('duplicates a request saved from reactive editor state', async () => {
+    const svc = new MockRequestService()
+    const current = reactive(await createRequest(svc))
+    await svc.edit({ ...current, url: 'https://api.example.com/people' })
+
+    const res = await svc.duplicate({ id: current.id, name: 'Users (copy)' })
+
+    expect(res.error).toBeUndefined()
+    expect(res.data).toMatchObject({ url: 'https://api.example.com/people', headers: current.headers, version: 1 })
   })
 })

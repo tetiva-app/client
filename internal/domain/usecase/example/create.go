@@ -108,6 +108,30 @@ func (u *usecase) Create(ctx context.Context, in Create, opt CreateOpt) (*entiti
 	return e, nil
 }
 
+func (u *usecase) CopyToRequest(ctx context.Context, sourceID, targetID uuid.UUID, userID string) error {
+	const funcName = "example.CopyToRequest"
+
+	examples, err := u.ListByRequest(ctx, sourceID)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+	now := time.Now()
+	for _, e := range examples {
+		cp := *e
+		cp.ID = uuid.New()
+		cp.RequestID = targetID
+		cp.Version = 1
+		cp.CreatedBy = userID
+		cp.CreatedAt = now
+		cp.UpdatedBy = userID
+		cp.UpdatedAt = now
+		if err := u.repo.Create(ctx, &cp); err != nil {
+			return fmt.Errorf("%s: copy %s: %w", funcName, e.ID, err)
+		}
+	}
+	return nil
+}
+
 func (u *usecase) nextSortOrder(ctx context.Context, requestID uuid.UUID) (int, error) {
 	existing, err := u.repo.ListByRequest(ctx, requestID)
 	if err != nil {

@@ -33,6 +33,64 @@ type MoveOpt struct {
 	Version            int
 }
 
+type DuplicateOpt struct {
+	RequestID uuid.UUID
+	Name      string
+	UserID    string
+}
+
+func (o *DuplicateOpt) Validate() error {
+	if o.Name == "" {
+		return &domain.ValidationError{Fields: map[string]string{"name": "required"}}
+	}
+	return nil
+}
+
+func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.Request, error) {
+	const funcName = "request.Duplicate"
+
+	if err := opt.Validate(); err != nil {
+		return nil, err
+	}
+
+	var dup entities.Request
+	err := u.tx().Run(ctx, func(txCtx context.Context) error {
+		source, err := u.repo.GetByID(txCtx, opt.RequestID)
+		if err != nil {
+			return err
+		}
+		if source == nil {
+			return &domain.NotFoundError{Entity: "request", ID: opt.RequestID.String()}
+		}
+		if source.IsDraft {
+			return &domain.ValidationError{Fields: map[string]string{"request": "save the request before duplicating it"}}
+		}
+
+		now := time.Now()
+		dup = *source
+		dup.ID = uuid.New()
+		dup.Name = opt.Name
+		dup.SortOrder = newRequestSortOrder
+		dup.Version = 1
+		dup.CreatedBy = opt.UserID
+		dup.CreatedAt = now
+		dup.UpdatedBy = opt.UserID
+		dup.UpdatedAt = now
+		if err := u.repo.Create(txCtx, &dup); err != nil {
+			return err
+		}
+		if u.exampleCleaner == nil {
+			return nil
+		}
+		return u.exampleCleaner.CopyToRequest(txCtx, source.ID, dup.ID, opt.UserID)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	return &dup, nil
+}
+
 func (u *usecase) Move(ctx context.Context, opt MoveOpt) (*entities.Request, error) {
 	const funcName = "request.Move"
 

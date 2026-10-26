@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick, type App } from 'vue'
 import type { Collection } from '@/types/collection'
+import type { Request } from '@/types/request'
 import type { MockPublicationService } from '@/services/mock-publication'
+import type { MockRequestService } from '@/services/mock-request'
 import { mountWindow } from '@/test-utils/windows'
 
 const exported = vi.hoisted(() => ({
@@ -13,13 +15,17 @@ const exported = vi.hoisted(() => ({
 
 vi.mock('@/services', async () => {
   const { MockPublicationService } = await import('@/services/mock-publication')
+  const { MockRequestService } = await import('@/services/mock-request')
   let service = new MockPublicationService()
+  let requests = new MockRequestService()
   return {
     getPublicationService: async () => service,
+    getRequestService: async () => requests,
     getPortabilityService: async () => ({ exportCollection: async () => exported.result }),
     isWailsEnvironment: () => false,
-    __reset: () => { service = new MockPublicationService() },
+    __reset: () => { service = new MockPublicationService(); requests = new MockRequestService() },
     __service: () => service,
+    __requests: () => requests,
   }
 })
 
@@ -87,6 +93,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useToast } from '@/composables/useToast'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useRequestStore } from '@/stores/tabs'
 import { emptyPublicationStatus } from '@/services/mock-publication'
 import { setCurrentLocale } from '@/lib/locale'
 
@@ -319,5 +326,63 @@ describe('tree results in the app language', () => {
     await (dialogHandlers[0].onConfirm as () => Promise<void>)()
 
     expect(lastToast()?.message).toBe('Не удалось удалить. Попробуйте ещё раз.')
+  })
+})
+
+describe('duplicating a request', () => {
+  async function seedPetstore(): Promise<Request> {
+    const mod = (await import('@/services')) as unknown as { __requests: () => MockRequestService }
+    const svc = mod.__requests()
+    const created: Request[] = []
+    for (const name of ['List pets', 'Create pet', 'Delete pet']) {
+      const res = await svc.create({
+        collectionId: 'c1', name, description: '', protocol: 'http', method: 'POST', url: '/pets',
+        headers: [{ key: 'X-Trace', value: '1', enabled: true }], body: '{}', bodyType: 'json',
+        authType: 'bearer', authData: '{"token":"t"}', preScript: '', postScript: '',
+      })
+      created.push(res.data)
+    }
+    app = mountWindow(CollectionTree, { onSelectRequest: (r: Request) => useRequestStore().openTab(r.id) }, a => {
+      a.runWithContext(() => useCollectionStore().collectionsMap.set('c1', collection('c1', 'Petstore API')))
+    })
+    await useRequestStore().fetchByCollection('c1')
+    return created[1]
+  }
+
+  it('opens the copy in a tab right under its original', async () => {
+    const original = await seedPetstore()
+    const store = useRequestStore()
+
+    await (rows[0].onDuplicateRequest as (r: Request) => Promise<void>)(store.requestsMap.get(original.id)!)
+
+    await vi.waitFor(() => expect(store.activeTab).toMatchObject({ type: 'request', name: 'Create pet (copy)' }))
+    expect(store.byCollection('c1').map(r => r.name)).toEqual(['Create pet', 'Create pet (copy)', 'Delete pet', 'List pets'])
+    const copy = store.byCollection('c1')[1]
+    expect(copy.id).not.toBe(original.id)
+    expect(copy).toMatchObject({ method: 'POST', url: '/pets', body: '{}', authType: 'bearer', version: 1 })
+    expect(store.hasDirty()).toBe(false)
+  })
+
+  it('names the copy in Russian', async () => {
+    const original = await seedPetstore()
+    setCurrentLocale('ru')
+
+    await (rows[0].onDuplicateRequest as (r: Request) => Promise<void>)(useRequestStore().requestsMap.get(original.id)!)
+
+    await vi.waitFor(() => expect(useRequestStore().activeTab).toMatchObject({ name: 'Create pet (копия)' }))
+  })
+
+  it('opens no tab and reports a failed duplicate', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const original = await seedPetstore()
+    const store = useRequestStore()
+    const mod = (await import('@/services')) as unknown as { __requests: () => MockRequestService }
+    vi.spyOn(mod.__requests(), 'duplicate').mockResolvedValue({ data: null as never, error: { code: 'internal', message: 'disk full' } })
+
+    await (rows[0].onDuplicateRequest as (r: Request) => Promise<void>)(store.requestsMap.get(original.id)!)
+
+    expect(useToast().toasts.value.at(-1)?.message).toBe('Failed to duplicate request: disk full')
+    expect(store.openTabs).toEqual([])
+    expect(store.byCollection('c1').map(r => r.name)).toEqual(['Create pet', 'Delete pet', 'List pets'])
   })
 })

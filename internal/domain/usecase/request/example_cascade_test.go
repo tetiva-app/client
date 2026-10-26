@@ -35,6 +35,7 @@ func (t *snapshotTx) Run(ctx context.Context, fn func(ctx context.Context) error
 type cascadeCall struct {
 	requestID   uuid.UUID
 	workspaceID uuid.UUID
+	targetID    uuid.UUID
 	userID      string
 	inTx        bool
 }
@@ -42,7 +43,13 @@ type cascadeCall struct {
 type recordingExampleCleaner struct {
 	deletes []cascadeCall
 	moves   []cascadeCall
+	copies  []cascadeCall
 	err     error
+}
+
+func (c *recordingExampleCleaner) CopyToRequest(ctx context.Context, sourceID, targetID uuid.UUID, userID string) error {
+	c.copies = append(c.copies, cascadeCall{requestID: sourceID, targetID: targetID, userID: userID, inTx: ctx.Value(txMarker{}) != nil})
+	return c.err
 }
 
 func (c *recordingExampleCleaner) DeleteByRequest(ctx context.Context, requestID uuid.UUID, userID string) error {

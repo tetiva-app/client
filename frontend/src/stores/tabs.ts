@@ -14,6 +14,7 @@ import { runMutation } from '@/stores/runMutation'
 import { formatResultError, scriptFailure } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
 import { contentSaved } from '@/lib/content-saved'
+import { compareSiblings } from '@/lib/collections'
 
 export type Tab =
   | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
@@ -52,7 +53,7 @@ export const useRequestStore = defineStore('requests', () => {
   function byCollection(collectionId: string): Request[] {
     return Array.from(requestsMap.value.values())
       .filter(r => r.collectionId === collectionId)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .sort(compareSiblings)
   }
 
   function isDirty(tabId: string): boolean {
@@ -231,6 +232,16 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value.set(data.id, { ...data })
     requestsMap.value = new Map(requestsMap.value)
     savedSnapshots.value = new Map(savedSnapshots.value)
+    contentSaved()
+    return data
+  }
+
+  async function duplicate(id: string, name: string): Promise<Request | null> {
+    const data = await runMutation('Failed to duplicate request', () =>
+      getRequestService().then(s => s.duplicate({ id, name }))
+    )
+    if (!data) return null
+    loadRequest(data)
     contentSaved()
     return data
   }
@@ -911,6 +922,7 @@ export const useRequestStore = defineStore('requests', () => {
     refreshCollections,
     refreshRequest,
     create,
+    duplicate,
     loadRequest,
     updateLocal,
     isRequestDirty,

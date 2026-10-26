@@ -3,6 +3,7 @@ package example_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -637,5 +638,54 @@ func TestMoveToWorkspace_KeepsExamplesAlreadyThere(t *testing.T) {
 
 	if len(f.repo.rows) != 1 || f.repo.rows[e.ID].IsDelete || f.repo.rows[e.ID].Version != e.Version {
 		t.Fatalf("rows = %+v, want the example untouched", f.repo.rows)
+	}
+}
+
+func TestCopyToRequest_ClonesLiveExamplesOntoTheCopy(t *testing.T) {
+	f := newFixture()
+	a := f.seed(t)
+	b := f.seed(t)
+	gone := f.seed(t)
+	if err := f.uc.Delete(context.Background(), example.DeleteOpt{ExampleID: gone.ID, UserID: "u1", Version: 1}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	for _, e := range []*entities.ResponseExample{a, b} {
+		e.Version, e.CreatedBy, e.UpdatedBy = 4, "author", "editor"
+		f.repo.rows[e.ID] = cloneExample(e)
+	}
+	dup := &entities.Request{ID: uuid.New(), CollectionID: f.folder.ID, Protocol: entities.ProtocolHTTP, Version: 1}
+	f.requests[dup.ID] = dup
+	before := time.Now().Add(-time.Second)
+
+	if err := f.uc.CopyToRequest(context.Background(), f.req.ID, dup.ID, "u2"); err != nil {
+		t.Fatalf("CopyToRequest: %v", err)
+	}
+
+	copies, err := f.uc.ListByRequest(context.Background(), dup.ID)
+	if err != nil {
+		t.Fatalf("ListByRequest: %v", err)
+	}
+	if len(copies) != 2 {
+		t.Fatalf("copies = %d, want 2", len(copies))
+	}
+	for i, orig := range []*entities.ResponseExample{a, b} {
+		c := copies[i]
+		if c.ID == orig.ID || c.RequestID != dup.ID || c.WorkspaceID != wsA || c.Version != 1 {
+			t.Errorf("copy %d identity = id %s, request %s, ws %s, v%d", i, c.ID, c.RequestID, c.WorkspaceID, c.Version)
+		}
+		if c.CreatedBy != "u2" || c.UpdatedBy != "u2" || c.CreatedAt.Before(before) {
+			t.Errorf("copy %d audit = %s/%s/%s", i, c.CreatedBy, c.UpdatedBy, c.CreatedAt)
+		}
+		want := *orig
+		want.ID, want.RequestID, want.Version = c.ID, c.RequestID, c.Version
+		want.CreatedBy, want.CreatedAt, want.UpdatedBy, want.UpdatedAt = c.CreatedBy, c.CreatedAt, c.UpdatedBy, c.UpdatedAt
+		if !reflect.DeepEqual(*c, want) {
+			t.Errorf("copy %d =\n%+v\nwant\n%+v", i, *c, want)
+		}
+	}
+
+	originals, err := f.uc.ListByRequest(context.Background(), f.req.ID)
+	if err != nil || len(originals) != 2 || originals[0].ID != a.ID || originals[1].ID != b.ID {
+		t.Errorf("originals after copy = %d, err %v; want a and b untouched", len(originals), err)
 	}
 }

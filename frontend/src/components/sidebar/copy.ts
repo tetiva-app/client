@@ -16,6 +16,8 @@ export interface TreeCopy {
     newRequest: string
     newSubCollection: string
     rename: string
+    duplicate: string
+    copyName: string
     openDetails: string
     checking: string
     importFile: string
@@ -195,6 +197,8 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       newRequest: 'New Request',
       newSubCollection: 'New Sub-Collection',
       rename: 'Rename',
+      duplicate: 'Duplicate',
+      copyName: '{name} (copy)',
       openDetails: 'Open Details',
       checking: 'Checking…',
       importFile: 'Import File…',
@@ -380,6 +384,8 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       newRequest: 'Новый запрос',
       newSubCollection: 'Новая подколлекция',
       rename: 'Переименовать',
+      duplicate: 'Дублировать',
+      copyName: '{name} (копия)',
       openDetails: 'Открыть коллекцию',
       checking: 'Проверяем…',
       importFile: 'Импорт из файла…',

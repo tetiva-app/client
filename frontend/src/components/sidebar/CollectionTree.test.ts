@@ -349,15 +349,15 @@ describe('duplicating a request', () => {
     return created[1]
   }
 
-  it('opens the copy in a tab at the end of the collection', async () => {
+  it('opens the copy in a tab right under its original', async () => {
     const original = await seedPetstore()
     const store = useRequestStore()
 
     await (rows[0].onDuplicateRequest as (r: Request) => Promise<void>)(store.requestsMap.get(original.id)!)
 
     await vi.waitFor(() => expect(store.activeTab).toMatchObject({ type: 'request', name: 'Create pet (copy)' }))
-    expect(store.byCollection('c1').map(r => r.name)).toEqual(['List pets', 'Create pet', 'Delete pet', 'Create pet (copy)'])
-    const copy = store.byCollection('c1')[3]
+    expect(store.byCollection('c1').map(r => r.name)).toEqual(['Create pet', 'Create pet (copy)', 'Delete pet', 'List pets'])
+    const copy = store.byCollection('c1')[1]
     expect(copy.id).not.toBe(original.id)
     expect(copy).toMatchObject({ method: 'POST', url: '/pets', body: '{}', authType: 'bearer', version: 1 })
     expect(store.hasDirty()).toBe(false)
@@ -383,6 +383,6 @@ describe('duplicating a request', () => {
 
     expect(useToast().toasts.value.at(-1)?.message).toBe('Failed to duplicate request: disk full')
     expect(store.openTabs).toEqual([])
-    expect(store.byCollection('c1').map(r => r.name)).toEqual(['List pets', 'Create pet', 'Delete pet'])
+    expect(store.byCollection('c1').map(r => r.name)).toEqual(['Create pet', 'Delete pet', 'List pets'])
   })
 })

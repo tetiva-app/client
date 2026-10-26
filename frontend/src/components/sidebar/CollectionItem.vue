@@ -8,7 +8,7 @@ import { useSidebarSearchStore, type RequestHitPreview } from '@/stores/sidebarS
 import { publicationMenuItem, usePublicationsStore } from '@/stores/publications'
 import { useTreeExpansionStore } from '@/stores/treeExpansion'
 import { useSettingsStore } from '@/stores/settings'
-import { isRootCollection } from '@/lib/collections'
+import { compareSiblings, isRootCollection } from '@/lib/collections'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { useHighlight } from '@/composables/useHighlight'
 import { useCopy, useLocale } from '@/composables/useLocale'
@@ -100,7 +100,7 @@ const requestsToRender = computed<Array<Request | RequestHitPreview>>(() => {
       extras.push(preview)
     }
   }
-  return [...loaded, ...extras]
+  return [...loaded, ...extras].sort(compareSiblings)
 })
 
 function handleClick(event: MouseEvent) {

@@ -956,6 +956,21 @@ describe('fetchByCollection', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
 
+  it('lists a collection by name, with a copy under its original', async () => {
+    const store = useRequestStore()
+    listMock.mockResolvedValue({ data: [
+      makeRequest({ id: 'r1', name: 'Get users (copy)', createdAt: '2026-10-25T10:00:00+03:00' }),
+      makeRequest({ id: 'r2', name: 'get users list' }),
+      makeRequest({ id: 'r3', name: 'Get users' }),
+      makeRequest({ id: 'r4', name: 'Create user' }),
+    ] })
+
+    await store.fetchByCollection('c1')
+
+    expect(store.byCollection('c1').map(r => r.name))
+      .toEqual(['Create user', 'Get users', 'Get users (copy)', 'get users list'])
+  })
+
   function listMovedTo(target: string, moved: Request) {
     listMock.mockImplementation(async (collectionId: string) => ({ data: collectionId === target ? [moved] : [] }))
   }

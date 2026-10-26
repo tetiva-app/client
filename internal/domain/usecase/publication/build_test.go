@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -67,17 +68,15 @@ func TestBuild_LiveTreeOnly(t *testing.T) {
 	assert.Equal(t, 1, report.Examples)
 }
 
-func TestBuild_OrderIsSortOrderThenCreatedAtThenID(t *testing.T) {
+func TestBuild_SiblingsFollowTheSidebarNameOrder(t *testing.T) {
 	f := newFixture()
-	r1 := f.request(f.in.Root, "second by created_at")
-	r0 := f.request(f.in.Root, "first by sort order")
-	r0.SortOrder = -1
-	tieA := f.request(f.in.Root, "tie a")
-	tieB := f.request(f.in.Root, "tie b")
-	tieB.CreatedAt, tieB.SortOrder = r1.CreatedAt, r1.SortOrder
-	tieA.CreatedAt, tieA.SortOrder = r1.CreatedAt, r1.SortOrder
-	folder := f.folder(f.in.Root, "folder after requests in storage order")
-	folder.SortOrder = 99
+	f.request(f.in.Root, "list pets")
+	twin := f.request(f.in.Root, "Create pet")
+	f.request(f.in.Root, "Create pet (copy)")
+	older := f.request(f.in.Root, "create pet")
+	older.CreatedAt = twin.CreatedAt.Add(-time.Second)
+	f.folder(f.in.Root, "Store")
+	f.folder(f.in.Root, "orders")
 
 	s, _ := f.build(t)
 
@@ -89,7 +88,7 @@ func TestBuild_OrderIsSortOrderThenCreatedAtThenID(t *testing.T) {
 			names = append(names, it.Request.Name)
 		}
 	}
-	assert.Equal(t, []string{"folder after requests in storage order", "first by sort order", "second by created_at", "tie a", "tie b"}, names)
+	assert.Equal(t, []string{"orders", "Store", "create pet", "Create pet", "Create pet (copy)", "list pets"}, names)
 }
 
 func TestBuild_OpaqueIDs(t *testing.T) {

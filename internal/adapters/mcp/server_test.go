@@ -103,7 +103,7 @@ func TestServer_AllToolsRegistered(t *testing.T) {
 		"list_collections", "get_collection", "create_collection",
 		"update_collection", "move_collection", "delete_collection",
 		"list_requests", "get_request", "create_request",
-		"update_request", "move_request", "send_request", "delete_request",
+		"update_request", "move_request", "duplicate_request", "send_request", "delete_request",
 		"list_environments", "get_environment", "create_environment", "delete_environment",
 		"set_active_environment",
 		"list_variables", "create_variable", "delete_variable",

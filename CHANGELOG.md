@@ -5,6 +5,7 @@
 ### Added
 
 - Duplicate in a request's context menu makes a copy of the saved request with its response examples, named "<name> (copy)", places it below the original and opens it in a tab
+- MCP `duplicate_request` copies a saved request the same way, and can give the copy its own name, method and URL in the same call: `POST /api/order` becomes `PATCH /api/order/1` without a follow-up `update_request`. A `[redacted]` query value in the new URL keeps the original's secret
 
 ### Changed
 

@@ -33,15 +33,21 @@ type MoveOpt struct {
 	Version            int
 }
 
+// DuplicateOpt leaves the original's method and URL on the copy when Method or URL is empty.
 type DuplicateOpt struct {
 	RequestID uuid.UUID
 	Name      string
+	Method    entities.HTTPMethod
+	URL       string
 	UserID    string
 }
 
 func (o *DuplicateOpt) Validate() error {
 	if o.Name == "" {
 		return &domain.ValidationError{Fields: map[string]string{"name": "required"}}
+	}
+	if o.Method != "" && !o.Method.IsValid() {
+		return &domain.ValidationError{Fields: map[string]string{"method": "invalid"}}
 	}
 	return nil
 }
@@ -70,6 +76,12 @@ func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.Re
 		dup = *source
 		dup.ID = uuid.New()
 		dup.Name = opt.Name
+		if opt.Method != "" {
+			dup.Method = opt.Method
+		}
+		if opt.URL != "" {
+			dup.URL = opt.URL
+		}
 		dup.SortOrder = newRequestSortOrder
 		dup.Version = 1
 		dup.CreatedBy = opt.UserID

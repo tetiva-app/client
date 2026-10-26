@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -196,6 +197,25 @@ func (s *Server) registerRequestTools() {
 			),
 		),
 		s.handleMoveRequest,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("duplicate_request",
+			mcplib.WithDescription("Copy a saved request into the same collection with its headers, body, auth, scripts and examples. Optionally give the copy its own name, method and URL in the same call; everything else stays as in the original."),
+			mcplib.WithString("id", mcplib.Required(),
+				mcplib.Description("UUID of the request to copy"),
+			),
+			mcplib.WithString("name",
+				mcplib.Description("Name of the copy (default: the original's name with \" (copy)\")"),
+			),
+			mcplib.WithString("method",
+				mcplib.Description("HTTP method of the copy: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS (default: the original's)"),
+			),
+			mcplib.WithString("url",
+				mcplib.Description("URL of the copy (default: the original's). "+varSyntaxDoc+" "+redactedEchoDoc),
+			),
+		),
+		s.handleDuplicateRequest,
 	)
 
 	s.mcp.AddTool(
@@ -506,6 +526,46 @@ func (s *Server) handleMoveRequest(ctx context.Context, req mcplib.CallToolReque
 
 	result := serializeRequest(r)
 	result["message"] = "request moved"
+	return jsonResult(result)
+}
+
+func (s *Server) handleDuplicateRequest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	id, err := uuidArgRequired(req, "id")
+	if err != nil {
+		return errResult(err), nil
+	}
+
+	source, err := s.reqUC.GetByID(ctx, id)
+	if err != nil {
+		return errResult(err), nil
+	}
+
+	url, params, err := restoreURLSecrets(stringArg(req, "url", ""), source.URL)
+	if err != nil {
+		return errResult(err), nil
+	}
+
+	r, err := s.reqUC.Duplicate(ctx, request.DuplicateOpt{
+		RequestID: id,
+		Name:      stringArg(req, "name", source.Name+" (copy)"),
+		Method:    entities.HTTPMethod(strings.ToUpper(stringArg(req, "method", ""))),
+		URL:       url,
+		UserID:    mcpUserID,
+	})
+	if err != nil {
+		return errResult(err), nil
+	}
+	s.emitRequestsChanged(r.CollectionID)
+
+	result := serializeRequest(r)
+	result["message"] = "request duplicated"
+	if len(params) > 0 {
+		kept := make([]string, 0, len(params))
+		for _, name := range params {
+			kept = append(kept, "url.query."+name)
+		}
+		result["kept_secrets"] = kept
+	}
 	return jsonResult(result)
 }
 

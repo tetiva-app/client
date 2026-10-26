@@ -55,7 +55,7 @@ import { useExamplesStore } from '@/stores/examples'
 function makeRequest(): Request {
   return {
     id: 'r1', collectionId: 'c1', name: 'Req', description: '', protocol: 'http', method: 'GET',
-    url: '/x', headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
+    url: '/x', pathVariables: [], headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
     preScript: '', postScript: '', grpcService: '', grpcMethod: '', grpcProtoPath: '', grpcMetadata: {},
     graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '', graphqlOperation: '',
     sortOrder: 0, version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',

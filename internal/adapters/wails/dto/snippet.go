@@ -82,6 +82,7 @@ type SnippetRequestDTO struct {
 	Protocol         string              `json:"protocol"`
 	Method           string              `json:"method"`
 	URL              string              `json:"url"`
+	PathVariables    *[]PathVariableDTO  `json:"pathVariables"`
 	Headers          []HeaderItemDTO     `json:"headers"`
 	Body             string              `json:"body"`
 	BodyType         string              `json:"bodyType"`
@@ -123,6 +124,7 @@ func (d SnippetRequestDTO) ToEntity() (*entities.Request, error) {
 		Protocol:         entities.Protocol(d.Protocol),
 		Method:           entities.HTTPMethod(d.Method),
 		URL:              d.URL,
+		PathVariables:    PathVariablesToEntity(d.PathVariables),
 		Headers:          HeaderItemsToEntity(d.Headers),
 		Body:             d.Body,
 		BodyType:         entities.BodyType(d.BodyType),

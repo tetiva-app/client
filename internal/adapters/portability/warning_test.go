@@ -20,8 +20,8 @@ func TestWarn_PicksTheFormByCount(t *testing.T) {
 		Warn(WarnHARAssetsSkipped, Subject{}, "n", 2).Text)
 	assert.Equal(t, "a variable without a name was skipped", Warn(WarnVariablesUnnamed, Subject{}, "n", 1).Text)
 	assert.Equal(t, "3 variables without a name were skipped", Warn(WarnVariablesUnnamed, Subject{}, "n", 3).Text)
-	assert.Equal(t, "path parameter id differs between requests: the environment keeps the first value",
-		Warn(WarnInsomniaPathParamsDiffer, Subject{}, "n", 1, "names", "id").Text)
+	assert.Equal(t, "1 disabled query parameter was dropped: Tetiva keeps query parameters in the URL",
+		Warn(WarnInsomniaDisabledParams, Subject{}, "n", 1).Text)
 }
 
 func TestWarn_ListOverflow(t *testing.T) {

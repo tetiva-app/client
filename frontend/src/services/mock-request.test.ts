@@ -7,7 +7,7 @@ import type { CreateRequestReq } from './request-api'
 
 function editorState(over: Partial<SnippetRequest>): SnippetRequest {
   return {
-    id: 'r1', collectionId: 'c1', protocol: 'http', method: 'GET', url: 'https://api.example.com/users',
+    id: 'r1', collectionId: 'c1', protocol: 'http', method: 'GET', url: 'https://api.example.com/users', pathVariables: [],
     headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}', preScript: '',
     grpcService: '', grpcMethod: '', grpcMetadata: {},
     graphqlQuery: '', graphqlVariables: '', graphqlOperation: '',
@@ -44,6 +44,12 @@ describe('MockRequestService.buildSnippetInput', () => {
     })
     expect(res.data.har?.postData).toBeUndefined()
     expect(res.data.warnings).toEqual([])
+  })
+
+  it('puts path variable values into the URL', async () => {
+    const res = await build({ url: 'https://api.example.com/users/:id/:tab', pathVariables: [{ key: 'id', value: '42' }, { key: 'tab', value: '' }] })
+
+    expect(res.data.har?.url).toBe('https://api.example.com/users/42/:tab')
   })
 
   it('carries a JSON body as postData text', async () => {

@@ -229,7 +229,7 @@ func (p *plan) request(parentPath string, r *publication.Request) *requestPlan {
 			p.warn(portability.WarnSnapshotMethodUnsupported, subject, "method", r.HTTP.Method)
 			in.Method = entities.MethodGET
 		}
-		in.URL, in.Headers = r.HTTP.URL, headerItems(r.HTTP.Headers)
+		in.URL, in.PathVariables, in.Headers = r.HTTP.URL, r.HTTP.PathVariables, headerItems(r.HTTP.Headers)
 		in.BodyType, in.Body = p.body(subject, r.HTTP.Body)
 	case entities.ProtocolGraphQL:
 		if r.GraphQL == nil {
@@ -251,6 +251,7 @@ func (p *plan) request(parentPath string, r *publication.Request) *requestPlan {
 			return skip(portability.WarnSnapshotPartMissing, "part", "websocket")
 		}
 		in.Method, in.URL, in.Headers = entities.MethodGET, r.WebSocket.URL, headerItems(r.WebSocket.Headers)
+		in.PathVariables = r.WebSocket.PathVariables
 		in.BodyType, in.Body = entities.BodyTypeRaw, p.wsSettings(subject, r.WebSocket)
 	default:
 		return skip(portability.WarnSnapshotProtocolUnsupported, "protocol", string(r.Protocol))

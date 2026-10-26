@@ -2849,7 +2849,7 @@ var require_parse = __commonJS({
         }
         return [key];
       }
-      var segments = [];
+      var segments2 = [];
       var first = key.indexOf("[");
       var parent = first >= 0 ? key.slice(0, first) : key;
       if (parent) {
@@ -2858,7 +2858,7 @@ var require_parse = __commonJS({
             return;
           }
         }
-        segments[segments.length] = parent;
+        segments2[segments2.length] = parent;
       }
       var n = key.length;
       var open = first;
@@ -2880,15 +2880,15 @@ var require_parse = __commonJS({
           i += 1;
         }
         if (close < 0) {
-          segments[segments.length] = "[" + key.slice(open) + "]";
-          return segments;
+          segments2[segments2.length] = "[" + key.slice(open) + "]";
+          return segments2;
         }
         var seg = key.slice(open, close + 1);
         var content = seg.slice(1, -1);
         if (!options.plainObjects && has.call(Object.prototype, content) && !options.allowPrototypes) {
           return;
         }
-        segments[segments.length] = seg;
+        segments2[segments2.length] = seg;
         collected += 1;
         open = key.indexOf("[", close + 1);
       }
@@ -2896,9 +2896,9 @@ var require_parse = __commonJS({
         if (options.strictDepth === true) {
           throw new RangeError("Input depth exceeded depth option of " + options.depth + " and strictDepth is true");
         }
-        segments[segments.length] = "[" + key.slice(open) + "]";
+        segments2[segments2.length] = "[" + key.slice(open) + "]";
       }
-      return segments;
+      return segments2;
     };
     var parseKeys = function parseQueryStringKeys(givenKey, val, options, valuesParsed) {
       if (!givenKey) {
@@ -7498,6 +7498,44 @@ function base64(s) {
   return btoa(binary);
 }
 
+// src/lib/path-variables.ts
+function pathSpan(url) {
+  let end = url.length;
+  const cut = url.search(/[?#]/);
+  if (cut >= 0) end = cut;
+  let start = 0;
+  const scheme = url.slice(0, end).indexOf("://");
+  if (scheme >= 0) start = scheme + 3;
+  const slash = url.slice(start, end).indexOf("/");
+  return slash < 0 ? [end, end] : [start + slash, end];
+}
+function segmentKey(segment) {
+  return segment.length >= 2 && segment[0] === ":" ? segment.slice(1) : null;
+}
+function segments(url) {
+  const [start, end] = pathSpan(url);
+  const out = [];
+  let offset = start;
+  for (const segment of url.slice(start, end).split("/")) {
+    const key = segmentKey(segment);
+    if (key !== null) out.push({ start: offset, end: offset + segment.length, key });
+    offset += segment.length + 1;
+  }
+  return out;
+}
+function resolveURL(url, vars, resolve) {
+  let out = "";
+  let last = 0;
+  for (const s of segments(url)) {
+    const v = vars.find((p) => p.key === s.key);
+    const value = v ? resolve(v.value) : "";
+    if (!value) continue;
+    out += resolve(url.slice(last, s.start)) + value.replace(/[/?#]/g, (c2) => encodeURIComponent(c2));
+    last = s.end;
+  }
+  return out + resolve(url.slice(last));
+}
+
 // src/lib/snippets/snapshot/har.ts
 var BINARY_WARNING = "Binary body is shown as a file reference";
 var GRAPHQL_VARIABLES_WARNING = "GraphQL variables are not valid JSON; shown as written";
@@ -7531,6 +7569,12 @@ function substitute(text3, vars) {
   if (vars.size === 0 || !s.includes("{{")) return s;
   return replaceVars(s, (name, match) => vars.get(name) ?? match);
 }
+function pathVariableRows(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((v) => typeof v?.key === "string" && typeof v.value === "string");
+}
+function pathURL(url, rows, vars) {
+  return resolveURL(str2(url), pathVariableRows(rows), (s) => substitute(s, vars));
+}
 function headerMap(rows, vars) {
   const out = /* @__PURE__ */ new Map();
   for (const h of Array.isArray(rows) ? rows : []) {
@@ -7560,7 +7604,7 @@ function setQueryParam(rawURL, key, value) {
 function buildHTTP(p, vars, auth) {
   const headers2 = headerMap(p.headers, vars);
   const applied = applyAuth(auth, (s) => substitute(s, vars), headers2, true);
-  let url = substitute(p.url, vars);
+  let url = pathURL(p.url, p.pathVariables, vars);
   if (applied.query) url = setQueryParam(url, applied.query.key, applied.query.value);
   const b = p.body;
   const type = str2(b?.type);
@@ -7940,7 +7984,7 @@ function snippetInputFromSnapshot(s, requestId, env) {
       const vars = publicVars(env);
       const headers2 = headerMap(w.headers, vars);
       const applied = applyAuth(authOf(found), (t) => substitute(t, vars), headers2, false);
-      let url = substitute(w.url, vars);
+      let url = pathURL(w.url, w.pathVariables, vars);
       if (applied.query) url = setQueryParam(url, applied.query.key, applied.query.value);
       const messages = (Array.isArray(w.messages) ? w.messages : []).map((m) => ({
         name: text(m?.name),
@@ -8014,7 +8058,7 @@ function requestItem(r2, warnings) {
       method: text2(r2.http.method),
       header: headers(r2.http.headers),
       ...body(r2.http.body, label, warnings),
-      url: { raw: text2(r2.http.url) }
+      url: { raw: text2(r2.http.url), ...pathVariables(r2.http.pathVariables) }
     };
   } else if (r2.protocol === "graphql" && r2.graphql) {
     const variables = text2(r2.graphql.variables);
@@ -8189,6 +8233,10 @@ function events(scripts) {
 function publicVariables(env) {
   const all = env?.variables;
   return (Array.isArray(all) ? all : []).filter((v) => v?.secret === false && typeof v.key === "string").map((v) => ({ key: v.key, value: text2(v.value) }));
+}
+function pathVariables(rows) {
+  const variable = pathVariableRows(rows).map((v) => ({ key: v.key, value: v.value }));
+  return variable.length ? { variable } : {};
 }
 function description(s) {
   const d = text2(s);

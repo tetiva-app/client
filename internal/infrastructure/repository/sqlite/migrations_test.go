@@ -607,3 +607,34 @@ func TestMigration026QueuesWritesThatNeverReachedTheServer(t *testing.T) {
 		t.Errorf("operation_id = %q, %v; want a v4 UUID", opID, err)
 	}
 }
+
+func TestMigration028LeavesPathVariablesUnknown(t *testing.T) {
+	db := openMigrationTestDB(t)
+
+	if err := migrate.Run(db, migrationsUpTo(t, 27), "."); err != nil {
+		t.Fatalf("migrate to 027: %v", err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO workspaces (id, name) VALUES ('ws1', 'W')`,
+		`INSERT INTO collections (id, workspace_id, name) VALUES ('c1', 'ws1', 'C')`,
+		`INSERT INTO requests (id, collection_id, name, url) VALUES ('r1', 'c1', 'Get user', '{{baseUrl}}/users/:id')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if err := migrate.Run(db, migrations.FS, "."); err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+
+	var stored sql.NullString
+	if err := db.QueryRow(`SELECT path_variables FROM requests WHERE id = 'r1'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Valid {
+		t.Errorf("path_variables = %q, want NULL: the old client may have missed values set elsewhere", stored.String)
+	}
+	if _, err := db.Exec(`UPDATE requests SET path_variables = 'not json' WHERE id = 'r1'`); err == nil {
+		t.Error("a non-JSON path_variables must be rejected")
+	}
+}

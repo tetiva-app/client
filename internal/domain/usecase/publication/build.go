@@ -247,7 +247,7 @@ func (p *pass) request(r *entities.Request, chain []*entities.Collection, names 
 			return nil, fmt.Errorf("request %q: %w", r.Name, err)
 		}
 		out.HTTP = &HTTPPart{
-			Method: string(r.Method), URL: p.url(owner, urlPath, r.URL, "0", "", true),
+			Method: string(r.Method), URL: p.url(owner, urlPath, r.URL, "0", "", true), PathVariables: pathVariables(r),
 			Headers: p.headers(owner, path, r.Headers, CategoryHeader), Body: body,
 		}
 	case entities.ProtocolGraphQL:
@@ -271,7 +271,8 @@ func (p *pass) request(r *entities.Request, chain []*entities.Collection, names 
 		settings := websocket.ParseSettings(r.Body)
 		p.subprotocolRefs(settings.Subprotocols)
 		ws := &WSPart{
-			URL: p.url(owner, urlPath, r.URL, "0", "", true), Headers: p.headers(owner, path, r.Headers, CategoryHeader),
+			URL: p.url(owner, urlPath, r.URL, "0", "", true), PathVariables: pathVariables(r),
+			Headers:      p.headers(owner, path, r.Headers, CategoryHeader),
 			Subprotocols: slices.Clone(settings.Subprotocols),
 		}
 		for _, m := range settings.Messages {
@@ -290,6 +291,13 @@ func (p *pass) request(r *entities.Request, chain []*entities.Collection, names 
 		out.Examples = append(out.Examples, p.example(e, path))
 	}
 	return out, nil
+}
+
+func pathVariables(r *entities.Request) []entities.PathVariable {
+	if len(r.PathVariables) == 0 {
+		return nil
+	}
+	return slices.Clone(r.PathVariables)
 }
 
 func (p *pass) body(owner, path string, r *entities.Request) (Body, error) {

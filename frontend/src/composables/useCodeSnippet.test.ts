@@ -33,6 +33,7 @@ function makeRequest(protocol: Protocol, patch: Partial<Request> = {}): Request 
     protocol,
     method: 'GET',
     url: 'https://api.test/u',
+    pathVariables: [],
     headers: [],
     body: '',
     bodyType: 'none',

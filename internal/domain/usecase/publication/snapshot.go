@@ -45,10 +45,11 @@ type Request struct {
 }
 
 type HTTPPart struct {
-	Method  string
-	URL     string
-	Headers []Header
-	Body    Body
+	Method        string
+	URL           string
+	PathVariables []entities.PathVariable
+	Headers       []Header
+	Body          Body
 }
 
 type GraphQLPart struct {
@@ -68,10 +69,11 @@ type GRPCPart struct {
 }
 
 type WSPart struct {
-	URL          string
-	Headers      []Header
-	Subprotocols []string
-	Messages     []WSMessage
+	URL           string
+	PathVariables []entities.PathVariable
+	Headers       []Header
+	Subprotocols  []string
+	Messages      []WSMessage
 }
 
 type WSMessage struct {

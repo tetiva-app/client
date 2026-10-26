@@ -4,7 +4,7 @@ import { mergeServerRequest } from './request-merge'
 
 const base: Request = {
   id: 'r1', collectionId: 'c1', name: 'Req', description: 'doc', protocol: 'http', method: 'GET',
-  url: '/x', headers: [{ key: 'A', value: '1', enabled: true }], body: '{}', bodyType: 'json',
+  url: '/x', pathVariables: [], headers: [{ key: 'A', value: '1', enabled: true }], body: '{}', bodyType: 'json',
   authType: 'bearer', authData: '{"token":"t"}', preScript: '', postScript: '',
   grpcService: '', grpcMethod: '', grpcProtoPath: '', grpcMetadata: {},
   graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '', graphqlOperation: '',
@@ -40,6 +40,16 @@ describe('mergeServerRequest', () => {
 
     expect(merged.authType).toBe('bearer')
     expect(merged.authData).toBe('{"token":"new"}')
+  })
+
+  it('moves url and pathVariables together', () => {
+    const local = { ...base, pathVariables: [{ key: 'id', value: 'mine' }] }
+    const server = { ...base, url: '/users/:userId', pathVariables: [{ key: 'userId', value: '7' }], version: 2 }
+
+    const merged = mergeServerRequest(local, base, server)
+
+    expect(merged.url).toBe('/users/:userId')
+    expect(merged.pathVariables).toEqual([{ key: 'userId', value: '7' }])
   })
 
   it('keeps local isDraft', () => {

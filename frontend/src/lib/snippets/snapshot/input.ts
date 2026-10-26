@@ -1,6 +1,6 @@
 import type { SnippetInput, WsSnippetMessage } from '@/types/snippet'
 import { applyAuth, authOf, locate } from './auth'
-import { buildHar, headerMap, publicVars, setQueryParam, substitute } from './har'
+import { buildHar, headerMap, pathURL, publicVars, setQueryParam, substitute } from './har'
 import type { Snapshot, SnapshotEnvironment } from './types'
 
 export function snippetInputFromSnapshot(s: Snapshot, requestId: string, env: SnapshotEnvironment | null): SnippetInput | null {
@@ -38,7 +38,7 @@ export function snippetInputFromSnapshot(s: Snapshot, requestId: string, env: Sn
       const vars = publicVars(env)
       const headers = headerMap(w.headers, vars)
       const applied = applyAuth(authOf(found), (t) => substitute(t, vars), headers, false)
-      let url = substitute(w.url, vars)
+      let url = pathURL(w.url, w.pathVariables, vars)
       if (applied.query) url = setQueryParam(url, applied.query.key, applied.query.value)
       const messages = (Array.isArray(w.messages) ? w.messages : []).map((m): WsSnippetMessage => ({
         name: text(m?.name),

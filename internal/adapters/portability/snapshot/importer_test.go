@@ -280,6 +280,18 @@ func TestImport_RootMetadataIsNotRepeatedOnRequests(t *testing.T) {
 	assert.Equal(t, map[string][]string{"x-tenant": {"acme"}, "x-trace": {"a", "b"}}, e.tree(t).reqs["Call"].GRPCMetadata)
 }
 
+func TestImport_PathVariables(t *testing.T) {
+	e := newEnv(t)
+	get := httpRequest("Get user", nil)
+	get["http"].(map[string]any)["url"] = "https://api.example.com/users/:id"
+	get["http"].(map[string]any)["pathVariables"] = []any{map[string]any{"key": "id", "value": "{{userId}}"}}
+
+	_, err := e.imp.Import(context.Background(), doc(t, []any{get}, nil), opt(false))
+	require.NoError(t, err)
+
+	assert.Equal(t, []entities.PathVariable{{Key: "id", Value: "{{userId}}"}}, e.tree(t).reqs["Get user"].PathVariables)
+}
+
 func TestImport_ScriptsOffByDefault(t *testing.T) {
 	e := newEnv(t)
 

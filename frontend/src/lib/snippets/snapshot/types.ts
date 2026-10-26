@@ -45,6 +45,7 @@ export interface SnapshotRequest {
 export interface SnapshotHTTPPart {
   method: string
   url: string
+  pathVariables?: SnapshotPathVariable[]
   headers: SnapshotHeader[]
   body: SnapshotBody
 }
@@ -67,6 +68,7 @@ export interface SnapshotGRPCPart {
 
 export interface SnapshotWebSocketPart {
   url: string
+  pathVariables?: SnapshotPathVariable[]
   headers: SnapshotHeader[]
   subprotocols: string[]
   messages: SnapshotWSMessage[]
@@ -76,6 +78,11 @@ export interface SnapshotWSMessage {
   name: string
   format: 'json' | 'text' | 'binary'
   data: string
+}
+
+export interface SnapshotPathVariable {
+  key: string
+  value: string
 }
 
 export interface SnapshotHeader {

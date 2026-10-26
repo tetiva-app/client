@@ -148,7 +148,7 @@ func buildRequestItem(req *entities.Request, examples []*entities.ResponseExampl
 	pmReq := PostmanRequest{
 		Method:      method,
 		Header:      buildHeaders(req.Headers),
-		URL:         PostmanURL{Raw: req.URL},
+		URL:         PostmanURL{Raw: req.URL, Variable: buildPathVariables(req.PathVariables)},
 		Description: descriptionOf(req.Description),
 	}
 
@@ -264,6 +264,14 @@ func buildEvents(preScript, postScript string) []PostmanEvent {
 		})
 	}
 	return events
+}
+
+func buildPathVariables(vars []entities.PathVariable) PostmanPathVars {
+	out := make(PostmanPathVars, len(vars))
+	for i, v := range vars {
+		out[i] = PostmanPathVar{Key: v.Key, Value: v.Value}
+	}
+	return out
 }
 
 func buildHeaders(headers []entities.HeaderItem) []PostmanKV {

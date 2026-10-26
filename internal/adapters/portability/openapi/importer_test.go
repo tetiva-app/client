@@ -222,7 +222,7 @@ func TestImport_WritesThePlan(t *testing.T) {
 	require.Len(t, rec.collections, 4)
 	assert.Equal(t, &parent, rec.collections[0].ParentID)
 	assert.Equal(t, []environment.Create{{Name: "Petstore (2)"}}, rec.envs)
-	assert.Len(t, rec.vars, 6)
+	assert.Len(t, rec.vars, 5)
 	for _, r := range rec.requests {
 		assert.NotEqual(t, uuid.Nil, r.CollectionID, r.Name)
 	}

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"testing"
 	"time"
 
@@ -707,5 +708,85 @@ func TestRequestRepo_GetDescriptionByID_SeesSoftDeleted(t *testing.T) {
 	}
 	if desc != "" {
 		t.Errorf("missing row should yield empty description, got %q", desc)
+	}
+}
+
+func TestRequestRepo_PathVariablesRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	collRepo := NewCollectionRepo(db)
+	reqRepo := NewRequestRepo(db)
+	ctx := context.Background()
+
+	coll := newTestCollection("Users", nil)
+	if err := collRepo.Create(ctx, coll); err != nil {
+		t.Fatalf("Create collection failed: %v", err)
+	}
+
+	req := newTestRequest("Get user", coll.ID)
+	req.URL = "{{baseUrl}}/orgs/:org/users/:id"
+	req.PathVariables = []entities.PathVariable{{Key: "org", Value: "{{org}}"}, {Key: "id", Value: "42"}}
+	if err := reqRepo.Create(ctx, req); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	got, err := reqRepo.GetByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if !slices.Equal(got.PathVariables, req.PathVariables) {
+		t.Errorf("after create: got %v, want %v", got.PathVariables, req.PathVariables)
+	}
+
+	got.PathVariables = []entities.PathVariable{}
+	if err := reqRepo.Update(ctx, got); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	listed, err := reqRepo.List(ctx, request.Filter{CollectionID: coll.ID})
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(listed) != 1 || listed[0].PathVariables == nil || len(listed[0].PathVariables) != 0 {
+		t.Errorf("a cleared list must read back empty, not unknown: %#v", listed[0].PathVariables)
+	}
+
+	got.PathVariables = nil
+	if err := reqRepo.Update(ctx, got); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if unknown, err := reqRepo.GetPathVariablesByID(ctx, req.ID); err != nil || unknown != nil {
+		t.Errorf("nil must read back as unknown: %#v, %v", unknown, err)
+	}
+}
+
+func TestRequestRepo_GetPathVariablesByID_SeesSoftDeleted(t *testing.T) {
+	db := setupTestDB(t)
+	collRepo := NewCollectionRepo(db)
+	reqRepo := NewRequestRepo(db)
+	ctx := context.Background()
+
+	coll := newTestCollection("Users", nil)
+	if err := collRepo.Create(ctx, coll); err != nil {
+		t.Fatalf("Create collection failed: %v", err)
+	}
+
+	req := newTestRequest("Get user", coll.ID)
+	req.URL = "/users/:id"
+	req.PathVariables = []entities.PathVariable{{Key: "id", Value: "42"}}
+	req.IsDelete = true
+	if err := reqRepo.Create(ctx, req); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	got, err := reqRepo.GetPathVariablesByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("GetPathVariablesByID failed: %v", err)
+	}
+	if !slices.Equal(got, req.PathVariables) {
+		t.Errorf("got %v, want %v", got, req.PathVariables)
+	}
+
+	got, err = reqRepo.GetPathVariablesByID(ctx, uuid.New())
+	if err != nil || len(got) != 0 {
+		t.Errorf("missing row: got %v, %v; want empty", got, err)
 	}
 }

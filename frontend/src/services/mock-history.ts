@@ -260,6 +260,7 @@ export class MockHistoryService implements HistoryServiceAPI {
       protocol: rec.protocol,
       method: (rec.method as RequestEntity['method']) || 'GET',
       url: rec.url,
+      pathVariables: [],
       headers: flattenHeaders(rec.requestHeaders),
       body: rec.requestBody,
       bodyType: rec.requestBody ? 'raw' : 'none',

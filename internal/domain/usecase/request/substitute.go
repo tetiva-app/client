@@ -3,6 +3,8 @@ package request
 import (
 	"regexp"
 	"strings"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
 var varPattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)
@@ -23,6 +25,25 @@ func substituteVariables(text string, vars map[string]string) string {
 
 func SubstituteVariables(text string, vars map[string]string) string {
 	return substituteVariables(text, vars)
+}
+
+func pathVariablesFor(p entities.Protocol, rawURL string, vars []entities.PathVariable) []entities.PathVariable {
+	// Checked before the protocol: turning unknown into [] would clear the server copy.
+	if vars == nil {
+		return nil
+	}
+	if !p.HasPathVariables() {
+		return []entities.PathVariable{}
+	}
+	return entities.SyncPathVariables(rawURL, vars)
+}
+
+func resolveURL(req *entities.Request, vars map[string]string) string {
+	resolve := func(s string) string { return substituteVariables(s, vars) }
+	if !req.Protocol.HasPathVariables() {
+		return resolve(req.URL)
+	}
+	return entities.ResolveURL(req.URL, req.PathVariables, resolve)
 }
 
 // substituteMetadata applies variable substitution to gRPC metadata values.

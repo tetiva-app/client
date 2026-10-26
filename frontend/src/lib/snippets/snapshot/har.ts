@@ -1,9 +1,10 @@
 import type { HarNameValue, HarParam, HarPostData, HarRequest } from '@/types/snippet'
+import { resolveURL } from '@/lib/path-variables'
 import { replaceVars, varRefs } from '../vars'
 import { applyAuth } from './auth'
 import type {
-  SnapshotAuth, SnapshotEnvironment, SnapshotGraphQLPart, SnapshotHeader, SnapshotHTTPPart, SnapshotRequest,
-  SnapshotVariable,
+  SnapshotAuth, SnapshotEnvironment, SnapshotGraphQLPart, SnapshotHeader, SnapshotHTTPPart, SnapshotPathVariable,
+  SnapshotRequest, SnapshotVariable,
 } from './types'
 
 const BINARY_WARNING = 'Binary body is shown as a file reference'
@@ -60,6 +61,15 @@ export function substitute(text: unknown, vars: Vars): string {
   return replaceVars(s, (name, match) => vars.get(name) ?? match)
 }
 
+export function pathVariableRows(rows: unknown): SnapshotPathVariable[] {
+  return (Array.isArray(rows) ? rows as SnapshotPathVariable[] : [])
+    .filter((v) => typeof v?.key === 'string' && typeof v.value === 'string')
+}
+
+export function pathURL(url: unknown, rows: unknown, vars: Vars): string {
+  return resolveURL(str(url), pathVariableRows(rows), (s) => substitute(s, vars))
+}
+
 export function headerMap(rows: SnapshotHeader[] | undefined, vars: Vars): HeaderMap {
   const out: HeaderMap = new Map()
   for (const h of Array.isArray(rows) ? rows : []) {
@@ -95,7 +105,7 @@ export function setQueryParam(rawURL: string, key: string, value: string): strin
 function buildHTTP(p: SnapshotHTTPPart, vars: Vars, auth: SnapshotAuth | null): BuiltHar {
   const headers = headerMap(p.headers, vars)
   const applied = applyAuth(auth, (s) => substitute(s, vars), headers, true)
-  let url = substitute(p.url, vars)
+  let url = pathURL(p.url, p.pathVariables, vars)
   if (applied.query) url = setQueryParam(url, applied.query.key, applied.query.value)
 
   const b = p.body

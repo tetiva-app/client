@@ -30,7 +30,7 @@ import { useRequestStore } from '@/stores/tabs'
 function makeRequest(protocol: Protocol, method: HTTPMethod): Request {
   return {
     id: 'r1', collectionId: 'c1', name: 'List pets', description: '', protocol, method,
-    url: '/pets', headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
+    url: '/pets', pathVariables: [], headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
     preScript: '', postScript: '', grpcService: '', grpcMethod: '', grpcProtoPath: '', grpcMetadata: {},
     graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '', graphqlOperation: '',
     sortOrder: 0, version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',

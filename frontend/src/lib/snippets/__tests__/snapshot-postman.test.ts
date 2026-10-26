@@ -83,3 +83,25 @@ describe('snapshotToPostman', () => {
     expect(snapshotToPostman(leaky).json).not.toContain('CANARY')
   })
 })
+
+describe('snapshotToPostman path variables', () => {
+  it('writes them as url.variable and leaves an empty list out', () => {
+    const http = (id: string, url: string, pathVariables?: { key: string; value: string }[]) => ({
+      kind: 'request' as const, id, name: id, description: '', protocol: 'http' as const,
+      http: { method: 'GET', url, ...(pathVariables ? { pathVariables } : {}), headers: [], body: { type: 'none' as const, raw: '', fields: [], fileName: '' } },
+      auth: null, scripts: null, examples: [],
+    })
+    const doc: Snapshot = {
+      ...snapshot,
+      collection: { ...snapshot.collection, items: [
+        http('a', '{{baseUrl}}/users/:id', [{ key: 'id', value: '{{userId}}' }]),
+        http('b', '{{baseUrl}}/users'),
+      ] },
+    }
+
+    const pm = JSON.parse(snapshotToPostman(doc).json) as { item: { request: { url: Record<string, unknown> } }[] }
+
+    expect(pm.item[0].request.url).toEqual({ raw: '{{baseUrl}}/users/:id', variable: [{ key: 'id', value: '{{userId}}' }] })
+    expect(pm.item[1].request.url).toEqual({ raw: '{{baseUrl}}/users' })
+  })
+})

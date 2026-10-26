@@ -57,7 +57,7 @@ func (u *usecase) prepareHTTP(
 	// The script sees the raw placeholders; its header map is substituted once
 	// afterwards, with whatever variables the script left behind.
 	rawHeaders := entities.EnabledHeadersToMap(req.Headers)
-	execURL := substituteVariables(req.URL, vars)
+	execURL := resolveURL(req, vars)
 	body := substituteVariables(req.Body, vars)
 	headers := substituteHeaders(rawHeaders, vars)
 
@@ -87,7 +87,7 @@ func (u *usecase) prepareHTTP(
 		scriptResult = &entities.ScriptResult{PreConsole: preResult.ConsoleOutput}
 		subst = withLocals(preResult.Variables, preResult.LocalVariables)
 		if !mapsEqual(vars, subst) {
-			execURL = substituteVariables(req.URL, subst)
+			execURL = resolveURL(req, subst)
 			body = substituteVariables(req.Body, subst)
 		}
 		vars = preResult.Variables

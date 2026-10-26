@@ -38,6 +38,12 @@ export interface EditorCopy {
   tabs: {
     collection: string
   }
+  params: {
+    query: string
+    path: string
+    pathHint: string
+    value: string
+  }
   scripts: {
     pre: string
     post: string
@@ -106,6 +112,12 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     tabs: {
       collection: 'Collection',
     },
+    params: {
+      query: 'Query Params',
+      path: 'Path Variables',
+      pathHint: 'To add a path variable, write :name in the URL path, like /users/:id',
+      value: 'Value',
+    },
     scripts: {
       pre: 'Pre-request',
       post: 'Post-response',
@@ -171,6 +183,12 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
     },
     tabs: {
       collection: 'Коллекция',
+    },
+    params: {
+      query: 'Параметры запроса',
+      path: 'Переменные пути',
+      pathHint: 'Чтобы добавить переменную пути, напишите в адресе :name, например /users/:id',
+      value: 'Значение',
     },
     scripts: {
       pre: 'Перед запросом',

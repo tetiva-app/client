@@ -73,6 +73,17 @@ describe('snippetInputFromSnapshot', () => {
     })
   })
 
+  it('puts path variable values into the URL before the environment', () => {
+    const ws = first('websocket')
+    const withPath: SnapshotRequest = {
+      ...ws, websocket: { ...ws.websocket!, url: 'wss://{{wsHost}}/rooms/:room/:shard', pathVariables: [{ key: 'room', value: '{{room}}' }, { key: 'shard', value: '' }] },
+    }
+    const doc: Snapshot = { ...snapshot, collection: { ...snapshot.collection, items: [withPath] } }
+    const env: SnapshotEnvironment = { name: 'e', variables: [{ key: 'wsHost', value: 'ws.io', secret: false }, { key: 'room', value: 'a/b#c', secret: false }] }
+
+    expect(snippetInputFromSnapshot(doc, ws.id, env)!.ws!.url).toBe('wss://ws.io/rooms/a%2Fb%23c/:shard')
+  })
+
   it('never substitutes a secret variable', () => {
     const leaky: SnapshotEnvironment = {
       name: 'prod',

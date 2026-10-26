@@ -493,7 +493,7 @@ func (u *usecase) runPreScriptForNonHTTP(
 	// The script sees the raw placeholders; its header map is substituted once
 	// afterwards, with whatever variables the script left behind.
 	rawHeaders := entities.EnabledHeadersToMap(req.Headers)
-	execURL := substituteVariables(req.URL, vars)
+	execURL := resolveURL(req, vars)
 	body := substituteVariables(req.Body, vars)
 
 	out := preScriptOutcome{Vars: vars, Subst: vars, URL: execURL, Body: body, Headers: substituteHeaders(rawHeaders, vars), Metadata: req.GRPCMetadata}
@@ -534,7 +534,7 @@ func (u *usecase) runPreScriptForNonHTTP(
 	out.Locals = preResult.LocalVariables
 	out.Subst = withLocals(preResult.Variables, preResult.LocalVariables)
 	if !mapsEqual(vars, out.Subst) {
-		out.URL = substituteVariables(req.URL, out.Subst)
+		out.URL = resolveURL(req, out.Subst)
 		out.Body = substituteVariables(req.Body, out.Subst)
 	}
 	out.Headers = substituteHeaders(preResult.Headers, out.Subst)

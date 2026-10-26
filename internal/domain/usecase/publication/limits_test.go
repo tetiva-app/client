@@ -425,7 +425,10 @@ func TestCountValues_MatchesTheCanonicalJSON(t *testing.T) {
 	f := newFixture()
 	f.in.Root.GRPCMetadata = headerRows(2, "1")
 	formRequest(f, 3, "k", "v")
-	wsRequest(f, 2, 3).Headers = headerRows(1, "1")
+	ws := wsRequest(f, 2, 3)
+	ws.Headers = headerRows(1, "1")
+	ws.PathVariables = []entities.PathVariable{{Key: "room", Value: "1"}}
+	f.request(f.in.Root, "p").PathVariables = []entities.PathVariable{{Key: "a", Value: "1"}, {Key: "b"}}
 	authRequest(f, entities.AuthTypeJWT, map[string]any{"alg": "HS256", "claims": map[string]any{"a": []any{1, true, nil, map[string]any{"b": "c"}}}})
 	f.example(f.request(f.in.Root, "e"), "ok").Headers = headerRows(2, "1")
 	g := f.request(f.in.Root, "g")

@@ -566,9 +566,10 @@ func TestImportOpenAPI_PreviewThenConfirmIntoAFolder(t *testing.T) {
 	var parentID sql.NullString
 	require.NoError(t, f.db.QueryRow(`SELECT parent_id FROM collections WHERE id = ?`, res.Data.CollectionID).Scan(&parentID))
 	assert.Equal(t, parent.Data.CollectionID, parentID.String)
-	var url string
-	require.NoError(t, f.db.QueryRow(`SELECT url FROM requests WHERE name = 'Get item'`).Scan(&url))
-	assert.Equal(t, "{{baseUrl}}/items/{{id}}", url)
+	var url, pathVariables string
+	require.NoError(t, f.db.QueryRow(`SELECT url, path_variables FROM requests WHERE name = 'Get item'`).Scan(&url, &pathVariables))
+	assert.Equal(t, "{{baseUrl}}/items/:id", url)
+	assert.JSONEq(t, `[{"key":"id","value":""}]`, pathVariables)
 
 	broken := f.svc.ImportPreview(dto.ImportPreviewRequest{Content: "openapi: 3.0.0\ninfo: {title: T}\npaths: [1]\n"})
 	require.NotNil(t, broken.Error)

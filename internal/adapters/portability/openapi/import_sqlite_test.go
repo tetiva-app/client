@@ -111,7 +111,8 @@ func TestImport_SQLite_Petstore(t *testing.T) {
 		}
 	}
 	require.NotNil(t, get)
-	assert.Equal(t, "{{baseUrl}}/pets/{{petId}}", get.URL)
+	assert.Equal(t, "{{baseUrl}}/pets/:petId", get.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "petId", Value: "42"}}, get.PathVariables)
 	assert.Equal(t, entities.AuthTypeInherit, get.AuthType)
 	assert.Equal(t, 1, get.Version)
 	assert.False(t, get.CreatedAt.IsZero())
@@ -144,7 +145,7 @@ func TestImport_SQLite_Petstore(t *testing.T) {
 		secret[v.Key] = v.IsSecret
 	}
 	assert.Equal(t, map[string]string{
-		"baseUrl": "https://api.petstore.example.com/api/v3", "apiKey": "", "clientId": "", "clientSecret": "", "petId": "42", "token": "",
+		"baseUrl": "https://api.petstore.example.com/api/v3", "apiKey": "", "clientId": "", "clientSecret": "", "token": "",
 	}, got)
 	assert.True(t, secret["apiKey"])
 	assert.True(t, secret["token"])

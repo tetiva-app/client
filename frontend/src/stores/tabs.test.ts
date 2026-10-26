@@ -39,7 +39,7 @@ import { useToast } from '@/composables/useToast'
 function makeRequest(over: Partial<Request> = {}): Request {
   return {
     id: 'r1', collectionId: 'c1', name: 'Req', protocol: 'http', method: 'GET',
-    url: '/x', headers: [], body: '', bodyType: 'none', authType: 'none',
+    url: '/x', pathVariables: [], headers: [], body: '', bodyType: 'none', authType: 'none',
     authData: {}, preScript: '', postScript: '', sortOrder: 0, isDraft: false,
     version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',
     ...over,
@@ -490,6 +490,87 @@ describe('saveToBackend description', () => {
     await expect(store.saveToBackend('r1')).resolves.toBe(true)
 
     expect(editMock).toHaveBeenCalledWith(expect.objectContaining({ description: 'new' }))
+  })
+})
+
+describe('path variables follow the URL', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    editMock.mockReset()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  const vars = (id: string) => useRequestStore().getById(id)?.pathVariables
+
+  it('adds a row for a new :name segment and drops it with the segment', () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ url: '/users', pathVariables: [] }))
+
+    store.updateLocal('r1', { url: '/users/:id' })
+    expect(vars('r1')).toEqual([{ key: 'id', value: '' }])
+
+    store.updateLocal('r1', { pathVariables: [{ key: 'id', value: '42' }] })
+    store.updateLocal('r1', { url: '/users/:id/posts/:postId' })
+    expect(vars('r1')).toEqual([{ key: 'id', value: '42' }, { key: 'postId', value: '' }])
+
+    store.updateLocal('r1', { url: '/users' })
+    expect(vars('r1')).toEqual([])
+  })
+
+  it('gives a key renamed away and back its value again', () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ url: '/users/:id', pathVariables: [{ key: 'id', value: '42' }] }))
+
+    store.updateLocal('r1', { url: '/users/:i' })
+    expect(vars('r1')).toEqual([{ key: 'i', value: '' }])
+    store.updateLocal('r1', { url: '/users/:id' })
+    expect(vars('r1')).toEqual([{ key: 'id', value: '42' }])
+  })
+
+  it('does not touch protocols without the table', () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ protocol: 'graphql', url: '/graphql', pathVariables: [] }))
+
+    store.updateLocal('r1', { url: '/graphql/:tenant' })
+
+    expect(vars('r1')).toEqual([])
+  })
+
+  it('keeps values this device never knew unknown until the table is edited', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ url: '/users/:id', pathVariables: null }))
+
+    store.updateLocal('r1', { url: '/users/:id/posts' })
+    expect(vars('r1')).toBeNull()
+    editMock.mockResolvedValue({ data: makeRequest({ url: '/users/:id/posts', pathVariables: null, version: 2 }) })
+    await store.saveToBackend('r1')
+    expect(editMock).toHaveBeenLastCalledWith(expect.objectContaining({ pathVariables: null }))
+
+    store.updateLocal('r1', { pathVariables: [{ key: 'id', value: '7' }] })
+    store.updateLocal('r1', { url: '/users/:id' })
+    expect(vars('r1')).toEqual([{ key: 'id', value: '7' }])
+  })
+
+  it('a request saved before the table opens clean and saves its values', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ url: '/users/:id', pathVariables: [] }))
+    expect(store.isDirty('request:r1')).toBe(false)
+
+    store.updateLocal('r1', { pathVariables: [{ key: 'id', value: '7' }] })
+    editMock.mockResolvedValue({ data: makeRequest({ url: '/users/:id', pathVariables: [{ key: 'id', value: '7' }], version: 2 }) })
+    await expect(store.saveToBackend('r1')).resolves.toBe(true)
+
+    expect(editMock).toHaveBeenCalledWith(expect.objectContaining({ pathVariables: [{ key: 'id', value: '7' }] }))
+  })
+
+  it('a rename sends the stored values along', async () => {
+    const store = useRequestStore()
+    store.loadRequest(makeRequest({ url: '/users/:id', pathVariables: [{ key: 'id', value: '7' }] }))
+    editMock.mockResolvedValue({ data: makeRequest({ name: 'Renamed', version: 2 }) })
+
+    await store.rename('r1', 'Renamed', 1)
+
+    expect(editMock).toHaveBeenCalledWith(expect.objectContaining({ pathVariables: [{ key: 'id', value: '7' }] }))
   })
 })
 

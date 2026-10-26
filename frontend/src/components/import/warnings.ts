@@ -42,7 +42,6 @@ export type ImportWarningCode =
   | 'postman_example_status'
   | 'postman_example_name_truncated'
   | 'postman_globals'
-  | 'insomnia_path_params_differ'
   | 'insomnia_workspaces'
   | 'insomnia_disabled_params'
   | 'insomnia_disabled_metadata'
@@ -158,10 +157,6 @@ const EN: ImportWarningCopy = {
     postman_example_name_truncated: 'example {index}: name longer than {max} characters was truncated',
     postman_globals: 'Tetiva has no global variables: they were imported as the environment "{name}"',
 
-    insomnia_path_params_differ: {
-      single: 'path parameter {names} differs between requests: the environment keeps the first value',
-      several: 'path parameters {names} differ between requests: the environment keeps the first value',
-    },
     insomnia_workspaces: 'the file has {n} workspaces, each was imported as its own collection: {names}',
     insomnia_disabled_params: {
       one: '{n} disabled query parameter was dropped: Tetiva keeps query parameters in the URL',
@@ -331,10 +326,6 @@ const RU: ImportWarningCopy = {
     postman_example_name_truncated: 'пример №{index}: имя длиннее {max} символов обрезано',
     postman_globals: 'в Tetiva нет глобальных переменных\u00a0— они импортированы как окружение «{name}»',
 
-    insomnia_path_params_differ: {
-      single: 'параметр пути {names} в разных запросах отличается\u00a0— в окружении сохранено первое значение',
-      several: 'параметры пути {names} в разных запросах отличаются\u00a0— в окружении сохранены первые значения',
-    },
     insomnia_workspaces: {
       one: 'в файле {n} рабочее пространство Insomnia, каждое импортировано отдельной коллекцией: {names}',
       few: 'в файле {n} рабочих пространства Insomnia, каждое импортировано отдельной коллекцией: {names}',

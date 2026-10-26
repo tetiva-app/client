@@ -80,6 +80,10 @@ func (s *authRequestRepoStub) GetDescriptionByID(context.Context, uuid.UUID) (st
 	panic("not used")
 }
 
+func (s *authRequestRepoStub) GetPathVariablesByID(context.Context, uuid.UUID) ([]entities.PathVariable, error) {
+	panic("not used")
+}
+
 func (s *authRequestRepoStub) UpdateSortOrder(context.Context, uuid.UUID, int) error {
 	panic("not used")
 }

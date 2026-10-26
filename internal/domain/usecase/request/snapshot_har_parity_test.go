@@ -63,6 +63,10 @@ func parityCases() []parityCase {
 			r.GraphQLQuery = "query Pet($id: ID!) {\n  pet(id: $id) { name }\n}"
 			r.GraphQLVariables, r.GraphQLOperation = "{\n  \"id\": \"{{petId}}\"\n}", "Pet"
 		}},
+		{name: "path_variables", edit: func(r *entities.Request) {
+			r.URL = "{{baseUrl}}/users/:id/posts/:postId/:slug?tab=:tab"
+			r.PathVariables = []entities.PathVariable{{Key: "id", Value: "{{userId}}"}, {Key: "postId", Value: ""}, {Key: "slug", Value: "a/b?c#d"}}
+		}},
 	}
 }
 

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,7 +21,9 @@ const wsSettingsSchemaDoc = `the connection settings document ` +
 	`"messages":[{"id":"uuid","name":"Login","format":"json|text|binary","data":"payload"}]}` +
 	` (binary data is base64); an empty body means default settings, anything else is rejected`
 
-const varSyntaxDoc = "Use {{name}} for environment variables; path parameters use the same {{name}} syntax (:id and {id} are sent literally)."
+const varSyntaxDoc = "Use {{name}} for environment variables. A path segment written as :name (as in /users/:id) is a path variable: set its value in path_variables, where {{name}} works too. {id} is sent literally."
+
+const pathVariablesDoc = `Values for the :name segments of the url path (http and websocket only), as {"id": "42"} or [{"key": "id", "value": "42"}]. Each key must appear in the url as :key; a segment without a value is sent as typed.`
 
 func (s *Server) registerRequestTools() {
 	s.mcp.AddTool(
@@ -35,7 +38,7 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("get_request",
-			mcplib.WithDescription("Get a request by ID with all fields (headers, body, auth, scripts, grpc, graphql)"),
+			mcplib.WithDescription("Get a request by ID with all fields (path variables, headers, body, auth, scripts, grpc, graphql)"),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Request UUID"),
 			),
@@ -63,6 +66,9 @@ func (s *Server) registerRequestTools() {
 			),
 			mcplib.WithString("url",
 				mcplib.Description("Request URL (HTTP/GraphQL), host:port or grpcs://host[:port] for TLS (gRPC), or ws:// / wss:// endpoint (WebSocket). "+varSyntaxDoc),
+			),
+			mcplib.WithObject("path_variables",
+				mcplib.Description(pathVariablesDoc),
 			),
 			mcplib.WithString("body",
 				mcplib.Description("Request body (HTTP/gRPC message). "+varSyntaxDoc+" For websocket: "+wsSettingsSchemaDoc),
@@ -115,7 +121,7 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("update_request",
-			mcplib.WithDescription("Update an existing request (name, description, url, method, body, headers, auth, scripts, grpc, graphql). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking. "+redactedEchoDoc+" Restored secrets are listed in kept_secrets."),
+			mcplib.WithDescription("Update an existing request (name, description, url, path variables, method, body, headers, auth, scripts, grpc, graphql). Only the arguments you pass are changed; omitted fields keep their current value. Uses optimistic locking. "+redactedEchoDoc+" Restored secrets are listed in kept_secrets."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("Request UUID"),
 			),
@@ -133,6 +139,9 @@ func (s *Server) registerRequestTools() {
 			),
 			mcplib.WithString("url",
 				mcplib.Description("Request URL / gRPC host:port (grpcs://host[:port] for TLS). "+varSyntaxDoc+" "+redactedEchoDoc),
+			),
+			mcplib.WithObject("path_variables",
+				mcplib.Description(pathVariablesDoc+" Only the keys you pass change; pass \"\" to clear one, or an empty list to clear all. Keys that stay in a new url keep their values."),
 			),
 			mcplib.WithString("body",
 				mcplib.Description("Request body. "+varSyntaxDoc+" For websocket: "+wsSettingsSchemaDoc),
@@ -201,7 +210,7 @@ func (s *Server) registerRequestTools() {
 
 	s.mcp.AddTool(
 		mcplib.NewTool("duplicate_request",
-			mcplib.WithDescription("Copy a saved request into the same collection with its headers, body, auth, scripts and examples. Optionally give the copy its own name, method and URL in the same call; everything else stays as in the original."),
+			mcplib.WithDescription("Copy a saved request into the same collection with its headers, body, auth, scripts and examples. Optionally give the copy its own name, method, URL and path variables in the same call; everything else stays as in the original."),
 			mcplib.WithString("id", mcplib.Required(),
 				mcplib.Description("UUID of the request to copy"),
 			),
@@ -213,6 +222,9 @@ func (s *Server) registerRequestTools() {
 			),
 			mcplib.WithString("url",
 				mcplib.Description("URL of the copy (default: the original's). "+varSyntaxDoc+" "+redactedEchoDoc),
+			),
+			mcplib.WithObject("path_variables",
+				mcplib.Description(pathVariablesDoc+" Keys you leave out keep the original's values; an empty list clears them all."),
 			),
 		),
 		s.handleDuplicateRequest,
@@ -318,6 +330,14 @@ func (s *Server) handleCreateRequest(ctx context.Context, req mcplib.CallToolReq
 	if err := rejectRedactedValues(url, authData, headers, metadata); err != nil {
 		return errResult(err), nil
 	}
+	passed, sent, err := pathVariablesFromArg(req, "path_variables")
+	if err != nil {
+		return errResult(err), nil
+	}
+	pathVariables, err := withPathVariables(protocol, url, nil, passed, sent)
+	if err != nil {
+		return errResult(err), nil
+	}
 
 	r, err := s.reqUC.Create(ctx, request.Create{
 		CollectionID:      colID,
@@ -326,6 +346,7 @@ func (s *Server) handleCreateRequest(ctx context.Context, req mcplib.CallToolReq
 		Protocol:          protocol,
 		Method:            method,
 		URL:               url,
+		PathVariables:     pathVariables,
 		Headers:           headers,
 		Body:              stringArg(req, "body", ""),
 		BodyType:          bodyType,
@@ -377,6 +398,7 @@ func (s *Server) handleUpdateRequest(ctx context.Context, req mcplib.CallToolReq
 		Description:       current.Description,
 		Method:            current.Method,
 		URL:               current.URL,
+		PathVariables:     current.PathVariables,
 		Headers:           current.Headers,
 		Body:              current.Body,
 		BodyType:          current.BodyType,
@@ -452,6 +474,14 @@ func (s *Server) handleUpdateRequest(ctx context.Context, req mcplib.CallToolReq
 	input.URL = restoredURL
 	for _, name := range params {
 		kept = append(kept, "url.query."+name)
+	}
+
+	passed, sent, err := pathVariablesFromArg(req, "path_variables")
+	if err != nil {
+		return errResult(err), nil
+	}
+	if input.PathVariables, err = withPathVariables(current.Protocol, input.URL, current.PathVariables, passed, sent); err != nil {
+		return errResult(err), nil
 	}
 
 	restoredHeaders, headerKeys, err := restoreHeaderSecrets(input.Headers, current.Headers)
@@ -545,12 +575,24 @@ func (s *Server) handleDuplicateRequest(ctx context.Context, req mcplib.CallTool
 		return errResult(err), nil
 	}
 
+	passed, sent, err := pathVariablesFromArg(req, "path_variables")
+	if err != nil {
+		return errResult(err), nil
+	}
+	var pathVariables []entities.PathVariable
+	if sent {
+		if pathVariables, err = withPathVariables(source.Protocol, cmp.Or(url, source.URL), source.PathVariables, passed, sent); err != nil {
+			return errResult(err), nil
+		}
+	}
+
 	r, err := s.reqUC.Duplicate(ctx, request.DuplicateOpt{
-		RequestID: id,
-		Name:      stringArg(req, "name", source.Name+" (copy)"),
-		Method:    entities.HTTPMethod(strings.ToUpper(stringArg(req, "method", ""))),
-		URL:       url,
-		UserID:    mcpUserID,
+		RequestID:     id,
+		Name:          stringArg(req, "name", source.Name+" (copy)"),
+		Method:        entities.HTTPMethod(strings.ToUpper(stringArg(req, "method", ""))),
+		URL:           url,
+		PathVariables: pathVariables,
+		UserID:        mcpUserID,
 	})
 	if err != nil {
 		return errResult(err), nil

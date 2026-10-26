@@ -290,9 +290,9 @@ func (b *builder) request(path, method string, item *openapi3.PathItem, op *open
 		Description: b.clamp(operation(label), description(op, params)),
 		Protocol:    entities.ProtocolHTTP,
 		Method:      entities.HTTPMethod(method),
-		URL:         b.url(label, path, params),
 		Headers:     headerParams(params),
 	}
+	in.URL, in.PathVariables = b.url(label, path, params)
 	var contentType string
 	in.BodyType, in.Body, contentType = b.body(label, op.RequestBody, ptr(opPtr, "requestBody"))
 	if contentType != "" && in.BodyType != entities.BodyTypeForm {
@@ -348,22 +348,33 @@ func mergeParams(lists ...openapi3.Parameters) []*openapi3.Parameter {
 	return out
 }
 
-func (b *builder) url(label, path string, params []*openapi3.Parameter) string {
+func (b *builder) url(label, path string, params []*openapi3.Parameter) (string, []entities.PathVariable) {
 	values := map[string]string{}
 	for _, p := range params {
 		if p.In == openapi3.ParameterInPath {
 			values[p.Name], _ = paramValue(p)
 		}
 	}
-	u := "{{baseUrl}}" + pathParam.ReplaceAllStringFunc(path, func(m string) string {
-		name := m[1 : len(m)-1]
-		key := name
-		if renamed, ok := b.paramKeys[name]; ok {
-			key = renamed
+	var vars []entities.PathVariable
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if loc := pathParam.FindStringIndex(segment); loc != nil && loc[0] == 0 && loc[1] == len(segment) {
+			name := segment[1 : len(segment)-1]
+			segments[i] = ":" + name
+			vars = append(vars, entities.PathVariable{Key: name, Value: values[name]})
+			continue
 		}
-		b.addVar(key, values[name], false)
-		return "{{" + key + "}}"
-	})
+		segments[i] = pathParam.ReplaceAllStringFunc(segment, func(m string) string {
+			name := m[1 : len(m)-1]
+			key := name
+			if renamed, ok := b.paramKeys[name]; ok {
+				key = renamed
+			}
+			b.addVar(key, values[name], false)
+			return "{{" + key + "}}"
+		})
+	}
+	u := "{{baseUrl}}" + strings.Join(segments, "/")
 	var query []string
 	for _, p := range params {
 		if p.In != openapi3.ParameterInQuery {
@@ -382,7 +393,7 @@ func (b *builder) url(label, path string, params []*openapi3.Parameter) string {
 	if len(query) > 0 {
 		u += "?" + strings.Join(query, "&")
 	}
-	return u
+	return u, vars
 }
 
 var delimiters = map[string]string{

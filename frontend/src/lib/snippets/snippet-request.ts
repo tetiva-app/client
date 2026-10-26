@@ -13,6 +13,7 @@ export function snippetRequest(r: Request): SnippetRequest {
     protocol: r.protocol,
     method: r.method,
     url: r.url,
+    pathVariables: r.pathVariables,
     headers: r.headers,
     body: r.body,
     bodyType: r.bodyType,

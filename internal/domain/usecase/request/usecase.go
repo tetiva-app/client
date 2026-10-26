@@ -18,9 +18,9 @@ type Repository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*entities.Request, error)
 	List(ctx context.Context, filter Filter) ([]*entities.Request, error)
 	Update(ctx context.Context, r *entities.Request) error
-	// GetDescriptionByID reads one field ignoring is_delete; the sync engine needs it
-	// to keep a description an older peer would otherwise wipe.
+	// Both ignore is_delete: the sync engine keeps what an older peer would otherwise wipe.
 	GetDescriptionByID(ctx context.Context, id uuid.UUID) (string, error)
+	GetPathVariablesByID(ctx context.Context, id uuid.UUID) ([]entities.PathVariable, error)
 	UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error
 	DeleteHard(ctx context.Context, id uuid.UUID) error
 	CleanupDrafts(ctx context.Context) (int, error)

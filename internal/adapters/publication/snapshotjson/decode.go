@@ -182,7 +182,7 @@ func requestFromJSON(it *jsonItem) *publication.Request {
 			fields = append(fields, publication.FormField{Key: f.Key, Value: f.Value, Type: f.Type, Enabled: f.Enabled})
 		}
 		r.HTTP = &publication.HTTPPart{
-			Method: h.Method, URL: h.URL, Headers: headersFromJSON(h.Headers),
+			Method: h.Method, URL: h.URL, PathVariables: pathVariablesFromJSON(h.PathVariables), Headers: headersFromJSON(h.Headers),
 			Body: publication.Body{Type: h.Body.Type, Raw: h.Body.Raw, Fields: fields, FileName: h.Body.FileName},
 		}
 	}
@@ -202,7 +202,8 @@ func requestFromJSON(it *jsonItem) *publication.Request {
 			messages = append(messages, publication.WSMessage{Name: m.Name, Format: m.Format, Data: m.Data})
 		}
 		r.WebSocket = &publication.WSPart{
-			URL: ws.URL, Headers: headersFromJSON(ws.Headers), Subprotocols: append([]string{}, ws.Subprotocols...), Messages: messages,
+			URL: ws.URL, PathVariables: pathVariablesFromJSON(ws.PathVariables), Headers: headersFromJSON(ws.Headers),
+			Subprotocols: append([]string{}, ws.Subprotocols...), Messages: messages,
 		}
 	}
 	if it.Examples != nil {
@@ -214,6 +215,17 @@ func requestFromJSON(it *jsonItem) *publication.Request {
 		}
 	}
 	return r
+}
+
+func pathVariablesFromJSON(vars []jsonPathVariable) []entities.PathVariable {
+	if len(vars) == 0 {
+		return nil
+	}
+	out := make([]entities.PathVariable, 0, len(vars))
+	for _, v := range vars {
+		out = append(out, entities.PathVariable{Key: v.Key, Value: v.Value})
+	}
+	return out
 }
 
 func headersFromJSON(headers []jsonHeader) []publication.Header {

@@ -65,7 +65,7 @@ import GRPCRequestEditor from './GRPCRequestEditor.vue'
 
 const request: Request = {
   id: 'r1', collectionId: 'c1', name: 'Check', description: '', protocol: 'grpc', method: 'POST',
-  url: 'localhost:50051', headers: [], body: '', bodyType: 'json', authType: 'none', authData: '{}',
+  url: 'localhost:50051', pathVariables: [], headers: [], body: '', bodyType: 'json', authType: 'none', authData: '{}',
   preScript: '', postScript: '', grpcService: 'pkg.Health', grpcMethod: 'Check', grpcProtoPath: '', grpcMetadata: {},
   graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '', graphqlOperation: '',
   sortOrder: 0, version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',

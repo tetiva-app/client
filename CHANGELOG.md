@@ -5,6 +5,7 @@
 ### Added
 
 - Duplicate in a request's context menu makes a copy of the saved request with its response examples, named "<name> (copy)", places it below the original and opens it in a tab
+- Image responses (PNG, JPEG, GIF, WebP, SVG, BMP, ICO) show as a picture with its format, pixel size and byte size, still with Save to file; images over 10 MB keep the Save to file card. HTML responses get a Source / Preview switch, also in History: the preview runs without scripts, loads nothing from the network and its links do not open. A response with no Content-Type that is not text is recognised by its first bytes, so an untyped image is no longer shown as garbled text
 - MCP `duplicate_request` copies a saved request the same way, and can give the copy its own name, method and URL in the same call: `POST /api/order` becomes `PATCH /api/order/1` without a follow-up `update_request`. A `[redacted]` query value in the new URL keeps the original's secret
 
 ### Changed

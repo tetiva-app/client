@@ -7,6 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCopy, useLocale } from '@/composables/useLocale'
 import { fill, formatBytes } from '@/lib/locale'
 import { HISTORY_COPY } from '@/components/sidebar/history/copy'
+import BodyViewToggle from '@/components/editor/preview/BodyViewToggle.vue'
+import HtmlPreview from '@/components/editor/preview/HtmlPreview.vue'
+import ImagePreview from '@/components/editor/preview/ImagePreview.vue'
+import TooLargeNote from '@/components/editor/preview/TooLargeNote.vue'
+import { useResponseImage, useTextPreview } from '@/composables/useResponsePreview'
+import { headerValue } from '@/lib/compare/headers'
 
 const CodeViewer = defineAsyncComponent(() => import('@/components/editor/CodeViewer.vue'))
 
@@ -62,6 +68,16 @@ const requestBodyFormatted = computed(() =>
 const responseBodyFormatted = computed(() =>
   formatBody(record.value?.responseBody ?? '', responseLang.value)
 )
+
+const { kind: responsePreview, view: responseView, previewing: responsePreviewing } = useTextPreview(() =>
+  record.value?.responseBody
+    ? { contentType: headerValue(record.value.responseHeaders, 'Content-Type'), body: record.value.responseBody }
+    : null)
+
+const responseImage = useResponseImage(() =>
+  responsePreview.value === 'svg' && record.value
+    ? { kind: 'text', text: record.value.responseBody, mimeType: 'image/svg+xml' }
+    : null)
 
 const requestHeaderRows = computed(() => headerEntries(record.value?.requestHeaders))
 const responseHeaderRows = computed(() => headerEntries(record.value?.responseHeaders))
@@ -166,11 +182,24 @@ const responseHeaderRows = computed(() => headerEntries(record.value?.responseHe
           </section>
 
           <section>
-            <h3 class="text-xs font-medium text-muted-foreground mb-2">
-              {{ copy.viewer.body }} <span class="text-muted-foreground/70">({{ formatBytes(locale, record.responseSize) }})</span>
-            </h3>
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <h3 class="text-xs font-medium text-muted-foreground">
+                {{ copy.viewer.body }} <span class="text-muted-foreground/70">({{ formatBytes(locale, record.responseSize) }})</span>
+              </h3>
+              <BodyViewToggle v-if="responsePreview" v-model="responseView" />
+            </div>
             <div v-if="!record.responseBody" class="text-xs text-muted-foreground italic">
               {{ copy.viewer.emptyBody }}
+            </div>
+            <div v-else-if="responsePreviewing" class="h-[480px] border border-border/50 rounded overflow-hidden">
+              <ImagePreview
+                v-if="responsePreview === 'svg' && responseImage.status === 'ready'"
+                :src="responseImage.url"
+                :mime-type="responseImage.mimeType"
+                :size="record.responseSize"
+              />
+              <TooLargeNote v-else-if="responseImage.status === 'tooLarge'" :limit="responseImage.limit" />
+              <HtmlPreview v-else-if="responsePreview === 'html'" :html="record.responseBody" />
             </div>
             <div v-else class="border border-border/50 rounded overflow-hidden bg-[var(--gc-surface)]" style="min-height: 80px; max-height: 480px;">
               <CodeViewer :content="responseBodyFormatted" :language="responseLang" />

@@ -251,6 +251,11 @@ type ExecuteResponseDTO struct {
 	HistoryID         string              `json:"historyId,omitempty"`
 }
 
+type ResponseImageDTO struct {
+	MimeType string `json:"mimeType"`
+	Data     []byte `json:"data"`
+}
+
 func ResponseToExecuteDTO(r *entities.Response) ExecuteResponseDTO {
 	headers := r.Headers
 	if headers == nil {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -150,6 +151,10 @@ func (r *HTTPRequester) Execute(ctx context.Context, req request.HTTPExecuteRequ
 	}
 
 	ct := resp.Header.Get("Content-Type")
+	// Text is never sniffed: DetectContentType reads text starting with "BM" as a bitmap.
+	if ct == "" && !utf8.Valid(body) {
+		ct = http.DetectContentType(body)
+	}
 	cd := resp.Header.Get("Content-Disposition")
 	if isAttachment(cd) || isBinaryContentType(ct) {
 		tmpFile, tmpErr := os.CreateTemp("", "gopher-response-*")

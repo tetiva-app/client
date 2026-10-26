@@ -65,6 +65,19 @@ export interface EditorCopy {
       draft: string
     }
   }
+  response: {
+    binary: string
+    saveToFile: string
+    source: string
+    preview: string
+    viewLabel: string
+    previewHint: string
+    previewFrame: string
+    imageAlt: string
+    pixels: string
+    tooLarge: string
+    broken: string
+  }
 }
 
 export const EDITOR_COPY: Record<Locale, EditorCopy> = {
@@ -133,6 +146,19 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
         draft: 'Save the request first to keep examples',
       },
     },
+    response: {
+      binary: 'Binary response',
+      saveToFile: 'Save to file',
+      source: 'Source',
+      preview: 'Preview',
+      viewLabel: 'Body view',
+      previewHint: 'Rendered without scripts or network requests',
+      previewFrame: 'HTML preview',
+      imageAlt: 'Image from the response',
+      pixels: '{w}\u00a0×\u00a0{h}\u00a0px',
+      tooLarge: 'Image is too large to preview (over {limit})',
+      broken: "Can't display this image",
+    },
   },
   ru: {
     overview: {
@@ -198,6 +224,19 @@ export const EDITOR_COPY: Record<Locale, EditorCopy> = {
         tooLarge: 'Ответ слишком большой для примера (не больше 256\u00a0КБ)',
         draft: 'Сначала сохраните запрос, чтобы хранить к нему примеры',
       },
+    },
+    response: {
+      binary: 'Двоичный ответ',
+      saveToFile: 'Сохранить в файл',
+      source: 'Код',
+      preview: 'Просмотр',
+      viewLabel: 'Вид тела ответа',
+      previewHint: 'Страница показана без скриптов и запросов в сеть',
+      previewFrame: 'Просмотр HTML',
+      imageAlt: 'Картинка из ответа',
+      pixels: '{w}\u00a0×\u00a0{h}\u00a0px',
+      tooLarge: 'Картинка слишком большая для превью (больше {limit})',
+      broken: 'Не получилось показать картинку',
     },
   },
 }

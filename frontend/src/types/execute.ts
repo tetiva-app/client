@@ -30,3 +30,8 @@ export interface ExecuteResponse {
   scriptResult?: ScriptResult
   historyId?: string
 }
+
+export interface ResponseImage {
+  mimeType: string
+  data: string
+}

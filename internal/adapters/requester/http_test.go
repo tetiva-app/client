@@ -233,6 +233,51 @@ func TestHTTPRequester_AttachmentDisposition_IsBinary(t *testing.T) {
 	}
 }
 
+func TestHTTPRequester_NoContentType_SniffsBody(t *testing.T) {
+	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	cases := map[string]struct {
+		body     []byte
+		binary   bool
+		filename string
+	}{
+		"png":                 {pngHeader, true, "response.png"},
+		"text":                {[]byte("plain words"), false, ""},
+		"html":                {[]byte("<!doctype html><p>hi</p>"), false, ""},
+		"json read as font":   {[]byte(`{"padding":"` + strings.Repeat("a", 22) + `LP"}`), false, ""},
+		"text read as bitmap": {[]byte("BMW X5, 2019"), false, ""},
+		"latin-1 text":        {[]byte("caf\xe9 cr\xe8me"), false, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header()["Content-Type"] = nil
+				_, _ = w.Write(tc.body)
+			}))
+			defer server.Close()
+
+			resp, err := NewHTTPRequester(nil).Execute(context.Background(), request.HTTPExecuteRequest{
+				Method: entities.MethodGET,
+				URL:    server.URL,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.BinaryPath != "" {
+				t.Cleanup(func() { _ = os.Remove(resp.BinaryPath) })
+			}
+			if resp.IsBinary != tc.binary {
+				t.Errorf("IsBinary = %v, want %v", resp.IsBinary, tc.binary)
+			}
+			if resp.SuggestedFilename != tc.filename {
+				t.Errorf("SuggestedFilename = %q, want %q", resp.SuggestedFilename, tc.filename)
+			}
+			if _, ok := resp.Headers["Content-Type"]; ok {
+				t.Error("the sniffed type must not show up as a response header")
+			}
+		})
+	}
+}
+
 func TestHTTPRequester_TextResponse_NotBinary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

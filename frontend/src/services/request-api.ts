@@ -1,6 +1,6 @@
 import type { Request, HeaderItem } from '@/types/request'
 import type { Result } from '@/types/common'
-import type { ExecuteResponse } from '@/types/execute'
+import type { ExecuteResponse, ResponseImage } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { BuildSnippetReq, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
@@ -101,6 +101,7 @@ export interface RequestServiceAPI {
   duplicate(req: DuplicateRequestReq): Promise<Result<Request>>
   promoteDraft(req: PromoteDraftReq): Promise<Result<Request>>
   saveResponseToFile(tempPath: string, destPath: string): Promise<Result<string>>
+  readResponseImage(tempPath: string, contentType: string): Promise<Result<ResponseImage>>
   grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>>
   grpcGenerateExample(req: GRPCGenerateExampleRequest): Promise<Result<string>>
   grpcGetProtoDefinition(req: GRPCGenerateExampleRequest): Promise<Result<string>>

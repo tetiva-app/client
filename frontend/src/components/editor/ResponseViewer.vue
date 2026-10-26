@@ -19,6 +19,16 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useResponseStore, type ResponseState } from '@/stores/responses'
+import ImagePreview from './preview/ImagePreview.vue'
+import HtmlPreview from './preview/HtmlPreview.vue'
+import BodyViewToggle from './preview/BodyViewToggle.vue'
+import TooLargeNote from './preview/TooLargeNote.vue'
+import { EDITOR_COPY } from './copy'
+import { useCopy, useLocale } from '@/composables/useLocale'
+import { useResponseImage, useTextPreview } from '@/composables/useResponsePreview'
+import { mayBeImage } from '@/lib/response-preview'
+import { headerValue } from '@/lib/compare/headers'
+import { fill, formatBytes } from '@/lib/locale'
 import { isMac } from '@/lib/platform'
 import { useFindShortcut } from '@/composables/useFindShortcut'
 import type { FindStatus } from '@/lib/cm-find'
@@ -160,11 +170,28 @@ const isBinary = computed(() => {
   return props.state.status === 'success' && props.state.data.isBinary === true
 })
 
-const binaryContentType = computed(() => {
+const copyText = useCopy(EDITOR_COPY)
+const locale = useLocale()
+
+const contentType = computed(() => {
   if (props.state.status !== 'success') return ''
-  return props.state.data.headers?.['Content-Type']?.[0]
-    ?? props.state.data.headers?.['content-type']?.[0]
-    ?? ''
+  return headerValue(props.state.data.headers, 'Content-Type')
+})
+
+const { kind: textPreview, view: bodyView, previewing } = useTextPreview(() =>
+  props.state.status === 'success' && !props.state.data.isBinary
+    ? { contentType: contentType.value, body: props.state.data.body }
+    : null)
+
+const image = useResponseImage(() => {
+  const s = props.state
+  if (s.status !== 'success') return null
+  if (s.data.isBinary) {
+    return s.data.binaryPath && mayBeImage(contentType.value)
+      ? { kind: 'file', path: s.data.binaryPath, contentType: contentType.value }
+      : null
+  }
+  return textPreview.value === 'svg' ? { kind: 'text', text: s.data.body, mimeType: 'image/svg+xml' } : null
 })
 
 const isWails = computed(() => {
@@ -300,7 +327,9 @@ async function saveResponseToFile() {
         </button>
 
         <div v-if="activeResponseTab === 'body' && !isBinary" class="ml-auto flex items-center gap-0.5">
+          <BodyViewToggle v-if="textPreview" v-model="bodyView" class="mr-1" />
           <FindBox
+            v-if="!previewing"
             ref="findBox"
             v-model="responseSearchQuery"
             :status="findStatus"
@@ -321,12 +350,24 @@ async function saveResponseToFile() {
       </div>
 
       <div v-if="activeResponseTab === 'body'" ref="bodyContainer" class="flex-1 overflow-auto" data-response-body>
-        <div v-if="isBinary" class="flex-1 flex items-center justify-center h-full">
+        <ImagePreview
+          v-if="image.status === 'ready' && (isBinary || previewing)"
+          :src="image.url"
+          :mime-type="image.mimeType"
+          :size="state.data.size || state.data.body.length"
+          :saveable="isBinary"
+          @save="saveResponseToFile"
+        />
+        <div v-else-if="isBinary && image.status === 'loading'" class="h-full" />
+        <div v-else-if="isBinary" class="flex-1 flex items-center justify-center h-full">
           <div class="text-center">
             <FileDown class="size-8 text-muted-foreground mx-auto" />
-            <p class="mt-3 text-sm text-foreground">Binary response</p>
+            <p class="mt-3 text-sm text-foreground">{{ copyText.response.binary }}</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              {{ binaryContentType }}{{ state.status === 'success' && state.data.size ? ' · ' + formatSize(state.data.size) : '' }}
+              {{ contentType }}{{ state.status === 'success' && state.data.size ? ' · ' + formatSize(state.data.size) : '' }}
+            </p>
+            <p v-if="image.status === 'tooLarge'" class="mt-1 text-xs text-muted-foreground">
+              {{ fill(copyText.response.tooLarge, { limit: formatBytes(locale, image.limit) }) }}
             </p>
             <Button
               variant="outline"
@@ -335,10 +376,13 @@ async function saveResponseToFile() {
               @click="saveResponseToFile"
             >
               <Download class="size-3.5 mr-1.5" />
-              Save to file
+              {{ copyText.response.saveToFile }}
             </Button>
           </div>
         </div>
+
+        <TooLargeNote v-else-if="previewing && image.status === 'tooLarge'" :limit="image.limit" />
+        <HtmlPreview v-else-if="previewing && textPreview === 'html'" :html="state.data.body" />
 
         <ContextMenu v-else>
           <ContextMenuTrigger as-child>

@@ -97,6 +97,29 @@ func TestDuplicate_CopiesTheSavedRequest(t *testing.T) {
 	}
 }
 
+func TestDuplicate_TakesMethodAndURLForTheCopy(t *testing.T) {
+	repo := newMockRepo()
+	original := seedSiblings(repo, "Create order")[0]
+	original.Method = entities.MethodPOST
+	original.URL = "{{base}}/api/order"
+	original.Body = `{"qty":1}`
+	uc := newCascadeUsecase(repo, fixtureCollections(), nil, &recordingExampleCleaner{}, &snapshotTx{repo: repo})
+
+	dup, err := uc.Duplicate(context.Background(), request.DuplicateOpt{
+		RequestID: original.ID, Name: "Update order", Method: entities.MethodPATCH, URL: "{{base}}/api/order/1", UserID: "u1",
+	})
+	if err != nil {
+		t.Fatalf("Duplicate: %v", err)
+	}
+
+	if dup.Name != "Update order" || dup.Method != entities.MethodPATCH || dup.URL != "{{base}}/api/order/1" || dup.Body != `{"qty":1}` {
+		t.Errorf("copy = %s %s %s body %s", dup.Name, dup.Method, dup.URL, dup.Body)
+	}
+	if original.Method != entities.MethodPOST || original.URL != "{{base}}/api/order" {
+		t.Errorf("original = %s %s, want it untouched", original.Method, original.URL)
+	}
+}
+
 type concurrentMoveTx struct {
 	snapshotTx
 	requestID, targetID uuid.UUID
@@ -141,6 +164,7 @@ func TestDuplicate_RejectsBadInput(t *testing.T) {
 		{"missing original", request.DuplicateOpt{RequestID: uuid.New(), Name: "x (copy)"}, &notFound},
 		{"replay draft", request.DuplicateOpt{RequestID: reqs[1].ID, Name: "Replay (copy)"}, &invalid},
 		{"empty name", request.DuplicateOpt{RequestID: reqs[0].ID}, &invalid},
+		{"unknown method", request.DuplicateOpt{RequestID: reqs[0].ID, Name: "Live (copy)", Method: "FETCH"}, &invalid},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

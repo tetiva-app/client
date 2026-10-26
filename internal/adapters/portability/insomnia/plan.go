@@ -28,8 +28,6 @@ type plan struct {
 	scripts  []portability.ScriptPreview
 	warnings []portability.Warning
 
-	pathVars         []environment.AddVariable
-	pathConflicts    []string
 	textForms        []string
 	disabledParams   int
 	disabledMetadata int
@@ -59,7 +57,6 @@ type formField struct {
 func newPlan(ex *export, includeScripts bool) *plan {
 	p := &plan{includeScripts: includeScripts}
 	for _, ws := range ex.workspaces {
-		p.pathVars, p.pathConflicts = nil, nil
 		name := orUntitled(ws.name)
 		root := &folderPlan{in: collection.Create{
 			Name:        name,
@@ -70,10 +67,6 @@ func newPlan(ex *export, includeScripts bool) *plan {
 		p.items(root, name, ws.items)
 		p.roots = append(p.roots, root)
 		p.environments(ws, name)
-		if len(p.pathConflicts) > 0 {
-			p.warn(portability.WarnInsomniaPathParamsDiffer, portability.Subject{},
-				"n", len(p.pathConflicts), "names", strings.Join(p.pathConflicts, ", "))
-		}
 	}
 	p.finish(ex)
 	return p
@@ -169,12 +162,14 @@ func (p *plan) request(r *resource, parentPath string) request.Create {
 		in.AuthType, in.AuthData = entities.AuthTypeNone, "{}"
 		p.grpc++
 	case typeWebSocket:
-		in.Protocol, in.Method, in.URL = entities.ProtocolWebSocket, entities.MethodGET, p.url(r)
+		in.Protocol, in.Method = entities.ProtocolWebSocket, entities.MethodGET
+		in.URL, in.PathVariables = p.url(r)
 		in.Headers = p.headers(r.Headers)
 		in.AuthType, in.AuthData = p.auth(subject, r.Authentication, true)
 		in.BodyType, in.Body = entities.BodyTypeRaw, p.wsSettings(r)
 	default:
-		in.Protocol, in.URL = entities.ProtocolHTTP, p.url(r)
+		in.Protocol = entities.ProtocolHTTP
+		in.URL, in.PathVariables = p.url(r)
 		in.Method = entities.HTTPMethod(strings.ToUpper(r.Method))
 		if !in.Method.IsValid() {
 			if r.Method != "" {
@@ -185,6 +180,9 @@ func (p *plan) request(r *resource, parentPath string) request.Create {
 		in.Headers = p.headers(r.Headers)
 		in.AuthType, in.AuthData = p.auth(subject, r.Authentication, true)
 		p.body(&in, subject, r.Body)
+		if in.Protocol == entities.ProtocolGraphQL {
+			in.URL, in.PathVariables = entities.ApplyPathVariables(in.URL, in.PathVariables), nil
+		}
 	}
 	in.PreScript, in.PostScript = p.scriptsOf(parentPath+" / "+name, r)
 	p.urls = append(p.urls, in.URL)
@@ -192,17 +190,12 @@ func (p *plan) request(r *resource, parentPath string) request.Create {
 	return in
 }
 
-func (p *plan) url(r *resource) string {
+func (p *plan) url(r *resource) (string, []entities.PathVariable) {
 	c := p.tpl.conv
-	values := map[string]string{}
+	vars := make([]entities.PathVariable, 0, len(r.PathParameters))
 	for _, pp := range r.PathParameters {
-		values[pp.Name] = c(pp.Value)
+		vars = append(vars, entities.PathVariable{Key: pp.Name, Value: c(pp.Value)})
 	}
-	u := pathParam.ReplaceAllStringFunc(c(r.URL), func(m string) string {
-		name := m[2:]
-		p.pathVar(name, values[name])
-		return "/{{" + name + "}}"
-	})
 
 	var query []string
 	for _, q := range r.Parameters {
@@ -213,19 +206,7 @@ func (p *plan) url(r *resource) string {
 			query = append(query, portability.QueryPair(c(q.Name), c(q.Value)))
 		}
 	}
-	return portability.WithQuery(u, query)
-}
-
-func (p *plan) pathVar(name, value string) {
-	i := slices.IndexFunc(p.pathVars, func(v environment.AddVariable) bool { return v.Key == name })
-	switch {
-	case i < 0:
-		p.pathVars = append(p.pathVars, environment.AddVariable{Key: name, Value: value})
-	case p.pathVars[i].Value == "":
-		p.pathVars[i].Value = value
-	case value != "" && value != p.pathVars[i].Value && !slices.Contains(p.pathConflicts, name):
-		p.pathConflicts = append(p.pathConflicts, name)
-	}
+	return portability.WithQuery(c(r.URL), query), vars
 }
 
 func (p *plan) headers(hs []pair) []entities.HeaderItem {
@@ -367,7 +348,7 @@ func (p *plan) environments(ws *workspace, collectionName string) {
 		base = p.envVars(ws.base)
 	}
 	var envs []envPlan
-	if len(ws.subs) == 0 && (len(base) > 0 || len(p.pathVars) > 0) {
+	if len(ws.subs) == 0 && len(base) > 0 {
 		envs = append(envs, envPlan{name: collectionName, vars: base})
 	}
 	for i, s := range ws.subs {
@@ -378,11 +359,6 @@ func (p *plan) environments(ws *workspace, collectionName string) {
 		envs = append(envs, envPlan{name: collectionName + " · " + name, vars: merge(base, p.envVars(s))})
 	}
 	for _, env := range envs {
-		for _, v := range p.pathVars {
-			if !slices.ContainsFunc(env.vars, func(e environment.AddVariable) bool { return e.Key == v.Key }) {
-				env.vars = append(env.vars, v)
-			}
-		}
 		if len(env.vars) > 0 {
 			p.envs = append(p.envs, env)
 		}

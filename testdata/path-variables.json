@@ -1,0 +1,97 @@
+{
+  "keys": [
+    { "url": "https://api.io/users/:id", "keys": ["id"] },
+    { "url": "{{baseUrl}}/users/:id/posts/:postId", "keys": ["id", "postId"] },
+    { "url": "/users/:id", "keys": ["id"] },
+    { "url": "users/:id", "keys": ["id"] },
+    { "url": "ws://chat.io:9000/rooms/:room", "keys": ["room"] },
+    { "url": "https://api.io/files/:name.json", "keys": ["name.json"] },
+    { "url": "https://api.io/users/:id/friends/:id", "keys": ["id"] },
+    { "url": "https://api.io/a/:{{seg}}", "keys": ["{{seg}}"] },
+    { "url": "http://localhost:8080/users", "keys": [] },
+    { "url": "localhost:8080/users", "keys": [] },
+    { "url": "{{host}}:8080/users/:id", "keys": ["id"] },
+    { "url": "https://user:secret@api.io/:id", "keys": ["id"] },
+    { "url": "https://[::1]:8080/:id", "keys": ["id"] },
+    { "url": "https://api.io/users?filter=:id", "keys": [] },
+    { "url": "https://api.io/users/:id?x=/:y#/:z", "keys": ["id"] },
+    { "url": "https://api.io/#/:route", "keys": [] },
+    { "url": "https://api.io/v1/items:batchGet", "keys": [] },
+    { "url": "https://api.io/:/x", "keys": [] },
+    { "url": "https://api.io", "keys": [] },
+    { "url": "", "keys": [] }
+  ],
+  "apply": [
+    {
+      "url": "https://api.io/users/:id/posts/:postId",
+      "vars": [{ "key": "id", "value": "42" }, { "key": "postId", "value": "7" }],
+      "want": "https://api.io/users/42/posts/7"
+    },
+    {
+      "url": "{{baseUrl}}/users/:id",
+      "vars": [{ "key": "id", "value": "{{userId}}" }],
+      "want": "{{baseUrl}}/users/{{userId}}"
+    },
+    {
+      "url": "https://api.io/users/:id/posts/:postId",
+      "vars": [{ "key": "id", "value": "42" }, { "key": "postId", "value": "" }],
+      "want": "https://api.io/users/42/posts/:postId"
+    },
+    {
+      "url": "https://api.io/a/:id/b/:id?id=:id#:id",
+      "vars": [{ "key": "id", "value": "1" }],
+      "want": "https://api.io/a/1/b/1?id=:id#:id"
+    },
+    {
+      "url": "http://localhost:8080/users/:id",
+      "vars": [{ "key": "8080", "value": "x" }, { "key": "id", "value": "a b" }],
+      "want": "http://localhost:8080/users/a b"
+    },
+    {
+      "url": "https://api.io/users/:id",
+      "vars": [{ "key": "other", "value": "1" }],
+      "want": "https://api.io/users/:id"
+    },
+    {
+      "url": "https://api.io/users/:id/posts?limit=1",
+      "vars": [{ "key": "id", "value": "x#hidden" }],
+      "want": "https://api.io/users/x%23hidden/posts?limit=1"
+    },
+    {
+      "url": "https://api.io/files/:name/meta",
+      "vars": [{ "key": "name", "value": "a/b?c=1" }],
+      "want": "https://api.io/files/a%2Fb%3Fc=1/meta"
+    },
+    {
+      "url": "https://api.io/files/:name",
+      "vars": [{ "key": "name", "value": "50%25 off a b" }],
+      "want": "https://api.io/files/50%25 off a b"
+    }
+  ],
+  "resolve": [
+    {
+      "url": "https://api.io/users/:id/posts",
+      "vars": [{ "key": "id", "value": "{{a}}" }],
+      "env": { "a": "{{b}}", "b": "/" },
+      "want": "https://api.io/users/{{b}}/posts"
+    },
+    {
+      "url": "{{base}}/users/:id?x={{q}}#:id",
+      "vars": [{ "key": "id", "value": "{{userId}}" }],
+      "env": { "base": "https://api.io", "userId": "a/b", "q": "1" },
+      "want": "https://api.io/users/a%2Fb?x=1#:id"
+    },
+    {
+      "url": "https://api.io/users/:id",
+      "vars": [{ "key": "id", "value": "{{empty}}" }],
+      "env": { "empty": "" },
+      "want": "https://api.io/users/:id"
+    },
+    {
+      "url": "https://api.io/users/:id",
+      "vars": [{ "key": "id", "value": "{{missing}}" }],
+      "env": {},
+      "want": "https://api.io/users/{{missing}}"
+    }
+  ]
+}

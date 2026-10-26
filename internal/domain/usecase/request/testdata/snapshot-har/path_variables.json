@@ -1,0 +1,62 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "b0d2b066a3d6",
+    "name": "path_variables",
+    "description": "",
+    "protocol": "http",
+    "http": {
+      "method": "GET",
+      "url": "{{baseUrl}}/users/:id/posts/:postId/:slug?tab=:tab",
+      "pathVariables": [
+        {
+          "key": "id",
+          "value": "{{userId}}"
+        },
+        {
+          "key": "postId",
+          "value": ""
+        },
+        {
+          "key": "slug",
+          "value": "a/b?c#d"
+        }
+      ],
+      "headers": [],
+      "body": {
+        "type": "none",
+        "raw": "",
+        "fields": [],
+        "fileName": ""
+      }
+    },
+    "auth": {
+      "type": "none",
+      "fields": {},
+      "redacted": []
+    },
+    "scripts": null,
+    "examples": []
+  },
+  "environment": null,
+  "auth": {
+    "type": "none",
+    "fields": {},
+    "redacted": []
+  },
+  "har": {
+    "method": "GET",
+    "url": "{{baseUrl}}/users/{{userId}}/posts/:postId/a%2Fb%3Fc%23d",
+    "httpVersion": "HTTP/1.1",
+    "headers": [],
+    "queryString": [
+      {
+        "name": "tab",
+        "value": ":tab"
+      }
+    ],
+    "cookies": [],
+    "headersSize": -1,
+    "bodySize": -1
+  }
+}

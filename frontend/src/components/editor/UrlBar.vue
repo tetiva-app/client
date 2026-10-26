@@ -136,6 +136,7 @@ function handleClickOutside() {
         variant="borderless"
         placeholder="Enter request URL"
         detect-curl
+        highlight-path-variables
         @update:model-value="emit('update:url', $event)"
         @submit="emit('send')"
         @paste-curl="(text) => emit('paste-curl', text)"

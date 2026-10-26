@@ -35,7 +35,8 @@ func TestImportV5_Requests(t *testing.T) {
 
 	get := s.request(t, "Get flight")
 	assert.Equal(t, entities.MethodGET, get.Method)
-	assert.Equal(t, "{{base_url}}/flights/{{flightId}}?include=crew", get.URL)
+	assert.Equal(t, "{{base_url}}/flights/:flightId?include=crew", get.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "flightId", Value: "{{default_flight}}"}}, get.PathVariables)
 	assert.Equal(t, "Returns one flight.", get.Description)
 	assert.Equal(t, []entities.HeaderItem{{Key: "Authorization", Value: "Bearer {{auth_token}}", Enabled: true}}, get.Headers)
 	assert.Equal(t, entities.AuthTypeInherit, get.AuthType)
@@ -82,13 +83,11 @@ func TestImportV5_Environments(t *testing.T) {
 		{Key: "default_flight", Value: "IA101"},
 		{Key: "crew.captain", Value: "Rivera"},
 	}
-	flightID := environment.AddVariable{Key: "flightId", Value: "{{default_flight}}"}
 	assert.Equal(t, append(append([]environment.AddVariable{}, base...),
 		environment.AddVariable{Key: "host", Value: "staging.airlines.example"},
 		environment.AddVariable{Key: "ws_host", Value: "ws.staging.airlines.example"},
-		flightID,
 	), s.vars["Insomnia Airlines · Staging"])
-	assert.Equal(t, append(append([]environment.AddVariable{}, base...), flightID), s.vars["Insomnia Airlines · Empty Env"])
+	assert.Equal(t, base, s.vars["Insomnia Airlines · Empty Env"])
 }
 
 func TestImportV5_Warnings(t *testing.T) {

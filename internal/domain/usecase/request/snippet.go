@@ -266,7 +266,7 @@ func (u *usecase) snippetGraphQL(ctx context.Context, req *entities.Request, s s
 
 func (u *usecase) snippetWebSocket(ctx context.Context, req *entities.Request, s snippetCtx) (WSSnippet, []string, error) {
 	headers := substituteHeaders(entities.EnabledHeadersToMap(req.Headers), s.vars)
-	wsURL := substituteVariables(req.URL, s.vars)
+	wsURL := resolveURL(req, s.vars)
 	headers, wsURL, warnings, err := u.snippetAuth(ctx, s, headers, wsURL)
 	if err != nil {
 		return WSSnippet{}, nil, err
@@ -367,6 +367,12 @@ func snippetBody(prep preparedHTTP) har.Body {
 func protectRequest(req *entities.Request, ph *har.Placeholders, keep func(string) bool) *entities.Request {
 	cp := *req
 	cp.URL = ph.Protect(req.URL, keep)
+	if req.PathVariables != nil {
+		cp.PathVariables = make([]entities.PathVariable, len(req.PathVariables))
+		for i, v := range req.PathVariables {
+			cp.PathVariables[i] = entities.PathVariable{Key: v.Key, Value: ph.Protect(v.Value, keep)}
+		}
+	}
 	cp.Body = ph.Protect(req.Body, keep)
 	cp.GraphQLQuery = ph.Protect(req.GraphQLQuery, keep)
 	cp.GraphQLVariables = ph.Protect(req.GraphQLVariables, keep)
@@ -398,6 +404,9 @@ func snippetTexts(req *entities.Request, ra ResolvedAuth, vars map[string]string
 	}
 	for _, h := range req.Headers {
 		texts = append(texts, h.Key, h.Value)
+	}
+	for _, v := range req.PathVariables {
+		texts = append(texts, v.Value)
 	}
 	for k, values := range req.GRPCMetadata {
 		texts = append(texts, k)

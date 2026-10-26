@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,7 @@ func (m *mockRepo) GetByID(_ context.Context, id uuid.UUID) (*entities.Request, 
 	// Return a deep copy to avoid shared pointer mutations.
 	cp := *r
 	cp.Headers = copyHeaderItems(r.Headers)
+	cp.PathVariables = slices.Clone(r.PathVariables)
 	cp.GRPCMetadata = copyStringSliceMap(r.GRPCMetadata)
 	return &cp, nil
 }
@@ -101,6 +103,14 @@ func (m *mockRepo) GetDescriptionByID(_ context.Context, id uuid.UUID) (string, 
 		return "", nil
 	}
 	return r.Description, nil
+}
+
+func (m *mockRepo) GetPathVariablesByID(_ context.Context, id uuid.UUID) ([]entities.PathVariable, error) {
+	r, ok := m.requests[id]
+	if !ok {
+		return nil, nil
+	}
+	return slices.Clone(r.PathVariables), nil
 }
 
 func (m *mockRepo) List(_ context.Context, filter request.Filter) ([]*entities.Request, error) {
@@ -114,6 +124,7 @@ func (m *mockRepo) List(_ context.Context, filter request.Filter) ([]*entities.R
 		}
 		cp := *r
 		cp.Headers = copyHeaderItems(r.Headers)
+		cp.PathVariables = slices.Clone(r.PathVariables)
 		cp.GRPCMetadata = copyStringSliceMap(r.GRPCMetadata)
 		result = append(result, &cp)
 	}

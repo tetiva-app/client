@@ -4,7 +4,7 @@ const REQUEST_MERGE_GROUPS: ReadonlyArray<ReadonlyArray<keyof Request>> = [
   ['name'],
   ['description'],
   ['method'],
-  ['url'],
+  ['url', 'pathVariables'],
   ['headers'],
   ['body', 'bodyType'],
   ['authType', 'authData'],

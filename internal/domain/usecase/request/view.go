@@ -35,11 +35,12 @@ type MoveOpt struct {
 
 // DuplicateOpt leaves the original's method and URL on the copy when Method or URL is empty.
 type DuplicateOpt struct {
-	RequestID uuid.UUID
-	Name      string
-	Method    entities.HTTPMethod
-	URL       string
-	UserID    string
+	RequestID     uuid.UUID
+	Name          string
+	Method        entities.HTTPMethod
+	URL           string
+	PathVariables []entities.PathVariable
+	UserID        string
 }
 
 func (o *DuplicateOpt) Validate() error {
@@ -82,6 +83,11 @@ func (u *usecase) Duplicate(ctx context.Context, opt DuplicateOpt) (*entities.Re
 		if opt.URL != "" {
 			dup.URL = opt.URL
 		}
+		pathVariables := source.PathVariables
+		if opt.PathVariables != nil {
+			pathVariables = opt.PathVariables
+		}
+		dup.PathVariables = pathVariablesFor(dup.Protocol, dup.URL, pathVariables)
 		dup.SortOrder = newRequestSortOrder
 		dup.Version = 1
 		dup.CreatedBy = opt.UserID

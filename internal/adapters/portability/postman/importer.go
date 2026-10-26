@@ -344,6 +344,10 @@ func mapPostmanRequest(
 	description, descWarnings := requestDescription(item, subject)
 	warnings = append(warnings, descWarnings...)
 	scripts := collectScripts(item.Event, subject, includeScripts, result)
+	pathVariables := make([]entities.PathVariable, 0, len(req.URL.Variable))
+	for _, v := range req.URL.Variable {
+		pathVariables = append(pathVariables, entities.PathVariable{Key: v.Key, Value: v.Value})
+	}
 
 	// Detect GraphQL body mode — store data in GraphQL fields, not Body.
 	if req.Body != nil && req.Body.Mode == "graphql" && req.Body.Graphql != nil {
@@ -353,7 +357,7 @@ func mapPostmanRequest(
 			Description:      description,
 			Protocol:         entities.ProtocolGraphQL,
 			Method:           entities.MethodPOST,
-			URL:              req.URL.Raw,
+			URL:              entities.ApplyPathVariables(req.URL.Raw, pathVariables),
 			Headers:          headers,
 			BodyType:         entities.BodyTypeNone,
 			AuthType:         authType,
@@ -369,19 +373,20 @@ func mapPostmanRequest(
 	warnings = append(warnings, bodyWarnings...)
 
 	return request.Create{
-		CollectionID: collectionID,
-		Name:         item.Name,
-		Description:  description,
-		Protocol:     entities.ProtocolHTTP,
-		Method:       method,
-		URL:          req.URL.Raw,
-		Headers:      headers,
-		Body:         body,
-		BodyType:     bodyType,
-		AuthType:     authType,
-		AuthData:     authData,
-		PreScript:    scripts.pre,
-		PostScript:   scripts.post,
+		CollectionID:  collectionID,
+		Name:          item.Name,
+		Description:   description,
+		Protocol:      entities.ProtocolHTTP,
+		Method:        method,
+		URL:           req.URL.Raw,
+		PathVariables: pathVariables,
+		Headers:       headers,
+		Body:          body,
+		BodyType:      bodyType,
+		AuthType:      authType,
+		AuthData:      authData,
+		PreScript:     scripts.pre,
+		PostScript:    scripts.post,
 	}, warnings
 }
 

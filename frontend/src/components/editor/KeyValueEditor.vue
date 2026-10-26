@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { Plus, X } from 'lucide-vue-next'
 
 export interface KeyValueRow {
@@ -9,11 +9,12 @@ export interface KeyValueRow {
   enabled: boolean
 }
 
-defineProps<{
+const props = defineProps<{
   rows: KeyValueRow[]
   keyPlaceholder?: string
   valuePlaceholder?: string
   highlightVariables?: boolean
+  fixedRows?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -21,7 +22,23 @@ const emit = defineEmits<{
   (e: 'update', payload: { index: number; field: 'key' | 'value'; value: string }): void
   (e: 'remove', index: number): void
   (e: 'toggle', index: number): void
+  (e: 'rename', payload: { index: number; value: string }): void
 }>()
+
+const gridCols = computed(() => props.fixedRows ? 'grid-cols-[1fr_1fr]' : 'grid-cols-[32px_1fr_1fr_32px]')
+
+function onKeyInput(index: number, event: Event) {
+  if (props.fixedRows) return
+  emit('update', { index, field: 'key', value: (event.target as HTMLInputElement).value })
+}
+
+function onKeyChange(index: number, event: Event) {
+  if (!props.fixedRows) return
+  const input = event.target as HTMLInputElement
+  emit('rename', { index, value: input.value })
+  // A refused name leaves the model as it was; show it again instead of the typed text.
+  void nextTick(() => { input.value = props.rows[index]?.key ?? input.value })
+}
 
 const newKey = ref('')
 const newValue = ref('')
@@ -61,20 +78,20 @@ function handleAddRowFocusOut(event: FocusEvent) {
 
 <template>
   <div class="mx-3 mt-3 rounded-md border border-border overflow-hidden">
-    <div class="grid grid-cols-[32px_1fr_1fr_32px] border-b border-border bg-muted/50">
-      <div />
+    <div class="grid border-b border-border bg-muted/50" :class="gridCols">
+      <div v-if="!fixedRows" />
       <div class="px-3 py-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Key</div>
       <div class="px-3 py-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wider border-l border-border">Value</div>
-      <div />
+      <div v-if="!fixedRows" />
     </div>
 
     <div
       v-for="(row, index) in rows"
       :key="row.id"
-      class="group grid grid-cols-[32px_1fr_1fr_32px] border-b border-border hover:bg-muted/20 transition-colors"
-      :class="{ 'opacity-40': !row.enabled }"
+      class="group grid border-b border-border hover:bg-muted/20 transition-colors"
+      :class="[gridCols, { 'opacity-40': !row.enabled, 'last:border-b-0': fixedRows }]"
     >
-      <div class="flex items-center justify-center border-r border-border">
+      <div v-if="!fixedRows" class="flex items-center justify-center border-r border-border">
         <input
           type="checkbox"
           :checked="row.enabled"
@@ -88,7 +105,8 @@ function handleAddRowFocusOut(event: FocusEvent) {
           class="w-full h-8 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground cursor-default focus:cursor-text"
           :class="highlightVariables && hasVariable(row.key) ? 'text-primary' : ''"
           :disabled="!row.enabled"
-          @input="emit('update', { index, field: 'key', value: ($event.target as HTMLInputElement).value })"
+          @input="onKeyInput(index, $event)"
+          @change="onKeyChange(index, $event)"
         />
       </div>
       <div>
@@ -96,11 +114,12 @@ function handleAddRowFocusOut(event: FocusEvent) {
           :value="row.value"
           class="w-full h-8 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground cursor-default focus:cursor-text"
           :class="highlightVariables && hasVariable(row.value) ? 'text-primary' : ''"
+          :placeholder="fixedRows ? valuePlaceholder : undefined"
           :disabled="!row.enabled"
           @input="emit('update', { index, field: 'value', value: ($event.target as HTMLInputElement).value })"
         />
       </div>
-      <div class="flex items-center justify-center border-l border-border">
+      <div v-if="!fixedRows" class="flex items-center justify-center border-l border-border">
         <button
           class="size-6 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
           @click="emit('remove', index)"
@@ -111,6 +130,7 @@ function handleAddRowFocusOut(event: FocusEvent) {
     </div>
 
     <div
+      v-if="!fixedRows"
       class="grid grid-cols-[32px_1fr_1fr_32px] border-b border-border bg-muted/5"
       @focusout="handleAddRowFocusOut"
     >

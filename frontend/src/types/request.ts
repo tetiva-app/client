@@ -9,6 +9,11 @@ export interface HeaderItem {
   enabled: boolean
 }
 
+export interface PathVariable {
+  key: string
+  value: string
+}
+
 export interface Request {
   id: string
   collectionId: string
@@ -17,6 +22,7 @@ export interface Request {
   protocol: Protocol
   method: HTTPMethod
   url: string
+  pathVariables: PathVariable[] | null
   headers: HeaderItem[]
   body: string
   bodyType: BodyType

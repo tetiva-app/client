@@ -53,7 +53,6 @@ const (
 	WarnPostmanExampleNameTruncated   WarningCode = "postman_example_name_truncated"
 	WarnPostmanGlobals                WarningCode = "postman_globals"
 
-	WarnInsomniaPathParamsDiffer  WarningCode = "insomnia_path_params_differ"
 	WarnInsomniaWorkspaces        WarningCode = "insomnia_workspaces"
 	WarnInsomniaDisabledParams    WarningCode = "insomnia_disabled_params"
 	WarnInsomniaDisabledMetadata  WarningCode = "insomnia_disabled_metadata"
@@ -200,10 +199,6 @@ var warningTexts = map[WarningCode]warningText{
 	WarnPostmanExampleNameTruncated:   {one: "example {index}: name longer than {max} characters was truncated"},
 	WarnPostmanGlobals:                {one: `Tetiva has no global variables: they were imported as the environment "{name}"`},
 
-	WarnInsomniaPathParamsDiffer: {
-		one:   "path parameter {names} differs between requests: the environment keeps the first value",
-		other: "path parameters {names} differ between requests: the environment keeps the first value",
-	},
 	WarnInsomniaWorkspaces: {
 		one:   "the file has {n} workspaces, each was imported as its own collection: {names}",
 		other: "the file has {n} workspaces, each was imported as its own collection: {names}",

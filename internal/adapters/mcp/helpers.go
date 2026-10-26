@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -485,6 +487,86 @@ func headerField(obj map[string]any, name string) any {
 	return obj[strings.ToUpper(name[:1])+name[1:]]
 }
 
+type pathVariableDTO struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func pathVariableDTOs(r *entities.Request) []pathVariableDTO {
+	vars := r.PathVariables
+	if vars == nil && r.Protocol.HasPathVariables() {
+		vars = entities.SyncPathVariables(r.URL, nil)
+	}
+	out := make([]pathVariableDTO, len(vars))
+	for i, v := range vars {
+		out[i] = pathVariableDTO{Key: v.Key, Value: v.Value}
+	}
+	return out
+}
+
+func pathVariablesFromArg(req mcplib.CallToolRequest, name string) ([]entities.PathVariable, bool, error) {
+	v, ok := req.GetArguments()[name]
+	if !ok || v == nil {
+		return nil, false, nil
+	}
+	out := []entities.PathVariable{}
+	add := func(key string, raw any) error {
+		value, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf(`path_variables: give %q a string value ("" clears it)`, key)
+		}
+		out = append(out, entities.PathVariable{Key: key, Value: value})
+		return nil
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		for _, key := range slices.Sorted(maps.Keys(val)) {
+			if err := add(key, val[key]); err != nil {
+				return nil, false, err
+			}
+		}
+	case []any:
+		for _, item := range val {
+			obj, _ := item.(map[string]any)
+			key, _ := headerField(obj, "key").(string)
+			if key == "" {
+				return nil, false, errors.New("path_variables: every item needs a key")
+			}
+			if err := add(key, headerField(obj, "value")); err != nil {
+				return nil, false, err
+			}
+		}
+	default:
+		return nil, false, errors.New(`path_variables must be an object {"name": "value"} or an array of {key, value}`)
+	}
+	return out, true, nil
+}
+
+func withPathVariables(protocol entities.Protocol, url string, current, passed []entities.PathVariable, sent bool) ([]entities.PathVariable, error) {
+	if !sent {
+		return current, nil
+	}
+	if len(passed) == 0 {
+		return []entities.PathVariable{}, nil
+	}
+	if !protocol.HasPathVariables() {
+		return nil, errors.New("path_variables apply to http and websocket requests only")
+	}
+	keys := entities.PathVariableKeys(url)
+	merged := slices.Clone(current)
+	for _, p := range passed {
+		if !slices.Contains(keys, p.Key) {
+			return nil, fmt.Errorf("path variable %q is not in the url: write it as :%s in the path", p.Key, p.Key)
+		}
+		if i := slices.IndexFunc(merged, func(m entities.PathVariable) bool { return m.Key == p.Key }); i >= 0 {
+			merged[i].Value = p.Value
+		} else {
+			merged = append(merged, p)
+		}
+	}
+	return merged, nil
+}
+
 // Accepts either [{"key","value"}, ...] or {"key": ["v1","v2"]}.
 func grpcMetadataFromArg(req mcplib.CallToolRequest, name string) map[string][]string {
 	v, ok := req.GetArguments()[name]
@@ -552,6 +634,7 @@ func serializeRequest(r *entities.Request) map[string]any {
 		"protocol":            string(r.Protocol),
 		"method":              string(r.Method),
 		"url":                 maskURLSecrets(r.URL),
+		"path_variables":      pathVariableDTOs(r),
 		"headers":             headerItemDTOs(maskHeaderItems(r.Headers)),
 		"body":                r.Body,
 		"body_type":           string(r.BodyType),

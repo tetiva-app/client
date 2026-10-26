@@ -111,7 +111,8 @@ func TestPlan_URLParametersAndDescription(t *testing.T) {
 		"- `offset` (query, integer)", list.in.Description)
 
 	get := requestByLabel(t, p, "GET /pets/{petId}")
-	assert.Equal(t, "{{baseUrl}}/pets/{{petId}}", get.in.URL)
+	assert.Equal(t, "{{baseUrl}}/pets/:petId", get.in.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "petId", Value: "42"}}, get.in.PathVariables)
 	assert.Equal(t, entities.MethodGET, get.in.Method)
 	assert.Equal(t, entities.ProtocolHTTP, get.in.Protocol)
 }
@@ -121,8 +122,9 @@ func TestPlan_JSONEscapes(t *testing.T) {
 
 	rp := requestByLabel(t, p, "GET /users/{id}")
 	assert.Equal(t, "Launch \U0001F680", rp.in.Name)
-	assert.Equal(t, "{{baseUrl}}/users/{{id}}?fields=", rp.in.URL)
-	assert.Equal(t, []environment.AddVariable{{Key: "baseUrl", Value: "https://api.example.com/v1"}, {Key: "id", Value: "7"}}, p.vars)
+	assert.Equal(t, "{{baseUrl}}/users/:id?fields=", rp.in.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "id", Value: "7"}}, rp.in.PathVariables)
+	assert.Equal(t, []environment.AddVariable{{Key: "baseUrl", Value: "https://api.example.com/v1"}}, p.vars)
 	require.Len(t, rp.examples, 1)
 	assert.JSONEq(t, `{"name":"J\u00f6rg","url":"https://x.io"}`, rp.examples[0].Body)
 	assert.Equal(t, "application/json", rp.examples[0].ContentType)
@@ -136,7 +138,6 @@ func TestPlan_EnvironmentVariables(t *testing.T) {
 		{Key: "apiKey", IsSecret: true},
 		{Key: "clientId"},
 		{Key: "clientSecret", IsSecret: true},
-		{Key: "petId", Value: "42"},
 		{Key: "token", IsSecret: true},
 	}, p.vars)
 }
@@ -377,7 +378,7 @@ func TestPlan_SecretVariables(t *testing.T) {
 		secret[v.Key] = v.IsSecret
 	}
 	assert.Equal(t, map[string]bool{
-		"baseUrl": false, "username": false, "password": true, "petId": false, "clientId": false, "clientSecret": true,
+		"baseUrl": false, "username": false, "password": true, "clientId": false, "clientSecret": true,
 	}, secret)
 }
 
@@ -489,7 +490,7 @@ func TestPlan_Swagger2(t *testing.T) {
 	assert.Equal(t, "https://petstore.swagger.io/v2", p.vars[0].Value)
 
 	get := requestByLabel(t, p, "GET /pet/{petId}")
-	assert.Equal(t, "{{baseUrl}}/pet/{{petId}}", get.in.URL)
+	assert.Equal(t, "{{baseUrl}}/pet/:petId", get.in.URL)
 	require.Len(t, get.examples, 1)
 	assert.Equal(t, "{\n  \"name\": \"Rex\",\n  \"id\": 5\n}", get.examples[0].Body)
 
@@ -520,6 +521,7 @@ func TestPlan_SkippedPartsAreReported(t *testing.T) {
 
 	node := requestByLabel(t, p, "GET /nodes/{id}")
 	assert.Equal(t, "getNode", node.in.Name)
+	assert.Equal(t, []entities.PathVariable{{Key: "id", Value: "n-1"}}, node.in.PathVariables)
 	assert.Equal(t, entities.AuthTypeNone, node.in.AuthType)
 	require.Len(t, node.examples, 1)
 	assert.JSONEq(t, `{"name":"string","children":[{}],"parent":{}}`, node.examples[0].Body)
@@ -527,7 +529,7 @@ func TestPlan_SkippedPartsAreReported(t *testing.T) {
 	mixed := requestByLabel(t, p, "POST /mixed")
 	assert.JSONEq(t, `{"version":3,"created":"2024-01-01","kind":"mixed","shape":{"radius":0},"labels":{"key":"string"},"note":"string"}`, mixed.in.Body)
 	assert.Empty(t, mixed.examples)
-	assert.Equal(t, []environment.AddVariable{{Key: "baseUrl"}, {Key: "id", Value: "n-1"}}, p.vars)
+	assert.Equal(t, []environment.AddVariable{{Key: "baseUrl"}}, p.vars)
 }
 
 func TestPlan_TraceAndPathItemParameters(t *testing.T) {
@@ -547,7 +549,7 @@ paths:
 `))
 
 	get := requestByLabel(t, p, "GET /items/{id}")
-	assert.Equal(t, "{{baseUrl}}/items/{{id}}?q=b", get.in.URL)
+	assert.Equal(t, "{{baseUrl}}/items/:id?q=b", get.in.URL)
 	assert.Equal(t, 1, p.requestCount)
 	assert.Contains(t, portability.Texts(p.warnings), "TRACE /items/{id} was skipped: TRACE requests are not supported")
 }
@@ -679,7 +681,7 @@ components:
 }`, requestByLabel(t, p, "POST /chain").in.Body)
 }
 
-func TestPlan_PathParametersKeepClearOfCredentialVariables(t *testing.T) {
+func TestPlan_PathParametersStayOutOfTheEnvironment(t *testing.T) {
 	p := planOf(t, []byte(`openapi: 3.0.0
 info: {title: T, version: '1'}
 servers: [{url: 'https://api.example.com'}]
@@ -702,14 +704,15 @@ components:
     basic: {type: http, scheme: basic}
 `))
 
-	assert.Equal(t, "{{baseUrl}}/tokens/{{tokenParam}}", requestByLabel(t, p, "GET /tokens/{token}").in.URL)
-	assert.Equal(t, "{{baseUrl}}/users/{{usernameParam}}/keys/{{apiKeyParam}}", requestByLabel(t, p, "GET /users/{username}/keys/{apiKey}").in.URL)
+	tokens := requestByLabel(t, p, "GET /tokens/{token}").in
+	assert.Equal(t, "{{baseUrl}}/tokens/:token", tokens.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "token", Value: "abc"}}, tokens.PathVariables)
+	keys := requestByLabel(t, p, "GET /users/{username}/keys/{apiKey}").in
+	assert.Equal(t, "{{baseUrl}}/users/:username/keys/:apiKey", keys.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "username", Value: "ann"}, {Key: "apiKey"}}, keys.PathVariables)
 	assert.Equal(t, []environment.AddVariable{
 		{Key: "baseUrl", Value: "https://api.example.com"},
 		{Key: "token", IsSecret: true},
-		{Key: "tokenParam", Value: "abc"},
-		{Key: "usernameParam", Value: "ann"},
-		{Key: "apiKeyParam"},
 		{Key: "username"},
 		{Key: "password", IsSecret: true},
 	}, p.vars)
@@ -719,11 +722,11 @@ func TestPlan_RenamedPathParametersKeepClearOfOtherPathParameters(t *testing.T) 
 	p := planOf(t, []byte(`openapi: 3.0.0
 info: {title: T, version: '1'}
 paths:
-  /keys/{token}:
+  /keys/{token}.json:
     get:
       parameters: [{name: token, in: path, required: true, example: zero}]
       responses: {'200': {description: ok}}
-  /items/{token}/{tokenParam}:
+  /items/{token}-{tokenParam}:
     get:
       parameters:
         - {name: token, in: path, required: true, example: first}
@@ -731,8 +734,10 @@ paths:
       responses: {'200': {description: ok}}
 `))
 
-	assert.Equal(t, "{{baseUrl}}/keys/{{tokenParam2}}", requestByLabel(t, p, "GET /keys/{token}").in.URL)
-	assert.Equal(t, "{{baseUrl}}/items/{{tokenParam2}}/{{tokenParam}}", requestByLabel(t, p, "GET /items/{token}/{tokenParam}").in.URL)
+	keys := requestByLabel(t, p, "GET /keys/{token}.json").in
+	assert.Equal(t, "{{baseUrl}}/keys/{{tokenParam2}}.json", keys.URL)
+	assert.Empty(t, keys.PathVariables)
+	assert.Equal(t, "{{baseUrl}}/items/{{tokenParam2}}-{{tokenParam}}", requestByLabel(t, p, "GET /items/{token}-{tokenParam}").in.URL)
 	assert.Equal(t, []environment.AddVariable{
 		{Key: "baseUrl"},
 		{Key: "tokenParam2", Value: "zero"},

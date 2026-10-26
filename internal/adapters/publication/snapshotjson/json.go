@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/usecase/publication"
 )
 
@@ -52,10 +53,16 @@ type jsonItem struct {
 }
 
 type jsonHTTP struct {
-	Method  string       `json:"method"`
-	URL     string       `json:"url"`
-	Headers []jsonHeader `json:"headers"`
-	Body    jsonBody     `json:"body"`
+	Method        string             `json:"method"`
+	URL           string             `json:"url"`
+	PathVariables []jsonPathVariable `json:"pathVariables,omitempty"`
+	Headers       []jsonHeader       `json:"headers"`
+	Body          jsonBody           `json:"body"`
+}
+
+type jsonPathVariable struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type jsonGraphQL struct {
@@ -75,10 +82,11 @@ type jsonGRPC struct {
 }
 
 type jsonWS struct {
-	URL          string          `json:"url"`
-	Headers      []jsonHeader    `json:"headers"`
-	Subprotocols []string        `json:"subprotocols"`
-	Messages     []jsonWSMessage `json:"messages"`
+	URL           string             `json:"url"`
+	PathVariables []jsonPathVariable `json:"pathVariables,omitempty"`
+	Headers       []jsonHeader       `json:"headers"`
+	Subprotocols  []string           `json:"subprotocols"`
+	Messages      []jsonWSMessage    `json:"messages"`
 }
 
 type jsonWSMessage struct {
@@ -237,7 +245,7 @@ func requestToJSON(r *publication.Request) jsonItem {
 			fields = append(fields, jsonFormField{Key: f.Key, Value: f.Value, Type: f.Type, Enabled: f.Enabled})
 		}
 		out.HTTP = &jsonHTTP{
-			Method: h.Method, URL: h.URL, Headers: headersToJSON(h.Headers),
+			Method: h.Method, URL: h.URL, PathVariables: pathVariablesToJSON(h.PathVariables), Headers: headersToJSON(h.Headers),
 			Body: jsonBody{Type: h.Body.Type, Raw: h.Body.Raw, Fields: fields, FileName: h.Body.FileName},
 		}
 	}
@@ -253,7 +261,18 @@ func requestToJSON(r *publication.Request) jsonItem {
 			messages = append(messages, jsonWSMessage{Name: m.Name, Format: m.Format, Data: m.Data})
 		}
 		subprotocols := append(make([]string, 0, len(ws.Subprotocols)), ws.Subprotocols...)
-		out.WebSocket = &jsonWS{URL: ws.URL, Headers: headersToJSON(ws.Headers), Subprotocols: subprotocols, Messages: messages}
+		out.WebSocket = &jsonWS{
+			URL: ws.URL, PathVariables: pathVariablesToJSON(ws.PathVariables), Headers: headersToJSON(ws.Headers),
+			Subprotocols: subprotocols, Messages: messages,
+		}
+	}
+	return out
+}
+
+func pathVariablesToJSON(vars []entities.PathVariable) []jsonPathVariable {
+	out := make([]jsonPathVariable, 0, len(vars))
+	for _, v := range vars {
+		out = append(out, jsonPathVariable{Key: v.Key, Value: v.Value})
 	}
 	return out
 }

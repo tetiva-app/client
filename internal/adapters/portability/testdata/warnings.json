@@ -585,42 +585,6 @@
     "text": "method v-method is not supported and was imported as GET"
   },
   {
-    "code": "insomnia_path_params_differ",
-    "subject": {
-      "kind": "",
-      "name": ""
-    },
-    "params": {
-      "n": "1",
-      "names": "v-names"
-    },
-    "text": "path parameter v-names differs between requests: the environment keeps the first value"
-  },
-  {
-    "code": "insomnia_path_params_differ",
-    "subject": {
-      "kind": "",
-      "name": ""
-    },
-    "params": {
-      "n": "2",
-      "names": "v-names"
-    },
-    "text": "path parameters v-names differ between requests: the environment keeps the first value"
-  },
-  {
-    "code": "insomnia_path_params_differ",
-    "subject": {
-      "kind": "",
-      "name": ""
-    },
-    "params": {
-      "n": "1234",
-      "names": "v-names"
-    },
-    "text": "path parameters v-names differ between requests: the environment keeps the first value"
-  },
-  {
     "code": "insomnia_socketio_skipped",
     "subject": {
       "kind": "",

@@ -13,7 +13,6 @@ var (
 	tag        = regexp.MustCompile(`\{%-?\s*(\w*)[^%]*%\}`)
 	identPath  = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$`)
 	bracketKey = regexp.MustCompile(`^_\[\s*(?:'([^']*)'|"([^"]*)")\s*\]$`)
-	pathParam  = regexp.MustCompile(`/:([^/?#:]+)`)
 )
 
 type templates struct {

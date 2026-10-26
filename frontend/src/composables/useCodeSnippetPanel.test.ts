@@ -39,7 +39,7 @@ const REQ_ID = '11111111-1111-4111-8111-111111111111'
 function makeRequest(patch: Partial<Request> = {}): Request {
   return {
     id: REQ_ID, collectionId: '22222222-2222-4222-8222-222222222222', name: 'r', description: '',
-    protocol: 'http', method: 'GET', url: 'https://api.test/u', headers: [], body: '', bodyType: 'none',
+    protocol: 'http', method: 'GET', url: 'https://api.test/u', pathVariables: [], headers: [], body: '', bodyType: 'none',
     authType: 'none', authData: '', preScript: '', postScript: '', grpcService: '', grpcMethod: '',
     grpcProtoPath: '', grpcMetadata: {}, graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '',
     graphqlOperation: '', sortOrder: 0, version: 1, createdAt: '', updatedAt: '',

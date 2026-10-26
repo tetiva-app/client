@@ -39,6 +39,7 @@ import type { CurlImportFields } from '@/lib/curl-paste'
 import { useToast } from '@/composables/useToast'
 import { useCopyAs } from '@/composables/useCopyAs'
 import { authBadgeLabel } from '@/constants/auth'
+import { paramsCount } from '@/lib/path-variables'
 
 const GRPCRequestEditor = defineAsyncComponent(() => import('./grpc/GRPCRequestEditor.vue'))
 const GraphQLRequestEditor = defineAsyncComponent(() => import('./graphql/GraphQLRequestEditor.vue'))
@@ -113,18 +114,7 @@ async function onPromoted() {
   }
 }
 
-const paramCount = computed(() => {
-  if (!request.value?.url) return 0
-  try {
-    const raw = request.value.url
-    const url = new URL(raw.includes('://') ? raw : 'http://' + raw)
-    let count = 0
-    url.searchParams.forEach(() => count++)
-    return count
-  } catch {
-    return 0
-  }
-})
+const paramCount = computed(() => paramsCount(request.value?.url ?? ''))
 
 const headerCount = computed(() => {
   if (!request.value?.headers) return 0
@@ -398,7 +388,9 @@ function updateField(field: string, value: any) {
                 <ParamsEditor
                   v-if="activeTab === 'params'"
                   :url="request.url"
+                  :path-variables="request.pathVariables"
                   @update:url="(v) => updateField('url', v)"
+                  @update:path-variables="(v) => updateField('pathVariables', v)"
                 />
                 <AuthEditor
                   v-else-if="activeTab === 'auth'"

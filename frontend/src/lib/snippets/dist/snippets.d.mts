@@ -135,8 +135,13 @@ interface SnapshotRequest {
 interface SnapshotHTTPPart {
     method: string;
     url: string;
+    pathVariables?: SnapshotPathVariable[];
     headers: SnapshotHeader[];
     body: SnapshotBody;
+}
+interface SnapshotPathVariable {
+    key: string;
+    value: string;
 }
 interface SnapshotHeader {
     key: string;
@@ -172,6 +177,7 @@ interface SnapshotGRPCPart {
 }
 interface SnapshotWebSocketPart {
     url: string;
+    pathVariables?: SnapshotPathVariable[];
     headers: SnapshotHeader[];
     subprotocols: string[];
     messages: SnapshotWSMessage[];
@@ -205,4 +211,4 @@ declare function snapshotToPostman(s: Snapshot): {
     json: string;
     warnings: string[];
 };
-export { generate, SNIPPET_TARGETS, targetsFor, effectiveAuth, harFromSnapshotRequest, snippetInputFromSnapshot, snapshotToPostman, Snapshot, SnapshotAuth, SnapshotBody, SnapshotCollection, SnapshotEnvironment, SnapshotExample, SnapshotFolder, SnapshotHeader, SnapshotItem, SnapshotRequest, SnapshotScripts, SnapshotVariable, GrpcSnippet, HarRequest, SnippetInput, WsSnippet, SnippetLanguage, SnippetProtocol, SnippetResult, SnippetTarget };
+export { generate, SNIPPET_TARGETS, targetsFor, effectiveAuth, harFromSnapshotRequest, snippetInputFromSnapshot, snapshotToPostman, Snapshot, SnapshotAuth, SnapshotBody, SnapshotCollection, SnapshotEnvironment, SnapshotExample, SnapshotFolder, SnapshotHeader, SnapshotItem, SnapshotPathVariable, SnapshotRequest, SnapshotScripts, SnapshotVariable, GrpcSnippet, HarRequest, SnippetInput, WsSnippet, SnippetLanguage, SnippetProtocol, SnippetResult, SnippetTarget };

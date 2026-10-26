@@ -121,10 +121,39 @@ func (r *PostmanRequest) UnmarshalJSON(b []byte) error {
 }
 
 type PostmanURL struct {
-	Raw   string      `json:"raw"`
-	Host  []string    `json:"host,omitempty"`
-	Path  []string    `json:"path,omitempty"`
-	Query []PostmanKV `json:"query,omitempty"`
+	Raw      string          `json:"raw"`
+	Host     []string        `json:"host,omitempty"`
+	Path     []string        `json:"path,omitempty"`
+	Query    []PostmanKV     `json:"query,omitempty"`
+	Variable PostmanPathVars `json:"variable,omitempty"`
+}
+
+type PostmanPathVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type PostmanPathVars []PostmanPathVar
+
+// UnmarshalJSON skips unreadable entries instead of failing the import.
+func (v *PostmanPathVars) UnmarshalJSON(b []byte) error {
+	var items []json.RawMessage
+	if json.Unmarshal(b, &items) != nil {
+		*v = nil
+		return nil
+	}
+	out := make(PostmanPathVars, 0, len(items))
+	for _, raw := range items {
+		var in struct {
+			Key   string       `json:"key"`
+			Value postmanValue `json:"value"`
+		}
+		if json.Unmarshal(raw, &in) == nil && in.Key != "" {
+			out = append(out, PostmanPathVar{Key: in.Key, Value: string(in.Value)})
+		}
+	}
+	*v = out
+	return nil
 }
 
 func (u *PostmanURL) UnmarshalJSON(b []byte) error {

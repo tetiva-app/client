@@ -47,6 +47,20 @@
       }
     },
     "headers": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/header" } },
+    "pathVariables": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Values for the :name segments of the URL path in their order there; absent when the path has none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "value"],
+        "properties": {
+          "key": { "$ref": "#/$defs/name" },
+          "value": { "$ref": "#/$defs/pairValue" }
+        }
+      }
+    },
     "scripts": {
       "type": "object",
       "additionalProperties": false,
@@ -214,6 +228,7 @@
       "properties": {
         "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] },
         "url": { "$ref": "#/$defs/url" },
+        "pathVariables": { "$ref": "#/$defs/pathVariables" },
         "headers": { "$ref": "#/$defs/headers" },
         "body": { "$ref": "#/$defs/body" }
       }
@@ -272,6 +287,7 @@
       "required": ["url", "headers", "subprotocols", "messages"],
       "properties": {
         "url": { "$ref": "#/$defs/url" },
+        "pathVariables": { "$ref": "#/$defs/pathVariables" },
         "headers": { "$ref": "#/$defs/headers" },
         "subprotocols": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/text" } },
         "messages": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/wsMessage" } }

@@ -125,7 +125,7 @@ func TestImport_SQLite_PetstoreEndToEnd(t *testing.T) {
 	}
 	assert.Equal(t, []string{
 		"base_url", "scheme", "user", "user-password", "retries", "limits.page", "limits.burst", "regions",
-		"api_key", "client_secret", "host", "auth_url", "grpc_host", "ws_host", "channel", "petId",
+		"api_key", "client_secret", "host", "auth_url", "grpc_host", "ws_host",
 	}, keys)
 }
 

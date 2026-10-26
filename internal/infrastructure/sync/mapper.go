@@ -78,6 +78,16 @@ func RequestToProto(r *entities.Request, operationID string) *syncv1.SyncEntity 
 		}
 	}
 
+	// nil is never known here: an absent field keeps what the server has.
+	var pathVariables *syncv1.PathVariables
+	if r.PathVariables != nil {
+		items := make([]*syncv1.PathVariable, len(r.PathVariables))
+		for i, v := range r.PathVariables {
+			items[i] = syncv1.PathVariable_builder{Key: v.Key, Value: v.Value}.Build()
+		}
+		pathVariables = syncv1.PathVariables_builder{Items: items}.Build()
+	}
+
 	return syncv1.SyncEntity_builder{
 		EntityType:  syncv1.EntityType_ENTITY_TYPE_REQUEST,
 		EntityId:    r.ID.String(),
@@ -109,6 +119,7 @@ func RequestToProto(r *entities.Request, operationID string) *syncv1.SyncEntity 
 			PreScript:         r.PreScript,
 			PostScript:        r.PostScript,
 			Description:       proto.String(r.Description), // presence: "" is a clear, absence is an older peer
+			PathVariables:     pathVariables,
 		}.Build(),
 	}.Build()
 }
@@ -297,6 +308,15 @@ func RequestFromProto(e *syncv1.SyncEntity) (*entities.Request, error) {
 	r.GRPCMetadata = make(map[string][]string)
 	for _, h := range rd.GetGrpcMetadata() {
 		r.GRPCMetadata[h.GetKey()] = append(r.GRPCMetadata[h.GetKey()], h.GetValue())
+	}
+
+	// Left nil when absent: an older peer's values are unknown here, not cleared.
+	if rd.HasPathVariables() {
+		items := rd.GetPathVariables().GetItems()
+		r.PathVariables = make([]entities.PathVariable, len(items))
+		for i, v := range items {
+			r.PathVariables[i] = entities.PathVariable{Key: v.GetKey(), Value: v.GetValue()}
+		}
 	}
 
 	return r, nil

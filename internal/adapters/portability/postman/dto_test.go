@@ -36,6 +36,19 @@ func TestPostmanURL_UnmarshalJSON(t *testing.T) {
 			url:  `null`,
 			want: postman.PostmanURL{},
 		},
+		{
+			name: "path variables",
+			url:  `{"raw":"{{host}}/users/:id","variable":[{"key":"id","value":5,"disabled":true},{"key":7},"x",{"key":"b","value":null}]}`,
+			want: postman.PostmanURL{
+				Raw:      "{{host}}/users/:id",
+				Variable: postman.PostmanPathVars{{Key: "id", Value: "5"}, {Key: "b"}},
+			},
+		},
+		{
+			name: "path variables not an array",
+			url:  `{"raw":"{{host}}/users/:id","variable":{"key":"id","value":"5"}}`,
+			want: postman.PostmanURL{Raw: "{{host}}/users/:id"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

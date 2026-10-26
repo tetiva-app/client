@@ -17,6 +17,7 @@ import { isCurlCommand } from '@/lib/curl-paste'
 import { externalReplace, isExternal } from '@/lib/cm-external'
 import { inheritFont } from '@/lib/cm-font'
 import { singleLine } from '@/lib/cm-single-line'
+import { pathVariableHighlight } from '@/lib/codemirror-path-variables'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{
   secretKeys?: Set<string>
   availableVariables?: Array<{ key: string; value: string; isSecret: boolean }>
   detectCurl?: boolean
+  highlightPathVariables?: boolean
 }>(), {
   placeholder: '',
   multiline: false,
@@ -46,6 +48,7 @@ const props = withDefaults(defineProps<{
   invalid: false,
   describedBy: '',
   detectCurl: false,
+  highlightPathVariables: false,
 })
 
 const emit = defineEmits<{
@@ -150,6 +153,8 @@ function createExtensions() {
     editableCompartment.of(getEditableExtension()),
     contentAttrsCompartment.of(getContentAttrsExtension()),
   ]
+
+  if (props.highlightPathVariables) extensions.push(pathVariableHighlight)
 
   if (!props.multiline) {
     extensions.push(singleLine)

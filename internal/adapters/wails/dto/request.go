@@ -30,6 +30,34 @@ func HeaderItemsToDTO(items []entities.HeaderItem) []HeaderItemDTO {
 	return result
 }
 
+type PathVariableDTO struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// A pointer: the bindings turn a null slice into [], and nil is unknown on this device.
+func PathVariablesToEntity(dtos *[]PathVariableDTO) []entities.PathVariable {
+	if dtos == nil {
+		return nil
+	}
+	result := make([]entities.PathVariable, len(*dtos))
+	for i, d := range *dtos {
+		result[i] = entities.PathVariable{Key: d.Key, Value: d.Value}
+	}
+	return result
+}
+
+func PathVariablesToDTO(vars []entities.PathVariable) *[]PathVariableDTO {
+	if vars == nil {
+		return nil
+	}
+	result := make([]PathVariableDTO, len(vars))
+	for i, v := range vars {
+		result[i] = PathVariableDTO{Key: v.Key, Value: v.Value}
+	}
+	return &result
+}
+
 type CreateRequestRequest struct {
 	CollectionID      string              `json:"collectionId"`
 	Name              string              `json:"name"`
@@ -37,6 +65,7 @@ type CreateRequestRequest struct {
 	Protocol          string              `json:"protocol"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
+	PathVariables     *[]PathVariableDTO  `json:"pathVariables"`
 	Headers           []HeaderItemDTO     `json:"headers"`
 	Body              string              `json:"body"`
 	BodyType          string              `json:"bodyType"`
@@ -60,6 +89,7 @@ type EditRequestRequest struct {
 	Description       string              `json:"description"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
+	PathVariables     *[]PathVariableDTO  `json:"pathVariables"`
 	Headers           []HeaderItemDTO     `json:"headers"`
 	Body              string              `json:"body"`
 	BodyType          string              `json:"bodyType"`
@@ -117,6 +147,7 @@ type RequestResponse struct {
 	Protocol          string              `json:"protocol"`
 	Method            string              `json:"method"`
 	URL               string              `json:"url"`
+	PathVariables     *[]PathVariableDTO  `json:"pathVariables"`
 	Headers           []HeaderItemDTO     `json:"headers"`
 	Body              string              `json:"body"`
 	BodyType          string              `json:"bodyType"`
@@ -158,6 +189,7 @@ func RequestToResponse(r *entities.Request) RequestResponse {
 		Protocol:          string(r.Protocol),
 		Method:            string(r.Method),
 		URL:               r.URL,
+		PathVariables:     PathVariablesToDTO(r.PathVariables),
 		Headers:           headers,
 		Body:              r.Body,
 		BodyType:          string(r.BodyType),

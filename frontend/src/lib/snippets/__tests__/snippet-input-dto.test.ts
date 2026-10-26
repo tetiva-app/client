@@ -15,7 +15,7 @@ import { WailsRequestService } from '@/services/wails-request'
 import { loadSnippets } from '../runtime'
 
 const editorState: SnippetRequest = {
-  id: 'r1', collectionId: 'c1', protocol: 'http', method: 'GET', url: 'https://api.example.com/users',
+  id: 'r1', collectionId: 'c1', protocol: 'http', method: 'GET', url: 'https://api.example.com/users', pathVariables: [],
   headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}', preScript: '',
   grpcService: '', grpcMethod: '', grpcMetadata: {},
   graphqlQuery: '', graphqlVariables: '', graphqlOperation: '',

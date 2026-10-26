@@ -117,6 +117,10 @@ func (r *SyncedRequestRepo) GetDescriptionByID(ctx context.Context, id uuid.UUID
 	return r.inner.GetDescriptionByID(ctx, id)
 }
 
+func (r *SyncedRequestRepo) GetPathVariablesByID(ctx context.Context, id uuid.UUID) ([]entities.PathVariable, error) {
+	return r.inner.GetPathVariablesByID(ctx, id)
+}
+
 // UpdateSortOrder is not sync-relevant, so nothing is enqueued.
 func (r *SyncedRequestRepo) UpdateSortOrder(ctx context.Context, id uuid.UUID, sortOrder int) error {
 	return r.inner.UpdateSortOrder(ctx, id, sortOrder)

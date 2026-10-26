@@ -27,7 +27,7 @@ vi.mock('@/stores/settings', () => ({ useSettingsStore: () => settings }))
 function makeRequest(protocol: Protocol, patch: Partial<Request> = {}): Request {
   return {
     id: '11111111-1111-4111-8111-111111111111', collectionId: '22222222-2222-4222-8222-222222222222',
-    name: 'r', description: '', protocol, method: 'GET', url: 'https://api.test/u', headers: [], body: '',
+    name: 'r', description: '', protocol, method: 'GET', url: 'https://api.test/u', pathVariables: [], headers: [], body: '',
     bodyType: 'none', authType: 'none', authData: '', preScript: '', postScript: '', grpcService: '',
     grpcMethod: '', grpcProtoPath: '', grpcMetadata: {}, graphqlQuery: '', graphqlVariables: '',
     graphqlSchemaPath: '', graphqlOperation: '', sortOrder: 0, version: 1, createdAt: '', updatedAt: '',

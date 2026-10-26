@@ -19,17 +19,18 @@ func seedSiblings(repo *mockRepo, names ...string) []*entities.Request {
 	out := make([]*entities.Request, 0, len(names))
 	for i, name := range names {
 		r := &entities.Request{
-			ID:           uuid.New(),
-			CollectionID: testCollectionID,
-			Name:         name,
-			Protocol:     entities.ProtocolHTTP,
-			Method:       entities.MethodGET,
-			BodyType:     entities.BodyTypeNone,
-			AuthType:     entities.AuthTypeNone,
-			AuthData:     "{}",
-			Version:      1,
-			CreatedAt:    base.Add(time.Duration(i) * time.Minute),
-			UpdatedAt:    base.Add(time.Duration(i) * time.Minute),
+			ID:            uuid.New(),
+			CollectionID:  testCollectionID,
+			Name:          name,
+			Protocol:      entities.ProtocolHTTP,
+			Method:        entities.MethodGET,
+			BodyType:      entities.BodyTypeNone,
+			AuthType:      entities.AuthTypeNone,
+			AuthData:      "{}",
+			PathVariables: []entities.PathVariable{},
+			Version:       1,
+			CreatedAt:     base.Add(time.Duration(i) * time.Minute),
+			UpdatedAt:     base.Add(time.Duration(i) * time.Minute),
 		}
 		repo.requests[r.ID] = r
 		out = append(out, r)

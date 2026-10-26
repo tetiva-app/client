@@ -19,6 +19,7 @@ type Edit struct {
 	Protocol          entities.Protocol // set from existing entity before validation
 	Method            entities.HTTPMethod
 	URL               string
+	PathVariables     []entities.PathVariable
 	Headers           []entities.HeaderItem
 	Body              string
 	BodyType          entities.BodyType
@@ -109,7 +110,13 @@ func (u *usecase) Edit(ctx context.Context, input Edit, opt EditOpt) (*entities.
 	existing.Name = input.Name
 	existing.Description = input.Description
 	existing.Method = input.Method
+	// An absent field keeps what is stored, unknown (nil) included.
+	pathVariables := input.PathVariables
+	if pathVariables == nil {
+		pathVariables = existing.PathVariables
+	}
 	existing.URL = input.URL
+	existing.PathVariables = pathVariablesFor(existing.Protocol, input.URL, pathVariables)
 	existing.Headers = headers
 	existing.Body = input.Body
 	existing.BodyType = input.BodyType

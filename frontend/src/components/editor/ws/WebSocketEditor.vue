@@ -16,6 +16,7 @@ import { isBase64 } from './format'
 import ParamsEditor from '../ParamsEditor.vue'
 import AuthEditor from '../AuthEditor.vue'
 import { authBadgeLabel } from '@/constants/auth'
+import { paramsCount } from '@/lib/path-variables'
 import HeadersEditor from '../HeadersEditor.vue'
 import ScriptEditor from '../ScriptEditor.vue'
 import RequestDocs from '../RequestDocs.vue'
@@ -92,18 +93,7 @@ const statusDot = computed(() => {
 
 // The badges say the same thing as the HTTP ones (RequestEditor): the tab strip
 // looks identical, so it must not carry a different meaning here.
-const paramCount = computed(() => {
-  if (!props.request.url) return 0
-  try {
-    const raw = props.request.url
-    const url = new URL(raw.includes('://') ? raw : 'http://' + raw)
-    let count = 0
-    url.searchParams.forEach(() => count++)
-    return count
-  } catch {
-    return 0
-  }
-})
+const paramCount = computed(() => paramsCount(props.request.url))
 
 const authBadge = computed(() => authBadgeLabel(props.request.authType))
 
@@ -234,7 +224,9 @@ onUnmounted(() => {
       <ParamsEditor
         v-if="activeTab === 'params'"
         :url="request.url"
+        :path-variables="request.pathVariables"
         @update:url="(v) => update({ url: v })"
+        @update:path-variables="(v) => update({ pathVariables: v })"
       />
       <AuthEditor
         v-else-if="activeTab === 'auth'"

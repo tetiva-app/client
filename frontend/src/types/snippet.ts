@@ -64,7 +64,7 @@ export interface SnippetInput {
 }
 
 export type SnippetRequest = Pick<Request,
-  | 'id' | 'collectionId' | 'protocol' | 'method' | 'url' | 'headers' | 'body' | 'bodyType'
+  | 'id' | 'collectionId' | 'protocol' | 'method' | 'url' | 'pathVariables' | 'headers' | 'body' | 'bodyType'
   | 'authType' | 'authData' | 'preScript' | 'grpcService' | 'grpcMethod' | 'grpcMetadata'
   | 'graphqlQuery' | 'graphqlVariables' | 'graphqlOperation'>
 

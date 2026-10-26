@@ -41,7 +41,9 @@ func TestImportV4_HTTPRequest(t *testing.T) {
 	get := s.request(t, "Get pet")
 	assert.Equal(t, entities.ProtocolHTTP, get.Protocol)
 	assert.Equal(t, entities.MethodGET, get.Method)
-	assert.Equal(t, "{{base_url}}/pets/{{petId}}?fields=name%2Cstatus", get.URL)
+	assert.Equal(t, "{{base_url}}/pets/:petId?fields=name%2Cstatus", get.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "petId", Value: "42"}}, get.PathVariables)
+	assert.Equal(t, []entities.PathVariable{{Key: "petId", Value: "7"}}, s.request(t, "Upload photo").PathVariables)
 	assert.Equal(t, "Returns a single pet.", get.Description)
 	assert.Equal(t, []entities.HeaderItem{
 		{Key: "Accept", Value: "application/json", Enabled: true},
@@ -105,7 +107,8 @@ func TestImportV4_GRPCAndWebSocket(t *testing.T) {
 
 	ws := s.request(t, "Live feed")
 	assert.Equal(t, entities.ProtocolWebSocket, ws.Protocol)
-	assert.Equal(t, "wss://{{ws_host}}/feed/{{channel}}?since=0", ws.URL)
+	assert.Equal(t, "wss://{{ws_host}}/feed/:channel?since=0", ws.URL)
+	assert.Equal(t, []entities.PathVariable{{Key: "channel", Value: "pets"}}, ws.PathVariables)
 	assert.Equal(t, []entities.HeaderItem{{Key: "X-Client", Value: "insomnia", Enabled: true}}, ws.Headers)
 	assert.Equal(t, entities.AuthTypeBearer, ws.AuthType)
 	assert.JSONEq(t, `{"token":"{{token}}","prefix":"Token"}`, ws.AuthData)
@@ -149,6 +152,21 @@ func TestImportV4_Auth(t *testing.T) {
 		"grant":"client_credentials","tokenUrl":"{{auth_url}}/oauth/token","clientId":"petstore-cli",
 		"clientSecret":"{{client_secret}}","scope":"pets:read","clientAuth":"body","headerPrefix":""
 	}`, gql.AuthData)
+}
+
+func TestImportV4_GraphQLPathValuesGoIntoTheURL(t *testing.T) {
+	s := newStore()
+	importFile(t, s, []byte(`{"_type":"export","__export_format":4,"resources":[
+		{"_id":"wrk_1","_type":"workspace","name":"Tenants"},
+		{"_id":"req_1","_type":"request","parentId":"wrk_1","name":"Me","method":"POST",
+		 "url":"https://api.io/:tenant/graphql/:shard","pathParameters":[{"name":"tenant","value":"{{ _.tenant }}"}],
+		 "body":{"mimeType":"application/graphql","text":"{\"query\":\"{ me { id } }\"}"}}
+	]}`), false)
+
+	me := s.request(t, "Me")
+	assert.Equal(t, entities.ProtocolGraphQL, me.Protocol)
+	assert.Equal(t, "https://api.io/{{tenant}}/graphql/:shard", me.URL)
+	assert.Empty(t, me.PathVariables)
 }
 
 func TestImportV4_SkipsResourcesItDoesNotRead(t *testing.T) {
@@ -215,7 +233,6 @@ func TestImportV4_EnvironmentPerSubEnvironment(t *testing.T) {
 		environment.AddVariable{Key: "host", Value: "localhost:8080"},
 		environment.AddVariable{Key: "auth_url", Value: "http://localhost:9000"},
 		environment.AddVariable{Key: "petId", Value: "1"},
-		environment.AddVariable{Key: "channel", Value: "pets"},
 	)
 	assert.Equal(t, local, s.vars["Petstore · Local"])
 
@@ -224,8 +241,6 @@ func TestImportV4_EnvironmentPerSubEnvironment(t *testing.T) {
 		environment.AddVariable{Key: "auth_url", Value: "https://auth.example.com"},
 		environment.AddVariable{Key: "grpc_host", Value: "grpc.example.com:443"},
 		environment.AddVariable{Key: "ws_host", Value: "ws.example.com"},
-		environment.AddVariable{Key: "channel", Value: "pets"},
-		environment.AddVariable{Key: "petId", Value: "42"},
 	)
 	assert.Equal(t, prod, s.vars["Petstore · Production"])
 }
@@ -265,7 +280,6 @@ func TestImportV4_Warnings(t *testing.T) {
 	assert.Equal(t, []string{
 		`folder "Uploads": folder environment variables were not imported`,
 		`request "Upload photo": file field "photo" was imported without its file; pick it again`,
-		`path parameter petId differs between requests: the environment keeps the first value`,
 		`1 disabled query parameter was dropped: Tetiva keeps query parameters in the URL`,
 		`1 disabled gRPC metadata item was dropped`,
 		`gRPC requests were imported without their proto files: pick a .proto file or use server reflection`,
@@ -277,7 +291,7 @@ func TestImportV4_Warnings(t *testing.T) {
 	assert.Equal(t, portability.WarnFileFieldDropped, res.Warnings[1].Code)
 	assert.Equal(t, portability.Subject{Kind: portability.KindRequest, Name: "Upload photo"}, res.Warnings[1].Subject)
 	assert.Equal(t, map[string]string{"field": "photo"}, res.Warnings[1].Params)
-	assert.Equal(t, map[string]string{"n": "2", "names": "faker, response"}, res.Warnings[7].Params)
+	assert.Equal(t, map[string]string{"n": "2", "names": "faker, response"}, res.Warnings[6].Params)
 }
 
 const scriptsWarning = "Insomnia scripts use the insomnia.* API, which Tetiva does not run: rewrite them to pm.* after importing"

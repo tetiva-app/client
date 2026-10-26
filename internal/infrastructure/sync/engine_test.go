@@ -99,6 +99,14 @@ func (r *stubRequestRepo) GetDescriptionByID(_ context.Context, id uuid.UUID) (s
 	return req.Description, nil
 }
 
+func (r *stubRequestRepo) GetPathVariablesByID(_ context.Context, id uuid.UUID) ([]entities.PathVariable, error) {
+	req, ok := r.data[id]
+	if !ok {
+		return nil, nil
+	}
+	return req.PathVariables, nil
+}
+
 func (r *stubRequestRepo) List(_ context.Context, _ request.Filter) ([]*entities.Request, error) {
 	return nil, nil
 }
@@ -1585,7 +1593,7 @@ func TestUpsertRequest_OldPeerKeepsLocalDescription(t *testing.T) {
 	seedRequestRow(t, engine.db, id)
 
 	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping v2"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming, false))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, requestPresence{}))
 
 	assert.Equal(t, "local docs", repo.data[id].Description,
 		"a peer that never sent the field must not wipe the local docs")
@@ -1603,7 +1611,7 @@ func TestUpsertRequest_IncomingDescriptionWins(t *testing.T) {
 	seedRequestRow(t, engine.db, id)
 
 	incoming := &entities.Request{ID: id, CollectionID: uuid.New(), Name: "Ping", Description: "remote docs"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, requestPresence{description: true}))
 
 	assert.Equal(t, "remote docs", repo.data[id].Description)
 }
@@ -1615,7 +1623,7 @@ func TestUpsertRequest_CreatesWhenRowIsAbsent(t *testing.T) {
 
 	repo := engine.requests.(*stubRequestRepo)
 	incoming := &entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "New"}
-	require.NoError(t, ws.upsertRequest(context.Background(), incoming, true))
+	require.NoError(t, ws.upsertRequest(context.Background(), incoming, requestPresence{description: true}))
 
 	assert.Equal(t, "New", repo.data[incoming.ID].Name)
 }
@@ -1985,6 +1993,44 @@ func TestApplyEntity_RequestDescriptionPresenceThreadsThrough(t *testing.T) {
 	seedRequestRow(t, engine.db, cleared)
 	require.NoError(t, ws.applyEntity(ctx, requestDescriptionEntity(cleared, proto.String(""))))
 	assert.Empty(t, repo.data[cleared].Description, "an explicit empty description clears the local docs")
+}
+
+func TestApplyEntity_RequestPathVariablesPresenceThreadsThrough(t *testing.T) {
+	engine := newTestEngine(t)
+	ws, cancel := newSyncer(engine, testWorkspaceID.String(), StateConnected)
+	defer cancel()
+
+	repo := engine.requests.(*stubRequestRepo)
+	ctx := context.Background()
+	local := []entities.PathVariable{{Key: "id", Value: "42"}}
+	entity := func(id uuid.UUID, vars *syncv1.PathVariables) *syncv1.SyncEntity {
+		e := requestDescriptionEntity(id, nil)
+		e.GetRequest().SetUrl("https://example.com/users/:id")
+		e.GetRequest().SetPathVariables(vars)
+		return e
+	}
+
+	absent := uuid.New()
+	repo.data[absent] = &entities.Request{ID: absent, Name: "Ping", PathVariables: local}
+	seedRequestRow(t, engine.db, absent)
+	require.NoError(t, ws.applyEntity(ctx, entity(absent, nil)))
+	assert.Equal(t, local, repo.data[absent].PathVariables, "a peer that never sent the field must not wipe the values")
+	assert.Equal(t, "Ping v2", repo.data[absent].Name, "the rest of the entity still applies")
+
+	cleared := uuid.New()
+	repo.data[cleared] = &entities.Request{ID: cleared, Name: "Ping", PathVariables: local}
+	seedRequestRow(t, engine.db, cleared)
+	require.NoError(t, ws.applyEntity(ctx, entity(cleared, syncv1.PathVariables_builder{}.Build())))
+	assert.Empty(t, repo.data[cleared].PathVariables)
+
+	changed := uuid.New()
+	repo.data[changed] = &entities.Request{ID: changed, Name: "Ping", PathVariables: local}
+	seedRequestRow(t, engine.db, changed)
+	remote := syncv1.PathVariables_builder{Items: []*syncv1.PathVariable{
+		syncv1.PathVariable_builder{Key: "id", Value: "7"}.Build(),
+	}}.Build()
+	require.NoError(t, ws.applyEntity(ctx, entity(changed, remote)))
+	assert.Equal(t, []entities.PathVariable{{Key: "id", Value: "7"}}, repo.data[changed].PathVariables)
 }
 
 func bigRequest(t *testing.T, engine *SyncEngine, ws string, bodyBytes int) uuid.UUID {

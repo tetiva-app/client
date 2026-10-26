@@ -18,6 +18,7 @@ import type {
 } from './request-api'
 import { makeError } from './makeError'
 import { appendMockHistory } from './mock-history'
+import { applyPathVariables, hasPathVariables, syncPathVariables } from '@/lib/path-variables'
 
 export type MockExampleCopier = (sourceId: string, targetId: string) => Promise<ResultError | undefined>
 
@@ -53,14 +54,16 @@ export class MockRequestService implements RequestServiceAPI {
     }
 
     const now = new Date().toISOString()
+    const protocol = (req.protocol as Request['protocol']) || 'http'
     const request: Request = {
       id: crypto.randomUUID(),
       collectionId: req.collectionId,
       name: req.name,
       description: req.description || '',
-      protocol: (req.protocol as Request['protocol']) || 'http',
+      protocol,
       method: (req.method as Request['method']) || 'GET',
       url: req.url || '',
+      pathVariables: hasPathVariables(protocol) ? syncPathVariables(req.url || '', req.pathVariables ?? []) : [],
       headers: copyHeaders(req.headers || []),
       body: req.body || '',
       bodyType: (req.bodyType as Request['bodyType']) || 'none',
@@ -104,6 +107,7 @@ export class MockRequestService implements RequestServiceAPI {
       description: req.description,
       method: (req.method as Request['method']) || existing.method,
       url: req.url,
+      pathVariables: pathVariablesAfterEdit(existing, req),
       headers: copyHeaders(req.headers),
       body: req.body,
       bodyType: (req.bodyType as Request['bodyType']) || existing.bodyType,
@@ -183,6 +187,7 @@ export class MockRequestService implements RequestServiceAPI {
     const now = new Date().toISOString()
     const copy: Request = {
       ...source,
+      pathVariables: source.pathVariables?.map(v => ({ ...v })) ?? null,
       headers: copyHeaders(source.headers),
       grpcMetadata: copyMetadata(source.grpcMetadata),
       id: crypto.randomUUID(),
@@ -278,7 +283,7 @@ export class MockRequestService implements RequestServiceAPI {
     if (!r) {
       return makeError<GenerateCurlResponse>('not_found', `request not found: ${req.requestId}`)
     }
-    const cmd = `curl \\\n  '${r.url}'`
+    const cmd = `curl \\\n  '${sentURL(r)}'`
     return { data: { command: cmd, warnings: [], scriptResult: null } }
   }
 
@@ -311,7 +316,7 @@ export class MockRequestService implements RequestServiceAPI {
   }
 
   async buildSnippetInput(req: BuildSnippetReq): Promise<Result<SnippetInput>> {
-    const r = req.request
+    const r = { ...req.request, url: sentURL(req.request) }
     const headers = r.headers.filter(h => h.enabled && h.key).map(h => ({ name: h.key, value: h.value }))
     switch (r.protocol) {
       case 'grpc':
@@ -510,8 +515,18 @@ const MOCK_HTML = `<!DOCTYPE html>
 </body>
 </html>`
 
+function pathVariablesAfterEdit(existing: Request, req: EditRequestReq): Request['pathVariables'] {
+  const vars = req.pathVariables ?? existing.pathVariables
+  if (vars === null) return null
+  return hasPathVariables(existing.protocol) ? syncPathVariables(req.url, vars) : []
+}
+
+function sentURL(r: Pick<Request, 'protocol' | 'url' | 'pathVariables'>): string {
+  return hasPathVariables(r.protocol) ? applyPathVariables(r.url, r.pathVariables ?? []) : r.url
+}
+
 async function mockResponse(req: Request, send: number): Promise<ExecuteResponse | string> {
-  const url = req.url.toLowerCase()
+  const url = sentURL(req).toLowerCase()
 
   if (url.includes('huge.png')) {
     return {
@@ -532,7 +547,7 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
     return {
       statusCode: 200,
       statusText: '200 OK',
-      url: req.url,
+      url: sentURL(req),
       headers: { 'Content-Type': ['image/png'] },
       body: '',
       size: 157,
@@ -575,7 +590,7 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
     return {
       statusCode: 404,
       statusText: '404 Not Found',
-      url: req.url,
+      url: sentURL(req),
       headers: { 'Content-Type': ['application/json'] },
       body: '{"error":"not found"}',
       size: 21,
@@ -587,7 +602,7 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
     return {
       statusCode: 500,
       statusText: '500 Internal Server Error',
-      url: req.url,
+      url: sentURL(req),
       headers: { 'Content-Type': ['application/json'] },
       body: '{"error":"internal server error"}',
       size: 32,
@@ -613,7 +628,7 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
   return {
     statusCode: 200,
     statusText: '200 OK',
-    url: req.url,
+    url: sentURL(req),
     headers: {
       'Content-Type': ['application/json'],
       'X-Request-Id': [crypto.randomUUID()],
@@ -631,7 +646,7 @@ function mockHistoryRecord(id: string, workspaceId: string, req: Request, outcom
     if (h.enabled && h.key) (requestHeaders[h.key] ??= []).push(h.value)
   }
   let method: string = req.method
-  let url = req.url
+  let url = sentURL(req)
   let requestBody = req.body
   if (req.protocol === 'graphql') {
     method = req.graphqlOperation || 'GRAPHQL'

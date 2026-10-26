@@ -61,7 +61,7 @@ import GraphQLOperationSelect from './GraphQLOperationSelect.vue'
 
 const base: Request = {
   id: 'r1', collectionId: 'c1', name: 'Users', description: '', protocol: 'graphql', method: 'POST',
-  url: 'https://api.test/graphql', headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
+  url: 'https://api.test/graphql', pathVariables: [], headers: [], body: '', bodyType: 'none', authType: 'none', authData: '{}',
   preScript: '', postScript: '', grpcService: '', grpcMethod: '', grpcProtoPath: '', grpcMetadata: {},
   graphqlQuery: '', graphqlVariables: '', graphqlSchemaPath: '', graphqlOperation: '',
   sortOrder: 0, version: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',

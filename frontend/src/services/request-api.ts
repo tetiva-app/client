@@ -1,4 +1,4 @@
-import type { Request, HeaderItem } from '@/types/request'
+import type { Request, HeaderItem, PathVariable } from '@/types/request'
 import type { Result } from '@/types/common'
 import type { ExecuteResponse, ResponseImage } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
@@ -13,6 +13,7 @@ export interface CreateRequestReq {
   protocol: string
   method: string
   url: string
+  pathVariables?: PathVariable[] | null
   headers: HeaderItem[]
   body: string
   bodyType: string
@@ -38,6 +39,7 @@ export interface EditRequestReq {
   description: string
   method: string
   url: string
+  pathVariables?: PathVariable[] | null
   headers: HeaderItem[]
   body: string
   bodyType: string

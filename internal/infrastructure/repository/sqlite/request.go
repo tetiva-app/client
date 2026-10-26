@@ -40,12 +40,17 @@ func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 		return fmt.Errorf("%s: marshal grpc_metadata: %w", funcName, err)
 	}
 
-	query := `INSERT INTO requests (id, collection_id, name, description, protocol, method, url, headers, body, body_type,
+	pathVarsJSON, err := marshalPathVariables(req.PathVariables)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	query := `INSERT INTO requests (id, collection_id, name, description, protocol, method, url, path_variables, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
 		pre_script, post_script, sort_order, version, is_delete, is_draft, created_by, created_at, updated_by, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = DBTXFromContext(ctx, r.db).ExecContext(ctx, query,
 		req.ID.String(),
@@ -55,6 +60,7 @@ func (r *RequestRepo) Create(ctx context.Context, req *entities.Request) error {
 		string(req.Protocol),
 		string(req.Method),
 		req.URL,
+		pathVarsJSON,
 		string(headersJSON),
 		req.Body,
 		string(req.BodyType),
@@ -99,7 +105,7 @@ func (r *RequestRepo) GetByIDIncludingDeleted(ctx context.Context, id uuid.UUID)
 func (r *RequestRepo) get(ctx context.Context, id uuid.UUID, liveOnly bool) (*entities.Request, error) {
 	const funcName = "RequestRepo.GetByID"
 
-	query := `SELECT id, collection_id, name, description, protocol, method, url, headers, body, body_type,
+	query := `SELECT id, collection_id, name, description, protocol, method, url, path_variables, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
@@ -126,7 +132,7 @@ func (r *RequestRepo) get(ctx context.Context, id uuid.UUID, liveOnly bool) (*en
 func (r *RequestRepo) List(ctx context.Context, filter request.Filter) ([]*entities.Request, error) {
 	const funcName = "RequestRepo.List"
 
-	query := `SELECT id, collection_id, name, description, protocol, method, url, headers, body, body_type,
+	query := `SELECT id, collection_id, name, description, protocol, method, url, path_variables, headers, body, body_type,
 		auth_type, auth_data,
 		grpc_service, grpc_method, grpc_proto_path, grpc_metadata,
 		graphql_query, graphql_variables, graphql_schema_path, graphql_operation,
@@ -169,8 +175,13 @@ func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 		return fmt.Errorf("%s: marshal grpc_metadata: %w", funcName, err)
 	}
 
+	pathVarsJSON, err := marshalPathVariables(req.PathVariables)
+	if err != nil {
+		return fmt.Errorf("%s: %w", funcName, err)
+	}
+
 	query := `UPDATE requests SET collection_id = ?, name = ?, description = ?, protocol = ?, method = ?, url = ?,
-		headers = ?, body = ?, body_type = ?,
+		path_variables = ?, headers = ?, body = ?, body_type = ?,
 		auth_type = ?, auth_data = ?,
 		grpc_service = ?, grpc_method = ?, grpc_proto_path = ?, grpc_metadata = ?,
 		graphql_query = ?, graphql_variables = ?, graphql_schema_path = ?, graphql_operation = ?,
@@ -185,6 +196,7 @@ func (r *RequestRepo) Update(ctx context.Context, req *entities.Request) error {
 		string(req.Protocol),
 		string(req.Method),
 		req.URL,
+		pathVarsJSON,
 		string(headersJSON),
 		req.Body,
 		string(req.BodyType),
@@ -234,6 +246,27 @@ func (r *RequestRepo) GetDescriptionByID(ctx context.Context, id uuid.UUID) (str
 	return description, nil
 }
 
+// Ignores is_delete for the same reason as GetDescriptionByID.
+func (r *RequestRepo) GetPathVariablesByID(ctx context.Context, id uuid.UUID) ([]entities.PathVariable, error) {
+	const funcName = "RequestRepo.GetPathVariablesByID"
+
+	var raw sql.NullString
+	err := DBTXFromContext(ctx, r.db).QueryRowContext(ctx,
+		"SELECT path_variables FROM requests WHERE id = ?", id.String()).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+
+	vars, err := unmarshalPathVariables(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", funcName, err)
+	}
+	return vars, nil
+}
+
 // Used only for drafts.
 func (r *RequestRepo) DeleteHard(ctx context.Context, id uuid.UUID) error {
 	const funcName = "RequestRepo.DeleteHard"
@@ -281,6 +314,7 @@ func scanRequest(s scannable) (*entities.Request, error) {
 		bodyType     string
 		authType     string
 		authData     string
+		pathVarsJSON sql.NullString
 		headersJSON  string
 		metadataJSON string
 		isDelete     int
@@ -297,6 +331,7 @@ func scanRequest(s scannable) (*entities.Request, error) {
 		&protocol,
 		&method,
 		&req.URL,
+		&pathVarsJSON,
 		&headersJSON,
 		&req.Body,
 		&bodyType,
@@ -343,6 +378,11 @@ func scanRequest(s scannable) (*entities.Request, error) {
 		return nil, fmt.Errorf("unmarshal headers: %w", err)
 	}
 
+	req.PathVariables, err = unmarshalPathVariables(pathVarsJSON)
+	if err != nil {
+		return nil, err
+	}
+
 	if metadataJSON != "" {
 		if err := json.Unmarshal([]byte(metadataJSON), &req.GRPCMetadata); err != nil {
 			return nil, fmt.Errorf("unmarshal grpc_metadata: %w", err)
@@ -363,6 +403,42 @@ func scanRequest(s scannable) (*entities.Request, error) {
 	}
 
 	return &req, nil
+}
+
+type pathVariableJSON struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// nil is stored as NULL: values this device never knew, not an empty list.
+func marshalPathVariables(vars []entities.PathVariable) (sql.NullString, error) {
+	if vars == nil {
+		return sql.NullString{}, nil
+	}
+	items := make([]pathVariableJSON, len(vars))
+	for i, v := range vars {
+		items[i] = pathVariableJSON{Key: v.Key, Value: v.Value}
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("marshal path_variables: %w", err)
+	}
+	return sql.NullString{String: string(raw), Valid: true}, nil
+}
+
+func unmarshalPathVariables(raw sql.NullString) ([]entities.PathVariable, error) {
+	if !raw.Valid {
+		return nil, nil
+	}
+	var items []pathVariableJSON
+	if err := json.Unmarshal([]byte(raw.String), &items); err != nil {
+		return nil, fmt.Errorf("unmarshal path_variables: %w", err)
+	}
+	vars := make([]entities.PathVariable, len(items))
+	for i, item := range items {
+		vars[i] = entities.PathVariable{Key: item.Key, Value: item.Value}
+	}
+	return vars, nil
 }
 
 func headersToJSON(items []entities.HeaderItem) []headerItemJSON {

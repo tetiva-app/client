@@ -15,6 +15,7 @@ import { formatResultError, scriptFailure } from '@/lib/result-error'
 import { useToast } from '@/composables/useToast'
 import { contentSaved } from '@/lib/content-saved'
 import { compareSiblings } from '@/lib/collections'
+import { hasPathVariables, syncPathVariables } from '@/lib/path-variables'
 
 export type Tab =
   | { id: string; type: 'request'; requestId: string; name: string; method: string; protocol: string }
@@ -253,11 +254,26 @@ export const useRequestStore = defineStore('requests', () => {
     savedSnapshots.value = new Map(savedSnapshots.value)
   }
 
+  const pathValueMemory = new Map<string, Map<string, string>>()
+
+  function withSyncedPathVariables(existing: Request, partial: Partial<Request>): Partial<Request> {
+    if (!hasPathVariables(existing.protocol) || !('url' in partial || 'pathVariables' in partial)) return partial
+    let memory = pathValueMemory.get(existing.id)
+    if (!memory) {
+      memory = new Map()
+      pathValueMemory.set(existing.id, memory)
+    }
+    for (const v of [...(existing.pathVariables ?? []), ...(partial.pathVariables ?? [])]) memory.set(v.key, v.value)
+    // A URL edit alone does not make unknown values known: saving them would clear the server's.
+    if ('pathVariables' in partial || existing.pathVariables === null) return partial
+    return { ...partial, pathVariables: syncPathVariables(partial.url ?? '', existing.pathVariables, memory) }
+  }
+
   // In-memory only; persisted later via saveToBackend (hybrid save).
   function updateLocal(id: string, partial: Partial<Request>) {
     const existing = requestsMap.value.get(id)
     if (!existing) return
-    const updated = { ...existing, ...partial }
+    const updated = { ...existing, ...withSyncedPathVariables(existing, partial) }
     requestsMap.value.set(id, updated)
     requestsMap.value = new Map(requestsMap.value)
     if ('description' in partial && !updated.isDraft) scheduleAutosave(id)
@@ -371,6 +387,7 @@ export const useRequestStore = defineStore('requests', () => {
         description: current.description,
         method: current.method,
         url: current.url,
+        pathVariables: current.pathVariables,
         headers: current.headers,
         body: current.body,
         bodyType: current.bodyType,
@@ -463,6 +480,7 @@ export const useRequestStore = defineStore('requests', () => {
         description: current.description,
         method: current.method,
         url: current.url,
+        pathVariables: current.pathVariables,
         headers: current.headers,
         body: current.body,
         bodyType: current.bodyType,
@@ -863,6 +881,7 @@ export const useRequestStore = defineStore('requests', () => {
       if (req?.protocol === 'websocket') sockets.push(id)
       requestsMap.value.delete(id)
       savedSnapshots.value.delete(id)
+      pathValueMemory.delete(id)
       useResponseStore().deleteResponse(id)
       clearDrafts(id)
       clearAuthDrafts(id)

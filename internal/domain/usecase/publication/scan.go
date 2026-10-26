@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tetiva-app/client/internal/domain/entities"
 	"github.com/tetiva-app/client/internal/domain/secrets"
 )
 
@@ -692,6 +693,7 @@ func (w walker) request(r *Request, path string) {
 	case r.HTTP != nil:
 		h := r.HTTP
 		w.text(id, "/http/url", urlPath, kindURL, &h.URL)
+		w.pathVariables(id, "/http/pathVariables", joinPath(path, "path variables"), h.PathVariables)
 		w.headers(id, "/http/headers", joinPath(path, "headers"), h.Headers)
 		bodyPath := joinPath(path, "body")
 		w.text(id, "/http/body/raw", bodyPath, kindBody, &h.Body.Raw)
@@ -720,6 +722,7 @@ func (w walker) request(r *Request, path string) {
 	case r.WebSocket != nil:
 		ws := r.WebSocket
 		w.text(id, "/websocket/url", urlPath, kindURL, &ws.URL)
+		w.pathVariables(id, "/websocket/pathVariables", joinPath(path, "path variables"), ws.PathVariables)
 		w.headers(id, "/websocket/headers", joinPath(path, "headers"), ws.Headers)
 		prev := ""
 		for i := range ws.Subprotocols {
@@ -766,6 +769,16 @@ func (w walker) headers(owner, pointer, path string, headers []Header) {
 			kind = kindSubprotocol
 		}
 		w.sized(owner, ptr+"/value", rowPath, kind, &h.Value, maxPairValueBytes, 0)
+	}
+}
+
+func (w walker) pathVariables(owner, pointer, path string, vars []entities.PathVariable) {
+	for i := range vars {
+		v := &vars[i]
+		ptr := pointer + "/" + strconv.Itoa(i)
+		rowPath := joinPath(path, v.Key)
+		w.key(owner, ptr+"/key", rowPath, v.Key)
+		w.sized(owner, ptr+"/value", rowPath, kindBody, &v.Value, maxPairValueBytes, 0)
 	}
 }
 

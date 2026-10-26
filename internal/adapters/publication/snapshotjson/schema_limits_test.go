@@ -83,6 +83,14 @@ func addVariables(in *publication.BuildInput, total int) {
 	}
 }
 
+func pathVars(n int, key func(int) string, value string) []entities.PathVariable {
+	out := make([]entities.PathVariable, n)
+	for i := range out {
+		out[i] = entities.PathVariable{Key: key(i), Value: value}
+	}
+	return out
+}
+
 func bearerWith(n int) string {
 	fields := map[string]any{"prefix": "Bearer", "token": "literal-token"}
 	for i := len(fields); i < n; i++ {
@@ -136,6 +144,7 @@ func TestMarshal_AtEveryLimitPassesTheServerSchema(t *testing.T) {
 		strings.Repeat("k", 512): map[string]any{"b": map[string]any{"c": make([]any, 253)}},
 	})
 	requestNamed(t, in, "Create pet").AuthData = bearerWith(64)
+	requestNamed(t, in, "Ping").PathVariables = pathVars(200, func(i int) string { return fmt.Sprintf("%0512d", i) }, strings.Repeat("я", 8<<10))
 
 	addVariables(&in, 1000)
 	in.Variables[len(in.Variables)-1].Key = name
@@ -180,6 +189,12 @@ func TestBuild_ReportsWhatTheServerSchemaRejects(t *testing.T) {
 			requestNamed(t, *in, "Чат питомника").Body = wsSettings(0, 201)
 		},
 		"variables": func(t *testing.T, in *publication.BuildInput) { addVariables(in, 1001) },
+		"path variable value": func(t *testing.T, in *publication.BuildInput) {
+			requestNamed(t, *in, "Ping").PathVariables = pathVars(1, func(int) string { return "id" }, strings.Repeat("x", 16<<10+1))
+		},
+		"path variables": func(t *testing.T, in *publication.BuildInput) {
+			requestNamed(t, *in, "Ping").PathVariables = pathVars(201, func(i int) string { return fmt.Sprint(i) }, "1")
+		},
 		"auth fields": func(t *testing.T, in *publication.BuildInput) {
 			requestNamed(t, *in, "Create pet").AuthData = bearerWith(65)
 		},

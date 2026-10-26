@@ -149,6 +149,7 @@ type Request struct {
 	Protocol          Protocol
 	Method            HTTPMethod
 	URL               string
+	PathVariables     []PathVariable
 	Headers           []HeaderItem
 	Body              string
 	BodyType          BodyType

@@ -2075,7 +2075,11 @@ func (ws *workspaceSyncer) applyEntityData(ctx context.Context, entity *syncv1.S
 		if err != nil {
 			return err
 		}
-		if err := ws.upsertRequest(ctx, r, entity.GetRequest().HasDescription()); err != nil {
+		presence := requestPresence{
+			description:   entity.GetRequest().HasDescription(),
+			pathVariables: entity.GetRequest().HasPathVariables(),
+		}
+		if err := ws.upsertRequest(ctx, r, presence); err != nil {
 			return err
 		}
 		ws.clearTokenOnAuthChange(ctx,
@@ -2127,7 +2131,12 @@ func (ws *workspaceSyncer) upsertCollection(ctx context.Context, c *entities.Col
 	return ws.engine.collections.Create(ctx, c)
 }
 
-func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Request, hasDescription bool) error {
+type requestPresence struct {
+	description   bool
+	pathVariables bool
+}
+
+func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Request, presence requestPresence) error {
 	exists, err := ws.entityExists(ctx, "requests", r.ID.String())
 	if err != nil {
 		return err
@@ -2136,12 +2145,19 @@ func (ws *workspaceSyncer) upsertRequest(ctx context.Context, r *entities.Reques
 		return ws.engine.requests.Create(ctx, r)
 	}
 
-	if !hasDescription {
+	if !presence.description {
 		local, err := ws.engine.requests.GetDescriptionByID(ctx, r.ID)
 		if err != nil {
 			return err
 		}
 		r.Description = local
+	}
+	if !presence.pathVariables {
+		local, err := ws.engine.requests.GetPathVariablesByID(ctx, r.ID)
+		if err != nil {
+			return err
+		}
+		r.PathVariables = local
 	}
 
 	return ws.engine.requests.Update(ctx, r)

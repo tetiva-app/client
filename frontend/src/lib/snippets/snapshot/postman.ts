@@ -1,3 +1,4 @@
+import { pathVariableRows } from './har'
 import type {
   Snapshot, SnapshotAuth, SnapshotBody, SnapshotEnvironment, SnapshotExample, SnapshotHeader, SnapshotItem, SnapshotRequest,
   SnapshotScripts, SnapshotVariable,
@@ -55,7 +56,7 @@ function requestItem(r: SnapshotRequest, warnings: string[]): Json | null {
       method: text(r.http.method),
       header: headers(r.http.headers),
       ...body(r.http.body, label, warnings),
-      url: { raw: text(r.http.url) },
+      url: { raw: text(r.http.url), ...pathVariables(r.http.pathVariables) },
     }
   } else if (r.protocol === 'graphql' && r.graphql) {
     const variables = text(r.graphql.variables)
@@ -240,6 +241,11 @@ function publicVariables(env: SnapshotEnvironment | null | undefined): Json[] {
   return (Array.isArray(all) ? all as SnapshotVariable[] : [])
     .filter((v) => v?.secret === false && typeof v.key === 'string')
     .map((v) => ({ key: v.key, value: text(v.value) }))
+}
+
+function pathVariables(rows: unknown): { variable?: Json[] } {
+  const variable = pathVariableRows(rows).map((v) => ({ key: v.key, value: v.value }))
+  return variable.length ? { variable } : {}
 }
 
 function description(s: unknown): { description?: string } {

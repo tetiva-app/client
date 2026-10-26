@@ -330,6 +330,7 @@ export const PUBLICATION_COPY: Record<Locale, PublicationCopy> = {
         examples: 'examples',
         variables: 'variables',
         auth_fields: 'auth fields',
+        path_variables: 'path variables',
       },
     },
     panel: {
@@ -564,6 +565,7 @@ export const PUBLICATION_COPY: Record<Locale, PublicationCopy> = {
         examples: 'примеров',
         variables: 'переменных',
         auth_fields: 'полей авторизации',
+        path_variables: 'переменных пути',
       },
     },
     panel: {

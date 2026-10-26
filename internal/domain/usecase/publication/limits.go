@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/tetiva-app/client/internal/domain/entities"
 )
 
 // Limits of the server validator; the caller checks the 8 MiB and 3.5 MiB gzip sizes.
@@ -84,6 +86,7 @@ const (
 	listExamples     = "examples"
 	listVariables    = "variables"
 	listAuthFields   = "auth_fields"
+	listPathVars     = "path_variables"
 )
 
 var listNouns = map[string]string{
@@ -95,6 +98,7 @@ var listNouns = map[string]string{
 	listExamples:     "examples",
 	listVariables:    "variables",
 	listAuthFields:   "auth fields",
+	listPathVars:     "path variables",
 }
 
 func newBlockingError(path, code string, params map[string]string) BlockingError {
@@ -226,6 +230,7 @@ func (c *shape) request(r *Request, path string) {
 	if h := r.HTTP; h != nil {
 		c.list(joinPath(path, "body"), listFormFields, len(h.Body.Fields), maxPairs)
 		c.values += 8 + 5*len(h.Body.Fields) // http, method, url, body, type, raw, fields, fileName
+		c.pathVariables(joinPath(path, "path variables"), h.PathVariables)
 		c.headers(joinPath(path, "headers"), listHeaders, h.Headers)
 	}
 	if g := r.GraphQL; g != nil {
@@ -240,6 +245,7 @@ func (c *shape) request(r *Request, path string) {
 		c.list(joinPath(path, "subprotocols"), listSubprotocols, len(ws.Subprotocols), maxSubprotocols)
 		c.list(joinPath(path, "messages"), listMessages, len(ws.Messages), maxMessages)
 		c.values += 4 + len(ws.Subprotocols) + 4*len(ws.Messages) // websocket, url, subprotocols, messages
+		c.pathVariables(joinPath(path, "path variables"), ws.PathVariables)
 		c.headers(joinPath(path, "headers"), listHeaders, ws.Headers)
 	}
 	c.auth(joinPath(path, "auth"), r.Auth)
@@ -249,6 +255,14 @@ func (c *shape) request(r *Request, path string) {
 		c.values += 7 // object, id, name, status, statusText, body, contentType
 		c.headers(joinPath(path, "examples", e.Name, "headers"), listHeaders, e.Headers)
 	}
+}
+
+func (c *shape) pathVariables(path string, vars []entities.PathVariable) {
+	if len(vars) == 0 {
+		return
+	}
+	c.list(path, listPathVars, len(vars), maxPairs)
+	c.values += 1 + 3*len(vars)
 }
 
 func (c *shape) headers(path, list string, hs []Header) {

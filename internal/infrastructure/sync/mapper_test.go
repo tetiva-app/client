@@ -2,6 +2,7 @@ package sync
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -163,6 +164,44 @@ func TestRequestFromProto_Description(t *testing.T) {
 	}
 	if r.Description != "x" {
 		t.Fatalf("description: got %q, want %q", r.Description, "x")
+	}
+}
+
+func TestRequestPathVariables_ProtoPresence(t *testing.T) {
+	r := &entities.Request{
+		ID: uuid.New(), CollectionID: uuid.New(), Name: "ok", URL: "/users/:id",
+		PathVariables: []entities.PathVariable{{Key: "id", Value: "{{userId}}"}},
+	}
+	e := RequestToProto(r, "op")
+	if !e.GetRequest().HasPathVariables() {
+		t.Fatal("path variables not carried")
+	}
+	back, err := RequestFromProto(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(back.PathVariables, r.PathVariables) {
+		t.Fatalf("round trip: got %v, want %v", back.PathVariables, r.PathVariables)
+	}
+
+	empty := RequestToProto(&entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "ok", PathVariables: []entities.PathVariable{}}, "op")
+	if !empty.GetRequest().HasPathVariables() {
+		t.Fatal("an empty list must still assert presence: it is a deliberate clear")
+	}
+	if RequestToProto(&entities.Request{ID: uuid.New(), CollectionID: uuid.New(), Name: "ok"}, "op").GetRequest().HasPathVariables() {
+		t.Fatal("values this device never knew must be left out, not sent as a clear")
+	}
+	if back, _ := RequestFromProto(empty); back.PathVariables == nil {
+		t.Fatal("a present empty list must read as empty, not as absent")
+	}
+
+	old := syncv1.SyncEntity_builder{
+		EntityType: syncv1.EntityType_ENTITY_TYPE_REQUEST,
+		EntityId:   uuid.NewString(),
+		Request:    syncv1.RequestData_builder{CollectionId: uuid.NewString(), Name: "ok"}.Build(),
+	}.Build()
+	if back, _ := RequestFromProto(old); back.PathVariables != nil {
+		t.Fatalf("an entity without the field must leave the list unset: %v", back.PathVariables)
 	}
 }
 

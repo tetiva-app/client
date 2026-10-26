@@ -21,6 +21,7 @@ type Create struct {
 	Protocol          entities.Protocol
 	Method            entities.HTTPMethod
 	URL               string
+	PathVariables     []entities.PathVariable
 	Headers           []entities.HeaderItem
 	Body              string
 	BodyType          entities.BodyType
@@ -103,6 +104,11 @@ func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*ent
 		grpcMetadata = make(map[string][]string)
 	}
 
+	pathVariables := input.PathVariables
+	if pathVariables == nil {
+		pathVariables = []entities.PathVariable{}
+	}
+
 	now := time.Now()
 	r := &entities.Request{
 		ID:                uuid.New(),
@@ -112,6 +118,7 @@ func (u *usecase) Create(ctx context.Context, input Create, opt CreateOpt) (*ent
 		Protocol:          input.Protocol,
 		Method:            input.Method,
 		URL:               input.URL,
+		PathVariables:     pathVariablesFor(input.Protocol, input.URL, pathVariables),
 		Headers:           headers,
 		Body:              input.Body,
 		BodyType:          input.BodyType,

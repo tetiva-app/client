@@ -8,6 +8,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { inheritFont } from '@/lib/cm-font'
 import { isModShortcut } from '@/lib/shortcut-guards'
 import { useFindShortcut } from '@/composables/useFindShortcut'
 import { isWailsEnvironment, getWindowService } from '@/services'
@@ -160,6 +161,7 @@ function createEditor() {
         drawSelection(),
         findInDocument(status => { sdlStatus.value = status }),
         highlightCompartment.of(activeHighlight()),
+        inheritFont,
         EditorView.theme({
           '&': {
             fontSize: 'var(--gc-editor-font-size, 13px)',

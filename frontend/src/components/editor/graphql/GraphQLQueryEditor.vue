@@ -15,6 +15,7 @@ import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import type { Request } from '@/types/request'
 import type { GraphQLSchema as AppGraphQLSchema } from '@/types/graphql'
 import { buildGqlJsSchema } from '@/lib/graphql-schema-builder'
+import { inheritFont } from '@/lib/cm-font'
 import { externalReplace, isExternal } from '@/lib/cm-external'
 
 const props = defineProps<{
@@ -139,6 +140,7 @@ function createQueryEditor() {
           },
         }),
         baseTheme,
+        inheritFont,
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some(isExternal)) {
             emit('update:query', update.state.doc.toString())
@@ -165,6 +167,7 @@ function createVariablesEditor() {
         json(),
         varsHighlightCompartment.of(activeHighlight()),
         baseTheme,
+        inheritFont,
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some(isExternal)) {
             emit('update:variables', update.state.doc.toString())

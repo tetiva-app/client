@@ -15,6 +15,7 @@ import {
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { isCurlCommand } from '@/lib/curl-paste'
 import { externalReplace, isExternal } from '@/lib/cm-external'
+import { inheritFont } from '@/lib/cm-font'
 import { singleLine } from '@/lib/cm-single-line'
 
 const props = withDefaults(defineProps<{
@@ -101,6 +102,7 @@ function createExtensions() {
       override: [variableCompletionSource(getVars, getSecrets, props.availableVariables ? getAvailableVars : undefined)],
     }),
     variableHighlightTheme,
+    inheritFont,
     cmPlaceholder(props.placeholder),
     EditorView.updateListener.of((update) => {
       if (!update.docChanged) return

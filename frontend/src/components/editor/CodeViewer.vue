@@ -8,6 +8,7 @@ import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
 import { languageSupport, type ViewerLanguage } from '@/lib/codemirror-languages'
+import { inheritFont } from '@/lib/cm-font'
 import { applyFind, findInDocument, stepFind, type FindStatus } from '@/lib/cm-find'
 
 const props = defineProps<{
@@ -57,6 +58,7 @@ function createEditor() {
     highlightCompartment.of(activeHighlight()),
     languageCompartment.of(support instanceof Promise ? [] : support),
     EditorView.contentAttributes.of(props.label ? { 'aria-label': props.label } : {}),
+    inheritFont,
     EditorView.theme({
       '&': {
         fontSize: 'var(--gc-editor-font-size, 13px)',

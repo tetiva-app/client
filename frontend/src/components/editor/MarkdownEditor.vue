@@ -10,6 +10,7 @@ import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
+import { inheritFont } from '@/lib/cm-font'
 import { markdownDarkHighlightStyle, markdownLightHighlightStyle } from '@/lib/codemirror-highlight'
 import { applyMarkdownAction, blockInsert, SLASH_MENU_ITEMS, tableSkeleton } from '@/lib/markdown-actions'
 import type { MarkdownAction } from '@/lib/markdown-actions'
@@ -190,6 +191,7 @@ function createEditor() {
         insideFence.value = fenceAtSelection(update.state)
       }
     }),
+    inheritFont,
     EditorView.theme({
       '&': {
         fontSize: 'var(--gc-editor-font-size, 13px)',

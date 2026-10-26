@@ -10,6 +10,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { inheritFont } from '@/lib/cm-font'
 import { isModShortcut } from '@/lib/shortcut-guards'
 
 const props = withDefaults(defineProps<{
@@ -44,6 +45,7 @@ function createEditor() {
     drawSelection(),
     highlightCompartment.of(activeHighlight()),
     StreamLanguage.define(protobuf),
+    inheritFont,
     EditorView.theme({
       '&': {
         fontSize: 'var(--gc-editor-font-size, 13px)',

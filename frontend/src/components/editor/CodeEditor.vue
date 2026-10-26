@@ -18,6 +18,7 @@ import { scriptHintsSource } from '@/lib/codemirror-script-hints'
 import { useSettingsStore } from '@/stores/settings'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
 import { externalReplace, isExternal } from '@/lib/cm-external'
+import { inheritFont } from '@/lib/cm-font'
 import { applyFind, findInDocument, stepFind, type FindStatus } from '@/lib/cm-find'
 
 const props = defineProps<{
@@ -219,6 +220,7 @@ function createEditor() {
         emit('update:content', update.state.doc.toString())
       }
     }),
+    inheritFont,
     EditorView.theme({
       '&': {
         fontSize: 'var(--gc-editor-font-size, 13px)',

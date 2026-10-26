@@ -9,6 +9,7 @@ import { BRAND_ACCENT_SELECTION } from '@/constants/defaults'
 import { useSettingsStore } from '@/stores/settings'
 import { useCopy } from '@/composables/useLocale'
 import { darkHighlightStyle, lightHighlightStyle } from '@/lib/codemirror-highlight'
+import { inheritFont } from '@/lib/cm-font'
 import { languageSupport } from '@/lib/codemirror-languages'
 import { DIFF_CONFIG, chunkIndexAt, chunkLineStarts, type DiffPosition } from '@/lib/compare/chunks'
 import type { BodyLanguage } from '@/lib/compare/body'
@@ -115,6 +116,7 @@ function extensions(): Extension[] {
     highlight.of(activeHighlight()),
     language(),
     theme,
+    inheritFont,
   ]
 }
 

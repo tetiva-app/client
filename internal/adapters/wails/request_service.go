@@ -267,27 +267,9 @@ func (s *RequestService) SaveResponseToFile(tempPath string, destPath string) Re
 		return Err[string](fmt.Errorf("%s: destination path must be absolute", funcName))
 	}
 
-	// Resolve symlinks for both temp path and temp dir to prevent traversal
-	absPath, err := filepath.Abs(tempPath)
+	resolvedPath, _, err := resolveTempPath(tempPath)
 	if err != nil {
-		return Err[string](fmt.Errorf("%s: invalid path: %w", funcName, err))
-	}
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		return Err[string](fmt.Errorf("%s: cannot resolve path: %w", funcName, err))
-	}
-	resolvedTempDir, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		return Err[string](fmt.Errorf("%s: cannot resolve temp dir: %w", funcName, err))
-	}
-
-	// Add separator suffix to prevent /tmp-evil matching /tmp
-	tempDirPrefix := resolvedTempDir
-	if !strings.HasSuffix(tempDirPrefix, string(filepath.Separator)) {
-		tempDirPrefix += string(filepath.Separator)
-	}
-	if !strings.HasPrefix(resolvedPath, tempDirPrefix) {
-		return Err[string](fmt.Errorf("%s: path is not in temp directory", funcName))
+		return Err[string](fmt.Errorf("%s: %w", funcName, err))
 	}
 
 	// Open source (no Stat — rely on Open to avoid TOCTOU)
@@ -314,6 +296,31 @@ func (s *RequestService) SaveResponseToFile(tempPath string, destPath string) Re
 	_ = os.Remove(resolvedPath)
 
 	return OK(destPath)
+}
+
+func resolveTempPath(tempPath string) (string, string, error) {
+	absPath, err := filepath.Abs(tempPath)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid path: %w", err)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot resolve path: %w", err)
+	}
+	resolvedTempDir, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		return "", "", fmt.Errorf("cannot resolve temp dir: %w", err)
+	}
+
+	// Add separator suffix to prevent /tmp-evil matching /tmp
+	tempDirPrefix := resolvedTempDir
+	if !strings.HasSuffix(tempDirPrefix, string(filepath.Separator)) {
+		tempDirPrefix += string(filepath.Separator)
+	}
+	if !strings.HasPrefix(resolvedPath, tempDirPrefix) {
+		return "", "", errors.New("path is not in temp directory")
+	}
+	return resolvedPath, resolvedTempDir, nil
 }
 
 func (s *RequestService) Execute(ctx context.Context, req dto.ExecuteRequestRequest) Result[dto.ExecuteResponseDTO] {

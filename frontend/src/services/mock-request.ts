@@ -1,6 +1,6 @@
 import type { HeaderItem, Request } from '@/types/request'
 import type { Result, ResultError } from '@/types/common'
-import type { ExecuteResponse } from '@/types/execute'
+import type { ExecuteResponse, ResponseImage } from '@/types/execute'
 import type { HistoryRecord } from '@/types/history'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { BuildSnippetReq, HarNameValue, HarPostData, HarRequest, SnippetInput } from '@/types/snippet'
@@ -232,6 +232,17 @@ export class MockRequestService implements RequestServiceAPI {
   async saveResponseToFile(_tempPath: string, _destPath: string): Promise<Result<string>> {
     // In browser mode, we can't save files — just return success
     return { data: '/mock/saved/response.bin' }
+  }
+
+  async readResponseImage(tempPath: string, _contentType: string): Promise<Result<ResponseImage>> {
+    if (tempPath === MOCK_HUGE_IMAGE_PATH) {
+      return {
+        data: null as unknown as ResponseImage,
+        error: { code: 'internal', message: 'image is too large to preview', reason: 'PREVIEW_TOO_LARGE', fields: { limit: String(10 << 20) } },
+      }
+    }
+    if (tempPath !== MOCK_IMAGE_PATH) return makeError('internal', `no response file at ${tempPath}`)
+    return { data: { mimeType: 'image/png', data: MOCK_PNG } }
   }
 
   async execute(execReq: { requestId: string; workspaceId: string; runId?: string }): Promise<Result<ExecuteResponse>> {
@@ -472,8 +483,50 @@ function decodeQuery(s: string): string {
   }
 }
 
+const MOCK_IMAGE_PATH = '/tmp/gopher-response-mock'
+const MOCK_HUGE_IMAGE_PATH = '/tmp/gopher-response-mock-huge'
+const MOCK_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAKAAAAB4AgMAAAAIzBH8AAAADFBMVEUAAABsXOct1KD3kAl5CrqpAAAAAXRSTlMAQObYZgAAAD9JREFUeNrs1aENACAUQ0GWZEmWhCBrCAmIL+7J5nybVK0e7WVEIAiCIPgXXh8SeIQzAkEQBMEXKBVpBQAA//9nEjsMU3S0QAAAAABJRU5ErkJggg=='
+
+const MOCK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24">'
+  + '<script>document.title = "svg script ran"</script>'
+  + '<circle cx="12" cy="12" r="10" fill="#6C5CE7"/><path d="M8 12l3 3 5-6" stroke="#fff" stroke-width="2" fill="none"/></svg>'
+
+const MOCK_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Order confirmed</title>
+  <link rel="stylesheet" href="https://tracker.example.com/style.css">
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 32px; color: #1f2328; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    .total { font-weight: 600; color: #1a8a6a; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Order #1042 confirmed</h1>
+  <p>Thanks for your order. Total: <span class="total">$42.00</span></p>
+  <p><a href="https://shop.example.com/orders/1042">View order</a></p>
+  <script>document.getElementById('title').textContent = 'Script ran'</script>
+</body>
+</html>`
+
 async function mockResponse(req: Request, send: number): Promise<ExecuteResponse | string> {
   const url = req.url.toLowerCase()
+
+  if (url.includes('huge.png')) {
+    return {
+      statusCode: 200,
+      statusText: '200 OK',
+      url: req.url,
+      headers: { 'Content-Type': ['image/png'] },
+      body: '',
+      size: 24 * 1024 * 1024,
+      durationMs: 1210,
+      isBinary: true,
+      binaryPath: MOCK_HUGE_IMAGE_PATH,
+      suggestedFilename: 'huge.png',
+    }
+  }
 
   if (url.includes('binary')) {
     return {
@@ -482,11 +535,35 @@ async function mockResponse(req: Request, send: number): Promise<ExecuteResponse
       url: req.url,
       headers: { 'Content-Type': ['image/png'] },
       body: '',
-      size: 1024,
+      size: 157,
       durationMs: 89,
       isBinary: true,
-      binaryPath: '/tmp/gopher-response-mock',
+      binaryPath: MOCK_IMAGE_PATH,
       suggestedFilename: 'response.png',
+    }
+  }
+
+  if (url.includes('svg')) {
+    return {
+      statusCode: 200,
+      statusText: '200 OK',
+      url: req.url,
+      headers: { 'Content-Type': ['image/svg+xml'] },
+      body: MOCK_SVG,
+      size: MOCK_SVG.length,
+      durationMs: 64,
+    }
+  }
+
+  if (url.includes('html')) {
+    return {
+      statusCode: 200,
+      statusText: '200 OK',
+      url: req.url,
+      headers: { 'Content-Type': ['text/html; charset=utf-8'] },
+      body: MOCK_HTML,
+      size: MOCK_HTML.length,
+      durationMs: 97,
     }
   }
 

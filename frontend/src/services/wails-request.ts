@@ -1,6 +1,6 @@
 import type { Request } from '@/types/request'
 import type { Result } from '@/types/common'
-import type { ExecuteResponse } from '@/types/execute'
+import type { ExecuteResponse, ResponseImage } from '@/types/execute'
 import type { GenerateCurlResponse, ParseCurlResponse } from '@/types/curl'
 import type { BuildSnippetReq, SnippetInput } from '@/types/snippet'
 import type { GRPCSchema, GRPCConnectRequest, GRPCGenerateExampleRequest } from '@/types/grpc'
@@ -202,6 +202,10 @@ export class WailsRequestService implements RequestServiceAPI {
 
   async saveResponseToFile(tempPath: string, destPath: string): Promise<Result<string>> {
     return unwrap<string>(await RequestService.SaveResponseToFile(tempPath, destPath) as unknown as BindingResult<string>)
+  }
+
+  async readResponseImage(tempPath: string, contentType: string): Promise<Result<ResponseImage>> {
+    return unwrap<ResponseImage>(await RequestService.ReadResponseImage(tempPath, contentType) as unknown as BindingResult<ResponseImage>)
   }
 
   async grpcListServices(req: GRPCConnectRequest): Promise<Result<GRPCSchema>> {

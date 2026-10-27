@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -64,8 +65,22 @@ func PathVariableKeys(rawURL string) []string {
 	return keys
 }
 
-// Only / ? # are escaped, so an already encoded value is sent as written.
-var pathValueEscaper = strings.NewReplacer("/", "%2F", "?", "%3F", "#", "%23")
+// pathValueKeep leaves % for values sent already encoded and {} for {{name}} the import
+// substitutes later; any other byte invalid in a path makes net/url undo %2F.
+const pathValueKeep = "-._~!$&'()*+,;=:@%{}"
+
+func escapePathValue(v string) string {
+	var b strings.Builder
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte(pathValueKeep, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
+}
 
 // ResolveURL resolves each path value once, before escaping, so it cannot add a segment.
 func ResolveURL(rawURL string, vars []PathVariable, resolve func(string) string) string {
@@ -81,7 +96,7 @@ func ResolveURL(rawURL string, vars []PathVariable, resolve func(string) string)
 			continue
 		}
 		b.WriteString(resolve(rawURL[last:s.start]))
-		b.WriteString(pathValueEscaper.Replace(value))
+		b.WriteString(escapePathValue(value))
 		last = s.end
 	}
 	b.WriteString(resolve(rawURL[last:]))

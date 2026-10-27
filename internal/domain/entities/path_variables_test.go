@@ -2,6 +2,7 @@ package entities
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"slices"
 	"testing"
@@ -53,6 +54,17 @@ func TestApplyPathVariables(t *testing.T) {
 		if got := ApplyPathVariables(tc.URL, vars); got != tc.Want {
 			t.Errorf("ApplyPathVariables(%q) = %q, want %q", tc.URL, got, tc.Want)
 		}
+	}
+}
+
+func TestApplyPathVariables_KeepsTheSegmentThroughURLParsing(t *testing.T) {
+	got := ApplyPathVariables("https://api.io/users/:id/posts", []PathVariable{{Key: "id", Value: "a/b c"}})
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := u.EscapedPath(); p != "/users/a%2Fb%20c/posts" {
+		t.Fatalf("EscapedPath = %q", p)
 	}
 }
 

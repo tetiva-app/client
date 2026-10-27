@@ -7530,7 +7530,7 @@ function resolveURL(url, vars, resolve) {
     const v = vars.find((p) => p.key === s.key);
     const value = v ? resolve(v.value) : "";
     if (!value) continue;
-    out += resolve(url.slice(last, s.start)) + value.replace(/[/?#]/g, (c2) => encodeURIComponent(c2));
+    out += resolve(url.slice(last, s.start)) + value.replace(/[^\w\-.~!$&'()*+,;=:@%{}]/gu, (c2) => encodeURIComponent(c2));
     last = s.end;
   }
   return out + resolve(url.slice(last));

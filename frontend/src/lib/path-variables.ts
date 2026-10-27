@@ -58,7 +58,7 @@ export function resolveURL(url: string, vars: PathVariable[], resolve: (s: strin
     const v = vars.find((p) => p.key === s.key)
     const value = v ? resolve(v.value) : ''
     if (!value) continue
-    out += resolve(url.slice(last, s.start)) + value.replace(/[/?#]/g, (c) => encodeURIComponent(c))
+    out += resolve(url.slice(last, s.start)) + value.replace(/[^\w\-.~!$&'()*+,;=:@%{}]/gu, (c) => encodeURIComponent(c))
     last = s.end
   }
   return out + resolve(url.slice(last))

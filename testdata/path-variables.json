@@ -45,7 +45,7 @@
     {
       "url": "http://localhost:8080/users/:id",
       "vars": [{ "key": "8080", "value": "x" }, { "key": "id", "value": "a b" }],
-      "want": "http://localhost:8080/users/a b"
+      "want": "http://localhost:8080/users/a%20b"
     },
     {
       "url": "https://api.io/users/:id",
@@ -65,7 +65,12 @@
     {
       "url": "https://api.io/files/:name",
       "vars": [{ "key": "name", "value": "50%25 off a b" }],
-      "want": "https://api.io/files/50%25 off a b"
+      "want": "https://api.io/files/50%25%20off%20a%20b"
+    },
+    {
+      "url": "https://api.io/users/:id/posts",
+      "vars": [{ "key": "id", "value": "a/b c\"é" }],
+      "want": "https://api.io/users/a%2Fb%20c%22%C3%A9/posts"
     }
   ],
   "resolve": [

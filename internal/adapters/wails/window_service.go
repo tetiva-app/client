@@ -119,7 +119,7 @@ func saveAndCloseEvent(requestID string) string {
 
 func prefsFilePath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, constants.AppDir, "window-prefs.json")
+	return filepath.Join(home, constants.AppDir(), "window-prefs.json")
 }
 
 func (ws *WindowService) loadPrefs() {

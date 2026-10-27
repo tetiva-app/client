@@ -14,7 +14,10 @@ vars:
   CROSS_IMAGE: wails-cross
 
   # Installed package/binary name; the Go output stays {{.APP_NAME}} like on the other platforms.
-  PACKAGE_NAME: "tetiva"
+  PACKAGE_NAME: '{{if eq .PREVIEW "1"}}tetiva-preview{{else}}tetiva{{end}}'
+  NFPM_CONFIG: './build/linux/nfpm/{{if eq .PREVIEW "1"}}nfpm-preview.yaml{{else}}nfpm.yaml{{end}}'
+  TETIVA_VERSION:
+    sh: grep -o 'AppVersion *= *"[^"]*"' internal/constants/app.go | cut -d'"' -f2
 
 tasks:
   build:
@@ -54,7 +57,7 @@ tasks:
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{if .PREVIEW_LDFLAGS}} -ldflags="{{.PREVIEW_LDFLAGS}}"{{end}}{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s{{if .PREVIEW_LDFLAGS}} {{.PREVIEW_LDFLAGS}}{{end}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -69,6 +72,8 @@ tasks:
       - task: common:build:frontend
       - task: common:generate:icons
     preconditions:
+      - sh: '[ "{{.PREVIEW}}" != "1" ]'
+        msg: "The cross image does not get the preview flavor; build Tetiva Preview with build/release-linux.sh."
       - sh: docker info > /dev/null 2>&1
         msg: "Docker is required for cross-compilation to Linux. Please install Docker."
       - sh: docker image inspect {{.CROSS_IMAGE}} > /dev/null 2>&1
@@ -137,17 +142,23 @@ tasks:
   generate:deb:
     summary: Creates a deb package
     cmds:
-      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format deb -config {{.NFPM_CONFIG}} -out {{.ROOT_DIR}}/bin
+    env:
+      TETIVA_VERSION: '{{.TETIVA_VERSION}}'
 
   generate:rpm:
     summary: Creates a rpm package
     cmds:
-      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format rpm -config {{.NFPM_CONFIG}} -out {{.ROOT_DIR}}/bin
+    env:
+      TETIVA_VERSION: '{{.TETIVA_VERSION}}'
 
   generate:aur:
     summary: Creates a arch linux packager package
     cmds:
-      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - wails3 tool package -name "{{.PACKAGE_NAME}}" -format archlinux -config {{.NFPM_CONFIG}} -out {{.ROOT_DIR}}/bin
+    env:
+      TETIVA_VERSION: '{{.TETIVA_VERSION}}'
 
   run:
     cmds:

@@ -17,12 +17,14 @@ import (
 
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 
+	"github.com/tetiva-app/client/internal/constants"
 	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 )
 
 const (
-	keyringService = "tetiva"
+	keyringService        = "tetiva"
+	keyringPreviewService = "tetiva-preview"
 	// keyringLegacyService is the pre-rebrand service name; loadRefreshToken
 	// falls back to it and migrates the entry so an existing login survives.
 	keyringLegacyService = "gophercourier"
@@ -94,14 +96,22 @@ type SyncAuthManager struct {
 	// account), so a store still in flight from the previous session undoes itself.
 	sessionEpoch atomic.Uint64
 	// keyringSet is swapped in tests: the real keychain write can block for seconds.
-	keyringSet func(service, account, token string) error
+	keyringSet    func(service, account, token string) error
+	service       string
+	legacyService string
 }
 
 func NewSyncAuthManager(configRepo sqlite.SyncConfigRepository) *SyncAuthManager {
-	return &SyncAuthManager{
-		configRepo: configRepo,
-		keyringSet: keyring.Set,
+	a := &SyncAuthManager{
+		configRepo:    configRepo,
+		keyringSet:    keyring.Set,
+		service:       keyringService,
+		legacyService: keyringLegacyService,
 	}
+	if constants.IsPreview() {
+		a.service, a.legacyService = keyringPreviewService, ""
+	}
+	return a
 }
 
 // SetClientID is called during initialization, from config.
@@ -554,7 +564,7 @@ func (a *SyncAuthManager) storeRefreshToken(token string, mirror bool) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := a.keyringSet(keyringService, account, token); err != nil {
+		if err := a.keyringSet(a.service, account, token); err != nil {
 			return
 		}
 		// A write that outlived its session must undo itself.
@@ -582,17 +592,17 @@ func (a *SyncAuthManager) storeRefreshToken(token string, mirror bool) {
 // undoLateWrite takes back a write that outlived its session, and only that write:
 // the session that replaced ours already mirrored its own token into sync_config.
 func (a *SyncAuthManager) undoLateWrite(account, token string) {
-	if current, err := keyring.Get(keyringService, account); err != nil || current != token {
+	if current, err := keyring.Get(a.service, account); err != nil || current != token {
 		return
 	}
 	// The session that replaced ours mirrors its own token into sync_config;
 	// anything equal to ours is our own stale mirror and must not come back.
 	if live := a.loadRefreshTokenDB(); live != "" && live != token {
-		if err := a.keyringSet(keyringService, account, live); err == nil {
+		if err := a.keyringSet(a.service, account, live); err == nil {
 			return
 		}
 	}
-	_ = keyring.Delete(keyringService, account)
+	_ = keyring.Delete(a.service, account)
 }
 
 // loadRefreshToken falls back to sync_config when the keychain is unavailable or slow.
@@ -607,13 +617,13 @@ func (a *SyncAuthManager) loadRefreshToken() string {
 	}
 	done := make(chan kr, 1)
 	go func() {
-		t, e := keyring.Get(keyringService, account)
-		if e != nil || t == "" {
+		t, e := keyring.Get(a.service, account)
+		if (e != nil || t == "") && a.legacyService != "" {
 			// Rebrand migration: a login made before the Tetiva rename
 			// lives under the legacy service. Move it over once.
-			if lt, le := keyring.Get(keyringLegacyService, account); le == nil && lt != "" {
-				if keyring.Set(keyringService, account, lt) == nil {
-					_ = keyring.Delete(keyringLegacyService, account)
+			if lt, le := keyring.Get(a.legacyService, account); le == nil && lt != "" {
+				if keyring.Set(a.service, account, lt) == nil {
+					_ = keyring.Delete(a.legacyService, account)
 				}
 				done <- kr{token: lt, err: nil}
 				return
@@ -638,11 +648,15 @@ func (a *SyncAuthManager) deleteRefreshToken() {
 	account := keyringKeyFor(a.clientID)
 	a.mu.RUnlock()
 
-	_ = keyring.Delete(keyringService, account)
-	_ = keyring.Delete(keyringLegacyService, account)
-	if account != keyringLegacyKey {
-		_ = keyring.Delete(keyringService, keyringLegacyKey)
-		_ = keyring.Delete(keyringLegacyService, keyringLegacyKey)
+	services := []string{a.service}
+	if a.legacyService != "" {
+		services = append(services, a.legacyService)
+	}
+	for _, service := range services {
+		_ = keyring.Delete(service, account)
+		if account != keyringLegacyKey {
+			_ = keyring.Delete(service, keyringLegacyKey)
+		}
 	}
 	a.storeRefreshTokenDB("")
 }

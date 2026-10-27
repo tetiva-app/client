@@ -5,6 +5,7 @@ import { SETTINGS_COPY } from '../copy'
 import { useCopy } from '@/composables/useLocale'
 import { fill } from '@/lib/locale'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
+import { useBuildStore } from '@/stores/build'
 import { openDocs } from '@/constants/docs'
 
 const props = defineProps<{ visible: Set<string> | null }>()
@@ -12,6 +13,7 @@ const emit = defineEmits<{ (e: 'show-welcome'): void }>()
 
 const copy = useCopy(SETTINGS_COPY)
 const whatsNewUi = useWhatsNewUi()
+const build = useBuildStore()
 const shown = (id: string) => !props.visible || props.visible.has(id)
 const appVersion = __APP_VERSION__
 </script>
@@ -24,7 +26,7 @@ const appVersion = __APP_VERSION__
       :data-hidden="shown('about-version') ? undefined : ''"
       class="py-3"
     >
-      <div class="text-[15px] font-semibold">Tetiva</div>
+      <div class="text-[15px] font-semibold">{{ build.productName }}</div>
       <div class="text-xs text-muted-foreground">{{ fill(copy.about.version, { version: appVersion }) }}</div>
     </div>
 

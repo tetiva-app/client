@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onActivated, onBeforeUnmount, onDeactivated, onMounted, onUnmounted } from 'vue'
 import { watchDebounced } from '@vueuse/core'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCollectionStore, type StashedLocals } from '@/stores/collections'
 import { useRequestStore, AUTOSAVE_DELAY_MS } from '@/stores/tabs'
 import { useEnvironmentStore } from '@/stores/environments'
@@ -16,6 +17,7 @@ import ScriptEditor from './ScriptEditor.vue'
 import PublicationPanel from '@/components/publication/PublicationPanel.vue'
 import { PUBLICATION_COPY } from '@/components/publication/copy'
 import { useCopy } from '@/composables/useLocale'
+import { usePreviewLock } from '@/composables/usePreviewLock'
 
 const props = defineProps<{
   collectionId: string
@@ -26,6 +28,8 @@ const SECTION_TAB = 'h-auto flex-none rounded-none border-0 border-b-[3px] borde
   + 'focus-visible:ring-inset focus-visible:outline-none data-[state=active]:border-primary data-[state=active]:bg-transparent '
   + 'data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:focus-visible:border-primary '
   + 'dark:text-muted-foreground dark:data-[state=active]:border-primary dark:data-[state=active]:bg-transparent'
+const LOCKED_TAB = 'inline-flex flex-none items-center gap-1.5 whitespace-nowrap border-b-[3px] border-transparent px-4 py-2.5 '
+  + 'text-[13px] font-medium text-muted-foreground opacity-40 cursor-not-allowed'
 
 const collectionStore = useCollectionStore()
 const tabStore = useRequestStore()
@@ -50,6 +54,7 @@ const publishLabel = computed(() => publishTabLabel(publishStatus.value))
 const isRoot = computed(() => !!collection.value && isRootCollection(collection.value))
 const showPublishTab = computed(() =>
   settings.publishingEnabled && (isRoot.value || publishStatus.value?.published === true))
+const { locked: previewLocked, reason: previewReason } = usePreviewLock()
 
 const isActiveTab = computed(
   () => tabStore.activeTab?.type === 'collection' && tabStore.activeTab.collectionId === props.collectionId,
@@ -208,8 +213,16 @@ onUnmounted(() => {
         <TabsTrigger value="scripts" :class="SECTION_TAB">
           {{ copy.tabs.scripts }}
         </TabsTrigger>
+        <Tooltip v-if="showPublishTab && previewLocked">
+          <TooltipTrigger as-child>
+            <button type="button" aria-disabled="true" :class="LOCKED_TAB" data-testid="collection-publish-tab">
+              {{ publishLabel.label }}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{{ previewReason }}</TooltipContent>
+        </Tooltip>
         <TabsTrigger
-          v-if="showPublishTab"
+          v-else-if="showPublishTab"
           value="publish"
           :class="SECTION_TAB"
           data-testid="collection-publish-tab"
@@ -259,7 +272,7 @@ onUnmounted(() => {
         />
       </TabsContent>
 
-      <TabsContent v-if="showPublishTab" value="publish" class="flex-1 min-h-0 overflow-auto mt-0">
+      <TabsContent v-if="showPublishTab && !previewLocked" value="publish" class="flex-1 min-h-0 overflow-auto mt-0">
         <PublicationPanel
           v-if="visited.has('publish')"
           :collection-id="collectionId"

@@ -5,6 +5,7 @@ import { ONBOARDING_COPY } from '@/onboarding/copy'
 import { TREE_COPY, type SyncStateKey } from '@/components/sidebar/copy'
 import { useLocale } from '@/composables/useLocale'
 import { useSyncStatus } from '@/composables/useSyncStatus'
+import { usePreviewLock } from '@/composables/usePreviewLock'
 import { parkedSummary } from '@/lib/sync-notices'
 import {
   Tooltip,
@@ -21,6 +22,7 @@ const verify = computed(() => ONBOARDING_COPY[locale.value].verify)
 const rail = computed(() => TREE_COPY[locale.value].rail)
 
 const { state, pending, parked, tooLarge, awaitingVerification } = useSyncStatus()
+const { locked: previewLocked, reason: previewReason } = usePreviewLock()
 
 // Changes held back from the cloud outlive their toast, so the icon warns until they sync.
 const parkedAlert = computed(
@@ -38,7 +40,21 @@ const stateLabel = computed(() => rail.value.syncState[state.value as SyncStateK
 </script>
 
 <template>
-  <Tooltip ignore-non-keyboard-focus>
+  <Tooltip v-if="previewLocked" ignore-non-keyboard-focus>
+    <TooltipTrigger as-child>
+      <button
+        type="button"
+        class="flex items-center justify-center w-12 h-12 cursor-not-allowed"
+        :aria-label="rail.sync"
+        aria-disabled="true"
+        data-testid="sync-preview-locked"
+      >
+        <CloudOff class="size-5 text-muted-foreground opacity-40" />
+      </button>
+    </TooltipTrigger>
+    <TooltipContent side="right" :side-offset="4">{{ previewReason }}</TooltipContent>
+  </Tooltip>
+  <Tooltip v-else ignore-non-keyboard-focus>
     <TooltipTrigger as-child>
       <button
         class="group flex items-center justify-center w-12 h-12 cursor-pointer"

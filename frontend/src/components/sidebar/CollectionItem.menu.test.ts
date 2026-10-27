@@ -32,9 +32,19 @@ vi.mock('@/components/ui/context-menu', () => {
   }
 })
 
+vi.mock('@/components/ui/tooltip', () => {
+  const inline = (tag: string) => defineComponent({
+    inheritAttrs: false,
+    setup: (_, { slots, attrs }) => () => h(tag, attrs, slots.default?.()),
+  })
+  return { Tooltip: inline('div'), TooltipTrigger: inline('div'), TooltipContent: inline('span') }
+})
+
 import CollectionItem from './CollectionItem.vue'
 import { usePublicationsStore } from '@/stores/publications'
 import { useSettingsStore } from '@/stores/settings'
+import { useBuildStore } from '@/stores/build'
+import { inside, tagWith } from '@/test-utils/markup'
 import { useTreeSelection } from '@/composables/useTreeSelection'
 import { setCurrentLocale } from '@/lib/locale'
 
@@ -99,6 +109,16 @@ describe('collection context menu', () => {
     expect(html).not.toContain('data-testid="collection-publish"')
     expect(html).not.toContain('Publish…')
     expect(html).toContain('Export as Postman')
+    expect(mocks.status).not.toHaveBeenCalled()
+  })
+
+  it('keeps publishing in the menu but locked in a preview build, without asking for its status', async () => {
+    mocks.openMenus = true
+    const html = await render(WAILS_ROOT, () => { useBuildStore().flavor = 'preview' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(tagWith(html, 'data-testid="collection-publish"')).toContain('disabled')
+    expect(inside(html, 'side="right"')).toContain('Preview build: sign-in is unavailable')
     expect(mocks.status).not.toHaveBeenCalled()
   })
 

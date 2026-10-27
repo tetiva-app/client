@@ -12,6 +12,7 @@ vi.mock('@/services', () => ({ isWailsEnvironment: () => false }))
 vi.mock('./CollectionTree.vue', () => empty)
 vi.mock('./PublicationsSidebar.vue', () => empty)
 vi.mock('./SidebarUpdateSlot.vue', () => empty)
+vi.mock('./PreviewBadge.vue', () => empty)
 vi.mock('@/components/WorkspaceSwitcher.vue', () => empty)
 vi.mock('./history/HistorySidebar.vue', async () => {
   const { defineComponent } = await import('vue')

@@ -6,18 +6,21 @@ import { Switch } from '@/components/ui/switch'
 import { SETTINGS_COPY } from '../copy'
 import { useCopy } from '@/composables/useLocale'
 import { useSettingsStore } from '@/stores/settings'
+import { useBuildStore } from '@/stores/build'
 import { cabinetPublishedUrl } from '@/lib/cabinet'
 import { openExternal } from '@/lib/open-external'
 
 const props = defineProps<{ visible: Set<string> | null }>()
 
 const settings = useSettingsStore()
+const build = useBuildStore()
 const copy = useCopy(SETTINGS_COPY)
 const shown = (id: string) => !props.visible || props.visible.has(id)
 
 const cabinetUrl = ref<string | null>(null)
 
 onMounted(async () => {
+  if (build.preview) return
   cabinetUrl.value = await cabinetPublishedUrl().catch(() => null)
 })
 

@@ -26,7 +26,7 @@ func resolveMCPConfig(uc settings.Usecase) (*mcpadapter.RuntimeStatus, error) {
 	persisted, err := uc.GetMCPConfig(context.Background())
 	if err != nil {
 		slog.Error("MCP: failed to read settings, defaulting to disabled", "err", err)
-		persisted = settings.MCPConfig{Enabled: false, Addr: settings.DefaultMCPAddr}
+		persisted = settings.MCPConfig{Enabled: false, Addr: settings.DefaultMCPAddr()}
 	}
 	st := &mcpadapter.RuntimeStatus{
 		Enabled: persisted.Enabled,
@@ -41,7 +41,7 @@ func resolveMCPConfig(uc settings.Usecase) (*mcpadapter.RuntimeStatus, error) {
 		st.EnvManaged = true
 	}
 	if st.Addr == "" {
-		st.Addr = settings.DefaultMCPAddr
+		st.Addr = settings.DefaultMCPAddr()
 	}
 	// Single choke point for every source (persisted, env, default) — configs
 	// written before the loopback default would otherwise still bind 0.0.0.0.

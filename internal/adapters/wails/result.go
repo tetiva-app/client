@@ -37,6 +37,7 @@ const (
 	// falling back to the in-app form.
 	ErrCodeServerUnreachable = "server_unreachable"
 	ErrCodeCancelled         = "cancelled"
+	ErrCodePreviewBuild      = "preview_build"
 	ErrCodeInternal          = "internal"
 )
 
@@ -46,6 +47,9 @@ var ErrNotConnected = errors.New("not connected to sync server")
 
 // ErrServerUnreachable is discovery that never reached a usable server.
 var ErrServerUnreachable = errors.New("cannot reach the sync server")
+
+// ErrPreviewBuild answers every call that would reach the account in a preview build.
+var ErrPreviewBuild = errors.New("preview build: sign-in, sync and publishing are unavailable")
 
 // ReasonServerUnreachable labels a publication or link failure the user can only retry.
 const ReasonServerUnreachable = "SERVER_UNREACHABLE"
@@ -87,6 +91,11 @@ func resultError(err error) *ResultError {
 		return &ResultError{
 			Code:    ErrCodeConflict,
 			Message: conflictErr.Error(),
+		}
+	case errors.Is(err, ErrPreviewBuild):
+		return &ResultError{
+			Code:    ErrCodePreviewBuild,
+			Message: err.Error(),
 		}
 	case errors.Is(err, ErrNotConnected):
 		return &ResultError{

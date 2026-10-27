@@ -21,6 +21,7 @@ import ActivityBar from './ActivityBar.vue'
 import { usePublicationsStore } from '@/stores/publications'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppUpdateStore } from '@/stores/appUpdate'
+import { useBuildStore } from '@/stores/build'
 import type { UpdateState } from '@/services'
 import { find, mountTree } from '@/test-utils/tree'
 import { emptyPublicationStatus } from '@/services/mock-publication'
@@ -42,7 +43,7 @@ function updateState(phase: UpdateState['phase']): UpdateState {
 
 async function render(
   locale: Locale,
-  opts: { enabled?: boolean; outdated?: number; update?: UpdateState['phase'] } = {},
+  opts: { enabled?: boolean; outdated?: number; update?: UpdateState['phase']; preview?: boolean } = {},
 ): Promise<string> {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -50,6 +51,7 @@ async function render(
   const settings = useSettingsStore()
   settings.setLanguage(locale)
   settings.setPublishingEnabled(opts.enabled ?? true)
+  if (opts.preview) useBuildStore().flavor = 'preview'
   if (opts.update) useAppUpdateStore().state = updateState(opts.update)
   usePublicationsStore().list = outdated(opts.outdated ?? 0)
   const app = createSSRApp(defineComponent({ render: () => h(ActivityBar, { activeSection: 'collections' }) }))
@@ -142,5 +144,33 @@ describe('activity bar Publications item', () => {
 
     expect(html).not.toContain('data-testid="activity-publications"')
     expect(html).not.toContain('data-testid="publications-badge"')
+  })
+})
+
+describe('activity bar in a preview build', () => {
+  it('keeps Publications on the rail but locked, with the reason in both languages', async () => {
+    const en = await render('en', { preview: true })
+    const item = tagWith(en, 'data-testid="activity-publications"')
+    expect(item).toContain('aria-disabled="true"')
+    expect(item).toContain('cursor-not-allowed')
+    expect(item).toContain('aria-label="Publications"')
+    expect(en).toContain('>Preview build: sign-in is unavailable</span>')
+
+    const ru = await render('ru', { preview: true })
+    expect(ru).toContain('>Тестовая сборка: вход недоступен</span>')
+  })
+
+  it('does not open the locked section on click', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useBuildStore().flavor = 'preview'
+    const switched = vi.fn()
+    const { app, root } = mountTree(ActivityBar, pinia, { activeSection: 'collections', 'onUpdate:activeSection': switched })
+
+    ;(find(root, 'activity-publications')!.props.onClick as () => void)()
+    ;(find(root, 'activity-history')!.props.onClick as () => void)()
+
+    expect(switched.mock.calls).toEqual([['history']])
+    app.unmount()
   })
 })

@@ -51,7 +51,10 @@ func ResolveDataDir() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%s: get home dir: %w", funcName, err)
 		}
-		dir = migrateLegacyDataDir(homeDir, filepath.Join(homeDir, constants.AppDir))
+		dir = filepath.Join(homeDir, constants.AppDir())
+		if !constants.IsPreview() {
+			dir = migrateLegacyDataDir(homeDir, dir)
+		}
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("%s: create dir: %w", funcName, err)
@@ -98,6 +101,10 @@ func NewDB(dir DataDir) (*sql.DB, error) {
 
 // The Tetiva variable wins; the legacy GopherCourier one keeps old setups and scripts working.
 func dataDirFromEnv() string {
+	// The other two may point at the regular app's data.
+	if constants.IsPreview() {
+		return os.Getenv("TETIVA_PREVIEW_DATA_DIR")
+	}
 	if v := os.Getenv("TETIVA_DATA_DIR"); v != "" {
 		return v
 	}

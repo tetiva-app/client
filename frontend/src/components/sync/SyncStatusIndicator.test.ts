@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createSSRApp, defineComponent, h, ref } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { createPinia, setActivePinia } from 'pinia'
 
 const status = vi.hoisted(() => ({ state: 'connected', pending: 0, parked: 0, tooLarge: 0, verify: false }))
 
@@ -24,6 +25,7 @@ vi.mock('@/components/ui/tooltip', () => {
 
 import SyncStatusIndicator from './SyncStatusIndicator.vue'
 import { setCurrentLocale } from '@/lib/locale'
+import { useBuildStore } from '@/stores/build'
 import { inside, tagWith } from '@/test-utils/markup'
 
 afterEach(() => {
@@ -31,8 +33,13 @@ afterEach(() => {
   Object.assign(status, { state: 'connected', pending: 0, parked: 0, tooLarge: 0, verify: false })
 })
 
-function render(): Promise<string> {
-  return renderToString(createSSRApp(SyncStatusIndicator))
+function render(flavor: 'stable' | 'preview' = 'stable'): Promise<string> {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useBuildStore().flavor = flavor
+  const app = createSSRApp(SyncStatusIndicator)
+  app.use(pinia)
+  return renderToString(app)
 }
 
 describe('sync button on the rail', () => {
@@ -77,5 +84,22 @@ describe('sync button on the rail', () => {
 
   it('does not pop its tooltip when a closing dialog hands focus back', async () => {
     expect(tagWith(await render(), '<div')).toContain('ignore-non-keyboard-focus')
+  })
+
+  it('is locked in a preview build, saying why in both languages', async () => {
+    status.state = 'connected'
+    const en = await render('preview')
+    expect(tagWith(en, '<button')).toContain('aria-disabled="true"')
+    expect(tagWith(en, '<button')).toContain('cursor-not-allowed')
+    expect(en).toContain('aria-label="Sync"')
+    expect(inside(en, 'side="right"')).toContain('Preview build: sign-in is unavailable')
+    expect(en).not.toContain('text-green-500')
+
+    setCurrentLocale('ru')
+    expect(inside(await render('preview'), 'side="right"')).toContain('Тестовая сборка: вход недоступен')
+  })
+
+  it('stays clickable in the regular build', async () => {
+    expect(tagWith(await render(), '<button')).not.toContain('aria-disabled')
   })
 })

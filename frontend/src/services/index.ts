@@ -14,6 +14,7 @@ import type { ExampleServiceAPI } from './example-api'
 import type { PublicationServiceAPI } from './publication-api'
 import type { DeepLinkServiceAPI } from './deeplink-api'
 import type { UpdateServiceAPI } from './update-api'
+import type { BuildServiceAPI } from './build-api'
 import type { ResultError } from '@/types/common'
 import type { Example } from '@/types/example'
 
@@ -122,6 +123,8 @@ export type { PublicationServiceAPI }
 export type { DeepLinkServiceAPI, DeepLink } from './deeplink-api'
 
 export type { UpdateServiceAPI, UpdateState, UpdatePhase, InstallKind, RestoreTabs } from './update-api'
+
+export type { BuildServiceAPI, BuildInfo, BuildFlavor } from './build-api'
 
 function detectWailsEnvironment(): boolean {
   if (typeof window === 'undefined') return false
@@ -349,4 +352,13 @@ export const getUpdateService = memoize<UpdateServiceAPI>(async () => {
   }
   const { MockUpdateService } = await import('./mock-update')
   return new MockUpdateService()
+})
+
+export const getBuildService = memoize<BuildServiceAPI>(async () => {
+  if (isWailsEnvironment()) {
+    const { WailsBuildService } = await import('./wails-build')
+    return new WailsBuildService()
+  }
+  const { MockBuildService } = await import('./mock-build')
+  return new MockBuildService()
 })

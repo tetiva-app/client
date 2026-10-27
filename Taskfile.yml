@@ -14,6 +14,7 @@ vars:
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # wails3 build GOOS=windows overrides this to cross-compile.
   GOOS: '{{.GOOS | default OS}}'
+  PREVIEW_LDFLAGS: '{{if eq .PREVIEW "1"}}-X github.com/tetiva-app/client/internal/constants.Flavor=preview{{end}}'
 
 tasks:
   build:

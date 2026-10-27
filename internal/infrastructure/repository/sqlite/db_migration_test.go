@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/tetiva-app/client/internal/constants"
+	"github.com/tetiva-app/client/internal/constants/flavortest"
 )
 
 func TestMigrateLegacyDataDir(t *testing.T) {
 	t.Run("renames legacy dir when new one is absent", func(t *testing.T) {
 		home := t.TempDir()
 		legacy := filepath.Join(home, constants.LegacyAppDir)
-		newDir := filepath.Join(home, constants.AppDir)
+		newDir := filepath.Join(home, constants.AppDir())
 		if err := os.MkdirAll(legacy, 0o750); err != nil {
 			t.Fatal(err)
 		}
@@ -36,7 +37,7 @@ func TestMigrateLegacyDataDir(t *testing.T) {
 	t.Run("keeps existing new dir untouched", func(t *testing.T) {
 		home := t.TempDir()
 		legacy := filepath.Join(home, constants.LegacyAppDir)
-		newDir := filepath.Join(home, constants.AppDir)
+		newDir := filepath.Join(home, constants.AppDir())
 		for _, d := range []string{legacy, newDir} {
 			if err := os.MkdirAll(d, 0o750); err != nil {
 				t.Fatal(err)
@@ -55,7 +56,7 @@ func TestMigrateLegacyDataDir(t *testing.T) {
 
 	t.Run("returns new dir when nothing to migrate", func(t *testing.T) {
 		home := t.TempDir()
-		newDir := filepath.Join(home, constants.AppDir)
+		newDir := filepath.Join(home, constants.AppDir())
 
 		if got := migrateLegacyDataDir(home, newDir); got != newDir {
 			t.Fatalf("got %q, want %q", got, newDir)
@@ -81,6 +82,7 @@ func isolateHome(t *testing.T) string {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("TETIVA_DATA_DIR", "")
 	t.Setenv("GOPHERCOURIER_DATA_DIR", "")
+	t.Setenv("TETIVA_PREVIEW_DATA_DIR", "")
 	return home
 }
 
@@ -93,7 +95,7 @@ func TestResolveDataDir(t *testing.T) {
 			t.Fatalf("ResolveDataDir: %v", err)
 		}
 
-		want := filepath.Join(realPath(t, home), constants.AppDir)
+		want := filepath.Join(realPath(t, home), constants.AppDir())
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
@@ -117,7 +119,7 @@ func TestResolveDataDir(t *testing.T) {
 			t.Fatalf("ResolveDataDir: %v", err)
 		}
 
-		if want := filepath.Join(realPath(t, home), constants.AppDir); got != want {
+		if want := filepath.Join(realPath(t, home), constants.AppDir()); got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 		if _, err := os.Stat(filepath.Join(got, constants.DBFileName)); err != nil {
@@ -189,6 +191,76 @@ func TestResolveDataDir(t *testing.T) {
 
 		if viaLink != direct {
 			t.Fatalf("via link %q, direct %q", viaLink, direct)
+		}
+	})
+}
+
+func TestResolveDataDir_Preview(t *testing.T) {
+	seed := func(t *testing.T, dir string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, constants.DBFileName), []byte("regular"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("starts empty next to the regular and legacy dirs", func(t *testing.T) {
+		flavortest.Preview(t)
+		home := isolateHome(t)
+		regular := filepath.Join(home, ".tetiva")
+		legacy := filepath.Join(home, constants.LegacyAppDir)
+		seed(t, regular)
+		seed(t, legacy)
+
+		got, err := ResolveDataDir()
+		if err != nil {
+			t.Fatalf("ResolveDataDir: %v", err)
+		}
+
+		if want := filepath.Join(realPath(t, home), ".tetiva-preview"); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+		if _, err := os.Stat(filepath.Join(got, constants.DBFileName)); !os.IsNotExist(err) {
+			t.Fatalf("preview dir must start without a database: %v", err)
+		}
+		for _, dir := range []string{regular, legacy} {
+			if b, err := os.ReadFile(filepath.Join(dir, constants.DBFileName)); err != nil || string(b) != "regular" {
+				t.Fatalf("%s was touched: %q, %v", dir, b, err)
+			}
+		}
+	})
+
+	t.Run("ignores the regular app's variables", func(t *testing.T) {
+		flavortest.Preview(t)
+		home := isolateHome(t)
+		t.Setenv("TETIVA_DATA_DIR", filepath.Join(home, ".tetiva"))
+		t.Setenv("GOPHERCOURIER_DATA_DIR", filepath.Join(home, ".tetiva"))
+
+		got, err := ResolveDataDir()
+		if err != nil {
+			t.Fatalf("ResolveDataDir: %v", err)
+		}
+
+		if want := filepath.Join(realPath(t, home), ".tetiva-preview"); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("keeps its own override", func(t *testing.T) {
+		flavortest.Preview(t)
+		isolateHome(t)
+		dir := t.TempDir()
+		t.Setenv("TETIVA_PREVIEW_DATA_DIR", dir)
+
+		got, err := ResolveDataDir()
+		if err != nil {
+			t.Fatalf("ResolveDataDir: %v", err)
+		}
+
+		if want := realPath(t, dir); got != want {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 }

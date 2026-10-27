@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import './assets/index.css'
 import { useSettingsStore } from './stores/settings'
+import { useBuildStore } from './stores/build'
 import { reportWindowTheme } from './lib/window-theme'
 import { releaseWindowWebSockets } from './lib/window-websockets'
 
@@ -13,4 +14,4 @@ app.use(createPinia())
 // live in every window mode, including child windows that skip App.vue's main-mode setup.
 reportWindowTheme(useSettingsStore())
 
-void releaseWindowWebSockets().then(() => app.mount('#app'))
+void Promise.all([releaseWindowWebSockets(), useBuildStore().load()]).then(() => app.mount('#app'))

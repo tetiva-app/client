@@ -36,6 +36,7 @@ import { useRequestStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { LOCAL_RECOUNT_DELAY_MS, panelActions, publicationMenuItem, publishTabLabel, usePublicationsStore } from './publications'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useBuildStore } from '@/stores/build'
 import { setCurrentLocale } from '@/lib/locale'
 import { contentSaved } from '@/lib/content-saved'
 
@@ -684,5 +685,24 @@ describe('publications list', () => {
     expect(store.lastQuotaRefusal).toBe(true)
     store.notePublishResult(null)
     expect(store.lastQuotaRefusal).toBe(false)
+  })
+})
+
+describe('publications store in a preview build', () => {
+  it('never asks the service, whatever the setting says', async () => {
+    const svc = await service()
+    svc.setStatus('c1', status())
+    ;(await world()).collections = [root('c1', 'Petstore API')]
+    activate('w1')
+    useBuildStore().flavor = 'preview'
+    const store = usePublicationsStore()
+
+    expect(await store.refresh('c1')).toBeNull()
+    await store.loadPlan('c1')
+    await store.refreshList({ remote: true })
+    await store.openFromMenu({ id: 'c1', name: 'Petstore API' })
+
+    expect(svc.calls).toEqual([])
+    expect(store.dialogCollectionId).toBeNull()
   })
 })

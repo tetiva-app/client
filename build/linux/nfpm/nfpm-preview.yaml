@@ -1,0 +1,37 @@
+name: "tetiva-preview"
+arch: ${GOARCH}
+platform: "linux"
+version: "${TETIVA_VERSION}"
+section: "devel"
+priority: "optional"
+maintainer: "Saveliy Yudin <support@tetiva.app>"
+description: "Tetiva Preview — test build of Tetiva that keeps its own data"
+vendor: "Saveliy Yudin"
+homepage: "https://tetiva.app"
+license: "MIT"
+release: "1"
+
+contents:
+  - src: "./bin/client"
+    dst: "/usr/bin/tetiva-preview"
+  - src: "./build/linux/tetiva-preview.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/tetiva-preview.png"
+  - src: "./build/linux/tetiva-preview.desktop"
+    dst: "/usr/share/applications/tetiva-preview.desktop"
+
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
+
+overrides:
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
+  archlinux:
+    depends:
+      - gtk3
+      - webkit2gtk-4.1
+
+scripts:
+  postinstall: "./build/linux/nfpm/scripts/postinstall.sh"

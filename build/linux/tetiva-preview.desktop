@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Tetiva Preview
+Comment=Test build of Tetiva that keeps its own data
+Exec=tetiva-preview
+Icon=tetiva-preview
+Terminal=false
+Categories=Development;
+Keywords=API;HTTP;gRPC;GraphQL;WebSocket;REST;
+StartupWMClass=tetiva-preview

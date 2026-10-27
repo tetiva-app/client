@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-	addr := settings.DefaultMCPAddr
+	addr := settings.DefaultMCPAddr()
 	if a := os.Getenv("MCP_ADDR"); a != "" {
 		addr = settings.NormalizeMCPAddr(a)
 	}

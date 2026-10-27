@@ -13,6 +13,7 @@ import { useSyncModalUi } from '@/stores/syncModalUi'
 import { usePublicationsStore } from '@/stores/publications'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { useCopy, useLocale } from '@/composables/useLocale'
+import { usePreviewLock } from '@/composables/usePreviewLock'
 import { TREE_COPY } from '@/components/sidebar/copy'
 import { fill, plural } from '@/lib/locale'
 import type { SettingsSectionId } from '@/lib/settings-search'
@@ -21,6 +22,7 @@ interface ActivityItem {
   id: string
   icon: typeof FolderOpen
   label: string
+  locked?: boolean
 }
 
 const props = defineProps<{
@@ -38,6 +40,7 @@ const publications = usePublicationsStore()
 const appUpdate = useAppUpdateStore()
 const locale = useLocale()
 const tree = useCopy(TREE_COPY)
+const { locked: previewLocked, reason: previewReason } = usePreviewLock()
 
 const topItems = computed<ActivityItem[]>(() => {
   const rail = tree.value.rail
@@ -49,12 +52,28 @@ const topItems = computed<ActivityItem[]>(() => {
   if (settingsStore.publishingEnabled) {
     const n = publications.outdatedCount
     const copy = tree.value.publications
-    items.push({ id: 'publications', icon: Radio, label: n > 0 ? plural(locale.value, n, copy.outdated) : copy.title })
+    items.push({
+      id: 'publications',
+      icon: Radio,
+      label: n > 0 ? plural(locale.value, n, copy.outdated) : copy.title,
+      locked: previewLocked.value,
+    })
   }
   return items
 })
 
 const syncModalUi = useSyncModalUi()
+
+function activate(item: ActivityItem) {
+  if (item.locked) return
+  if (item.id === 'environments') emit('open-environments')
+  else emit('update:activeSection', item.id)
+}
+
+function iconClass(item: ActivityItem): string {
+  if (item.locked) return 'opacity-40'
+  return props.activeSection === item.id ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
+}
 
 const settingsLabel = computed(() => (appUpdate.offeredVersion
   ? fill(tree.value.rail.settingsUpdate, { version: appUpdate.offeredVersion })
@@ -67,23 +86,21 @@ const settingsLabel = computed(() => (appUpdate.offeredVersion
       <Tooltip v-for="item in topItems" :key="item.id" ignore-non-keyboard-focus>
         <TooltipTrigger as-child>
           <button
-            class="group flex items-center justify-center w-12 h-12 relative cursor-pointer"
+            class="group flex items-center justify-center w-12 h-12 relative"
+            :class="item.locked ? 'cursor-not-allowed' : 'cursor-pointer'"
             :aria-label="item.label"
+            :aria-disabled="item.locked || undefined"
             :data-testid="`activity-${item.id}`"
-            @click="item.id === 'environments' ? emit('open-environments') : emit('update:activeSection', item.id)"
+            @click="activate(item)"
           >
             <div
               v-if="props.activeSection === item.id"
               class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r"
             />
             <span class="relative flex">
-              <component
-                :is="item.icon"
-                class="size-5 transition-opacity"
-                :class="props.activeSection === item.id ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'"
-              />
+              <component :is="item.icon" class="size-5 transition-opacity" :class="iconClass(item)" />
               <span
-                v-if="item.id === 'publications' && publications.outdatedCount > 0"
+                v-if="item.id === 'publications' && !item.locked && publications.outdatedCount > 0"
                 class="absolute -top-1 -right-1.5 min-w-3.5 h-3.5 rounded-full bg-[var(--gc-warning)] text-[9px] font-bold text-white flex items-center justify-center px-0.5 ring-2 ring-background"
                 data-testid="publications-badge"
               >
@@ -92,7 +109,7 @@ const settingsLabel = computed(() => (appUpdate.offeredVersion
             </span>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" :side-offset="4">{{ item.label }}</TooltipContent>
+        <TooltipContent side="right" :side-offset="4">{{ item.locked ? previewReason : item.label }}</TooltipContent>
       </Tooltip>
     </div>
 

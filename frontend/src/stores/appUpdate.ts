@@ -2,6 +2,7 @@ import { computed, ref, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getUpdateService, getWindowService, type UpdateState } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
+import { useBuildStore } from '@/stores/build'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRequestStore } from '@/stores/tabs'
@@ -18,6 +19,7 @@ const HOUR_MS = 60 * 60 * 1000
 export const useAppUpdateStore = defineStore('appUpdate', () => {
   const settings = useSettingsStore()
   const whatsNew = useWhatsNewUi()
+  const build = useBuildStore()
 
   const state = ref<UpdateState>({
     phase: 'idle', version: '', current: __APP_VERSION__, received: 0, total: 0, install: '', reason: '',
@@ -65,6 +67,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   async function check() {
+    if (build.preview) return
     lastCheckMs = Date.now()
     const res = await (await getUpdateService()).check()
     if (res.error) return
@@ -82,7 +85,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   async function init(opts: { syncState: Ref<string> }) {
-    if (started) return
+    if (started || build.preview) return
     started = true
     const svc = await getUpdateService()
     await svc.onState(s => { state.value = s })

@@ -21,6 +21,7 @@ vi.mock('@/services', () => ({ getUpdateService: async () => svc, isWailsEnviron
 import { useSettingsStore } from '@/stores/settings'
 import { useWhatsNewUi } from '@/stores/whatsNewUi'
 import { useAppUpdateStore } from './appUpdate'
+import { useBuildStore } from '@/stores/build'
 
 const HOUR = 60 * 60 * 1000
 const NOW = Date.parse('2026-10-20T12:00:00Z')
@@ -259,5 +260,22 @@ describe('appUpdate store', () => {
     expect(store.card.mode).toBe('card')
     store.dismiss()
     expect(store.card.mode).toBe('hidden')
+  })
+})
+
+describe('appUpdate store in a preview build', () => {
+  it('never reads, checks or downloads', async () => {
+    useBuildStore().flavor = 'preview'
+    const store = useAppUpdateStore()
+
+    await store.init({ syncState: ref('update_required') })
+    await store.check()
+    vi.advanceTimersByTime(25 * HOUR)
+    await settle()
+
+    expect(svc.status).not.toHaveBeenCalled()
+    expect(svc.check).not.toHaveBeenCalled()
+    expect(svc.download).not.toHaveBeenCalled()
+    expect(store.offeredVersion).toBeNull()
   })
 })

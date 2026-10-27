@@ -15,6 +15,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { useOnboardingUi } from '@/stores/onboardingUi'
 import { useAppUpdateStore } from '@/stores/appUpdate'
+import { useBuildStore } from '@/stores/build'
 import { searchSettings, SETTINGS_SECTIONS, type SettingsSectionId } from '@/lib/settings-search'
 import { clientOS, isMac } from '@/lib/platform'
 
@@ -25,6 +26,7 @@ const settings = useSettingsStore()
 const ui = useSettingsModalUi()
 const onboardingUi = useOnboardingUi()
 const appUpdate = useAppUpdateStore()
+const build = useBuildStore()
 const copy = useCopy(SETTINGS_COPY)
 const appVersion = __APP_VERSION__
 const shortcut = isMac() ? '⌘,' : 'Ctrl+,'
@@ -42,15 +44,16 @@ const SECTION_COMPONENTS = {
   about: AboutSection,
 } as const
 
-const searchIndex = settingsSearchIndex(clientOS())
+const sections = computed(() => SETTINGS_SECTIONS.filter((id) => !(build.preview && id === 'updates')))
+const searchIndex = computed(() => settingsSearchIndex(clientOS()).filter((row) => sections.value.includes(row.section)))
 const query = ref('')
 const searching = computed(() => query.value.trim() !== '')
-const hits = computed(() => searchSettings(query.value, searchIndex))
+const hits = computed(() => searchSettings(query.value, searchIndex.value))
 const nothingFound = computed(() => searching.value && hits.value.size === 0)
 
 const current = computed<SettingsSectionId>(() => {
   if (!searching.value || hits.value.size === 0 || hits.value.has(ui.section)) return ui.section
-  return SETTINGS_SECTIONS.find((id) => hits.value.has(id)) ?? ui.section
+  return sections.value.find((id) => hits.value.has(id)) ?? ui.section
 })
 const visibleRows = computed(() => (searching.value ? hits.value.get(current.value) ?? new Set<string>() : null))
 
@@ -112,7 +115,7 @@ function showWelcome() {
         </label>
         <div class="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto">
           <button
-            v-for="id in SETTINGS_SECTIONS"
+            v-for="id in sections"
             :key="id"
             type="button"
             :data-testid="`settings-nav-${id}`"
@@ -150,7 +153,7 @@ function showWelcome() {
           </button>
         </div>
         <div class="mt-1.5 flex min-w-0 items-center justify-between gap-1.5 border-t border-border px-1.5 pt-2 text-[11px] text-muted-foreground">
-          <span class="truncate">Tetiva {{ appVersion }}</span>
+          <span class="truncate">{{ build.productName }} {{ appVersion }}</span>
           <kbd class="shrink-0 rounded border border-border px-1 font-mono text-[11px]">{{ shortcut }}</kbd>
         </div>
       </nav>

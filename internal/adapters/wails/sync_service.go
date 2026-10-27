@@ -105,6 +105,9 @@ func NewSyncService(
 }
 
 func (s *SyncService) dial(serverURL string) (*syncsvc.GRPCClient, error) {
+	if constants.IsPreview() {
+		return nil, ErrPreviewBuild
+	}
 	return s.newClient(serverURL)
 }
 
@@ -127,6 +130,9 @@ var _ syncsvc.ClientProvider = (*SyncService)(nil)
 //
 //wails:ignore
 func (s *SyncService) EnsureClient(ctx context.Context) (*syncsvc.GRPCClient, error) {
+	if constants.IsPreview() {
+		return nil, ErrPreviewBuild
+	}
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
 
@@ -183,6 +189,9 @@ func (s *SyncService) raiseWindow() {
 
 // Resumes sync for all linked workspaces, if credentials are saved.
 func (s *SyncService) ResumeOnStartup(ctx context.Context) error {
+	if constants.IsPreview() {
+		return nil
+	}
 	// A crash mid-push leaves rows stuck in 'sending'; the push worker only
 	// reads 'pending', so reset them here or they never retry. Non-fatal.
 	if s.queueRepo != nil {
@@ -555,6 +564,9 @@ func (s *SyncService) linkActiveWorkspace(ctx context.Context) {
 // Local first, server second: a refused cloud copy costs the sync mapping, never
 // the name the user typed. The reason travels back as a warning.
 func (s *SyncService) CreateRemoteWorkspace(req dto.CreateWorkspaceRequest) Result[dto.CreateRemoteWorkspaceResult] {
+	if constants.IsPreview() {
+		return Err[dto.CreateRemoteWorkspaceResult](ErrPreviewBuild)
+	}
 	ctx := context.Background()
 
 	w, err := s.wsUC.Create(ctx,
@@ -852,6 +864,9 @@ func unlinkWorkspace(ctx context.Context, db *sql.DB, localID string) error {
 }
 
 func (s *SyncService) LinkWorkspace(req dto.LinkWorkspaceRequest) Result[Empty] {
+	if constants.IsPreview() {
+		return Err[Empty](ErrPreviewBuild)
+	}
 	if err := s.linkLocalWorkspace(context.Background(), req.LocalWorkspaceID, req.RemoteWorkspaceID); err != nil {
 		return Err[Empty](err)
 	}
@@ -905,6 +920,9 @@ func (s *SyncService) restartLinkedSyncer(ctx context.Context, localWorkspaceID 
 // active org. Used by the connect-modal to show available remotes for linking.
 func (s *SyncService) ListRemoteWorkspaces() Result[[]dto.RemoteWorkspace] {
 	const funcName = "SyncService.ListRemoteWorkspaces"
+	if constants.IsPreview() {
+		return Err[[]dto.RemoteWorkspace](fmt.Errorf("%s: %w", funcName, ErrPreviewBuild))
+	}
 	ctx := context.Background()
 	if s.client() == nil {
 		return Err[[]dto.RemoteWorkspace](fmt.Errorf("%s: %w", funcName, ErrNotConnected))
@@ -1075,6 +1093,9 @@ func (s *SyncService) upsertLocalForRemote(ctx context.Context, w *workspacev1.W
 // discovery endpoint is not an error — the modal falls back to the in-app form.
 func (s *SyncService) GetServerCapabilities(req dto.ServerCapabilitiesRequest) Result[dto.ServerCapabilities] {
 	const funcName = "SyncService.GetServerCapabilities"
+	if constants.IsPreview() {
+		return Err[dto.ServerCapabilities](fmt.Errorf("%s: %w", funcName, ErrPreviewBuild))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), serverInfoTimeout)
 	defer cancel()
 
@@ -1117,6 +1138,9 @@ func (s *SyncService) GetServerCapabilities(req dto.ServerCapabilitiesRequest) R
 // StartBrowserSignIn files one sign-in request and hands back the link to open.
 func (s *SyncService) StartBrowserSignIn(req dto.StartBrowserSignInRequest) Result[dto.BrowserSignInInfo] {
 	const funcName = "SyncService.StartBrowserSignIn"
+	if constants.IsPreview() {
+		return Err[dto.BrowserSignInInfo](fmt.Errorf("%s: %w", funcName, ErrPreviewBuild))
+	}
 	ctx := context.Background()
 
 	// Checked before the syncers stop: an id the restore cannot name would leave

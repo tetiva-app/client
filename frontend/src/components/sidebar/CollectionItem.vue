@@ -25,6 +25,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { usePreviewLock } from '@/composables/usePreviewLock'
 import RequestItem from './RequestItem.vue'
 import { TREE_COPY } from './copy'
 
@@ -76,6 +78,7 @@ const highlightedName = useHighlight(() => props.node.name, () => search.query)
 const offersPublishing = computed(() => settings.publishingEnabled && isRootCollection(props.node))
 const publishItemLabel = computed(() => publicationMenuItem(publications.statusOf(props.node.id)))
 const publishItemLoading = computed(() => publications.isLoading(props.node.id))
+const { locked: previewLocked, reason: previewReason } = usePreviewLock()
 
 function handleMenuOpen(open: boolean) {
   if (open && offersPublishing.value) void publications.ensure(props.node.id)
@@ -193,7 +196,13 @@ function handleMoreClick(e: MouseEvent) {
         </ContextMenuItem>
         <template v-if="offersPublishing">
           <ContextMenuSeparator />
-          <ContextMenuItem data-testid="collection-publish" :disabled="publishItemLoading" @click="emit('publish', node)">
+          <Tooltip v-if="previewLocked">
+            <TooltipTrigger as-child>
+              <ContextMenuItem data-testid="collection-publish" disabled>{{ publishItemLabel }}</ContextMenuItem>
+            </TooltipTrigger>
+            <TooltipContent side="right">{{ previewReason }}</TooltipContent>
+          </Tooltip>
+          <ContextMenuItem v-else data-testid="collection-publish" :disabled="publishItemLoading" @click="emit('publish', node)">
             <template v-if="publishItemLoading">
               <Loader2 class="size-3.5 animate-spin" />{{ copy.menu.checking }}
             </template>

@@ -42,7 +42,7 @@ tasks:
       - rm -f "{{.OUTPUT}}"
       - go build {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{if .PREVIEW_LDFLAGS}} -ldflags="{{.PREVIEW_LDFLAGS}}"{{end}}{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s{{if .PREVIEW_LDFLAGS}} {{.PREVIEW_LDFLAGS}}{{end}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -134,6 +134,13 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
+      - |
+        if [ "{{.PREVIEW}}" = "1" ]; then
+          cp build/darwin/icons-preview.icns "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources/icons.icns"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier yudinsv.com.Tetiva.preview" \
+            -c "Set :CFBundleName 'Tetiva Preview'" -c "Delete :CFBundleURLTypes" \
+            "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist"
+        fi
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 
   codesign:adhoc:

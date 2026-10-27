@@ -17,6 +17,7 @@ func TestDIGraphValid(t *testing.T) {
 		NewApp(migrations.FS, deeplink.NewStore(), sqlite.DataDir(t.TempDir())),
 		fx.Invoke(func(*wailsadapter.DeepLinkService) {}),
 		fx.Invoke(func(*wailsadapter.UpdateService) {}),
+		fx.Invoke(func(*wailsadapter.BuildService) {}),
 	)
 	if err := fx.ValidateApp(app, fx.NopLogger); err != nil {
 		t.Fatalf("DI graph invalid: %v", err)

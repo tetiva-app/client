@@ -46,8 +46,8 @@ func TestGetMCPConfig_Defaults(t *testing.T) {
 	if cfg.Enabled {
 		t.Errorf("expected disabled by default, got enabled")
 	}
-	if cfg.Addr != DefaultMCPAddr {
-		t.Errorf("expected addr %q, got %q", DefaultMCPAddr, cfg.Addr)
+	if cfg.Addr != DefaultMCPAddr() {
+		t.Errorf("expected addr %q, got %q", DefaultMCPAddr(), cfg.Addr)
 	}
 }
 
@@ -74,8 +74,8 @@ func TestGetMCPConfig_EmptyAddrFallsBackToDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Addr != DefaultMCPAddr {
-		t.Errorf("expected fallback to %q, got %q", DefaultMCPAddr, cfg.Addr)
+	if cfg.Addr != DefaultMCPAddr() {
+		t.Errorf("expected fallback to %q, got %q", DefaultMCPAddr(), cfg.Addr)
 	}
 }
 

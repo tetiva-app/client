@@ -42,6 +42,7 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from '@/lib/settings-search
 import { useSettingsStore } from '@/stores/settings'
 import { useSettingsModalUi } from '@/stores/settingsModalUi'
 import { useAppUpdateStore } from '@/stores/appUpdate'
+import { useBuildStore } from '@/stores/build'
 import type { UpdateState } from '@/services'
 import { setCurrentLocale, type Locale } from '@/lib/locale'
 import { inside, tagWith } from '@/test-utils/markup'
@@ -233,5 +234,23 @@ describe('settings dialog', () => {
 
     const ready = await render('en', 'interface', withUpdate({ phase: 'ready' }))
     expect(inside(ready, 'data-testid="settings-nav-updates"')).toContain('title="Update available"')
+  })
+})
+
+describe('settings dialog in a preview build', () => {
+  const preview = () => { useBuildStore().flavor = 'preview' }
+
+  it('has no Updates section', async () => {
+    const html = await render('en', 'interface', preview)
+    expect(html).not.toContain('data-testid="settings-nav-updates"')
+    expect(html).toContain('data-testid="settings-nav-about"')
+
+    const regular = await render('en', 'interface')
+    expect(regular).toContain('data-testid="settings-nav-updates"')
+  })
+
+  it('names the preview in the nav footer and in About', async () => {
+    expect(await render('en', 'interface', preview)).toContain('Tetiva Preview 1.2.0')
+    expect(await render('ru', 'about', preview)).toContain('>Tetiva Preview</div>')
   })
 })

@@ -18,6 +18,7 @@ import { PUBLICATION_COPY } from '@/components/publication/copy'
 import { useToast } from '@/composables/useToast'
 import { useRequestStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
+import { useBuildStore } from '@/stores/build'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 export const LOCAL_RECOUNT_DELAY_MS = 2000
@@ -65,6 +66,8 @@ export function publicationMenuItem(st: PublicationStatus | undefined, locale: L
 export const usePublicationsStore = defineStore('publications', () => {
   const toast = useToast()
   const settings = useSettingsStore()
+  const build = useBuildStore()
+  const enabled = computed(() => settings.publishingEnabled && !build.preview)
   const statuses = ref(new Map<string, PublicationStatus>())
   const errors = ref(new Map<string, ResultError>())
   const plans = ref(new Map<string, PublishPlan>())
@@ -109,6 +112,7 @@ export const usePublicationsStore = defineStore('publications', () => {
   }
 
   async function loadPlan(collectionId: string): Promise<void> {
+    if (build.preview) return
     const gen = generation
     const res = await guarded((await getPublicationService()).plan(collectionId))
     if (gen !== generation || res.error) return
@@ -121,6 +125,7 @@ export const usePublicationsStore = defineStore('publications', () => {
   }
 
   function refresh(collectionId: string): Promise<PublicationStatus | null> {
+    if (build.preview) return Promise.resolve(null)
     const running = inFlight.get(collectionId)
     if (running) return running
     const gen = generation
@@ -174,7 +179,7 @@ export const usePublicationsStore = defineStore('publications', () => {
   }
 
   async function refreshList({ remote }: { remote: boolean }): Promise<void> {
-    if (!settings.publishingEnabled) return
+    if (!enabled.value) return
     if (!remote && listReason.value === 'not_logged_in') return
     const workspaceId = useWorkspaceStore().activeWorkspace?.id
     if (!workspaceId) return
@@ -207,7 +212,7 @@ export const usePublicationsStore = defineStore('publications', () => {
   }
 
   function scheduleRecount() {
-    if (!settings.publishingEnabled) return
+    if (!enabled.value) return
     cancelRecount()
     recountTimer = setTimeout(() => {
       recountTimer = null
@@ -223,7 +228,7 @@ export const usePublicationsStore = defineStore('publications', () => {
         resetList()
         void refreshList({ remote: true })
       }, { immediate: true }),
-      watch(() => settings.publishingEnabled, enabled => { if (enabled) void refreshList({ remote: true }) }),
+      watch(enabled, on => { if (on) void refreshList({ remote: true }) }),
     ]
     return () => {
       for (const stop of stops) stop()
@@ -254,7 +259,7 @@ export const usePublicationsStore = defineStore('publications', () => {
   }
 
   function openDialog(collectionId: string) {
-    if (!settings.publishingEnabled) return
+    if (!enabled.value) return
     dialogCollectionId.value = collectionId
   }
 
@@ -262,14 +267,14 @@ export const usePublicationsStore = defineStore('publications', () => {
     dialogCollectionId.value = null
   }
 
-  watch(() => settings.publishingEnabled, enabled => {
-    if (enabled) return
+  watch(enabled, on => {
+    if (on) return
     closeDialog()
     resetList()
   })
 
   async function openFromMenu(collection: { id: string; name: string }) {
-    if (!settings.publishingEnabled) return
+    if (!enabled.value) return
     await ensure(collection.id)
     if (isPublished(collection.id)) {
       useRequestStore().openCollectionTab(collection.id, collection.name, { initialSection: 'publish' })

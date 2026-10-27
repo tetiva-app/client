@@ -144,6 +144,9 @@ func NewPublicationService(
 }
 
 func (s *PublicationService) Status(req dto.PublicationStatusRequest) Result[dto.PublicationStatus] {
+	if constants.IsPreview() {
+		return Err[dto.PublicationStatus](ErrPreviewBuild)
+	}
 	ctx := context.Background()
 
 	id, err := parseUUIDField("collectionId", req.CollectionID)
@@ -164,6 +167,9 @@ func (s *PublicationService) Status(req dto.PublicationStatusRequest) Result[dto
 
 func (s *PublicationService) Plan(req dto.PublishPlanRequest) Result[dto.PublishPlan] {
 	const funcName = "PublicationService.Plan"
+	if constants.IsPreview() {
+		return Err[dto.PublishPlan](fmt.Errorf("%s: %w", funcName, ErrPreviewBuild))
+	}
 	ctx := context.Background()
 
 	id, err := parseUUIDField("collectionId", req.CollectionID)
@@ -205,6 +211,9 @@ func (s *PublicationService) Preview(req dto.PublishPreviewRequest) Result[dto.P
 }
 
 func (s *PublicationService) Publish(req dto.PublishRequest) Result[dto.PublicationStatus] {
+	if constants.IsPreview() {
+		return Err[dto.PublicationStatus](ErrPreviewBuild)
+	}
 	st, err := s.publish(context.Background(), req)
 	if err != nil {
 		return Err[dto.PublicationStatus](unreachable(err))
@@ -215,6 +224,9 @@ func (s *PublicationService) Publish(req dto.PublishRequest) Result[dto.Publicat
 // Unpublish returns a failure to the user; unlike a delete, it leaves no deferred intent.
 func (s *PublicationService) Unpublish(req dto.UnpublishRequest) Result[dto.PublicationStatus] {
 	const funcName = "PublicationService.Unpublish"
+	if constants.IsPreview() {
+		return Err[dto.PublicationStatus](fmt.Errorf("%s: %w", funcName, ErrPreviewBuild))
+	}
 	ctx := context.Background()
 
 	id, err := parseUUIDField("collectionId", req.CollectionID)
@@ -288,6 +300,9 @@ func (s *PublicationService) MarkVariableSecret(req dto.MarkSecretRequest) Resul
 //
 //wails:ignore
 func (s *PublicationService) ProcessPending(ctx context.Context) {
+	if constants.IsPreview() {
+		return
+	}
 	s.pendingMu.Lock()
 	if s.pendingRunning {
 		s.pendingAgain = true
@@ -407,6 +422,9 @@ func (s *PublicationService) withChanges(ctx context.Context, col *entities.Coll
 }
 
 func (s *PublicationService) List(req dto.PublicationListRequest) Result[dto.PublicationList] {
+	if constants.IsPreview() {
+		return Err[dto.PublicationList](ErrPreviewBuild)
+	}
 	out, err := s.list(context.Background(), req)
 	if err != nil {
 		return Err[dto.PublicationList](err)

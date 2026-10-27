@@ -135,6 +135,7 @@ func NewUsecases() fx.Option {
 		fx.Provide(wailsadapter.NewSettingsService),
 		fx.Provide(wailsadapter.NewWindowService),
 		fx.Provide(wailsadapter.NewDeepLinkService),
+		fx.Provide(wailsadapter.NewBuildService),
 
 		fx.Invoke(RegisterCleanupHook),
 	)

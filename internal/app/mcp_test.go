@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/tetiva-app/client/internal/constants/flavortest"
 	"github.com/tetiva-app/client/internal/domain/usecase/settings"
 )
 
@@ -78,7 +79,7 @@ func TestResolveMCPConfig_DefaultsWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Enabled || st.Addr != settings.DefaultMCPAddr || st.EnvManaged {
+	if st.Enabled || st.Addr != settings.DefaultMCPAddr() || st.EnvManaged {
 		t.Errorf("got %+v", st)
 	}
 }
@@ -91,6 +92,18 @@ func TestResolveMCPConfig_DefaultIsLoopback(t *testing.T) {
 	}
 	if st.Addr != "127.0.0.1:9300" {
 		t.Errorf("default must bind loopback only, got %q", st.Addr)
+	}
+}
+
+func TestResolveMCPConfig_PreviewDefaultsToItsOwnPort(t *testing.T) {
+	clearMCPEnv(t)
+	flavortest.Preview(t)
+	st, err := resolveMCPConfig(newUC(map[string]string{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Addr != "127.0.0.1:9301" {
+		t.Errorf("the preview must not collide with the regular app's MCP, got %q", st.Addr)
 	}
 }
 

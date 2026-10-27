@@ -16,19 +16,7 @@ import (
 func UpdateModule() fx.Option {
 	return fx.Module("update",
 		fx.Provide(wailsadapter.NewUpdateEventSink),
-		fx.Provide(func(dir sqlite.DataDir, sink *wailsadapter.UpdateEventSink) (appupdate.Usecase, error) {
-			store, err := infraupdate.NewFileStore(string(dir))
-			if err != nil {
-				return nil, err
-			}
-			return appupdate.NewUsecase(constants.AppVersion,
-				appupdate.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH},
-				infraupdate.NewSource(string(dir), constants.AppVersion),
-				infraupdate.Codec{Keys: infraupdate.ReleaseKeys()},
-				infraupdate.NewDownloader(),
-				infraupdate.NewInstaller(string(dir), infraupdate.ProductionBuild),
-				store, sink), nil
-		}),
+		fx.Provide(newUpdateUsecase),
 		fx.Provide(wailsadapter.NewUpdateService),
 		fx.Invoke(func(lc fx.Lifecycle, uc appupdate.Usecase) {
 			lc.Append(fx.Hook{OnStart: func(ctx context.Context) error {
@@ -37,4 +25,21 @@ func UpdateModule() fx.Option {
 			}})
 		}),
 	)
+}
+
+func newUpdateUsecase(dir sqlite.DataDir, sink *wailsadapter.UpdateEventSink) (appupdate.Usecase, error) {
+	if constants.IsPreview() {
+		return appupdate.NewDisabled(constants.AppVersion, appupdate.ReasonPreviewBuild), nil
+	}
+	store, err := infraupdate.NewFileStore(string(dir))
+	if err != nil {
+		return nil, err
+	}
+	return appupdate.NewUsecase(constants.AppVersion,
+		appupdate.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH},
+		infraupdate.NewSource(string(dir), constants.AppVersion),
+		infraupdate.Codec{Keys: infraupdate.ReleaseKeys()},
+		infraupdate.NewDownloader(),
+		infraupdate.NewInstaller(string(dir), infraupdate.ProductionBuild),
+		store, sink), nil
 }

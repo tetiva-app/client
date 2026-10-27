@@ -4,6 +4,7 @@ import CollectionTree from './CollectionTree.vue'
 import HistorySidebar from './history/HistorySidebar.vue'
 import PublicationsSidebar from './PublicationsSidebar.vue'
 import SidebarUpdateSlot from './SidebarUpdateSlot.vue'
+import PreviewBadge from './PreviewBadge.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { useHistoryReplay } from '@/composables/useHistoryReplay'
 import { useHistoryCompare } from '@/composables/useHistoryCompare'
@@ -45,5 +46,6 @@ async function onCompare(record: HistoryRecord) {
     />
     <PublicationsSidebar v-else-if="activeSection === 'publications'" />
     <SidebarUpdateSlot />
+    <PreviewBadge />
   </aside>
 </template>

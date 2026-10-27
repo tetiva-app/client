@@ -82,6 +82,13 @@ export interface TreeCopy {
   rail: RailCopy
   publications: PublicationsPanelCopy
   update: UpdateSlotCopy
+  preview: PreviewCopy
+}
+
+export interface PreviewCopy {
+  signIn: string
+  build: string
+  buildHint: string
 }
 
 export interface UpdateSlotCopy {
@@ -367,6 +374,11 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       copy: 'Copy',
       copied: 'Copied',
     },
+    preview: {
+      signIn: 'Preview build: sign-in is unavailable',
+      build: 'Preview build',
+      buildHint: 'Separate data, no sign-in, no updates',
+    },
   },
   ru: {
     header: {
@@ -572,6 +584,11 @@ export const TREE_COPY: Record<Locale, TreeCopy> = {
       collapse: 'Свернуть',
       copy: 'Копировать',
       copied: 'Скопировано',
+    },
+    preview: {
+      signIn: 'Тестовая сборка: вход недоступен',
+      build: 'Тестовая сборка',
+      buildHint: 'Свои данные, без входа и обновлений',
     },
   },
 }

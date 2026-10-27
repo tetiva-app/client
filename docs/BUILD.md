@@ -246,6 +246,40 @@ Before a release, `bash build/check-versions.sh` confirms the version matches in
 carries it; CI runs the same check. `bash build/set-version.sh X.Y.Z` writes the version into all
 of them, adds a `## [vX.Y.Z]` heading to `CHANGELOG.md` if there is none, and runs the check.
 
+## Preview build
+
+Tetiva Preview is an unreleased build for the owner and testers that installs and runs next to
+Tetiva. `PREVIEW=1` in front of a release script, or of a `wails3 task` build, links it with
+`-X github.com/tetiva-app/client/internal/constants.Flavor=preview`; without the variable every
+script builds what it built before. Task reads `PREVIEW` from the environment too, so do not leave
+it exported; `release-macos.sh` refuses a bundle whose id does not match the variable.
+
+| | Tetiva | Tetiva Preview |
+|---|---|---|
+| Data | `~/.tetiva`, `TETIVA_DATA_DIR` overrides | `~/.tetiva-preview`, `TETIVA_PREVIEW_DATA_DIR` overrides; `TETIVA_DATA_DIR`, `GOPHERCOURIER_DATA_DIR` and `~/.gophercourier` are never read |
+| Keychain service | `tetiva`, falls back to `gophercourier` | `tetiva-preview`, no fallback |
+| Sign-in, sync, publishing | on | refused by the Go services (`preview_build`), locked in the UI with a tooltip |
+| Updates | checked and installed | never checked, no Updates section in Settings |
+| MCP default | `127.0.0.1:9300` | `127.0.0.1:9301` |
+| `tetiva://` | registered | not registered on any OS |
+| macOS | `yudinsv.com.Tetiva`, `Tetiva.app` | `yudinsv.com.Tetiva.preview`, `Tetiva Preview.app`, no `CFBundleURLTypes` |
+| Windows | `%LOCALAPPDATA%\Programs\Tetiva\client.exe` | `%LOCALAPPDATA%\Programs\Tetiva Preview\tetiva-preview.exe`, uninstall key `Saveliy YudinTetiva Preview`, WebView2 profile `%AppData%\Tetiva Preview`; the installer leaves Program Files copies alone |
+| Linux | package `tetiva`, `/usr/bin/tetiva` | package `tetiva-preview`, `/usr/bin/tetiva-preview`, `tetiva-preview.desktop` without `MimeType` |
+
+```bash
+PREVIEW=1 bash build/release-macos.sh     # bin/Tetiva-Preview-X.Y.Z-macos-universal.dmg, no update zip
+PREVIEW=1 bash build/release-windows.sh   # bin/Tetiva-Preview-X.Y.Z-windows-{amd64,arm64}-installer.exe
+docker run --rm -e PREVIEW=1 … tetiva-linux-builder:22.04 bash build/release-linux.sh
+                                          # bin/linux/Tetiva-Preview-X.Y.Z-linux-<arch>.deb
+```
+
+The version stays the one in `build/config.yml`: `appupdate.Newer` cannot compare suffixes. The
+gray icon is `build/appicon-preview.png` (`magick appicon.png -grayscale Rec601Luma -colorspace sRGB`);
+from `build/`, `wails3 generate icons -input appicon-preview.png -macfilename darwin/icons-preview.icns
+-windowsfilename windows/icon-preview.ico` and `magick appicon-preview.png -resize 512x512
+linux/tetiva-preview.png` rebuild the platform icons. In the browser mock, `?flavor=preview` renders
+the preview UI.
+
 ## In-app updates
 
 The app reads `https://api.tetiva.app/updates/latest.json` (`?v=<version>&os=<GOOS>`, at most once

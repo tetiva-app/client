@@ -37,6 +37,11 @@ Unicode true
 !ifndef WAILS_INSTALL_SCOPE
     !define WAILS_INSTALL_SCOPE "user"
 !endif
+# -DTETIVA_PREVIEW: its own folder, shortcuts and uninstall entry, so it installs next to Tetiva.
+!ifdef TETIVA_PREVIEW
+    !define INFO_PRODUCTNAME "Tetiva Preview"
+    !define PRODUCT_EXECUTABLE "tetiva-preview.exe"
+!endif
 !include "wails_tools.nsh"
 !include "StrFunc.nsh"
 ${StrStr}
@@ -68,10 +73,17 @@ Var FinishText
 
 # SignPath requires the update check to be disclosed during installation.
 # MUI 1 writes page texts into an InstallOptions INI, so newlines are \r\n, not $\r$\n.
+!ifdef TETIVA_PREVIEW
+!define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva Preview, a test build of Tetiva, for your Windows user.\r\n\r\nIt keeps its own data and runs next to Tetiva without touching it. It has no sign-in and does not check for updates.\r\n\r\nClick Next to continue."
+!else
 !define MUI_WELCOMEPAGE_TEXT "Setup will install Tetiva for your Windows user.\r\n\r\nTetiva checks for a new version at most once a day by requesting a small file from api.tetiva.app. The request carries only the app version and operating system, nothing about you. New versions download in the background and install when you click Restart to update. Both can be turned off in Settings, under Updates.\r\n\r\nClick Next to continue."
+!endif
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
+# A preview in the Tetiva folder would take its uninstaller and remove it on uninstall.
+!ifndef TETIVA_PREVIEW
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
+!endif
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !define MUI_FINISHPAGE_TEXT "$FinishText"
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
@@ -95,7 +107,7 @@ ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
-   StrCpy $FinishText "Tetiva has been installed on your computer.\r\n\r\nClick Finish to close Setup."
+   StrCpy $FinishText "${INFO_PRODUCTNAME} has been installed on your computer.\r\n\r\nClick Finish to close Setup."
    ${GetParameters} $R0
    ClearErrors
    ${GetOptions} $R0 "/UPDATE" $R1
@@ -132,12 +144,14 @@ Function CloseRunningApp
     ${StrStr} $2 $1 "${PRODUCT_EXECUTABLE}"
     ${If} $2 != ""
         # tasklist also matches another user's Tetiva or another program's client.exe, hence Ignore.
-        MessageBox MB_ABORTRETRYIGNORE "Close Tetiva to continue." IDRETRY retry IDIGNORE done
+        MessageBox MB_ABORTRETRYIGNORE "Close ${INFO_PRODUCTNAME} to continue." IDRETRY retry IDIGNORE done
         Abort
     ${EndIf}
     done:
 FunctionEnd
 
+# The machine-wide copies belong to the regular app, so a preview leaves them alone.
+!ifndef TETIVA_PREVIEW
 # The uninstaller relaunches itself from %TEMP%, so ExecShellWait returns before it is done.
 !macro RemoveMachineCopy KEY
     ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${KEY}" "UninstallString"
@@ -171,6 +185,7 @@ Function MigrateMachineInstall
     !insertmacro RemoveMachineCopy "Saveliy YudinTetiva"
     !insertmacro RemoveMachineCopy "Saveliy LudinTetiva"
 FunctionEnd
+!endif
 
 Function .onInstSuccess
     ${If} $Updating == 1
@@ -185,7 +200,9 @@ Section
         Call WaitForApp
     ${Else}
         Call CloseRunningApp
+        !ifndef TETIVA_PREVIEW
         Call MigrateMachineInstall
+        !endif
     ${EndIf}
 
     !insertmacro wails.webview2runtime
@@ -201,7 +218,10 @@ Section
     ${EndIf}
 
     !insertmacro wails.associateFiles
+    # tetiva:// links keep opening the regular app.
+    !ifndef TETIVA_PREVIEW
     !insertmacro wails.associateCustomProtocols
+    !endif
     
     !insertmacro wails.writeUninstaller
 SectionEnd
@@ -215,7 +235,9 @@ Section "uninstall"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
 
     !insertmacro wails.unassociateFiles
+    !ifndef TETIVA_PREVIEW
     !insertmacro wails.unassociateCustomProtocols
+    !endif
 
     !insertmacro wails.deleteUninstaller
 SectionEnd

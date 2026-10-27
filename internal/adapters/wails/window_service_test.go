@@ -312,7 +312,7 @@ func writePrefsFile(t *testing.T, content string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, constants.AppDir)
+	dir := filepath.Join(home, constants.AppDir())
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "window-prefs.json"), []byte(content), 0o644))
 }

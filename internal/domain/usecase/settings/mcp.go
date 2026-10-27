@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+
+	"github.com/tetiva-app/client/internal/constants"
 )
 
 const (
@@ -15,10 +17,18 @@ const (
 	keyMCPToken        = "mcp.token"
 	keyMCPRequireToken = "mcp.require_token"
 
-	DefaultMCPAddr = "127.0.0.1:9300"
+	stableMCPAddr  = "127.0.0.1:9300"
+	previewMCPAddr = "127.0.0.1:9301"
 
 	mcpTokenBytes = 32
 )
+
+func DefaultMCPAddr() string {
+	if constants.IsPreview() {
+		return previewMCPAddr
+	}
+	return stableMCPAddr
+}
 
 // NormalizeMCPAddr binds host-less addresses (":9300") to loopback, since a bare port means 0.0.0.0.
 // An explicit host is left untouched — exposing the server is then a deliberate choice.
@@ -39,7 +49,7 @@ type MCPConfig struct {
 // GetMCPConfig falls back to disabled + DefaultMCPAddr when the keys are absent.
 func (u *usecase) GetMCPConfig(ctx context.Context) (MCPConfig, error) {
 	const funcName = "settings.GetMCPConfig"
-	cfg := MCPConfig{Addr: DefaultMCPAddr, RequireToken: true}
+	cfg := MCPConfig{Addr: DefaultMCPAddr(), RequireToken: true}
 
 	enStr, found, err := u.repo.Get(ctx, keyMCPEnabled)
 	if err != nil {

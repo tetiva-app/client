@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -77,11 +78,12 @@ func main() {
 	var publicationService *wailsadapter.PublicationService
 	var deepLinkService *wailsadapter.DeepLinkService
 	var updateService *wailsadapter.UpdateService
+	var buildService *wailsadapter.BuildService
 	var mcpServer *mcpadapter.Server
 
 	fxApp := fx.New(
 		appmodule.NewApp(migrations.FS, links, sqlite.DataDir(dataDir)),
-		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService, &updateService, &mcpServer),
+		fx.Populate(&collectionService, &requestService, &environmentService, &portabilityService, &workspaceService, &windowService, &syncService, &websocketService, &searchService, &cookieService, &historyService, &settingsService, &authService, &exampleService, &publicationService, &deepLinkService, &updateService, &buildService, &mcpServer),
 		fx.NopLogger,
 	)
 
@@ -98,12 +100,18 @@ func main() {
 	slog.Info("dependencies initialized, starting wails app")
 
 	wailsApp := application.New(application.Options{
-		Name: constants.AppName,
+		Name: constants.ProductName(),
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		Windows: application.WindowsOptions{
+			WebviewUserDataPath: previewWebviewDataPath(),
+		},
+		Linux: application.LinuxOptions{
+			ProgramName: previewProgramName(),
 		},
 		Services: []application.Service{
 			application.NewService(collectionService),
@@ -123,6 +131,7 @@ func main() {
 			application.NewService(publicationService),
 			application.NewService(deepLinkService),
 			application.NewService(updateService),
+			application.NewService(buildService),
 		},
 	})
 
@@ -213,4 +222,21 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatalf("wails run: %v", err)
 	}
+}
+
+// WebView2 defaults its profile to %AppData%\<exe name>, which both flavors may share.
+func previewWebviewDataPath() string {
+	appData := os.Getenv("AppData")
+	if !constants.IsPreview() || appData == "" {
+		return ""
+	}
+	return filepath.Join(appData, constants.ProductName())
+}
+
+// WebKitGTK stores its data under the program name, which defaults to the executable's.
+func previewProgramName() string {
+	if !constants.IsPreview() {
+		return ""
+	}
+	return "tetiva-preview"
 }

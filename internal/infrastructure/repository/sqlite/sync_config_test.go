@@ -214,3 +214,53 @@ func TestSyncConfigRepo_Update_RefreshTokenKeepsAuthGeneration(t *testing.T) {
 		t.Error("ReauthRequired should stay false after a refresh-token write")
 	}
 }
+
+func TestSyncConfigRepo_MarkReauthRequired_OnlyForTheRejectedToken(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSyncConfigRepo(db)
+	ctx := context.Background()
+
+	cfg, err := repo.GetOrCreate(ctx)
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+	cfg.Enabled = true
+	cfg.RefreshToken = "refresh-new"
+	cfg.AuthGeneration = 1
+	if err := repo.Update(ctx, cfg); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	marked, err := repo.MarkReauthRequired(ctx, "refresh-old")
+	if err != nil {
+		t.Fatalf("MarkReauthRequired(old) failed: %v", err)
+	}
+	if got, _ := repo.Get(ctx); marked || got.ReauthRequired {
+		t.Fatalf("a token the config no longer holds must not set the flag (marked=%v)", marked)
+	}
+
+	marked, err = repo.MarkReauthRequired(ctx, "refresh-new")
+	if err != nil {
+		t.Fatalf("MarkReauthRequired(new) failed: %v", err)
+	}
+	if !marked {
+		t.Error("MarkReauthRequired(new) reported no change")
+	}
+	got, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if !got.ReauthRequired {
+		t.Error("the rejected current token must set the flag")
+	}
+	if !got.Enabled || got.RefreshToken != "refresh-new" || got.AuthGeneration != 1 {
+		t.Errorf("other columns changed: %+v", got)
+	}
+
+	if err := repo.ClearReauthRequired(ctx); err != nil {
+		t.Fatalf("ClearReauthRequired failed: %v", err)
+	}
+	if got, _ := repo.Get(ctx); got.ReauthRequired || got.RefreshToken != "refresh-new" {
+		t.Errorf("after ClearReauthRequired: %+v", got)
+	}
+}

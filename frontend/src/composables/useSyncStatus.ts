@@ -10,6 +10,7 @@ const pending = ref(0)
 const parked = ref(0)
 const tooLarge = ref(0)
 const awaitingVerification = ref(false)
+const reauthRequired = ref(false)
 
 let consumers = 0
 let pollInterval: ReturnType<typeof setInterval> | null = null
@@ -27,6 +28,7 @@ async function refresh() {
     parked.value = result.data.parked
     tooLarge.value = result.data.tooLarge ?? 0
     awaitingVerification.value = result.data.awaitingVerification
+    reauthRequired.value = result.data.reauthRequired
   } catch {
     // Ignore — sync service may not be available
   }
@@ -84,5 +86,5 @@ export function useSyncStatus() {
     unsubscribers = []
   })
 
-  return { state, pending, parked, tooLarge, awaitingVerification, refresh }
+  return { state, pending, parked, tooLarge, awaitingVerification, reauthRequired, refresh }
 }

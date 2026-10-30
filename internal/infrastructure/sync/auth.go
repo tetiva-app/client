@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -47,10 +48,12 @@ const (
 	// syncConfigWriteTimeout bounds the one config write of the commit phase: a
 	// busy SQLite must not eat the whole budget the sign-in gives OnApproved.
 	syncConfigWriteTimeout = 1500 * time.Millisecond
+	// Only this ErrorInfo ends a session; a bare Unauthenticated may come from a proxy.
+	reasonDomain          = "tetiva.app"
+	reasonRefreshRejected = "REFRESH_TOKEN_REJECTED"
 )
 
-// ErrAuthExpired means the refresh token was rejected: only an interactive
-// re-login can restore sync. Sync engines stop retrying on it.
+// ErrAuthExpired means the refresh token is rejected for good; engines stop retrying.
 var ErrAuthExpired = errors.New("sync auth expired: refresh token rejected")
 
 // ErrSessionReplaced means the answer arrived after another session was adopted;
@@ -398,17 +401,23 @@ func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient
 			return result{err: fmt.Errorf("%s: no refresh token available", funcName)}, nil
 		}
 
-		req := authv1.RefreshRequest_builder{
-			RefreshToken: refreshToken,
-			ClientId:     clientID,
-		}.Build()
-
-		resp, err := client.Auth().Refresh(ctx, req)
-		if err != nil {
-			if status.Code(err) == codes.Unauthenticated {
-				return result{err: fmt.Errorf("%s: %w", funcName, ErrAuthExpired)}, nil
+		resp, err := refresh(ctx, client, clientID, refreshToken)
+		if refreshRejected(err) && a.sessionEpoch.Load() == epoch {
+			// A failed or timed-out keychain write can leave it a rotation behind the mirror.
+			if mirrored := a.loadRefreshTokenDB(); mirrored != "" && mirrored != refreshToken {
+				refreshToken = mirrored
+				resp, err = refresh(ctx, client, clientID, refreshToken)
 			}
-			return result{err: fmt.Errorf("%s: refresh rpc: %w", funcName, err)}, nil
+		}
+		if err != nil {
+			if !refreshRejected(err) {
+				return result{err: fmt.Errorf("%s: refresh rpc: %w", funcName, err)}, nil
+			}
+			if a.sessionEpoch.Load() != epoch {
+				return result{err: fmt.Errorf("%s: %w", funcName, ErrSessionReplaced)}, nil
+			}
+			a.markReauthRequired(refreshToken)
+			return result{err: fmt.Errorf("%s: %w: %w", funcName, ErrAuthExpired, err)}, nil
 		}
 
 		if a.sessionEpoch.Load() != epoch {
@@ -436,6 +445,40 @@ func (a *SyncAuthManager) GetAccessToken(ctx context.Context, client *GRPCClient
 
 	r := v.(result)
 	return r.token, r.err
+}
+
+func refresh(ctx context.Context, client *GRPCClient, clientID, refreshToken string) (*authv1.RefreshResponse, error) {
+	req := authv1.RefreshRequest_builder{
+		RefreshToken: refreshToken,
+		ClientId:     clientID,
+	}.Build()
+	return client.Auth().Refresh(ctx, req)
+}
+
+func refreshRejected(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.Unauthenticated {
+		return false
+	}
+	for _, detail := range st.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok &&
+			info.GetReason() == reasonRefreshRejected && info.GetDomain() == reasonDomain {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *SyncAuthManager) markReauthRequired(rejected string) {
+	ctx, cancel := context.WithTimeout(context.Background(), syncConfigWriteTimeout)
+	defer cancel()
+	marked, err := a.configRepo.MarkReauthRequired(ctx, rejected)
+	switch {
+	case err != nil:
+		slog.Warn("sync: failed to flag the ended session for sign-in", "err", err)
+	case !marked:
+		slog.Warn("sync: refresh token rejected, but sync_config holds another one; not asking for sign-in")
+	}
 }
 
 // Called on Unauthenticated: the in-memory expiry can be stale after macOS sleep.
@@ -565,6 +608,10 @@ func (a *SyncAuthManager) storeRefreshToken(token string, mirror bool) {
 	go func() {
 		defer close(done)
 		if err := a.keyringSet(a.service, account, token); err != nil {
+			// The previous token would otherwise shadow the mirror on the next load.
+			if a.sessionEpoch.Load() == epoch {
+				_ = keyring.Delete(a.service, account)
+			}
 			return
 		}
 		// A write that outlived its session must undo itself.

@@ -50,7 +50,7 @@ type SyncStatusResponse struct {
 	Parked               int    `json:"parked"`
 	TooLarge             int    `json:"tooLarge"`
 	AwaitingVerification bool   `json:"awaitingVerification"`
-	// ReauthRequired is the one-shot ask after an update dropped the session.
+	// ReauthRequired is set when the server ended the session or an update dropped it.
 	ReauthRequired bool `json:"reauthRequired"`
 }
 

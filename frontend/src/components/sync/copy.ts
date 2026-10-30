@@ -17,6 +17,12 @@ export interface SyncCopy {
     parkedTooLarge: PluralForms
     plans: string
   }
+  reauth: {
+    notice: string
+    toast: string
+    signIn: string
+    signOut: string
+  }
   devices: {
     title: string
     loading: string
@@ -103,6 +109,12 @@ export const SYNC_COPY: Record<Locale, SyncCopy> = {
         other: '{n} items too large for the server — edit them to retry.',
       },
       plans: 'See plans',
+    },
+    reauth: {
+      notice: 'Your session has ended. Sign in again — changes on this device are kept and will sync after you sign in.',
+      toast: 'Your sync session has ended. Sign in again — changes on this device are kept.',
+      signIn: 'Sign in',
+      signOut: 'Sign out',
     },
     devices: {
       title: 'Devices',
@@ -192,6 +204,12 @@ export const SYNC_COPY: Record<Locale, SyncCopy> = {
         other: '{n} элемента слишком велики для сервера — измените их, чтобы отправить снова.',
       },
       plans: 'Тарифы',
+    },
+    reauth: {
+      notice: 'Сессия завершилась. Войдите снова — изменения на этом устройстве сохранены и отправятся после входа.',
+      toast: 'Сессия синхронизации завершилась. Войдите снова — изменения на этом устройстве сохранены.',
+      signIn: 'Войти',
+      signOut: 'Выйти',
     },
     devices: {
       title: 'Устройства',

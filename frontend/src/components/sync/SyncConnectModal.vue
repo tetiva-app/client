@@ -86,6 +86,8 @@ const activeTab = ref('login')
 
 const connected = ref(false)
 const awaiting = ref(false)
+const reauth = ref(false)
+const statusFresh = ref(false)
 const resending = ref(false)
 const checking = ref(false)
 const rateLimited = ref(false)
@@ -237,10 +239,12 @@ function dropFinishedSignIn() {
 // The modal stays mounted for the whole session, so the requested tab has to be
 // applied on every open rather than once at setup.
 watch(() => props.open, async (open) => {
+  statusFresh.value = false
   if (!open) return
   activeTab.value = props.initialTab ?? 'login'
   syncService = await servicePromise
   await applyStatus()
+  statusFresh.value = true
   dropFinishedSignIn()
   await signIn.adopt()
   void syncStatus.refresh()
@@ -273,6 +277,7 @@ watch(() => signIn.state, async (state) => {
   if (state !== 'done') return
   const account = signIn.auth
   serverUrl.value = signIn.serverUrl
+  reauth.value = false
   if (account) {
     email.value = account.email
     if (account.requiresEmailVerification) awaiting.value = true
@@ -285,14 +290,18 @@ watch(() => signIn.state, async (state) => {
   signIn.reset()
 })
 
+watch(syncStatus.state, (state) => {
+  if (state === 'auth_expired' && props.open && !reauth.value) void applyStatus()
+})
+
 watch([() => props.open, awaiting], ([open, waiting]) => {
   if (open && waiting) polling.start()
   else polling.stop()
 })
 
-watch([() => props.open, connected], ([open, isConnected]) => {
+watch([() => props.open, connected, statusFresh], ([open, isConnected, fresh]) => {
   confirmingLogoutAll.value = false
-  if (open && isConnected) void loadSessions()
+  if (open && isConnected && fresh) void loadSessions()
 })
 
 // One promise, awaited by every entry point: the dynamic import may still be in
@@ -317,7 +326,14 @@ async function applyStatus(): Promise<void> {
   syncService = await servicePromise
   if (!syncService) return
   const status = await guarded(syncService.getStatus())
-  if (status.data?.awaitingVerification) {
+  reauth.value = status.data?.reauthRequired === true
+  // Checked before enabled: a session that died at runtime leaves sync enabled.
+  if (status.data?.reauthRequired) {
+    connected.value = false
+    awaiting.value = false
+    email.value = status.data.userEmail
+    showSavedServer(status.data.serverUrl)
+  } else if (status.data?.awaitingVerification) {
     awaiting.value = true
     serverUrl.value = status.data.serverUrl
     email.value = status.data.userEmail
@@ -325,11 +341,16 @@ async function applyStatus(): Promise<void> {
     connected.value = true
     serverUrl.value = status.data.serverUrl
     email.value = status.data.userEmail
-  } else if (status.data?.serverUrl && status.data.serverUrl !== DEFAULT_SYNC_SERVER) {
-    // Self-hosted user reconnecting — surface their saved server
-    customOpen.value = true
-    customUrl.value = status.data.serverUrl
+  } else if (status.data) {
+    showSavedServer(status.data.serverUrl)
   }
+}
+
+// Self-hosted user reconnecting — surface their saved server
+function showSavedServer(url: string) {
+  if (!url || url === DEFAULT_SYNC_SERVER) return
+  customOpen.value = true
+  customUrl.value = url
 }
 
 // capsSeq drops a slow answer for a previous address: a five-second dial to the
@@ -403,6 +424,7 @@ async function handleConnect() {
   }
 
   serverUrl.value = target
+  reauth.value = false
   publications.accountChanged()
   if (enterWaitingIfNeeded(result.data)) return
 
@@ -431,6 +453,7 @@ async function handleRegister() {
   }
 
   serverUrl.value = target
+  reauth.value = false
   publications.accountChanged()
   if (enterWaitingIfNeeded(result.data)) return
 
@@ -494,7 +517,9 @@ async function handleLogout() {
   if (!syncService) return
   await guarded(syncService.logout())
   publications.accountChanged()
+  void syncStatus.refresh()
   awaiting.value = false
+  reauth.value = false
   rateLimited.value = false
   cooldown.stop()
   password.value = ''
@@ -792,6 +817,22 @@ async function handleDisconnect() {
       </div>
 
       <div v-else class="space-y-4">
+        <div
+          v-if="reauth"
+          class="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs leading-relaxed text-amber-600 dark:text-amber-300"
+          data-testid="sync-reauth-notice"
+        >
+          {{ copy.reauth.notice }}
+          <button
+            type="button"
+            class="cursor-pointer font-medium underline underline-offset-2"
+            data-testid="sync-reauth-sign-out"
+            @click="handleLogout"
+          >
+            {{ copy.reauth.signOut }}
+          </button>
+        </div>
+
         <div
           v-if="pendingSignIn"
           class="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-2"

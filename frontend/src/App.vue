@@ -22,6 +22,9 @@ import { shouldShowOnboarding } from '@/lib/onboarding-decisions'
 import { OnboardingModal, OnboardingTour } from '@/components/onboarding'
 import { notesFor } from '@/whats-new/notes'
 import { quotaNotice, rejectNotice, type SyncNotice } from '@/lib/sync-notices'
+import { watchSessionEnded } from '@/lib/session-ended'
+import { SYNC_COPY } from '@/components/sync/copy'
+import { useCopy } from '@/composables/useLocale'
 import { openExternal } from '@/lib/open-external'
 import { PRICING_URL } from '@/constants/pricing'
 import { getUpdateService, isWailsEnvironment } from '@/services'
@@ -106,6 +109,7 @@ const historyStore = useHistoryStore()
 const appUpdate = useAppUpdateStore()
 const syncStatus = windowMode ? null : useSyncStatus()
 const toast = useToast()
+const syncCopy = useCopy(SYNC_COPY)
 const replayHistory = useHistoryReplay()
 const linux = isLinux()
 // Keeps the sidebar within its former 35 % cap: an 840 px window still leaves the editor 514 px.
@@ -149,6 +153,17 @@ const startupReady = new Promise<void>(r => { resolveStartup = r })
 watch(() => settingsStore.publishingEnabled, enabled => {
   if (!enabled && activeSection.value === 'publications') activeSection.value = 'collections'
 })
+
+if (syncStatus) {
+  watchSessionEnded(syncStatus.state, syncStatus.reauthRequired, () => {
+    const id = toast.info(
+      syncCopy.value.reauth.toast,
+      { label: syncCopy.value.reauth.signIn, onClick: () => syncModalUi.show() },
+      { sticky: true },
+    )
+    return () => toast.dismiss(id)
+  })
+}
 
 if (!windowMode) {
   provide(SHOW_REQUEST_HISTORY, (requestId) => {
@@ -347,22 +362,6 @@ function runStartupWelcomeFlow() {
   }
 }
 
-// One nudge per launch: this update moved sign-in to the browser and signed every
-// existing session out.
-async function runStartupReauthNotice() {
-  if (windowMode) return
-  const { getSyncService } = await import('@/services')
-  const svc = await getSyncService()
-  if (!svc) return
-  const status = await svc.getStatus()
-  if (!status.data?.reauthRequired) return
-  toast.info(
-    'Sign-in has changed with this update. Please sign in again.',
-    { label: 'Sign in', onClick: () => syncModalUi.show() },
-    { sticky: true },
-  )
-}
-
 // Seen-version is recorded on close (not open) so a crash before the user sees
 // it re-shows next launch.
 function onWhatsNewClose() {
@@ -409,7 +408,6 @@ onMounted(() => {
   setupSyncEvents()
   void listenDeepLinksThenWelcome()
   if (syncStatus) void appUpdate.init({ syncState: syncStatus.state })
-  void runStartupReauthNotice()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)

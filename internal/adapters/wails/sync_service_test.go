@@ -18,6 +18,7 @@ import (
 	authv1 "github.com/tetiva-app/proto/go/gophercourier/auth/v1"
 
 	"github.com/tetiva-app/client/internal/adapters/wails/dto"
+	"github.com/tetiva-app/client/internal/domain/usecase/auth"
 	"github.com/tetiva-app/client/internal/infrastructure/repository/sqlite"
 	syncsvc "github.com/tetiva-app/client/internal/infrastructure/sync"
 	"github.com/tetiva-app/client/migrations"
@@ -366,7 +367,7 @@ func TestResumeOnStartup_AuthExpiredLeavesEngineDark(t *testing.T) {
 	f.seedSession(t)
 	f.linkSeededWorkspace(t, "remote-1")
 	f.restart()
-	f.authStub.setRefreshErr(status.Error(codes.Unauthenticated, "refresh token rejected"))
+	f.authStub.setRefreshErr(statusWithReason(t, codes.Unauthenticated, "REFRESH_TOKEN_REJECTED"))
 
 	err := f.svc.ResumeOnStartup(context.Background())
 
@@ -374,6 +375,68 @@ func TestResumeOnStartup_AuthExpiredLeavesEngineDark(t *testing.T) {
 	assert.Nil(t, f.svc.client())
 	assert.Zero(t, f.wsStub.calls())
 	assert.False(t, f.engine.IsEnabledForWorkspace(seededWorkspaceID))
+
+	st := f.svc.GetStatus()
+	require.Nil(t, st.Error)
+	assert.True(t, st.Data.ReauthRequired)
+	assert.Equal(t, string(syncsvc.StateAuthExpired), st.Data.State)
+	assert.Equal(t, "a@b.c", st.Data.UserEmail)
+	assert.Equal(t, testServerURL, st.Data.ServerURL)
+}
+
+func TestLogout_DeadSessionEndsWithTheFlagClear(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.restart()
+	f.svc.setClient(f.client)
+	f.authStub.setRefreshErr(statusWithReason(t, codes.Unauthenticated, "REFRESH_TOKEN_REJECTED"))
+
+	res := f.svc.Logout()
+
+	require.Nil(t, res.Error)
+	after := readConfig(t, f.configRepo)
+	assert.False(t, after.ReauthRequired)
+	assert.False(t, after.Enabled)
+	assert.Empty(t, after.RefreshToken)
+	assert.NotEqual(t, string(syncsvc.StateAuthExpired), f.svc.GetStatus().Data.State)
+}
+
+func TestResumeOnStartup_EndedSessionKeepsLinksAndOutbox(t *testing.T) {
+	f := newVerificationFixture(t)
+	f.seedSession(t)
+	f.linkSeededWorkspace(t, "remote-1")
+	enqueueOutbox(t, f, seededWorkspaceID, 3)
+	cfg := readConfig(t, f.configRepo)
+	marked, err := f.configRepo.MarkReauthRequired(context.Background(), cfg.RefreshToken)
+	require.NoError(t, err)
+	require.True(t, marked)
+	f.authStub.setRefreshErr(statusWithReason(t, codes.Unauthenticated, "REFRESH_TOKEN_REJECTED"))
+
+	f.restartApp(t)
+	require.NoError(t, f.svc.ResumeOnStartup(context.Background()))
+
+	after := readConfig(t, f.configRepo)
+	assert.True(t, after.ReauthRequired)
+	assert.False(t, after.Enabled)
+	assert.Equal(t, "a@b.c", after.UserEmail)
+	assert.Equal(t, "remote-1", remoteIDOf(t, f.db, seededWorkspaceID).String)
+	assert.Equal(t, 3, outboxRows(t, f.db, seededWorkspaceID))
+	assert.Equal(t, string(syncsvc.StateAuthExpired), f.svc.GetStatus().Data.State)
+
+	f.authStub.setRefreshErr(nil)
+	f.signIn.onStart = func(_ string, hooks auth.SignInHooks) {
+		require.NoError(t, hooks.OnApproved(context.Background(), f.client,
+			auth.SignInParams{ServerURL: testServerURL}, approvedTokens(false)))
+		hooks.OnDone(auth.SignInOutcome{Email: "a@b.c"})
+	}
+	require.Nil(t, f.svc.StartBrowserSignIn(dto.StartBrowserSignInRequest{
+		FlowID: uuid.NewString(), ServerURL: testServerURL,
+	}).Error)
+	require.Eventually(t, func() bool { return f.wsStub.calls() >= 1 }, 2*time.Second, 20*time.Millisecond)
+
+	assert.False(t, readConfig(t, f.configRepo).ReauthRequired)
+	assert.Equal(t, "remote-1", remoteIDOf(t, f.db, seededWorkspaceID).String)
+	assert.True(t, f.engine.IsEnabledForWorkspace(seededWorkspaceID))
 }
 
 func TestSyncService_ListSessions_DialsAfterAFailedStartup(t *testing.T) {

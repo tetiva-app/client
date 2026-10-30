@@ -17,15 +17,17 @@ import (
 type stubAuthClient struct {
 	authv1.AuthServiceClient
 
-	registerResp *authv1.RegisterResponse
-	loginResp    *authv1.LoginResponse
-	getMeResp    *authv1.GetMeResponse
-	getMeErr     error
-	resendErr    error
-	meResp       *authv1.MeResponse
-	refreshResp  *authv1.RefreshResponse
-	logoutErr    error
-	logoutAllN   int32
+	registerResp  *authv1.RegisterResponse
+	loginResp     *authv1.LoginResponse
+	getMeResp     *authv1.GetMeResponse
+	getMeErr      error
+	resendErr     error
+	meResp        *authv1.MeResponse
+	refreshResp   *authv1.RefreshResponse
+	refreshErr    error
+	refreshErrFor map[string]error
+	logoutErr     error
+	logoutAllN    int32
 
 	serverInfoResp *authv1.GetServerInfoResponse
 	serverInfoErr  error
@@ -42,11 +44,12 @@ type stubAuthClient struct {
 	pollReq   *authv1.PollDesktopSignInRequest
 	cancelReq *authv1.CancelDesktopSignInRequest
 
-	authHeaders  []string
-	resendCalls  int
-	logoutCalls  int
-	revokedIDs   []string
-	logoutAllRun int
+	authHeaders   []string
+	refreshTokens []string
+	resendCalls   int
+	logoutCalls   int
+	revokedIDs    []string
+	logoutAllRun  int
 }
 
 func (s *stubAuthClient) recordAuth(ctx context.Context) {
@@ -78,13 +81,20 @@ func (s *stubAuthClient) ResendVerification(ctx context.Context, _ *authv1.Resen
 	return authv1.ResendVerificationResponse_builder{}.Build(), nil
 }
 
-func (s *stubAuthClient) Refresh(ctx context.Context, _ *authv1.RefreshRequest, _ ...grpc.CallOption) (*authv1.RefreshResponse, error) {
+func (s *stubAuthClient) Refresh(ctx context.Context, req *authv1.RefreshRequest, _ ...grpc.CallOption) (*authv1.RefreshResponse, error) {
 	s.recordAuth(ctx)
+	s.refreshTokens = append(s.refreshTokens, req.GetRefreshToken())
 	if s.refreshEntered != nil {
 		s.refreshEntered <- struct{}{}
 	}
 	if s.refreshGate != nil {
 		<-s.refreshGate
+	}
+	if err, ok := s.refreshErrFor[req.GetRefreshToken()]; ok {
+		return nil, err
+	}
+	if s.refreshErr != nil {
+		return nil, s.refreshErr
 	}
 	return s.refreshResp, nil
 }

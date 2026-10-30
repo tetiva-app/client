@@ -259,8 +259,7 @@ func (s *SyncService) ResumeOnStartup(ctx context.Context) error {
 	return nil
 }
 
-// enforceReauth signs every pre-browser-signin install out once (spec §2.7). The
-// flags are written first, so a crash before the cleanup only repeats it.
+// enforceReauth signs out while reauth_required is set; a crash mid-cleanup repeats it.
 func (s *SyncService) enforceReauth(ctx context.Context, cfg *sqlite.SyncConfig) (bool, error) {
 	// A fresh install was never signed in, so there is nothing to drop.
 	if cfg.AuthGeneration < syncsvc.CurrentAuthGeneration && cfg.Enabled {
@@ -650,6 +649,10 @@ func (s *SyncService) Logout() Result[Empty] {
 	if err := s.auth.Logout(ctx, s.client()); err != nil {
 		return Err[Empty](fmt.Errorf("logout: %w", err))
 	}
+	// Cleared after auth.Logout: its revoke refreshes first and can flag the dead session.
+	if err := s.configRepo.ClearReauthRequired(ctx); err != nil {
+		return Err[Empty](fmt.Errorf("logout: %w", err))
+	}
 
 	return OK(Empty{})
 }
@@ -761,6 +764,9 @@ func (s *SyncService) GetStatus() Result[dto.SyncStatusResponse] {
 		}
 	} else {
 		resp.State = string(syncsvc.StateDisconnected)
+	}
+	if resp.ReauthRequired {
+		resp.State = string(syncsvc.StateAuthExpired)
 	}
 
 	return OK(resp)

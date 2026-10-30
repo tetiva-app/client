@@ -196,11 +196,13 @@ export class MockSyncService implements SyncServiceAPI {
       }
     }
     if (scenario === REAUTH_REQUIRED_SCENARIO) {
-      // The §2.7 cleanup already ran: the session is gone, the server stays.
+      // The startup cleanup already ran: the session is gone, the server and outbox stay.
       this.status = {
         ...this.status,
+        state: 'auth_expired',
         serverUrl: 'api.tetiva.app:443',
         userEmail: 'team@example.com',
+        pending: 2,
         reauthRequired: true,
       }
     }
@@ -246,6 +248,7 @@ export class MockSyncService implements SyncServiceAPI {
     this.status.state = 'disconnected'
     this.status.enabled = false
     this.status.awaitingVerification = false
+    this.status.reauthRequired = false
     return { data: true }
   }
 

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v1.3.2] — 2026-10-30 — Path variables
+
 ### Added
 
 - Path variables: a `:name` segment in the URL path gets a row in the Path Variables table under Query Params, and its value is sent in its place; values may use `{{variables}}` and are percent-encoded so they stay one segment (already encoded `%XX` is kept); renaming the key in the table renames it in the URL. Postman `url.variable`, Insomnia path parameters and OpenAPI `in: path` parameters are imported into the table instead of environment variables, the Postman export, cURL, Copy as, published pages and the MCP request tools (`path_variables`) carry them too, and they sync between devices

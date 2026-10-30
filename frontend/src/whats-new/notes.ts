@@ -11,6 +11,34 @@ export interface ReleaseNotes {
 // omitted so no What's New modal appears for them.
 export const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: '1.3.2',
+    date: '2026-10-30',
+    en: {
+      added: [
+        'Path variables: a :id segment in the URL gets its own row under Query Params, its value goes out in its place and can use {{variables}}. They come across from Postman, Insomnia and OpenAPI and sync between devices.',
+        'Image responses show as a picture, and an HTML response can be viewed as a page with Preview — no scripts run and nothing loads from the network.',
+        'Duplicate in a request\'s context menu puts a copy right below it. The sidebar is now sorted by name.',
+      ],
+      fixed: [
+        'When the sync session ends, the app says so and asks you to sign in again; changes made on this device are kept and sync after you sign in. It used to show "Not connected" with no way to sign in.',
+        'On macOS fields and code are drawn in SF Mono, not Courier.',
+        'Quitting the app closes the database cleanly, and the sidebar is no longer cut off in a narrow window.',
+      ],
+    },
+    ru: {
+      added: [
+        'Переменные пути: у сегмента :id в адресе появляется своя строка под «Параметрами запроса», значение подставляется на его место, в нём можно писать {{переменные}}. Они переносятся из Postman, Insomnia и OpenAPI и синхронизируются между устройствами.',
+        'Картинка в ответе показывается картинкой, а HTML можно открыть страницей во вкладке «Просмотр» — скрипты не запускаются, из сети ничего не грузится.',
+        'Запрос можно продублировать из контекстного меню, копия встанет сразу под ним. Дерево в боковой панели теперь отсортировано по имени.',
+      ],
+      fixed: [
+        'Если сессия синхронизации завершилась, приложение скажет об этом и предложит войти снова; изменения на этом устройстве сохранятся и отправятся после входа. Раньше висело «Не подключено», а войти было неоткуда.',
+        'На macOS поля и код набраны SF Mono, а не Courier.',
+        'При выходе приложение аккуратно закрывает базу, а боковая панель не обрезается в узком окне.',
+      ],
+    },
+  },
+  {
     version: '1.3.1',
     date: '2026-10-19',
     en: {
